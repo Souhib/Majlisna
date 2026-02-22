@@ -20,7 +20,8 @@ ARG VITE_API_URL
 # Set environment variables for build
 ENV VITE_API_URL=${VITE_API_URL}
 
-# Build the application
+# Build the application (increase memory for ARM64 VPS builds)
+ENV NODE_OPTIONS="--max-old-space-size=4096"
 RUN bun run build
 
 # Stage 2: Production with Nginx
