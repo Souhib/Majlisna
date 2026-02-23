@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
-import { Loader2, Shield, Skull, ThumbsUp, User } from "lucide-react"
-import { useCallback, useEffect, useState } from "react"
+import { Loader2, LogOut, Shield, Skull, ThumbsUp, User } from "lucide-react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import { useSocket } from "@/hooks/use-socket"
@@ -38,6 +38,8 @@ function UndercoverGamePage() {
   const { emit, on, isConnected } = useSocket()
   const [cancelMessage, setCancelMessage] = useState<string | null>(null)
 
+  const roomIdRef = useRef<string | null>(null)
+
   const [gameState, setGameState] = useState<GameState>(() => {
     const initial: GameState = {
       players: [],
@@ -49,11 +51,13 @@ function UndercoverGamePage() {
       const stored = sessionStorage.getItem(`ibg-game-init-${gameId}`)
       if (stored) {
         sessionStorage.removeItem(`ibg-game-init-${gameId}`)
-        const { roleData, players: playerNames } = JSON.parse(stored) as {
+        const { roleData, players: playerNames, roomId } = JSON.parse(stored) as {
           roleData?: { role: string; word: string | null }
           players?: string[]
           mayor?: string
+          roomId?: string
         }
+        if (roomId) roomIdRef.current = roomId
         if (roleData) {
           initial.my_role = roleData.role
           initial.my_word = roleData.word || undefined
@@ -207,6 +211,19 @@ function UndercoverGamePage() {
     [hasVoted, emit, gameId, t],
   )
 
+  const handleLeaveRoom = useCallback(() => {
+    if (!user || !roomIdRef.current) {
+      navigate({ to: "/rooms" })
+      return
+    }
+    emit("leave_room", {
+      user_id: user.id,
+      room_id: roomIdRef.current,
+      username: user.username,
+    })
+    navigate({ to: "/rooms" })
+  }, [user, emit, navigate])
+
   const myPlayer = gameState.players.find((p) => p.id === user?.id)
   const isAlive = myPlayer?.is_alive !== false
 
@@ -335,6 +352,14 @@ function UndercoverGamePage() {
           <p className="text-xl mt-4">
             {t("game.winner")}: {gameState.winner}
           </p>
+          <button
+            type="button"
+            onClick={handleLeaveRoom}
+            className="mt-6 inline-flex items-center gap-2 rounded-md bg-primary px-6 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
+          >
+            <LogOut className="h-4 w-4" />
+            {t("room.leave")}
+          </button>
         </div>
       )}
 

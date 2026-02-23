@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
-import { Copy, Crown, KeyRound, Users } from "lucide-react"
+import { Copy, Crown, KeyRound, LogOut, Users } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
@@ -42,6 +42,7 @@ function RoomLobbyPage() {
   const [copied, setCopied] = useState("")
   const [gameType, setGameType] = useState<GameType>("undercover")
   const joinedRef = useRef(false)
+  const navigatingToGameRef = useRef(false)
   const roleDataRef = useRef<{ role: string; word: string | null } | null>(null)
 
   const isHost = roomData?.owner_id === user?.id
@@ -65,7 +66,7 @@ function RoomLobbyPage() {
       .finally(() => setIsLoading(false))
   }, [roomId])
 
-  // Socket.IO join room
+  // Socket.IO join room + leave on unmount
   useEffect(() => {
     if (!isConnected || !roomData || !user) return
     if (joinedRef.current) return
@@ -78,6 +79,14 @@ function RoomLobbyPage() {
     })
 
     return () => {
+      // Leave room on unmount unless navigating to a game page
+      if (!navigatingToGameRef.current && joinedRef.current) {
+        emit("leave_room", {
+          user_id: user.id,
+          room_id: roomData.id,
+          username: user.username,
+        })
+      }
       joinedRef.current = false
     }
   }, [isConnected, roomData, user, emit])
@@ -146,6 +155,7 @@ function RoomLobbyPage() {
     // game_started: undercover game started, navigate to game page with role data
     const offGameStarted = on("game_started", (data: unknown) => {
       toast.success(t("toast.gameStarting"))
+      navigatingToGameRef.current = true
       const { game_id, game_type, players: playerNames, mayor } = data as {
         game_id: string; game_type: string; players: string[]; mayor: string
       }
@@ -154,7 +164,7 @@ function RoomLobbyPage() {
           // Always store game_started data; include role data if available
           sessionStorage.setItem(
             `ibg-game-init-${game_id}`,
-            JSON.stringify({ roleData: roleDataRef.current, players: playerNames, mayor }),
+            JSON.stringify({ roleData: roleDataRef.current, players: playerNames, mayor, roomId: roomData?.id }),
           )
           navigate({ to: "/game/undercover/$gameId", params: { gameId: game_id } })
         }
@@ -171,7 +181,9 @@ function RoomLobbyPage() {
     // codenames_game_started: codenames game started, navigate to game page
     const offCodenamesStarted = on("codenames_game_started", (data: unknown) => {
       toast.success(t("toast.gameStarting"))
+      navigatingToGameRef.current = true
       const { game_id } = data as { game_id: string }
+      sessionStorage.setItem(`ibg-game-room-${game_id}`, roomData?.id || "")
       navigate({ to: "/game/codenames/$gameId", params: { gameId: game_id } })
     })
 
@@ -275,6 +287,16 @@ function RoomLobbyPage() {
     } else {
       emit("start_undercover_game", { room_id: roomId, user_id: user?.id })
     }
+  }
+
+  const handleLeaveRoom = () => {
+    if (!user || !roomData) return
+    emit("leave_room", {
+      user_id: user.id,
+      room_id: roomData.id,
+      username: user.username,
+    })
+    navigate({ to: "/rooms" })
   }
 
   const minPlayers = gameType === "codenames" ? 4 : 3
@@ -429,6 +451,16 @@ function RoomLobbyPage() {
           </button>
         </div>
       )}
+
+      {/* Leave Room */}
+      <button
+        type="button"
+        onClick={handleLeaveRoom}
+        className="mt-6 w-full flex items-center justify-center gap-2 rounded-md border border-destructive/30 px-4 py-2.5 text-sm font-medium text-destructive hover:bg-destructive/10 transition-colors"
+      >
+        <LogOut className="h-4 w-4" />
+        {t("room.leave")}
+      </button>
 
       {!isConnected && (
         <div className="mt-4 rounded-md bg-destructive/10 p-3 text-center text-sm text-destructive">

@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
-import { useCallback, useEffect, useState } from "react"
+import { LogOut } from "lucide-react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import { useSocket } from "@/hooks/use-socket"
@@ -41,6 +42,9 @@ function CodenamesGamePage() {
   const { user } = useAuth()
   const navigate = useNavigate()
   const { emit, on, isConnected } = useSocket()
+  const roomIdRef = useRef<string | null>(
+    sessionStorage.getItem(`ibg-game-room-${gameId}`) || null,
+  )
   const [gameState, setGameState] = useState<CodenamesGameState | null>(null)
   const [clueWord, setClueWord] = useState("")
   const [clueNumber, setClueNumber] = useState(1)
@@ -236,6 +240,19 @@ function CodenamesGamePage() {
   const handleEndTurn = useCallback(() => {
     emit("end_turn", { game_id: gameId, user_id: user?.id })
   }, [emit, gameId, user?.id])
+
+  const handleLeaveRoom = useCallback(() => {
+    if (!user || !roomIdRef.current) {
+      navigate({ to: "/rooms" })
+      return
+    }
+    emit("leave_room", {
+      user_id: user.id,
+      room_id: roomIdRef.current,
+      username: user.username,
+    })
+    navigate({ to: "/rooms" })
+  }, [user, emit, navigate])
 
   if (cancelMessage) {
     return (
@@ -445,6 +462,14 @@ function CodenamesGamePage() {
               : t("games.codenames.teams.blue")}{" "}
             wins!
           </p>
+          <button
+            type="button"
+            onClick={handleLeaveRoom}
+            className="mt-6 inline-flex items-center gap-2 rounded-md bg-primary px-6 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
+          >
+            <LogOut className="h-4 w-4" />
+            {t("room.leave")}
+          </button>
         </div>
       )}
 
