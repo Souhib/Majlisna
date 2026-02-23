@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
-import { Copy, Crown, KeyRound, LogOut, Users } from "lucide-react"
+import { Check, Copy, Crown, KeyRound, LogOut, Users } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
@@ -304,10 +304,34 @@ function RoomLobbyPage() {
   const minPlayers = gameType === "codenames" ? 4 : 3
 
   const copyToClipboard = useCallback((text: string, label: string) => {
-    navigator.clipboard.writeText(text)
+    // navigator.clipboard requires HTTPS; use fallback for HTTP
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).then(
+        () => {
+          setCopied(label)
+          toast.success(t("toast.copied", { label }))
+          setTimeout(() => setCopied(""), 1500)
+        },
+        () => fallbackCopy(text, label),
+      )
+    } else {
+      fallbackCopy(text, label)
+    }
+  }, [t])
+
+  const fallbackCopy = useCallback((text: string, label: string) => {
+    const textarea = document.createElement("textarea")
+    textarea.value = text
+    textarea.style.position = "fixed"
+    textarea.style.opacity = "0"
+    document.body.appendChild(textarea)
+    textarea.select()
+    document.execCommand("copy")
+    document.body.removeChild(textarea)
     setCopied(label)
+    toast.success(t("toast.copied", { label }))
     setTimeout(() => setCopied(""), 1500)
-  }, [])
+  }, [t])
 
   if (isLoading) {
     return (
@@ -338,26 +362,38 @@ function RoomLobbyPage() {
             <span className="text-sm text-muted-foreground">Room Code</span>
             <button
               type="button"
-              onClick={() => copyToClipboard(roomData.public_id, "code")}
-              className="flex items-center gap-2 rounded-md bg-muted px-3 py-1.5 font-mono text-lg font-bold hover:bg-muted/80 transition-colors"
+              onClick={() => copyToClipboard(roomData.public_id, "Room Code")}
+              className={cn(
+                "flex items-center gap-2 rounded-md px-3 py-1.5 font-mono text-lg font-bold transition-colors",
+                copied === "Room Code" ? "bg-primary/10 text-primary" : "bg-muted hover:bg-muted/80",
+              )}
             >
               <span className="tracking-widest">{roomData.public_id}</span>
-              <Copy className="h-4 w-4 text-muted-foreground" />
+              {copied === "Room Code" ? (
+                <Check className="h-4 w-4 text-primary" />
+              ) : (
+                <Copy className="h-4 w-4 text-muted-foreground" />
+              )}
             </button>
-            {copied === "code" && <span className="text-xs text-primary">Copied!</span>}
           </div>
           <div className="flex items-center justify-between">
             <span className="text-sm text-muted-foreground">Password</span>
             <button
               type="button"
-              onClick={() => copyToClipboard(roomData.password, "password")}
-              className="flex items-center gap-2 rounded-md bg-muted px-3 py-1.5 font-mono text-lg font-bold hover:bg-muted/80 transition-colors"
+              onClick={() => copyToClipboard(roomData.password, "Password")}
+              className={cn(
+                "flex items-center gap-2 rounded-md px-3 py-1.5 font-mono text-lg font-bold transition-colors",
+                copied === "Password" ? "bg-primary/10 text-primary" : "bg-muted hover:bg-muted/80",
+              )}
             >
               <KeyRound className="h-4 w-4 text-muted-foreground" />
               <span className="tracking-widest">{roomData.password}</span>
-              <Copy className="h-4 w-4 text-muted-foreground" />
+              {copied === "Password" ? (
+                <Check className="h-4 w-4 text-primary" />
+              ) : (
+                <Copy className="h-4 w-4 text-muted-foreground" />
+              )}
             </button>
-            {copied === "password" && <span className="text-xs text-primary">Copied!</span>}
           </div>
         </div>
       )}

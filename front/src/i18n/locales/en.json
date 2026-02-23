@@ -106,7 +106,8 @@
     "votingStarted": "Voting phase has started",
     "youLeftRoom": "You left the room",
     "roomJoined": "You joined the room",
-    "roomCreated": "Room created"
+    "roomCreated": "Room created",
+    "copied": "{{label}} copied!"
   },
   "game": {
     "vote": "Vote",

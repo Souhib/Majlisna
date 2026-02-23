@@ -106,7 +106,8 @@
     "votingStarted": "بدأت مرحلة التصويت",
     "youLeftRoom": "غادرت الغرفة",
     "roomJoined": "انضممت للغرفة",
-    "roomCreated": "تم إنشاء الغرفة"
+    "roomCreated": "تم إنشاء الغرفة",
+    "copied": "تم نسخ {{label}}!"
   },
   "game": {
     "vote": "صوّت",
