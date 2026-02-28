@@ -7,6 +7,9 @@ import viteCompression from 'vite-plugin-compression'
 
 // https://vite.dev/config/
 export default defineConfig({
+  esbuild: {
+    drop: ['console', 'debugger'],
+  },
   plugins: [
     TanStackRouterVite({
       routesDirectory: './src/routes',
@@ -79,6 +82,8 @@ export default defineConfig({
           if (id.includes('/motion/') || id.includes('framer-motion')) return 'motion'
           if (id.includes('@radix-ui')) return 'radix-ui'
           if (id.includes('socket.io-client')) return 'socket-vendor'
+          if (id.includes('i18next') || id.includes('react-i18next')) return 'i18n'
+          if (id.includes('lucide-react')) return 'icons'
         },
         chunkFileNames: 'assets/[name]-[hash].js',
         entryFileNames: 'assets/[name]-[hash].js',

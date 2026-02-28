@@ -1,29 +1,23 @@
 import { test, expect } from "@playwright/test";
 import { createPlayerPage } from "../../fixtures/auth.fixture";
 import { apiLogin, apiCreateRoom, apiGetRoom } from "../../helpers/api-client";
-import {
-  TEST_USER,
-  TEST_PLAYER,
-  TEST_ALI,
-  ROUTES,
-} from "../../helpers/constants";
-import { flushRedis } from "../../helpers/test-setup";
-
-test.beforeAll(async () => { await flushRedis() });
+import { ROUTES } from "../../helpers/constants";
+import { generateTestAccounts } from "../../helpers/test-setup";
 
 test.describe("Rooms — Host Permissions", () => {
   test("only host sees game type selector and start button", async ({
     browser,
   }) => {
-    const p1Login = await apiLogin(TEST_USER.email, TEST_USER.password);
+    const accounts = await generateTestAccounts(2);
+    const p1Login = await apiLogin(accounts[0].email, accounts[0].password);
     const room = await apiCreateRoom(p1Login.access_token, "undercover");
     const roomDetails = await apiGetRoom(room.id, p1Login.access_token);
 
     // Host joins
     const host = await createPlayerPage(
       browser,
-      TEST_USER.email,
-      TEST_USER.password,
+      accounts[0].email,
+      accounts[0].password,
     );
     await host.goto(ROUTES.room(room.id));
     await host.waitForLoadState("domcontentloaded");
@@ -35,8 +29,8 @@ test.describe("Rooms — Host Permissions", () => {
     // Non-host joins
     const nonHost = await createPlayerPage(
       browser,
-      TEST_PLAYER.email,
-      TEST_PLAYER.password,
+      accounts[1].email,
+      accounts[1].password,
     );
     await nonHost.goto(ROUTES.rooms);
     await nonHost.waitForLoadState("domcontentloaded");
@@ -68,14 +62,15 @@ test.describe("Rooms — Host Permissions", () => {
   test("start button is disabled with insufficient players for undercover", async ({
     browser,
   }) => {
+    const accounts = await generateTestAccounts(1);
     // Undercover requires minimum 3 players
-    const p1Login = await apiLogin(TEST_USER.email, TEST_USER.password);
+    const p1Login = await apiLogin(accounts[0].email, accounts[0].password);
     const room = await apiCreateRoom(p1Login.access_token, "undercover");
 
     const host = await createPlayerPage(
       browser,
-      TEST_USER.email,
-      TEST_USER.password,
+      accounts[0].email,
+      accounts[0].password,
     );
     await host.goto(ROUTES.room(room.id));
     await host.waitForLoadState("domcontentloaded");
@@ -97,14 +92,15 @@ test.describe("Rooms — Host Permissions", () => {
   test("start button is disabled with insufficient players for codenames", async ({
     browser,
   }) => {
+    const accounts = await generateTestAccounts(1);
     // Codenames requires minimum 4 players
-    const p1Login = await apiLogin(TEST_USER.email, TEST_USER.password);
+    const p1Login = await apiLogin(accounts[0].email, accounts[0].password);
     const room = await apiCreateRoom(p1Login.access_token, "codenames");
 
     const host = await createPlayerPage(
       browser,
-      TEST_USER.email,
-      TEST_USER.password,
+      accounts[0].email,
+      accounts[0].password,
     );
     await host.goto(ROUTES.room(room.id));
     await host.waitForLoadState("domcontentloaded");
@@ -129,14 +125,15 @@ test.describe("Rooms — Host Permissions", () => {
   test("start becomes enabled when enough players join for undercover", async ({
     browser,
   }) => {
-    const p1Login = await apiLogin(TEST_USER.email, TEST_USER.password);
+    const accounts = await generateTestAccounts(3);
+    const p1Login = await apiLogin(accounts[0].email, accounts[0].password);
     const room = await apiCreateRoom(p1Login.access_token, "undercover");
     const roomDetails = await apiGetRoom(room.id, p1Login.access_token);
 
     const host = await createPlayerPage(
       browser,
-      TEST_USER.email,
-      TEST_USER.password,
+      accounts[0].email,
+      accounts[0].password,
     );
     await host.goto(ROUTES.room(room.id));
     await host.waitForLoadState("domcontentloaded");
@@ -151,8 +148,8 @@ test.describe("Rooms — Host Permissions", () => {
     // Player 2 joins
     const player2 = await createPlayerPage(
       browser,
-      TEST_PLAYER.email,
-      TEST_PLAYER.password,
+      accounts[1].email,
+      accounts[1].password,
     );
     await player2.goto(ROUTES.rooms);
     await player2.waitForLoadState("domcontentloaded");
@@ -170,8 +167,8 @@ test.describe("Rooms — Host Permissions", () => {
     // Player 3 joins
     const player3 = await createPlayerPage(
       browser,
-      TEST_ALI.email,
-      TEST_ALI.password,
+      accounts[2].email,
+      accounts[2].password,
     );
     await player3.goto(ROUTES.rooms);
     await player3.waitForLoadState("domcontentloaded");
@@ -196,13 +193,14 @@ test.describe("Rooms — Host Permissions", () => {
   });
 
   test("host can switch between game types", async ({ browser }) => {
-    const p1Login = await apiLogin(TEST_USER.email, TEST_USER.password);
+    const accounts = await generateTestAccounts(1);
+    const p1Login = await apiLogin(accounts[0].email, accounts[0].password);
     const room = await apiCreateRoom(p1Login.access_token, "undercover");
 
     const host = await createPlayerPage(
       browser,
-      TEST_USER.email,
-      TEST_USER.password,
+      accounts[0].email,
+      accounts[0].password,
     );
     await host.goto(ROUTES.room(room.id));
     await host.waitForLoadState("domcontentloaded");
@@ -230,10 +228,11 @@ test.describe("Rooms — Host Permissions", () => {
 
 test.describe("Rooms — Join Edge Cases", () => {
   test("room code input accepts only 5 characters", async ({ browser }) => {
+    const accounts = await generateTestAccounts(1);
     const player = await createPlayerPage(
       browser,
-      TEST_USER.email,
-      TEST_USER.password,
+      accounts[0].email,
+      accounts[0].password,
     );
     await player.goto(ROUTES.rooms);
     await player.waitForLoadState("domcontentloaded");
@@ -248,10 +247,11 @@ test.describe("Rooms — Join Edge Cases", () => {
   });
 
   test("PIN input auto-advances to next digit", async ({ browser }) => {
+    const accounts = await generateTestAccounts(1);
     const player = await createPlayerPage(
       browser,
-      TEST_USER.email,
-      TEST_USER.password,
+      accounts[0].email,
+      accounts[0].password,
     );
     await player.goto(ROUTES.rooms);
     await player.waitForLoadState("domcontentloaded");
@@ -268,10 +268,11 @@ test.describe("Rooms — Join Edge Cases", () => {
   });
 
   test("PIN input only accepts digits", async ({ browser }) => {
+    const accounts = await generateTestAccounts(1);
     const player = await createPlayerPage(
       browser,
-      TEST_USER.email,
-      TEST_USER.password,
+      accounts[0].email,
+      accounts[0].password,
     );
     await player.goto(ROUTES.rooms);
     await player.waitForLoadState("domcontentloaded");
@@ -289,10 +290,11 @@ test.describe("Rooms — Join Edge Cases", () => {
   test("join button is disabled when form is incomplete", async ({
     browser,
   }) => {
+    const accounts = await generateTestAccounts(1);
     const player = await createPlayerPage(
       browser,
-      TEST_USER.email,
-      TEST_USER.password,
+      accounts[0].email,
+      accounts[0].password,
     );
     await player.goto(ROUTES.rooms);
     await player.waitForLoadState("domcontentloaded");
@@ -307,13 +309,14 @@ test.describe("Rooms — Join Edge Cases", () => {
   });
 
   test("room code and password are copyable in lobby", async ({ browser }) => {
-    const p1Login = await apiLogin(TEST_USER.email, TEST_USER.password);
+    const accounts = await generateTestAccounts(1);
+    const p1Login = await apiLogin(accounts[0].email, accounts[0].password);
     const room = await apiCreateRoom(p1Login.access_token, "undercover");
 
     const host = await createPlayerPage(
       browser,
-      TEST_USER.email,
-      TEST_USER.password,
+      accounts[0].email,
+      accounts[0].password,
     );
     await host.goto(ROUTES.room(room.id));
     await host.waitForLoadState("domcontentloaded");

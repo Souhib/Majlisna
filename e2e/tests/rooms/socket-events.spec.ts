@@ -1,28 +1,22 @@
 import { test, expect } from "@playwright/test";
 import { createPlayerPage } from "../../fixtures/auth.fixture";
 import { apiLogin, apiCreateRoom, apiGetRoom } from "../../helpers/api-client";
-import {
-  TEST_USER,
-  TEST_PLAYER,
-  TEST_ALI,
-  ROUTES,
-} from "../../helpers/constants";
-import { flushRedis } from "../../helpers/test-setup";
-
-test.beforeAll(async () => { await flushRedis() });
+import { ROUTES } from "../../helpers/constants";
+import { generateTestAccounts } from "../../helpers/test-setup";
 
 test.describe("Rooms — Socket Events", () => {
   test("player 1 sees join notification when player 2 joins", async ({
     browser,
   }) => {
+    const accounts = await generateTestAccounts(2);
     // Player 1 creates room via API and navigates to lobby
-    const p1Login = await apiLogin(TEST_USER.email, TEST_USER.password);
+    const p1Login = await apiLogin(accounts[0].email, accounts[0].password);
     const room = await apiCreateRoom(p1Login.access_token, "undercover");
 
     const player1 = await createPlayerPage(
       browser,
-      TEST_USER.email,
-      TEST_USER.password,
+      accounts[0].email,
+      accounts[0].password,
     );
     await player1.goto(ROUTES.room(room.id));
     await player1.waitForLoadState("domcontentloaded");
@@ -36,8 +30,8 @@ test.describe("Rooms — Socket Events", () => {
     // Player 2 joins via UI
     const player2 = await createPlayerPage(
       browser,
-      TEST_PLAYER.email,
-      TEST_PLAYER.password,
+      accounts[1].email,
+      accounts[1].password,
     );
     await player2.goto(ROUTES.rooms);
     await player2.waitForLoadState("domcontentloaded");
@@ -76,15 +70,16 @@ test.describe("Rooms — Socket Events", () => {
   test("player 1 sees leave notification when player 2 leaves", async ({
     browser,
   }) => {
+    const accounts = await generateTestAccounts(2);
     // Setup: create room and have both players join
-    const p1Login = await apiLogin(TEST_USER.email, TEST_USER.password);
+    const p1Login = await apiLogin(accounts[0].email, accounts[0].password);
     const room = await apiCreateRoom(p1Login.access_token, "undercover");
     const roomDetails = await apiGetRoom(room.id, p1Login.access_token);
 
     const player1 = await createPlayerPage(
       browser,
-      TEST_USER.email,
-      TEST_USER.password,
+      accounts[0].email,
+      accounts[0].password,
     );
     await player1.goto(ROUTES.room(room.id));
     await player1.waitForLoadState("domcontentloaded");
@@ -92,8 +87,8 @@ test.describe("Rooms — Socket Events", () => {
 
     const player2 = await createPlayerPage(
       browser,
-      TEST_PLAYER.email,
-      TEST_PLAYER.password,
+      accounts[1].email,
+      accounts[1].password,
     );
     await player2.goto(ROUTES.rooms);
     await player2.waitForLoadState("domcontentloaded");
@@ -122,15 +117,16 @@ test.describe("Rooms — Socket Events", () => {
 
   test("ownership transfers when host leaves", async ({ browser }) => {
     test.setTimeout(90_000);
+    const accounts = await generateTestAccounts(2);
     // Player 1 (host) creates room
-    const p1Login = await apiLogin(TEST_USER.email, TEST_USER.password);
+    const p1Login = await apiLogin(accounts[0].email, accounts[0].password);
     const room = await apiCreateRoom(p1Login.access_token, "undercover");
     const roomDetails = await apiGetRoom(room.id, p1Login.access_token);
 
     const player1 = await createPlayerPage(
       browser,
-      TEST_USER.email,
-      TEST_USER.password,
+      accounts[0].email,
+      accounts[0].password,
     );
     await player1.goto(ROUTES.room(room.id));
     await player1.waitForLoadState("domcontentloaded");
@@ -139,8 +135,8 @@ test.describe("Rooms — Socket Events", () => {
     // Player 2 joins
     const player2 = await createPlayerPage(
       browser,
-      TEST_PLAYER.email,
-      TEST_PLAYER.password,
+      accounts[1].email,
+      accounts[1].password,
     );
     await player2.goto(ROUTES.rooms);
     await player2.waitForLoadState("domcontentloaded");
@@ -166,8 +162,8 @@ test.describe("Rooms — Socket Events", () => {
     // Host (player 1) disconnects
     await player1.context().close();
 
-    // After grace period (5s in e2e), ownership should transfer via socket event
-    await player2.waitForTimeout(8_000);
+    // After grace period (30s in e2e), ownership should transfer via socket event
+    await player2.waitForTimeout(35_000);
 
     // Player 2 should now see the host controls (game type selector + start button)
     await expect(

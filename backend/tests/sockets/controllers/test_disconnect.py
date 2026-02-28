@@ -101,9 +101,10 @@ async def test_undercover_disconnect_below_minimum_cancels_game(mock_send, make_
     # Act
     await handle_undercover_disconnect(sio, U1, room)
 
-    # Assert
-    mock_send.assert_awaited_once()
-    assert mock_send.call_args.args[1] == EVENT_GAME_CANCELLED
+    # Assert — sent to each player's SID individually
+    assert mock_send.await_count == 3
+    for call in mock_send.call_args_list:
+        assert call.args[1] == EVENT_GAME_CANCELLED
 
     # Verify room was cleaned up in Redis
     refreshed_room = await RedisRoom.get(ROOM_ID)
@@ -130,9 +131,10 @@ async def test_undercover_disconnect_civilians_win(mock_send, make_undercover_ga
     # Act
     await handle_undercover_disconnect(sio, U4, room)
 
-    # Assert — civilians win message sent
-    mock_send.assert_awaited_once()
-    assert "civilians have won" in mock_send.call_args.args[2]["data"]
+    # Assert — civilians win message sent to each player's SID
+    assert mock_send.await_count == 4
+    for call in mock_send.call_args_list:
+        assert "civilians have won" in call.args[2]["data"]
 
     # Verify room was cleaned up
     refreshed_room = await RedisRoom.get(ROOM_ID)
@@ -334,9 +336,10 @@ async def test_undercover_disconnect_undercovers_win(mock_send, make_undercover_
     # Act — U1 (last alive civilian) disconnects → 3 alive, undercovers win
     await handle_undercover_disconnect(sio, U1, room)
 
-    # Assert — undercovers win
-    mock_send.assert_awaited_once()
-    assert "undercovers have won" in mock_send.call_args.args[2]["data"]
+    # Assert — undercovers win sent to each player's SID
+    assert mock_send.await_count == 5
+    for call in mock_send.call_args_list:
+        assert "undercovers have won" in call.args[2]["data"]
 
     refreshed_room = await RedisRoom.get(ROOM_ID)
     assert refreshed_room.active_game_id is None

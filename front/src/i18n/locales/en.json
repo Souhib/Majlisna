@@ -21,7 +21,8 @@
     "register": "Register",
     "logout": "Logout",
     "leaderboard": "Leaderboard",
-    "theme": "Theme"
+    "theme": "Theme",
+    "about": "About"
   },
   "auth": {
     "login": "Login",
@@ -199,6 +200,25 @@
     "viewStats": "View your game statistics",
     "viewAchievements": "View your earned badges",
     "joinOrCreate": "Join or create a game room"
+  },
+  "about": {
+    "title": "About the Creator",
+    "name": "Souhib TRABELSI",
+    "role": "Software Engineer",
+    "bio": "Software engineer with 6+ years of experience building scalable web applications with Python, FastAPI, React, and TypeScript. Passionate about real-time apps, clean architecture, and building technology for the Islamic community.",
+    "projectPurpose": "What is IBG?",
+    "projectDescription": "IBG (Islamic Board Games) is a real-time multiplayer platform featuring Islamized versions of popular party games like Undercover and Codenames. Built with FastAPI, Socket.IO, React, and Redis for a seamless gaming experience.",
+    "education": "Education",
+    "educationEpitech": "Epitech Paris — Master's in Software Engineering",
+    "educationSfsu": "San Francisco State University — Certificate",
+    "experience": "Experience",
+    "experienceSnap": "Snapchat / SnapLab — Software Engineer (2.5 years)",
+    "experienceEnedis": "Enedis / EDF — Software Engineer (1 year)",
+    "experienceMadura": "Madura Capital Management — Software Engineer (6 months)",
+    "skills": "Skills",
+    "mentoringTitle": "Free Mentoring",
+    "mentoringText": "With my experience I can help CS engineers, developers, or anyone who wants to learn more about computer science — freely. Contact me via email or phone. If I don't answer, leave a message and I'll call you back.",
+    "contactMe": "Get in Touch"
   },
   "errors": {
     "api": {

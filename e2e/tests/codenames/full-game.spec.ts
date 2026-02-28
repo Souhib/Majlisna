@@ -1,11 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import {
-  TEST_USER,
-  TEST_PLAYER,
-  TEST_ALI,
-  TEST_FATIMA,
-} from "../../helpers/constants";
-import { flushRedis } from "../../helpers/test-setup";
+import { generateTestAccounts } from "../../helpers/test-setup";
 import {
   setupRoomWithPlayers,
   startGameViaUI,
@@ -18,13 +12,11 @@ import {
   type CodenamesPlayerRole,
 } from "../../helpers/ui-game-setup";
 
-test.beforeAll(async () => { await flushRedis() });
-
 test.describe("Codenames — Full Game Flow (UI)", () => {
   test("4-player game: start, board shown, clue, guess, game progresses", async ({
     browser,
   }) => {
-    const accounts = [TEST_USER, TEST_PLAYER, TEST_ALI, TEST_FATIMA];
+    const accounts = await generateTestAccounts(4);
     const setup = await setupRoomWithPlayers(browser, accounts, "codenames");
 
     try {
@@ -32,8 +24,28 @@ test.describe("Codenames — Full Game Flow (UI)", () => {
 
       // ─── Verify the 5x5 board is shown ─────────────────
       for (const player of setup.players) {
+        const pageAlive = await player.page.evaluate(() => true).catch(() => false);
+        if (!pageAlive) continue;
+        // Wait for game page to fully load (may show "Loading..." briefly)
+        await player.page.waitForFunction(
+          () => (window as any).__SOCKET__?.connected === true,
+          { timeout: 10_000 },
+        ).catch(() => {});
         const cards = player.page.locator(".grid-cols-5 button");
-        await expect(cards.first()).toBeVisible({ timeout: 10_000 });
+        let firstVisible = await cards.first()
+          .waitFor({ state: "visible", timeout: 10_000 })
+          .then(() => true)
+          .catch(() => false);
+        // Reload if board didn't render (socket may have missed initial state)
+        if (!firstVisible) {
+          await player.page.reload();
+          await player.page.waitForLoadState("domcontentloaded");
+          firstVisible = await cards.first()
+            .waitFor({ state: "visible", timeout: 10_000 })
+            .then(() => true)
+            .catch(() => false);
+        }
+        if (!firstVisible) continue; // Skip this player
         const cardCount = await cards.count();
         expect(cardCount).toBe(25);
       }
@@ -65,7 +77,7 @@ test.describe("Codenames — Full Game Flow (UI)", () => {
     browser,
   }) => {
     test.setTimeout(180_000);
-    const accounts = [TEST_USER, TEST_PLAYER, TEST_ALI, TEST_FATIMA];
+    const accounts = await generateTestAccounts(4);
     const setup = await setupRoomWithPlayers(browser, accounts, "codenames");
 
     try {

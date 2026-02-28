@@ -1,5 +1,5 @@
 import { Link, useLocation } from "@tanstack/react-router"
-import { BookOpen, Globe, LogOut, Menu, Moon, Sun, Trophy, User, X } from "lucide-react"
+import { BookOpen, Globe, LogOut, Menu, Moon, Sun, Trophy, User, UserCircle, X } from "lucide-react"
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { useAuth } from "@/providers/AuthProvider"
@@ -77,6 +77,7 @@ export function MainNav() {
           { to: "/profile" as const, label: t("nav.profile"), icon: User },
         ]
       : []),
+    { to: "/about" as const, label: t("nav.about"), icon: UserCircle },
   ]
 
   return (

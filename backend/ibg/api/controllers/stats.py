@@ -10,6 +10,9 @@ from ibg.api.models.stats import UserStats
 from ibg.api.models.table import User
 from ibg.api.schemas.error import UserNotFoundError
 from ibg.api.schemas.stats import LeaderboardEntry
+from ibg.api.utils.cache import cache
+
+LEADERBOARD_TTL_SECONDS = 30
 
 
 class StatsController:
@@ -140,6 +143,9 @@ class StatsController:
         self.session.add(stats)
         await self.session.commit()
         await self.session.refresh(stats)
+
+        cache.invalidate_prefix("leaderboard:")
+
         return stats
 
     async def get_leaderboard(
@@ -154,6 +160,11 @@ class StatsController:
         :return: A list of LeaderboardEntry with username included.
         :raises ValueError: If the stat field does not exist on UserStats.
         """
+        cache_key = f"leaderboard:{stat_field}:{limit}"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached  # type: ignore[return-value]
+
         column = getattr(UserStats, stat_field, None)
         if column is None:
             raise ValueError(f"Invalid stat field: {stat_field}")
@@ -180,4 +191,6 @@ class StatsController:
                     longest_win_streak=stats.longest_win_streak,
                 )
             )
+
+        cache.set(cache_key, entries, LEADERBOARD_TTL_SECONDS)
         return entries

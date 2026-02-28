@@ -1,29 +1,16 @@
 import { test, expect } from "@playwright/test";
 import { createPlayerPage } from "../../fixtures/auth.fixture";
-import {
-  TEST_USER,
-  TEST_PLAYER,
-  ROUTES,
-} from "../../helpers/constants";
-import { apiLogin, apiLeaveAllRooms, apiJoinRoom } from "../../helpers/api-client";
-import { flushRedis } from "../../helpers/test-setup";
-
-test.beforeAll(async () => { await flushRedis() });
+import { ROUTES } from "../../helpers/constants";
+import { generateTestAccounts } from "../../helpers/test-setup";
+import { apiLogin, apiJoinRoom } from "../../helpers/api-client";
 
 test.describe("Rooms — Create & Join", () => {
-  test.beforeEach(async () => {
-    // Ensure test accounts are not stuck in previous rooms
-    for (const account of [TEST_USER, TEST_PLAYER]) {
-      const login = await apiLogin(account.email, account.password);
-      await apiLeaveAllRooms(login.user.id, login.access_token);
-    }
-  });
-
   test("player 1 creates a room and sees lobby", async ({ browser }) => {
+    const accounts = await generateTestAccounts(1);
     const page = await createPlayerPage(
       browser,
-      TEST_USER.email,
-      TEST_USER.password,
+      accounts[0].email,
+      accounts[0].password,
     );
 
     // Navigate to create room page
@@ -46,11 +33,12 @@ test.describe("Rooms — Create & Join", () => {
   test("player 2 joins room with correct code and password", async ({
     browser,
   }) => {
+    const accounts = await generateTestAccounts(2);
     // Player 1 creates a room
     const player1 = await createPlayerPage(
       browser,
-      TEST_USER.email,
-      TEST_USER.password,
+      accounts[0].email,
+      accounts[0].password,
     );
 
     await player1.goto(ROUTES.createRoom);
@@ -80,8 +68,8 @@ test.describe("Rooms — Create & Join", () => {
     // Player 2 joins the room
     const player2 = await createPlayerPage(
       browser,
-      TEST_PLAYER.email,
-      TEST_PLAYER.password,
+      accounts[1].email,
+      accounts[1].password,
     );
 
     await player2.goto(ROUTES.rooms);
@@ -143,7 +131,7 @@ test.describe("Rooms — Create & Join", () => {
         // Socket join failed — use REST API to join the room as fallback
         const roomUrlMatch = player1.url().match(/\/rooms\/([a-f0-9-]+)/);
         if (roomUrlMatch) {
-          const p2Login = await apiLogin(TEST_PLAYER.email, TEST_PLAYER.password);
+          const p2Login = await apiLogin(accounts[1].email, accounts[1].password);
           await apiJoinRoom(roomUrlMatch[1], p2Login.user.id, passwordText, p2Login.access_token)
             .catch(() => {}); // Ignore if already joined
           await player2.goto(`${ROUTES.rooms}/${roomUrlMatch[1]}`);
@@ -177,11 +165,12 @@ test.describe("Rooms — Create & Join", () => {
   });
 
   test("wrong password shows error toast", async ({ browser }) => {
+    const accounts = await generateTestAccounts(2);
     // Player 1 creates a room
     const player1 = await createPlayerPage(
       browser,
-      TEST_USER.email,
-      TEST_USER.password,
+      accounts[0].email,
+      accounts[0].password,
     );
 
     await player1.goto(ROUTES.createRoom);
@@ -200,8 +189,8 @@ test.describe("Rooms — Create & Join", () => {
     // Player 2 tries to join with wrong password
     const player2 = await createPlayerPage(
       browser,
-      TEST_PLAYER.email,
-      TEST_PLAYER.password,
+      accounts[1].email,
+      accounts[1].password,
     );
 
     await player2.goto(ROUTES.rooms);
@@ -231,10 +220,11 @@ test.describe("Rooms — Create & Join", () => {
   });
 
   test("non-existent room code shows error toast", async ({ browser }) => {
+    const accounts = await generateTestAccounts(1);
     const player = await createPlayerPage(
       browser,
-      TEST_USER.email,
-      TEST_USER.password,
+      accounts[0].email,
+      accounts[0].password,
     );
 
     await player.goto(ROUTES.rooms);

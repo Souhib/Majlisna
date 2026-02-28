@@ -33,6 +33,12 @@ class TTLCache:
         """Remove a specific key from the cache."""
         self._store.pop(key, None)
 
+    def invalidate_prefix(self, prefix: str) -> None:
+        """Remove all keys starting with the given prefix."""
+        keys_to_remove = [k for k in self._store if k.startswith(prefix)]
+        for k in keys_to_remove:
+            del self._store[k]
+
     def clear(self) -> None:
         """Clear all cached entries."""
         self._store.clear()

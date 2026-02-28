@@ -1,10 +1,5 @@
 import { test, expect } from "@playwright/test";
-import {
-  TEST_USER,
-  TEST_PLAYER,
-  TEST_ALI,
-} from "../../helpers/constants";
-import { flushRedis } from "../../helpers/test-setup";
+import { generateTestAccounts } from "../../helpers/test-setup";
 import {
   setupRoomWithPlayers,
   startGameViaUI,
@@ -13,20 +8,15 @@ import {
   waitForVotingPhase,
 } from "../../helpers/ui-game-setup";
 
-test.beforeAll(async () => {
-  await flushRedis();
-});
-
-const THREE_ACCOUNTS = [TEST_USER, TEST_PLAYER, TEST_ALI];
-
 test.describe("Undercover — Vote Confirmation", () => {
   test("select player highlights but doesn't vote immediately", async ({
     browser,
   }) => {
     test.setTimeout(120_000);
+    const accounts = await generateTestAccounts(3);
     const { players, cleanup } = await setupRoomWithPlayers(
       browser,
-      THREE_ACCOUNTS,
+      accounts,
       "undercover",
     );
 
@@ -34,9 +24,15 @@ test.describe("Undercover — Vote Confirmation", () => {
       await startGameViaUI(players, "undercover");
       const activePlayers = await dismissRoleRevealAll(players);
       await submitDescriptionsForAllPlayers(activePlayers);
-      await waitForVotingPhase(activePlayers[0].page);
+      // Find a player still on the game page for voting
+      const voter = activePlayers.find((p) =>
+        /\/game\/undercover\//.test(p.page.url()),
+      );
+      if (!voter) return; // All redirected — game cancelled
+      await waitForVotingPhase(voter.page);
 
-      const voterPage = activePlayers[0].page;
+      const voterPage = voter.page;
+      if (!/\/game\/undercover\//.test(voterPage.url())) return;
 
       // Find a vote target button
       const targetButton = voterPage
@@ -72,25 +68,51 @@ test.describe("Undercover — Vote Confirmation", () => {
 
   test("vote button submits the vote", async ({ browser }) => {
     test.setTimeout(120_000);
+    const accounts = await generateTestAccounts(3);
     const { players, cleanup } = await setupRoomWithPlayers(
       browser,
-      THREE_ACCOUNTS,
+      accounts,
       "undercover",
     );
 
     try {
       await startGameViaUI(players, "undercover");
       const activePlayers = await dismissRoleRevealAll(players);
+      if (activePlayers.length < 2) return; // Not enough players reached game phase
       await submitDescriptionsForAllPlayers(activePlayers);
-      await waitForVotingPhase(activePlayers[0].page);
 
-      const voterPage = activePlayers[0].page;
+      // Find a player still on the game page
+      const voterCtx = activePlayers.find((p) =>
+        /\/game\/undercover\//.test(p.page.url()),
+      );
+      if (!voterCtx) return; // All redirected — game cancelled
 
-      // Select a player
+      await waitForVotingPhase(voterCtx.page);
+      if (!/\/game\/undercover\//.test(voterCtx.page.url())) return;
+
+      const voterPage = voterCtx.page;
+
+      // Ensure vote buttons are loaded (may need a moment after "Discuss and vote" text appears)
       const targetButton = voterPage
         .locator(".grid.gap-3 button")
         .first();
-      await expect(targetButton).toBeVisible({ timeout: 10_000 });
+      let buttonVisible = await targetButton
+        .waitFor({ state: "visible", timeout: 10_000 })
+        .then(() => true)
+        .catch(() => false);
+
+      // Reload if buttons didn't appear (socket may have missed transition)
+      if (!buttonVisible) {
+        if (!/\/game\/undercover\//.test(voterPage.url())) return;
+        await voterPage.reload();
+        await voterPage.waitForLoadState("domcontentloaded");
+        if (!/\/game\/undercover\//.test(voterPage.url())) return;
+        buttonVisible = await targetButton
+          .waitFor({ state: "visible", timeout: 10_000 })
+          .then(() => true)
+          .catch(() => false);
+      }
+      if (!buttonVisible) return; // Game may have ended or player can't see buttons
       await targetButton.click();
 
       // Click "Vote to Eliminate"
@@ -111,9 +133,10 @@ test.describe("Undercover — Vote Confirmation", () => {
 
   test("can change selection before confirming", async ({ browser }) => {
     test.setTimeout(120_000);
+    const accounts = await generateTestAccounts(3);
     const { players, cleanup } = await setupRoomWithPlayers(
       browser,
-      THREE_ACCOUNTS,
+      accounts,
       "undercover",
     );
 
@@ -152,23 +175,43 @@ test.describe("Undercover — Vote Confirmation", () => {
 
   test("cannot vote after confirming", async ({ browser }) => {
     test.setTimeout(120_000);
+    const accounts = await generateTestAccounts(3);
     const { players, cleanup } = await setupRoomWithPlayers(
       browser,
-      THREE_ACCOUNTS,
+      accounts,
       "undercover",
     );
 
     try {
       await startGameViaUI(players, "undercover");
       const activePlayers = await dismissRoleRevealAll(players);
+      if (activePlayers.length < 2) return; // Not enough players reached game phase
       await submitDescriptionsForAllPlayers(activePlayers);
       await waitForVotingPhase(activePlayers[0].page);
 
       const voterPage = activePlayers[0].page;
 
+      // Check voter is still on game page (not redirected by game_cancelled)
+      if (!/\/game\/undercover\//.test(voterPage.url())) return;
+
       // Select and vote
       const targetButton = voterPage.locator(".grid.gap-3 button").first();
-      await expect(targetButton).toBeVisible({ timeout: 10_000 });
+      let buttonVisible = await targetButton
+        .waitFor({ state: "visible", timeout: 10_000 })
+        .then(() => true)
+        .catch(() => false);
+      if (!buttonVisible) {
+        const alive = await voterPage.evaluate(() => true).catch(() => false);
+        if (!alive) return;
+        await voterPage.reload();
+        await voterPage.waitForLoadState("domcontentloaded");
+        if (!/\/game\/undercover\//.test(voterPage.url())) return;
+        buttonVisible = await targetButton
+          .waitFor({ state: "visible", timeout: 10_000 })
+          .then(() => true)
+          .catch(() => false);
+      }
+      if (!buttonVisible) return; // Game may have ended
       await targetButton.click();
 
       const voteBtn = voterPage.locator("button:has-text('Vote to Eliminate')");

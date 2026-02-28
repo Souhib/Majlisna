@@ -22,7 +22,7 @@ from ibg.socketio.controllers.undercover_game import (
     start_new_turn,
     submit_description,
 )
-from ibg.socketio.models.shared import IBGSocket
+from ibg.socketio.models.shared import IBGSocket, redis_connection
 from ibg.socketio.models.socket import (
     StartGame,
     StartNewTurn,
@@ -30,6 +30,7 @@ from ibg.socketio.models.socket import (
     UndercoverGame,
     VoteForAPerson,
 )
+from ibg.socketio.models.user import User
 from ibg.socketio.routes.shared import send_event_to_client, socketio_exception_handler
 from ibg.socketio.utils.disconnect_tasks import cancel_disconnect_cleanup
 
@@ -329,6 +330,15 @@ def undercover_events(sio: IBGSocket) -> None:
         # Cancel any pending disconnect cleanup (player reconnecting via page reload)
         cancel_disconnect_cleanup(state_data.user_id)
 
+        # Clear disconnect flag so permanent cleanup sees reconnection
+        try:
+            redis_user = await User.get(str(state_data.user_id))
+            if redis_user.disconnected_at is not None:
+                redis_user.disconnected_at = None
+                await redis_user.save()
+        except NotFoundError:
+            pass  # User model may not exist yet
+
         try:
             game = await UndercoverGame.get(state_data.game_id)
         except NotFoundError:
@@ -347,8 +357,13 @@ def undercover_events(sio: IBGSocket) -> None:
 
         # Update player SID if reconnected with a new socket
         if player.sid != sid:
-            player.sid = sid
-            await game.save()
+            async with redis_connection.lock(f"game:{state_data.game_id}:disconnect", timeout=5):
+                # Re-fetch game inside lock to avoid overwriting concurrent changes
+                game = await UndercoverGame.get(state_data.game_id)
+                player = next((p for p in game.players if p.user_id == state_data.user_id), None)
+                if player:
+                    player.sid = sid
+                    await game.save()
 
         # Determine word based on role
         if player.role == UndercoverRole.MR_WHITE:

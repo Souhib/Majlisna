@@ -8,10 +8,10 @@ const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3049";
 
 export default defineConfig({
   testDir: "./tests",
-  fullyParallel: false,
+  fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 1,
-  workers: 1,
+  workers: 4,
   globalTimeout: 3_600_000, // 60 minutes for full suite
   reporter: process.env.CI
     ? [["html", { open: "never" }], ["github"]]
@@ -31,4 +31,22 @@ export default defineConfig({
   },
   globalSetup: "./global-setup.ts",
   globalTeardown: "./global-teardown.ts",
+  projects: [
+    {
+      name: "non-game",
+      testMatch: ["**/auth/**", "**/smoke/**", "**/profile/**"],
+    },
+    {
+      name: "rooms",
+      testMatch: ["**/rooms/**"],
+    },
+    {
+      name: "undercover",
+      testMatch: ["**/undercover/**"],
+    },
+    {
+      name: "codenames",
+      testMatch: ["**/codenames/**"],
+    },
+  ],
 });

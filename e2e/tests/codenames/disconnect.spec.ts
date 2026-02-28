@@ -1,12 +1,5 @@
 import { test, expect } from "@playwright/test";
-import {
-  TEST_USER,
-  TEST_PLAYER,
-  TEST_ALI,
-  TEST_FATIMA,
-  TEST_OMAR,
-} from "../../helpers/constants";
-import { flushRedis } from "../../helpers/test-setup";
+import { generateTestAccounts } from "../../helpers/test-setup";
 import {
   setupRoomWithPlayers,
   startGameViaUI,
@@ -14,14 +7,12 @@ import {
   type CodenamesPlayerRole,
 } from "../../helpers/ui-game-setup";
 
-test.beforeAll(async () => { await flushRedis() });
-
 test.describe("Codenames — Disconnect During Game (UI)", () => {
   test("team empty after disconnect triggers other team win via UI", async ({
     browser,
   }) => {
     test.setTimeout(180_000);
-    const accounts = [TEST_USER, TEST_PLAYER, TEST_ALI, TEST_FATIMA];
+    const accounts = await generateTestAccounts(4);
     const setup = await setupRoomWithPlayers(browser, accounts, "codenames");
 
     try {
@@ -52,12 +43,11 @@ test.describe("Codenames — Disconnect During Game (UI)", () => {
       // Wait for grace period (3s in e2e) + cleanup + game resolution
       const survivorPage = setup.players[survivingTeam[0].index].page;
 
-      // Wait for disconnect grace period (3s) + backend cleanup + game resolution
-      // With SID fix, the game_over event broadcasts to SIO room now
+      // Wait for disconnect grace period (30s) + backend cleanup + game resolution
       await survivorPage
         .locator("h2:has-text('Game Over'), .bg-destructive\\/10")
         .first()
-        .waitFor({ state: "visible", timeout: 15_000 })
+        .waitFor({ state: "visible", timeout: 40_000 })
         .catch(() => {});
 
       let gameOverVisible = await survivorPage
@@ -82,7 +72,7 @@ test.describe("Codenames — Disconnect During Game (UI)", () => {
         await survivorPage
           .locator("h2:has-text('Game Over'), .bg-destructive\\/10")
           .first()
-          .waitFor({ state: "visible", timeout: 15_000 })
+          .waitFor({ state: "visible", timeout: 40_000 })
           .catch(() => {});
 
         gameOverVisible = await survivorPage
@@ -111,7 +101,7 @@ test.describe("Codenames — Disconnect During Game (UI)", () => {
     browser,
   }) => {
     // Need 5 players so one team has 3 (spymaster + 2 operatives)
-    const accounts = [TEST_USER, TEST_PLAYER, TEST_ALI, TEST_FATIMA, TEST_OMAR];
+    const accounts = await generateTestAccounts(5);
     const setup = await setupRoomWithPlayers(browser, accounts, "codenames");
 
     try {
@@ -151,9 +141,9 @@ test.describe("Codenames — Disconnect During Game (UI)", () => {
           const waitPlayer = setup.players.find(
             (_, idx) => idx !== spymaster.index,
           )!;
-          // Wait for disconnect grace period + cleanup
+          // Wait for disconnect grace period (30s) + cleanup
           await waitPlayer.page.locator("h2:has-text('Game Over'), .bg-destructive\\/10")
-            .first().waitFor({ state: "visible", timeout: 15_000 }).catch(() => {});
+            .first().waitFor({ state: "visible", timeout: 40_000 }).catch(() => {});
 
           // Find a remaining player from the same team
           const remainingTeammate = members.find(
@@ -198,7 +188,8 @@ test.describe("Codenames — Disconnect During Game (UI)", () => {
   test("game cancelled when too many players disconnect shows error", async ({
     browser,
   }) => {
-    const accounts = [TEST_USER, TEST_PLAYER, TEST_ALI, TEST_FATIMA];
+    test.setTimeout(120_000);
+    const accounts = await generateTestAccounts(4);
     const setup = await setupRoomWithPlayers(browser, accounts, "codenames");
 
     try {
@@ -208,58 +199,56 @@ test.describe("Codenames — Disconnect During Game (UI)", () => {
       await setup.players[2].page.context().close();
       await setup.players[3].page.context().close();
 
-      // Wait for grace period + cleanup + game resolution
       const remainingPage = setup.players[0].page;
-      await remainingPage
-        .locator("h2:has-text('Game Over'), .bg-destructive\\/10")
-        .first()
-        .waitFor({ state: "visible", timeout: 20_000 })
-        .catch(() => {});
 
-      // Player 1 should see one of:
-      // 1. Game cancelled error
-      // 2. Redirected away from game page
-      // 3. Game over (other team wins because disconnected team is empty)
-      let cancelledVisible = await remainingPage
-        .locator(".bg-destructive\\/10")
-        .isVisible()
-        .catch(() => false);
-      let gameOverVisible = await remainingPage
-        .locator('h2:has-text("Game Over")')
-        .isVisible()
-        .catch(() => false);
-      let redirected =
-        remainingPage.url().includes("/game/codenames/") === false;
-
-      // If not visible yet, reload to get latest state from server
-      if (!cancelledVisible && !gameOverVisible && !redirected) {
-        await remainingPage.reload();
-        await remainingPage.waitForLoadState("domcontentloaded");
-        await remainingPage.waitForFunction(
-          () => (window as any).__SOCKET__?.connected === true,
-          { timeout: 10_000 },
-        ).catch(() => {});
-
-        cancelledVisible = await remainingPage
+      // Poll for game resolution with retries.
+      // Grace period is 30s per player; backend processes them in parallel
+      // but needs time to detect empty teams and emit game_over.
+      const checkResolution = async (): Promise<boolean> => {
+        const cancelledVisible = await remainingPage
           .locator(".bg-destructive\\/10")
           .isVisible()
           .catch(() => false);
-        gameOverVisible = await remainingPage
+        const gameOverVisible = await remainingPage
           .locator('h2:has-text("Game Over")')
           .isVisible()
           .catch(() => false);
-        redirected =
+        const redirected =
           remainingPage.url().includes("/game/codenames/") === false;
+        return cancelledVisible || gameOverVisible || redirected;
+      };
+
+      // Wait for grace period (30s) + game resolution via socket events
+      await remainingPage
+        .locator("h2:has-text('Game Over'), .bg-destructive\\/10")
+        .first()
+        .waitFor({ state: "visible", timeout: 40_000 })
+        .catch(() => {});
+
+      let resolved = await checkResolution();
+
+      // Retry with reload — socket may have missed the event
+      for (let attempt = 0; attempt < 3 && !resolved; attempt++) {
+        await remainingPage.reload();
+        await remainingPage.waitForLoadState("domcontentloaded");
+        // Wait for socket reconnect and server state to propagate
+        await remainingPage.waitForTimeout(3_000);
+        await remainingPage
+          .locator("h2:has-text('Game Over'), .bg-destructive\\/10")
+          .first()
+          .waitFor({ state: "visible", timeout: 10_000 })
+          .catch(() => {});
+        resolved = await checkResolution();
       }
 
-      expect(cancelledVisible || gameOverVisible || redirected).toBeTruthy();
+      expect(resolved).toBeTruthy();
     } finally {
       await setup.players[0].page.context().close();
     }
   });
 
   test("player reconnects to ongoing codenames game", async ({ browser }) => {
-    const accounts = [TEST_USER, TEST_PLAYER, TEST_ALI, TEST_FATIMA];
+    const accounts = await generateTestAccounts(4);
     const setup = await setupRoomWithPlayers(browser, accounts, "codenames");
 
     try {

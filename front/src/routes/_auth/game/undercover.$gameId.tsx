@@ -386,10 +386,15 @@ function UndercoverGamePage() {
 
     // error: catch backend errors (e.g. game not found)
     const offError = on("error", (data: unknown) => {
-      const payload = data as { frontend_message?: string; message?: string }
+      const payload = data as { name?: string; frontend_message?: string; message?: string }
       toast.error(payload.frontend_message || payload.message || "An error occurred")
       setIsLoadingState(false)
       setIsSubmittingDescription(false)
+
+      // Fatal game errors — game no longer exists or player was removed
+      if (payload.name === "GameNotFoundError" || payload.name === "PlayerRemovedFromGameError") {
+        setTimeout(() => navigate({ to: "/" }), 2000)
+      }
     })
 
     return () => {

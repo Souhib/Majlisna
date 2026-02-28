@@ -1,11 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import {
-  TEST_USER,
-  TEST_PLAYER,
-  TEST_ALI,
-  TEST_FATIMA,
-} from "../../helpers/constants";
-import { flushRedis } from "../../helpers/test-setup";
+import { generateTestAccounts } from "../../helpers/test-setup";
 import {
   setupRoomWithPlayers,
   startGameViaUI,
@@ -18,11 +12,9 @@ import {
   type CodenamesPlayerRole,
 } from "../../helpers/ui-game-setup";
 
-test.beforeAll(async () => { await flushRedis() });
-
 test.describe("Codenames — Role Restrictions (UI)", () => {
   test("operative does not see clue input form", async ({ browser }) => {
-    const accounts = [TEST_USER, TEST_PLAYER, TEST_ALI, TEST_FATIMA];
+    const accounts = await generateTestAccounts(4);
     const setup = await setupRoomWithPlayers(browser, accounts, "codenames");
 
     try {
@@ -47,7 +39,7 @@ test.describe("Codenames — Role Restrictions (UI)", () => {
   test("wrong team spymaster does not see clue input form", async ({
     browser,
   }) => {
-    const accounts = [TEST_USER, TEST_PLAYER, TEST_ALI, TEST_FATIMA];
+    const accounts = await generateTestAccounts(4);
     const setup = await setupRoomWithPlayers(browser, accounts, "codenames");
 
     try {
@@ -71,7 +63,7 @@ test.describe("Codenames — Role Restrictions (UI)", () => {
   });
 
   test("only current team's spymaster sees clue form", async ({ browser }) => {
-    const accounts = [TEST_USER, TEST_PLAYER, TEST_ALI, TEST_FATIMA];
+    const accounts = await generateTestAccounts(4);
     const setup = await setupRoomWithPlayers(browser, accounts, "codenames");
 
     try {
@@ -104,7 +96,7 @@ test.describe("Codenames — Role Restrictions (UI)", () => {
   test("board has exactly 25 cards with correct distribution via spymaster UI", async ({
     browser,
   }) => {
-    const accounts = [TEST_USER, TEST_PLAYER, TEST_ALI, TEST_FATIMA];
+    const accounts = await generateTestAccounts(4);
     const setup = await setupRoomWithPlayers(browser, accounts, "codenames");
 
     try {
@@ -151,7 +143,7 @@ test.describe("Codenames — Role Restrictions (UI)", () => {
   test("team assignment is balanced for 4 players via UI", async ({
     browser,
   }) => {
-    const accounts = [TEST_USER, TEST_PLAYER, TEST_ALI, TEST_FATIMA];
+    const accounts = await generateTestAccounts(4);
     const setup = await setupRoomWithPlayers(browser, accounts, "codenames");
 
     try {
@@ -191,7 +183,7 @@ test.describe("Codenames — Role Restrictions (UI)", () => {
   test("spymaster sees clue input, operative does not", async ({
     browser,
   }) => {
-    const accounts = [TEST_USER, TEST_PLAYER, TEST_ALI, TEST_FATIMA];
+    const accounts = await generateTestAccounts(4);
     const setup = await setupRoomWithPlayers(browser, accounts, "codenames");
 
     try {
@@ -230,7 +222,7 @@ test.describe("Codenames — Role Restrictions (UI)", () => {
   });
 
   test("all players see 25 cards on the board", async ({ browser }) => {
-    const accounts = [TEST_USER, TEST_PLAYER, TEST_ALI, TEST_FATIMA];
+    const accounts = await generateTestAccounts(4);
     const setup = await setupRoomWithPlayers(browser, accounts, "codenames");
 
     try {

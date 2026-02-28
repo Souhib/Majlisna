@@ -134,6 +134,14 @@ docker compose -f docker-compose.dokploy.yml up -d
 
 ## Coding Standards
 
+### Zero Tolerance for Test Failures
+
+**ABSOLUTE RULE: A task is NEVER complete if there is even a single failing or flaky test.** This is non-negotiable — no feature, bugfix, refactor, or any modification of any kind can be considered done until the ENTIRE test suite passes with:
+- **0 failed tests**
+- **0 flaky tests**
+
+A flaky test IS a failing test. "It passes on retry" is NOT acceptable. If a flaky test exists — whether caused by your changes or pre-existing — you MUST fix it before the task is complete. Do not move on, do not report the task as done, do not ask the user if it's acceptable. Fix it.
+
 ### CLAUDE.md Self-Maintenance
 
 **CRITICAL: Keep CLAUDE.md files up to date.** Whenever a change has significant business or technical implications, you MUST update the relevant CLAUDE.md (`CLAUDE.md`, `backend/CLAUDE.md`, or `front/CLAUDE.md`). This includes:
@@ -157,11 +165,15 @@ cd backend && uv run poe check && uv run poe test
 # Frontend — run after any frontend change
 cd front && bun run lint && bun run typecheck
 
-# E2E — run after any change that affects game flow, rooms, or Socket.IO
+# E2E — MANDATORY after any backend or frontend change that touches main logic
+# (API routes, controllers, Socket.IO, game components, rooms, auth, shared state)
+# Only skip for purely cosmetic/unrelated pages (e.g. About page, static content)
 cd e2e && npx playwright test
 ```
 
-Do not consider a task complete until all relevant checks pass with zero failures and zero flaky tests.
+**CRITICAL: E2E tests are NOT optional.** Any change to backend controllers, Socket.IO handlers, API routes, game logic, room management, auth flow, or frontend components that interact with the backend MUST be followed by a full E2E run. The E2E suite is the final safety net — unit tests and linters alone are not sufficient to catch integration regressions.
+
+Do not consider a task complete until ALL tests pass with zero failures AND zero flaky tests — whether or not the failures appear related to your changes. A flaky test is still a failing test. If a pre-existing flaky test blocks completion, fix it before moving on.
 
 ### Debugging Test Failures
 

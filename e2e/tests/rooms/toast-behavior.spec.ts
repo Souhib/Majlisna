@@ -1,23 +1,16 @@
 import { test, expect } from "@playwright/test";
 import {
-  TEST_USER,
-  TEST_PLAYER,
-} from "../../helpers/constants";
-import { flushRedis } from "../../helpers/test-setup";
-import {
   setupRoomWithPlayers,
 } from "../../helpers/ui-game-setup";
-
-test.beforeAll(async () => {
-  await flushRedis();
-});
+import { generateTestAccounts } from "../../helpers/test-setup";
 
 test.describe("Rooms — Toast Behavior", () => {
   test("single toast on player join (no duplicate)", async ({ browser }) => {
     test.setTimeout(60_000);
+    const accounts = await generateTestAccounts(2);
     const { players, cleanup } = await setupRoomWithPlayers(
       browser,
-      [TEST_USER, TEST_PLAYER],
+      accounts,
       "undercover",
     );
 
@@ -39,9 +32,10 @@ test.describe("Rooms — Toast Behavior", () => {
 
   test("toasts stack vertically not overlap", async ({ browser }) => {
     test.setTimeout(60_000);
+    const accounts = await generateTestAccounts(2);
     const { players, cleanup } = await setupRoomWithPlayers(
       browser,
-      [TEST_USER, TEST_PLAYER],
+      accounts,
       "undercover",
     );
 

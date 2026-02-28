@@ -236,12 +236,17 @@ function CodenamesGamePage() {
 
     // error: catch backend errors (e.g. game not found, invalid move)
     const offError = on("error", (data: unknown) => {
-      const payload = data as { frontend_message?: string; message?: string; status_code?: number }
+      const payload = data as { name?: string; frontend_message?: string; message?: string; status_code?: number }
       const msg = payload.frontend_message || payload.message || "An error occurred"
       toast.error(msg)
       // Only show fatal error state for non-validation errors (e.g. game not found)
       if (payload.status_code !== 422) {
         setErrorMessage(msg)
+      }
+
+      // Fatal game errors — game no longer exists or player was removed
+      if (payload.name === "GameNotFoundError" || payload.name === "PlayerRemovedFromGameError") {
+        setTimeout(() => navigate({ to: "/" }), 2000)
       }
     })
 

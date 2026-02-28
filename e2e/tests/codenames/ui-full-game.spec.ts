@@ -1,20 +1,10 @@
 import { test, expect, type Page } from "@playwright/test";
-import { createPlayerPage } from "../../fixtures/auth.fixture";
-import {
-  TEST_USER,
-  TEST_PLAYER,
-  TEST_ALI,
-  TEST_FATIMA,
-  ROUTES,
-} from "../../helpers/constants";
-import { flushRedis } from "../../helpers/test-setup";
+import { generateTestAccounts } from "../../helpers/test-setup";
 import {
   setupRoomWithPlayers,
   startGameViaUI,
   type PlayerContext,
 } from "../../helpers/ui-game-setup";
-
-test.beforeAll(async () => { await flushRedis() });
 
 // ─── Types & Helpers ────────────────────────────────────────
 
@@ -71,9 +61,21 @@ async function giveClue(
     // Fill and submit if the form is visible
     const wordInput = page.locator('input[type="text"]');
     if (await wordInput.isVisible().catch(() => false)) {
-      await wordInput.fill(word);
-      await page.locator('input[type="number"]').fill(String(number));
-      await page.locator("button:has-text('Submit')").click();
+      // Check if already submitting (button shows "Sending...")
+      const isSending = await page
+        .locator("button:has-text('Sending')")
+        .isVisible()
+        .catch(() => false);
+      if (!isSending) {
+        await wordInput.fill(word);
+        await page.locator('input[type="number"]').fill(String(number));
+        await page.locator("button:has-text('Submit')").click({ timeout: 5_000 }).catch(() => {});
+      }
+      // Wait for "Sending..." to resolve (button disappears or form disappears)
+      await page
+        .locator("button:has-text('Sending')")
+        .waitFor({ state: "hidden", timeout: 10_000 })
+        .catch(() => {});
     }
 
     // Check: did the backend process it? (clue appears in turn info)
@@ -83,19 +85,23 @@ async function giveClue(
       .catch(() => false);
     if (confirmed) return;
 
-    // Event was lost — reconnect socket without full page reload to avoid disconnect
-    await page.evaluate(() => {
-      const socket = (window as any).__SOCKET__;
-      if (socket && !socket.connected) {
-        socket.connect();
-      }
-    });
+    // Event was lost — reload page to get fresh state from server (get_board)
+    await page.reload();
+    await page.waitForLoadState("domcontentloaded");
     await page.waitForFunction(
       () => (window as any).__SOCKET__?.connected === true,
-      { timeout: 5_000 },
+      { timeout: 10_000 },
     ).catch(() => {});
-    // Brief wait for socket to settle before retrying
-    await page.waitForTimeout(500);
+    // Wait for board to render after reload
+    await page.locator(".grid-cols-5 button").first()
+      .waitFor({ state: "visible", timeout: 10_000 }).catch(() => {});
+
+    // Re-check if clue is now visible (server state may already have it)
+    const confirmedAfterReload = await clueLoc
+      .waitFor({ state: "visible", timeout: 5_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (confirmedAfterReload) return;
   }
 }
 
@@ -133,7 +139,7 @@ test.describe("Codenames — UI Full Game Flow", () => {
   test("4-player game: board shown with 25 cards for all players", async ({
     browser,
   }) => {
-    const accounts = [TEST_USER, TEST_PLAYER, TEST_ALI, TEST_FATIMA];
+    const accounts = await generateTestAccounts(4);
     const setup = await setupRoomWithPlayers(browser, accounts, "codenames");
 
     try {
@@ -154,7 +160,7 @@ test.describe("Codenames — UI Full Game Flow", () => {
   test("each player sees their team and role assignment", async ({
     browser,
   }) => {
-    const accounts = [TEST_USER, TEST_PLAYER, TEST_ALI, TEST_FATIMA];
+    const accounts = await generateTestAccounts(4);
     const setup = await setupRoomWithPlayers(browser, accounts, "codenames");
 
     try {
@@ -190,7 +196,7 @@ test.describe("Codenames — UI Full Game Flow", () => {
 
   test("player list shows both teams with roles", async ({ browser }) => {
     test.setTimeout(120_000);
-    const accounts = [TEST_USER, TEST_PLAYER, TEST_ALI, TEST_FATIMA];
+    const accounts = await generateTestAccounts(4);
     const setup = await setupRoomWithPlayers(browser, accounts, "codenames");
 
     try {
@@ -229,7 +235,7 @@ test.describe("Codenames — UI Full Game Flow", () => {
   test("your turn indicator shows only for current team", async ({
     browser,
   }) => {
-    const accounts = [TEST_USER, TEST_PLAYER, TEST_ALI, TEST_FATIMA];
+    const accounts = await generateTestAccounts(4);
     const setup = await setupRoomWithPlayers(browser, accounts, "codenames");
 
     try {
@@ -259,7 +265,7 @@ test.describe("Codenames — UI Full Game Flow", () => {
   test("spymaster sees clue form, operative does not", async ({
     browser,
   }) => {
-    const accounts = [TEST_USER, TEST_PLAYER, TEST_ALI, TEST_FATIMA];
+    const accounts = await generateTestAccounts(4);
     const setup = await setupRoomWithPlayers(browser, accounts, "codenames");
 
     try {
@@ -287,7 +293,7 @@ test.describe("Codenames — UI Full Game Flow", () => {
   test("spymaster gives clue, then operative can guess", async ({
     browser,
   }) => {
-    const accounts = [TEST_USER, TEST_PLAYER, TEST_ALI, TEST_FATIMA];
+    const accounts = await generateTestAccounts(4);
     const setup = await setupRoomWithPlayers(browser, accounts, "codenames");
 
     try {
@@ -390,7 +396,7 @@ test.describe("Codenames — UI Full Game Flow", () => {
 
   test("operative can end turn early", async ({ browser }) => {
     test.setTimeout(90_000);
-    const accounts = [TEST_USER, TEST_PLAYER, TEST_ALI, TEST_FATIMA];
+    const accounts = await generateTestAccounts(4);
     const setup = await setupRoomWithPlayers(browser, accounts, "codenames");
 
     try {
@@ -453,7 +459,7 @@ test.describe("Codenames — UI Full Game Flow", () => {
       // Wait for turn to change with reload fallback
       const turnLocator = setup.players[0].page.locator(
         `.bg-muted\\/50.p-3.text-center .font-semibold:has-text("${otherTeamName}")`,
-      );
+      ).first();
       let turnChanged = await turnLocator
         .waitFor({ state: "visible", timeout: 10_000 })
         .then(() => true)
@@ -499,7 +505,7 @@ test.describe("Codenames — UI Full Game Flow", () => {
   test("score counters update when cards are revealed", async ({
     browser,
   }) => {
-    const accounts = [TEST_USER, TEST_PLAYER, TEST_ALI, TEST_FATIMA];
+    const accounts = await generateTestAccounts(4);
     const setup = await setupRoomWithPlayers(browser, accounts, "codenames");
 
     try {
@@ -589,7 +595,7 @@ test.describe("Codenames — UI Full Game Flow", () => {
   test("spymaster sees card colors but operative does not (unrevealed cards)", async ({
     browser,
   }) => {
-    const accounts = [TEST_USER, TEST_PLAYER, TEST_ALI, TEST_FATIMA];
+    const accounts = await generateTestAccounts(4);
     const setup = await setupRoomWithPlayers(browser, accounts, "codenames");
 
     try {
@@ -636,7 +642,7 @@ test.describe("Codenames — UI Full Game Flow", () => {
     browser,
   }) => {
     test.setTimeout(120_000);
-    const accounts = [TEST_USER, TEST_PLAYER, TEST_ALI, TEST_FATIMA];
+    const accounts = await generateTestAccounts(4);
     const setup = await setupRoomWithPlayers(browser, accounts, "codenames");
 
     try {
@@ -673,7 +679,7 @@ test.describe("Codenames — UI Full Game Flow", () => {
   test("guesses counter shows made / max after clue", async ({
     browser,
   }) => {
-    const accounts = [TEST_USER, TEST_PLAYER, TEST_ALI, TEST_FATIMA];
+    const accounts = await generateTestAccounts(4);
     const setup = await setupRoomWithPlayers(browser, accounts, "codenames");
 
     try {
@@ -719,7 +725,7 @@ test.describe("Codenames — UI Full Game Flow", () => {
     browser,
   }) => {
     test.setTimeout(120_000);
-    const accounts = [TEST_USER, TEST_PLAYER, TEST_ALI, TEST_FATIMA];
+    const accounts = await generateTestAccounts(4);
     const setup = await setupRoomWithPlayers(browser, accounts, "codenames");
 
     try {
@@ -877,7 +883,7 @@ test.describe("Codenames — UI Full Game Flow", () => {
     // We can't force an assassin hit, so we verify the structure is correct
     // by checking that the game over UI elements exist in the code.
     // If we're lucky, guessing random cards might trigger game over.
-    const accounts = [TEST_USER, TEST_PLAYER, TEST_ALI, TEST_FATIMA];
+    const accounts = await generateTestAccounts(4);
     const setup = await setupRoomWithPlayers(browser, accounts, "codenames");
 
     try {
@@ -1009,7 +1015,7 @@ test.describe("Codenames — UI Full Game Flow", () => {
   test("i18n: no hardcoded English strings in key UI elements", async ({
     browser,
   }) => {
-    const accounts = [TEST_USER, TEST_PLAYER, TEST_ALI, TEST_FATIMA];
+    const accounts = await generateTestAccounts(4);
     const setup = await setupRoomWithPlayers(browser, accounts, "codenames");
 
     try {
@@ -1063,7 +1069,7 @@ test.describe("Codenames — UI Full Game Flow", () => {
     browser,
   }) => {
     test.setTimeout(120_000);
-    const accounts = [TEST_USER, TEST_PLAYER, TEST_ALI, TEST_FATIMA];
+    const accounts = await generateTestAccounts(4);
     const setup = await setupRoomWithPlayers(browser, accounts, "codenames");
 
     try {

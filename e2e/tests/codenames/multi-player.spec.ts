@@ -1,13 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import {
-  TEST_USER,
-  TEST_PLAYER,
-  TEST_ALI,
-  TEST_FATIMA,
-  TEST_OMAR,
-  TEST_AISHA,
-} from "../../helpers/constants";
-import { flushRedis } from "../../helpers/test-setup";
+import { generateTestAccounts } from "../../helpers/test-setup";
 import {
   setupRoomWithPlayers,
   startGameViaUI,
@@ -22,21 +14,12 @@ import {
   type CodenamesPlayerRole,
 } from "../../helpers/ui-game-setup";
 
-test.beforeAll(async () => { await flushRedis() });
-
 test.describe("Codenames — Multi-Player Games (UI)", () => {
   test("6-player team assignment is balanced (3v3) via UI", async ({
     browser,
   }) => {
     test.setTimeout(120_000);
-    const accounts = [
-      TEST_USER,
-      TEST_PLAYER,
-      TEST_ALI,
-      TEST_FATIMA,
-      TEST_OMAR,
-      TEST_AISHA,
-    ];
+    const accounts = await generateTestAccounts(6);
     const setup = await setupRoomWithPlayers(browser, accounts, "codenames");
 
     try {
@@ -96,14 +79,7 @@ test.describe("Codenames — Multi-Player Games (UI)", () => {
 
   test("correct guesses lead to team victory via UI", async ({ browser }) => {
     test.setTimeout(120_000);
-    const accounts = [
-      TEST_USER,
-      TEST_PLAYER,
-      TEST_ALI,
-      TEST_FATIMA,
-      TEST_OMAR,
-      TEST_AISHA,
-    ];
+    const accounts = await generateTestAccounts(6);
     const setup = await setupRoomWithPlayers(browser, accounts, "codenames");
 
     try {
@@ -195,14 +171,7 @@ test.describe("Codenames — Multi-Player Games (UI)", () => {
 
   test("assassin card causes immediate loss via UI", async ({ browser }) => {
     test.setTimeout(120_000);
-    const accounts = [
-      TEST_USER,
-      TEST_PLAYER,
-      TEST_ALI,
-      TEST_FATIMA,
-      TEST_OMAR,
-      TEST_AISHA,
-    ];
+    const accounts = await generateTestAccounts(6);
     const setup = await setupRoomWithPlayers(browser, accounts, "codenames");
 
     try {
@@ -285,14 +254,7 @@ test.describe("Codenames — Multi-Player Games (UI)", () => {
 
   test("neutral card ends turn without penalty via UI", async ({ browser }) => {
     test.setTimeout(120_000);
-    const accounts = [
-      TEST_USER,
-      TEST_PLAYER,
-      TEST_ALI,
-      TEST_FATIMA,
-      TEST_OMAR,
-      TEST_AISHA,
-    ];
+    const accounts = await generateTestAccounts(6);
     const setup = await setupRoomWithPlayers(browser, accounts, "codenames");
 
     try {
@@ -376,14 +338,7 @@ test.describe("Codenames — Multi-Player Games (UI)", () => {
     browser,
   }) => {
     test.setTimeout(120_000);
-    const accounts = [
-      TEST_USER,
-      TEST_PLAYER,
-      TEST_ALI,
-      TEST_FATIMA,
-      TEST_OMAR,
-      TEST_AISHA,
-    ];
+    const accounts = await generateTestAccounts(6);
     const setup = await setupRoomWithPlayers(browser, accounts, "codenames");
 
     try {
@@ -476,14 +431,7 @@ test.describe("Codenames — Multi-Player Games (UI)", () => {
 
   test("operative voluntarily ends turn via UI", async ({ browser }) => {
     test.setTimeout(120_000);
-    const accounts = [
-      TEST_USER,
-      TEST_PLAYER,
-      TEST_ALI,
-      TEST_FATIMA,
-      TEST_OMAR,
-      TEST_AISHA,
-    ];
+    const accounts = await generateTestAccounts(6);
     const setup = await setupRoomWithPlayers(browser, accounts, "codenames");
 
     try {
@@ -560,14 +508,7 @@ test.describe("Codenames — Multi-Player Games (UI)", () => {
     browser,
   }) => {
     test.setTimeout(120_000);
-    const accounts = [
-      TEST_USER,
-      TEST_PLAYER,
-      TEST_ALI,
-      TEST_FATIMA,
-      TEST_OMAR,
-      TEST_AISHA,
-    ];
+    const accounts = await generateTestAccounts(6);
     const setup = await setupRoomWithPlayers(browser, accounts, "codenames");
 
     try {

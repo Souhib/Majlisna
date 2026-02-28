@@ -3,7 +3,6 @@ import {
   apiLogin,
   apiCreateRoom,
   apiGetRoom,
-  apiLeaveAllRooms,
   apiJoinRoom,
   type LoginResponse,
   type RoomResponse,
@@ -43,26 +42,13 @@ export async function setupRoomWithPlayers(
   accounts: { email: string; password: string }[],
   gameType: "undercover" | "codenames" = "undercover",
 ): Promise<UIGameSetup> {
-  // Login all players via API
-  const logins: LoginResponse[] = [];
-  for (const account of accounts) {
-    logins.push(await apiLogin(account.email, account.password));
-  }
+  // Login all players via API (parallel for speed)
+  const logins = await Promise.all(
+    accounts.map((a) => apiLogin(a.email, a.password)),
+  );
 
-  // Ensure no player is stuck in a previous room
-  for (const login of logins) {
-    await apiLeaveAllRooms(login.user.id, login.access_token);
-  }
-
-  // Host creates room via API (retry if UserAlreadyInRoomError)
-  let room: RoomResponse;
-  try {
-    room = await apiCreateRoom(logins[0].access_token, gameType);
-  } catch {
-    // Retry: force leave all rooms again and create
-    await apiLeaveAllRooms(logins[0].user.id, logins[0].access_token);
-    room = await apiCreateRoom(logins[0].access_token, gameType);
-  }
+  // Host creates room via API
+  const room = await apiCreateRoom(logins[0].access_token, gameType);
   const roomDetails = await apiGetRoom(room.id, logins[0].access_token);
 
   // Create browser page for host and navigate to room
@@ -153,92 +139,34 @@ export async function setupRoomWithPlayers(
     players.push({ page, login: logins[i], account: accounts[i] });
   }
 
-  // Verify host sees all players in the room before proceeding
-  const expectedCount = accounts.length;
-  await players[0].page.waitForFunction(
-    (count: number) => {
-      const text = document.body.innerText;
-      const match = text.match(/Players \((\d+)/);
-      return match && parseInt(match[1]) >= count;
-    },
-    expectedCount,
-    { timeout: 15_000 },
-  ).catch(async () => {
-    // Reload host page and retry
-    await players[0].page.reload();
-    await players[0].page.waitForLoadState("domcontentloaded");
-    await players[0].page.waitForFunction(
-      (count: number) => {
-        const text = document.body.innerText;
-        const match = text.match(/Players \((\d+)/);
-        return match && parseInt(match[1]) >= count;
-      },
-      expectedCount,
-      { timeout: 10_000 },
-    ).catch(() => {});
-  });
-
   // Verify ALL players have Socket.IO connected and see the full player count.
-  // This ensures each player's socket has joined the Socket.IO room,
-  // which is critical for game start validation (backend checks Socket.IO room size).
-  // The room page emits "join_room" only when both isConnected AND roomData are ready,
-  // and the server responds with "room_status" which updates the player count.
-  for (const player of players) {
-    // First: ensure socket is connected
-    await player.page
-      .waitForFunction(
-        () => (window as any).__SOCKET__?.connected === true,
-        { timeout: 10_000 },
-      )
-      .catch(async () => {
-        await player.page.reload();
-        await player.page.waitForLoadState("domcontentloaded");
-        await player.page
-          .waitForFunction(
-            () => (window as any).__SOCKET__?.connected === true,
-            { timeout: 10_000 },
-          )
-          .catch(() => {});
-      });
-
-    // Second: verify the player sees the correct player count
-    // (confirms room_status event was received, meaning Socket.IO room membership is confirmed)
-    const seesAllPlayers = await player.page
-      .waitForFunction(
-        (count: number) => {
-          const text = document.body.innerText;
-          const match = text.match(/Players \((\d+)/);
-          return match && parseInt(match[1]) >= count;
-        },
-        expectedCount,
-        { timeout: 10_000 },
-      )
-      .then(() => true)
-      .catch(() => false);
-
-    if (!seesAllPlayers) {
-      // Player's socket likely didn't join the Socket.IO room — reload to trigger join_room again
-      await player.page.reload();
-      await player.page.waitForLoadState("domcontentloaded");
-      await player.page
-        .waitForFunction(
-          () => (window as any).__SOCKET__?.connected === true,
-          { timeout: 10_000 },
-        )
-        .catch(() => {});
-      await player.page
-        .waitForFunction(
-          (count: number) => {
-            const text = document.body.innerText;
-            const match = text.match(/Players \((\d+)/);
-            return match && parseInt(match[1]) >= count;
+  // Single parallel check replaces 3 separate sequential loops.
+  const expectedCount = accounts.length;
+  await Promise.all(
+    players.map(async (player) => {
+      const verifySocketAndCount = async () => {
+        await player.page.waitForFunction(
+          (count) => {
+            const s = (window as any).__SOCKET__;
+            if (!s?.connected) return false;
+            const m = document.body.innerText.match(/Players \((\d+)/);
+            return m && parseInt(m[1]) >= count;
           },
           expectedCount,
           { timeout: 15_000 },
-        )
-        .catch(() => {});
-    }
-  }
+        );
+      };
+
+      try {
+        await verifySocketAndCount();
+      } catch {
+        // Reload to trigger join_room again and retry
+        await player.page.reload();
+        await player.page.waitForLoadState("domcontentloaded");
+        await verifySocketAndCount().catch(() => {});
+      }
+    }),
+  );
 
   return {
     players,
@@ -538,8 +466,25 @@ export async function dismissRoleRevealAll(
       .textContent()
       .catch(() => "");
     if (playerCountText?.includes("(0/0)") || playerCountText?.includes("(0/")) {
-      // Player is not in the game — skip them
-      continue;
+      // Player shows empty state — reload to re-fetch game state from server
+      await player.page.reload();
+      await player.page.waitForLoadState("domcontentloaded");
+      await player.page
+        .waitForFunction(
+          () => (window as any).__SOCKET__?.connected === true,
+          { timeout: 10_000 },
+        )
+        .catch(() => {});
+      // Re-check after reload
+      const reloadedCount = await player.page
+        .locator("text=/Players \\(\\d+/")
+        .first()
+        .textContent({ timeout: 8_000 })
+        .catch(() => "");
+      if (reloadedCount?.includes("(0/0)") || reloadedCount?.includes("(0/")) {
+        // Still empty after reload — player is not in the game, skip them
+        continue;
+      }
     }
 
     // Check if already in playing or describing phase (no role reveal needed)
@@ -564,8 +509,9 @@ export async function dismissRoleRevealAll(
       .catch(() => false);
 
     if (isRoleReveal) {
-      // Button may disappear if game transitions to playing phase during click
-      await dismissButton.click({ timeout: 5_000 }).catch(() => {});
+      // Button may disappear if game transitions to playing phase during click.
+      // Use force:true in case a toast or overlay temporarily covers the button.
+      await dismissButton.click({ timeout: 5_000, force: true }).catch(() => {});
     }
 
     // Wait for describing or playing phase
@@ -593,7 +539,7 @@ export async function dismissRoleRevealAll(
         .isVisible()
         .catch(() => false);
       if (showAgain) {
-        await dismissAgain.click();
+        await dismissAgain.click({ force: true }).catch(() => {});
       }
     }
 
@@ -624,6 +570,9 @@ export async function voteForPlayer(
   // Check if page context is still open (prevents crash on closed browser context)
   const pageAlive = await voterPage.evaluate(() => true).catch(() => false);
   if (!pageAlive) return false;
+
+  // Check if voter is still on a game page (not redirected to HOME)
+  if (!/\/game\//.test(voterPage.url())) return false;
 
   // Check if game already over
   const gameOver = await voterPage
@@ -761,109 +710,109 @@ export async function getUndercoverWord(page: Page): Promise<string> {
  *    by playing phase (get_undercover_state overrides phase to "playing" on reconnect)
  */
 export async function waitForEliminationOrGameOver(page: Page): Promise<"elimination" | "game_over"> {
-  const resultLocator = page
-    .locator(".lucide-skull, h2:has-text('Game Over')")
-    .first();
+  // Helper: check if page left the game (cancelled/redirected)
+  const isRedirectedAway = () => {
+    try {
+      return !page.url().includes("/game/undercover/");
+    } catch {
+      return true; // Page closed
+    }
+  };
 
-  // Try to see skull (elimination) or Game Over without reload
-  let resultVisible = await resultLocator
-    .waitFor({ state: "visible", timeout: 15_000 })
-    .then(() => true)
-    .catch(() => false);
+  // Helper: check all elimination/game-over indicators
+  const checkIndicators = async (): Promise<"elimination" | "game_over" | null> => {
+    if (isRedirectedAway()) return "game_over";
 
-  // If not visible, check if elimination happened but screen was replaced by playing phase
-  // (get_undercover_state response overrides phase to "playing" on socket reconnection)
-  if (!resultVisible) {
+    const isGameOver = await page
+      .locator("h2:has-text('Game Over')")
+      .isVisible()
+      .catch(() => false);
+    if (isGameOver) return "game_over";
+
+    const hasSkull = await page
+      .locator(".lucide-skull")
+      .first()
+      .isVisible()
+      .catch(() => false);
+    if (hasSkull) return "elimination";
+
     const hasEliminatedInList = await page
       .locator("text=Eliminated")
       .first()
       .isVisible()
       .catch(() => false);
-    if (hasEliminatedInList) {
-      // Elimination happened — check for game over
-      const isGameOver = await page
-        .locator("h2:has-text('Game Over')")
-        .isVisible()
-        .catch(() => false);
-      return isGameOver ? "game_over" : "elimination";
-    }
-  }
+    if (hasEliminatedInList) return "elimination";
 
-  // If not visible, reload to fetch fresh state from the server
-  // (Socket.IO may have missed the player_eliminated / game_over event)
-  if (!resultVisible) {
+    return null;
+  };
+
+  // Helper: reload and wait for socket reconnection before checking state
+  const reloadAndWaitForSocket = async () => {
+    const pageAlive = await page.evaluate(() => true).catch(() => false);
+    if (!pageAlive) return;
     await page.reload();
     await page.waitForLoadState("domcontentloaded");
+    await page
+      .waitForFunction(
+        () => (window as any).__SOCKET__?.connected === true,
+        { timeout: 10_000 },
+      )
+      .catch(() => {});
+  };
 
-    resultVisible = await resultLocator
-      .waitFor({ state: "visible", timeout: 15_000 })
-      .then(() => true)
-      .catch(() => false);
-
-    // After reload, get_undercover_state may show "Eliminated" in player list
-    // instead of the skull (phase set to "playing" not "elimination")
-    if (!resultVisible) {
-      const hasEliminatedInList = await page
-        .locator("text=Eliminated")
-        .first()
-        .isVisible()
-        .catch(() => false);
-      if (hasEliminatedInList) {
-        const isGameOver = await page
-          .locator("h2:has-text('Game Over')")
-          .isVisible()
-          .catch(() => false);
-        return isGameOver ? "game_over" : "elimination";
-      }
-    }
-  }
-
-  if (!resultVisible) {
-    // Last resort: reload once more
-    await page.reload();
-    await page.waitForLoadState("domcontentloaded");
-
-    // Check for any elimination indicator (skull, Game Over, or Eliminated in list)
-    const anyIndicator = await page
-      .locator(".lucide-skull, h2:has-text('Game Over')")
-      .first()
-      .waitFor({ state: "visible", timeout: 10_000 })
-      .then(() => true)
-      .catch(() => false);
-
-    if (!anyIndicator) {
-      // Final check: "Eliminated" in player list
-      const hasEliminatedInList = await page
-        .locator("text=Eliminated")
-        .first()
-        .isVisible()
-        .catch(() => false);
-      if (hasEliminatedInList) {
-        const isGameOver = await page
-          .locator("h2:has-text('Game Over')")
-          .isVisible()
-          .catch(() => false);
-        return isGameOver ? "game_over" : "elimination";
-      }
-      // Truly nothing found — throw
-      await expect(
-        page.locator(".lucide-skull, h2:has-text('Game Over'), text=Eliminated").first(),
-      ).toBeVisible({ timeout: 5_000 });
-    }
-  }
-
-  // Wait briefly for game_over to potentially arrive after elimination
-  // (when the undercover is eliminated, game_over fires right after player_eliminated)
-  await page.locator("h2:has-text('Game Over')")
-    .waitFor({ state: "visible", timeout: 3_000 })
+  // === Attempt 1: Wait for skull or Game Over via socket event (no reload) ===
+  await page
+    .locator(".lucide-skull, h2:has-text('Game Over')")
+    .first()
+    .waitFor({ state: "visible", timeout: 15_000 })
     .catch(() => {});
 
-  const isGameOver = await page
-    .locator("h2:has-text('Game Over')")
-    .isVisible()
-    .catch(() => false);
+  let result = await checkIndicators();
+  if (result) return result;
 
-  return isGameOver ? "game_over" : "elimination";
+  // === Attempt 2: Reload to trigger get_undercover_state from server ===
+  await reloadAndWaitForSocket();
+  if (isRedirectedAway()) return "game_over";
+
+  // Wait for state to render after socket reconnection
+  await page
+    .locator(".lucide-skull")
+    .or(page.locator("h2:has-text('Game Over')"))
+    .or(page.locator("text=Eliminated"))
+    .first()
+    .waitFor({ state: "visible", timeout: 15_000 })
+    .catch(() => {});
+
+  result = await checkIndicators();
+  if (result) return result;
+
+  // === Attempt 3: Final reload — last chance ===
+  await reloadAndWaitForSocket();
+  if (isRedirectedAway()) return "game_over";
+
+  await page
+    .locator(".lucide-skull")
+    .or(page.locator("h2:has-text('Game Over')"))
+    .or(page.locator("text=Eliminated"))
+    .first()
+    .waitFor({ state: "visible", timeout: 15_000 })
+    .catch(() => {});
+
+  result = await checkIndicators();
+  if (result) return result;
+
+  // Final assertion — if we still see nothing, fail with a clear error
+  await expect(
+    page
+      .locator(".lucide-skull")
+      .or(page.locator("h2:has-text('Game Over')"))
+      .or(page.locator("text=Eliminated"))
+      .first(),
+  ).toBeVisible({ timeout: 10_000 });
+
+  // If the assertion passed, determine the result
+  const finalResult = await checkIndicators();
+  return finalResult ?? "elimination";
 }
 
 /**
@@ -922,65 +871,151 @@ export async function submitDescriptionsForAllPlayers(
   const words = ["apple", "banana", "cherry", "date", "elderberry", "fig", "grape", "honey", "ice", "jam"];
   let wordIdx = 0;
 
-  for (let round = 0; round < players.length + 2; round++) {
-    let found = false;
-    for (const player of players) {
-      const pageAlive = await player.page.evaluate(() => true).catch(() => false);
-      if (!pageAlive) continue;
-
-      const hasInput = await player.page
-        .locator("#description-input")
-        .isVisible({ timeout: 2_000 })
-        .catch(() => false);
-      if (hasInput) {
-        found = true;
-        const word = words[wordIdx % words.length];
-        wordIdx++;
-
-        // Fill and submit with retry logic — socket events (turn_started,
-        // description_submitted) can clear descriptionInput between fill and click,
-        // leaving the Submit button disabled. Strategy: fill + click with short
-        // timeout, catch error, re-fill and retry. This is faster and more reliable
-        // than checking isEnabled separately (which can pass then fail during click).
-        const submitBtn = player.page.locator("button:has-text('Submit')");
-        let submitted = false;
-        for (let attempt = 0; attempt < 10 && !submitted; attempt++) {
-          await player.page.locator("#description-input").fill(word);
-          try {
-            // Short timeout — fail fast if a socket event disabled the button
-            await submitBtn.click({ timeout: 1_000 });
-            submitted = true;
-          } catch {
-            // Button was likely disabled by a socket event clearing the input.
-            // Small delay before re-fill to let the event settle.
-            await player.page.waitForTimeout(200);
-          }
-        }
-
-        // Wait for the description to be processed
-        await player.page
-          .locator("#description-input")
-          .waitFor({ state: "hidden", timeout: 10_000 })
-          .catch(() => {});
-
-        // Small delay for event propagation
-        await player.page.waitForTimeout(500);
-        break; // Only one player has the input at a time
-      }
-    }
-
-    // Check if we've transitioned to voting (or transition overlay is showing)
-    const transitioned = await players[0].page
+  // Fast polling approach: instant isVisible() checks for all players, then a
+  // single short wait if nobody has the input yet. This avoids the O(N × timeout)
+  // cost of sequential waitFor() per player, which was causing 180s timeouts in
+  // 5-player games (4 × 1.5s wasted per round × 7 rounds = 42s just in waiting).
+  const maxAttempts = (players.length + 2) * 15; // generous upper bound
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    // Check if we've transitioned to voting or game over
+    const checkPlayer = players.find((p) =>
+      /\/game\/undercover\//.test(p.page.url()),
+    );
+    if (!checkPlayer) break;
+    const transitioned = await checkPlayer.page
       .locator("text=Discuss and vote")
-      .or(players[0].page.locator("text=All hints are in"))
+      .or(checkPlayer.page.locator("text=All hints are in"))
+      .or(checkPlayer.page.locator("h2:has-text('Game Over')"))
       .first()
       .isVisible()
       .catch(() => false);
-    if (transitioned || !found) break;
+    if (transitioned) break;
+
+    // Fast scan: instant isVisible() for all players (each takes ~0ms)
+    let submitter: PlayerContext | null = null;
+    for (const player of players) {
+      const pageAlive = await player.page.evaluate(() => true).catch(() => false);
+      if (!pageAlive) continue;
+      if (!/\/game\/undercover\//.test(player.page.url())) continue;
+
+      const hasInput = await player.page
+        .locator("#description-input")
+        .isVisible()
+        .catch(() => false);
+      if (hasInput) {
+        submitter = player;
+        break;
+      }
+    }
+
+    // Nobody has the input yet — wait briefly for turn_started event, then retry
+    if (!submitter) {
+      // Use a single waitFor on any player's page instead of a static sleep.
+      // This resolves as soon as the input appears on ANY page.
+      const alivePlayers = [];
+      for (const p of players) {
+        const alive = await p.page.evaluate(() => true).catch(() => false);
+        if (!alive) continue;
+        if (!/\/game\/undercover\//.test(p.page.url())) continue;
+        alivePlayers.push(p);
+      }
+      if (alivePlayers.length === 0) break;
+
+      // Race: wait for #description-input to appear on any player's page
+      await Promise.race([
+        ...alivePlayers.map((p) =>
+          p.page
+            .locator("#description-input")
+            .waitFor({ state: "visible", timeout: 2_000 })
+            .catch(() => {}),
+        ),
+      ]);
+      continue;
+    }
+
+    // Found a player with the input — submit their description
+    const word = words[wordIdx % words.length];
+    wordIdx++;
+    const submitBtn = submitter.page.locator("button:has-text('Submit')");
+    let submitted = false;
+
+    // Dismiss any Sonner toasts that might cover the Submit button
+    await submitter.page.evaluate(() => {
+      document.querySelectorAll("[data-sonner-toast]").forEach((t) => {
+        (t as HTMLElement).style.display = "none";
+      });
+    }).catch(() => {});
+
+    // Attempt 1: fill + click (up to 3 retries for toast interference)
+    for (let retry = 0; retry < 3 && !submitted; retry++) {
+      try {
+        await submitter.page.locator("#description-input").fill(word, { timeout: 5_000 });
+      } catch {
+        break; // Input disappeared (phase transitioned)
+      }
+      try {
+        await submitBtn.click({ timeout: 5_000 });
+        submitted = true;
+      } catch {
+        await submitter.page.evaluate(() => {
+          document.querySelectorAll("[data-sonner-toast]").forEach((t) => {
+            (t as HTMLElement).style.display = "none";
+          });
+        }).catch(() => {});
+        await submitter.page.waitForTimeout(200);
+      }
+    }
+
+    // Attempt 2: keyboard Enter on input (bypasses button entirely)
+    if (!submitted) {
+      const descInput = submitter.page.locator("#description-input");
+      try {
+        await descInput.fill(word, { timeout: 5_000 });
+      } catch {
+        continue; // Input gone — phase transitioned, retry loop
+      }
+      await descInput.press("Enter");
+      const inputGone = await descInput
+        .waitFor({ state: "hidden", timeout: 5_000 })
+        .then(() => true)
+        .catch(() => false);
+      if (inputGone) submitted = true;
+    }
+
+    // Attempt 3: reload to clear all overlays, then retry
+    if (!submitted) {
+      await submitter.page.reload();
+      await submitter.page.waitForLoadState("domcontentloaded");
+      await submitter.page.waitForFunction(
+        () => (window as any).__SOCKET__?.connected === true,
+        { timeout: 10_000 },
+      ).catch(() => {});
+      const stillHasInput = await submitter.page
+        .locator("#description-input")
+        .isVisible()
+        .catch(() => false);
+      if (stillHasInput) {
+        await submitter.page.locator("#description-input").fill(word);
+        await submitBtn.click({ timeout: 5_000 }).catch(() => {});
+      }
+    }
+
+    // Wait for the description to be processed (input disappears)
+    await submitter.page
+      .locator("#description-input")
+      .waitFor({ state: "hidden", timeout: 10_000 })
+      .catch(() => {});
+
+    // Small delay for event propagation to next player
+    await submitter.page.waitForTimeout(200).catch(() => {});
   }
 
-  // Wait for transition animation to finish and voting phase to appear on ALL players
+  // Wait for transition animation to finish and voting phase to appear on alive players
   for (const player of players) {
+    // Skip players not on the game page
+    if (!/\/game\/undercover\//.test(player.page.url())) continue;
+    const pageAlive = await player.page.evaluate(() => true).catch(() => false);
+    if (!pageAlive) continue;
     await player.page
       .locator("text=Discuss and vote")
       .first()
@@ -1067,7 +1102,21 @@ export async function giveClueViaUI(
     if (await wordInput.isVisible().catch(() => false)) {
       await wordInput.fill(word);
       await page.locator('input[type="number"]').fill(String(number));
-      await page.locator("button:has-text('Submit')").click();
+
+      // Dismiss any Sonner toasts that might cover the Submit button
+      await page.evaluate(() => {
+        document.querySelectorAll("[data-sonner-toast]").forEach((t) => {
+          (t as HTMLElement).style.display = "none";
+        });
+      }).catch(() => {});
+
+      const submitBtn = page.locator("button:has-text('Submit')");
+      try {
+        await submitBtn.click({ timeout: 8_000 });
+      } catch {
+        // Fallback: press Enter on the number input
+        await page.locator('input[type="number"]').press("Enter");
+      }
     }
 
     // Check: did the backend process it?

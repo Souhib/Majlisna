@@ -1,6 +1,7 @@
 import { execSync } from "child_process";
 import { waitForBackend, waitForFrontend } from "./helpers/api-client";
 import { FRONTEND_URL } from "./helpers/constants";
+import { flushRedis } from "./helpers/test-setup";
 
 function runDockerExec(command: string, timeout = 120_000): void {
   try {
@@ -48,14 +49,31 @@ async function globalSetup(): Promise<void> {
   );
   console.log("[E2E Setup] Database seeded.");
 
-  // Restart backend so connection pool picks up fresh enum type OIDs
-  console.log("[E2E Setup] Restarting backend to refresh DB connections...");
-  execSync("docker restart ibg-e2e-backend", {
-    stdio: "inherit",
-    timeout: 30_000,
-  });
-  await waitForBackend();
-  console.log("[E2E Setup] Backend restarted and healthy.");
+  // Flush Redis once before all tests (replaces per-file flushRedis calls)
+  console.log("[E2E Setup] Flushing Redis...");
+  await flushRedis();
+  console.log("[E2E Setup] Redis flushed.");
+
+  // Only restart backend if it can't serve requests (avoids ~30-60s delay)
+  let backendOk = false;
+  try {
+    const res = await fetch(
+      `${process.env.API_URL || "http://localhost:5049"}/api/v1/stats/leaderboard?limit=1`,
+    );
+    backendOk = res.ok;
+  } catch {}
+
+  if (backendOk) {
+    console.log("[E2E Setup] Backend already healthy, skipping restart.");
+  } else {
+    console.log("[E2E Setup] Restarting backend to refresh DB connections...");
+    execSync("docker restart ibg-e2e-backend", {
+      stdio: "inherit",
+      timeout: 30_000,
+    });
+    await waitForBackend();
+    console.log("[E2E Setup] Backend restarted and healthy.");
+  }
 }
 
 export default globalSetup;

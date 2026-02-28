@@ -1,28 +1,23 @@
 import { test, expect } from "@playwright/test";
 import { createPlayerPage } from "../../fixtures/auth.fixture";
 import { apiLogin, apiCreateRoom, apiGetRoom } from "../../helpers/api-client";
-import {
-  TEST_USER,
-  TEST_PLAYER,
-  ROUTES,
-} from "../../helpers/constants";
-import { flushRedis } from "../../helpers/test-setup";
-
-test.beforeAll(async () => { await flushRedis() });
+import { ROUTES } from "../../helpers/constants";
+import { generateTestAccounts } from "../../helpers/test-setup";
 
 test.describe("Rooms — Disconnect / Reconnect", () => {
   test("player disconnect shows reconnecting status, reconnect clears it", async ({
     browser,
   }) => {
+    const accounts = await generateTestAccounts(2);
     // Setup room with 2 players
-    const p1Login = await apiLogin(TEST_USER.email, TEST_USER.password);
+    const p1Login = await apiLogin(accounts[0].email, accounts[0].password);
     const room = await apiCreateRoom(p1Login.access_token, "undercover");
     const roomDetails = await apiGetRoom(room.id, p1Login.access_token);
 
     const player1 = await createPlayerPage(
       browser,
-      TEST_USER.email,
-      TEST_USER.password,
+      accounts[0].email,
+      accounts[0].password,
     );
     await player1.goto(ROUTES.room(room.id));
     await player1.waitForLoadState("domcontentloaded");
@@ -33,7 +28,7 @@ test.describe("Rooms — Disconnect / Reconnect", () => {
     const player2 = await p2Context.newPage();
 
     // Inject auth for player 2
-    const p2Login = await apiLogin(TEST_PLAYER.email, TEST_PLAYER.password);
+    const p2Login = await apiLogin(accounts[1].email, accounts[1].password);
     await player2.goto(ROUTES.rooms, { waitUntil: "commit" });
     await player2.evaluate(
       ({ tokens, keys }) => {
@@ -98,15 +93,17 @@ test.describe("Rooms — Disconnect / Reconnect", () => {
   });
 
   test("player removed after grace period expires", async ({ browser }) => {
+    test.setTimeout(90_000);
+    const accounts = await generateTestAccounts(2);
     // Setup room with 2 players
-    const p1Login = await apiLogin(TEST_USER.email, TEST_USER.password);
+    const p1Login = await apiLogin(accounts[0].email, accounts[0].password);
     const room = await apiCreateRoom(p1Login.access_token, "undercover");
     const roomDetails = await apiGetRoom(room.id, p1Login.access_token);
 
     const player1 = await createPlayerPage(
       browser,
-      TEST_USER.email,
-      TEST_USER.password,
+      accounts[0].email,
+      accounts[0].password,
     );
     await player1.goto(ROUTES.room(room.id));
     await player1.waitForLoadState("domcontentloaded");
@@ -115,8 +112,8 @@ test.describe("Rooms — Disconnect / Reconnect", () => {
     // Player 2 joins
     const player2 = await createPlayerPage(
       browser,
-      TEST_PLAYER.email,
-      TEST_PLAYER.password,
+      accounts[1].email,
+      accounts[1].password,
     );
     await player2.goto(ROUTES.rooms);
     await player2.waitForLoadState("domcontentloaded");
@@ -142,8 +139,8 @@ test.describe("Rooms — Disconnect / Reconnect", () => {
     // Player 2 permanently disconnects (close the context entirely)
     await player2.context().close();
 
-    // Wait for the grace period to expire (5 seconds in E2E + buffer)
-    await player1.waitForTimeout(8_000);
+    // Wait for the grace period to expire (30 seconds in E2E + buffer)
+    await player1.waitForTimeout(35_000);
 
     // Player 1 should see the permanently left toast
     // and the player count should decrease
