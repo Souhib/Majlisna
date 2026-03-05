@@ -1,21 +1,18 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
-import { Crown, Loader2, LogOut, MessageCircle, Shield, Skull, ThumbsUp, User } from "lucide-react"
+import { Crown, Loader2, LogOut, MessageCircle } from "lucide-react"
 import { AnimatePresence, motion } from "motion/react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import apiClient, { getApiErrorMessage } from "@/api/client"
+import { DescriptionPhase } from "@/components/games/undercover/DescriptionPhase"
+import { EliminationOverlay } from "@/components/games/undercover/EliminationOverlay"
+import { GameOverScreen } from "@/components/games/undercover/GameOverScreen"
+import { RoleRevealPhase } from "@/components/games/undercover/RoleRevealPhase"
+import { VotingPhase } from "@/components/games/undercover/VotingPhase"
 import { useAuth } from "@/providers/AuthProvider"
 import { cn } from "@/lib/utils"
-
-interface UndercoverPlayer {
-  id: string
-  username: string
-  is_alive: boolean
-  is_mayor?: boolean
-  role?: string
-}
 
 interface DescriptionOrderEntry {
   user_id: string
@@ -23,7 +20,7 @@ interface DescriptionOrderEntry {
 }
 
 interface GameState {
-  players: UndercoverPlayer[]
+  players: { id: string; username: string; is_alive: boolean; is_mayor?: boolean }[]
   phase: "role_reveal" | "describing" | "playing" | "elimination" | "game_over"
   round: number
   my_role?: string
@@ -122,7 +119,7 @@ function UndercoverGamePage() {
       phase = "role_reveal"
     }
 
-    // Detect elimination: if phase just changed from voting to describing and there's a newly eliminated player
+    // Detect elimination
     const prevPhase = previousPhaseRef.current
     const lastEliminated = serverState.eliminated_players.length > 0
       ? serverState.eliminated_players[serverState.eliminated_players.length - 1]
@@ -164,7 +161,6 @@ function UndercoverGamePage() {
     const currentPhase = serverState.turn_phase
     const currentRound = serverState.turn_number
 
-    // Reset state on new round
     if (currentRound > previousRoundRef.current && previousRoundRef.current > 0) {
       setSelectedVote(null)
       setDescriptionInput("")
@@ -177,7 +173,6 @@ function UndercoverGamePage() {
       }
     }
 
-    // Show voting transition when descriptions complete
     if (previousPhaseRef.current === "describing" && currentPhase === "voting" && !showVotingTransition) {
       setShowVotingTransition(true)
       votingTransitionTimerRef.current = setTimeout(() => {
@@ -201,7 +196,6 @@ function UndercoverGamePage() {
     }
   }, [queryError, navigate])
 
-  // Derive hasVoted from server-authoritative votedPlayers list
   const hasVoted = useMemo(() => {
     if (!user) return false
     return gameState.votedPlayers.includes(user.id)
@@ -301,21 +295,25 @@ function UndercoverGamePage() {
     navigate({ to: "/rooms" })
   }, [user, navigate, t])
 
+  const handleBackToRoom = useCallback(() => {
+    if (roomIdRef.current) {
+      navigate({ to: "/rooms/$roomId", params: { roomId: roomIdRef.current } })
+    }
+  }, [navigate])
+
+  const handleDescriptionInputChange = useCallback((value: string) => {
+    setDescriptionInput(value)
+    setDescriptionError("")
+  }, [])
+
   const myPlayer = gameState.players.find((p) => p.id === user?.id)
   const isAlive = myPlayer?.is_alive !== false
 
-  // Check if it's my turn to describe
   const isMyTurnToDescribe =
     gameState.phase === "describing" &&
     gameState.descriptionOrder.length > 0 &&
     gameState.currentDescriberIndex < gameState.descriptionOrder.length &&
     gameState.descriptionOrder[gameState.currentDescriberIndex]?.user_id === user?.id
-
-  // Current describer info
-  const currentDescriber =
-    gameState.descriptionOrder.length > 0 && gameState.currentDescriberIndex < gameState.descriptionOrder.length
-      ? gameState.descriptionOrder[gameState.currentDescriberIndex]
-      : null
 
   if (cancelMessage) {
     return (
@@ -385,317 +383,67 @@ function UndercoverGamePage() {
 
       {/* Role Reveal */}
       {gameState.phase === "role_reveal" && gameState.my_role && (
-        <div className="rounded-xl border bg-card p-8 text-center mb-8">
-          <Shield className="h-12 w-12 mx-auto text-primary mb-4" />
-          <h2 className="text-xl font-bold mb-2">{t("game.yourRole")}</h2>
-          <div className="inline-block rounded-full bg-primary/10 px-6 py-2 text-lg font-bold text-primary">
-            {gameState.my_role === "civilian"
-              ? t("games.undercover.roles.civilian")
-              : gameState.my_role === "undercover"
-                ? t("games.undercover.roles.undercover")
-                : t("games.undercover.roles.mrWhite")}
-          </div>
-          {gameState.my_word && (
-            <div className="mt-4">
-              <p className="text-sm text-muted-foreground">{t("game.yourWord")}</p>
-              <p className="text-2xl font-bold mt-1">{gameState.my_word}</p>
-            </div>
-          )}
-          <button
-            type="button"
-            onClick={handleDismissRole}
-            className="mt-6 rounded-md bg-primary px-6 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
-          >
-            {t("game.undercover.iUnderstand")}
-          </button>
-        </div>
+        <RoleRevealPhase
+          myRole={gameState.my_role}
+          myWord={gameState.my_word}
+          onDismiss={handleDismissRole}
+        />
       )}
 
       {/* Describing Phase */}
       {gameState.phase === "describing" && (
-        <div className="mb-8">
-          {/* Role/Word reminder */}
-          {gameState.my_role && gameState.my_role !== "mr_white" && gameState.my_word && (
-            <div className="rounded-lg bg-primary/5 border border-primary/20 p-3 mb-4 text-center">
-              <span className="text-sm text-muted-foreground">{t("game.undercover.yourWordReminder")}:</span>{" "}
-              <span className="font-bold text-primary">{gameState.my_word}</span>
-            </div>
-          )}
-
-          <h2 className="text-xl font-bold text-center mb-4">{t("game.undercover.describeYourWord")}</h2>
-
-          {/* Description Order */}
-          {gameState.descriptionOrder.length > 0 && (
-            <div className="rounded-lg border bg-card p-4 mb-4">
-              <h3 className="text-sm font-semibold mb-2 flex items-center gap-2">
-                <MessageCircle className="h-4 w-4" />
-                {t("game.undercover.descriptionOrder")}
-              </h3>
-              <div className="space-y-1.5">
-                {gameState.descriptionOrder.map((entry, idx) => {
-                  const hasDescribed = !!gameState.descriptions[entry.user_id]
-                  const isCurrent = idx === gameState.currentDescriberIndex && !hasDescribed
-                  return (
-                    <div
-                      key={entry.user_id}
-                      className={cn(
-                        "flex items-center justify-between rounded-md px-3 py-1.5 text-sm",
-                        isCurrent && "bg-primary/10 border border-primary/30",
-                        hasDescribed && "opacity-60",
-                      )}
-                    >
-                      <span className={cn("font-medium", isCurrent && "text-primary")}>
-                        {idx + 1}. {entry.username}
-                        {entry.user_id === user?.id && " (you)"}
-                      </span>
-                      {hasDescribed && (
-                        <span className="text-xs bg-muted rounded-full px-2 py-0.5">
-                          {gameState.descriptions[entry.user_id]}
-                        </span>
-                      )}
-                      {isCurrent && !hasDescribed && (
-                        <span className="text-xs text-primary font-semibold">
-                          {entry.user_id === user?.id ? t("game.undercover.yourTurn") : "..."}
-                        </span>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Description Input (my turn) */}
-          {isMyTurnToDescribe && isAlive && (
-            <div className="rounded-lg border bg-card p-4 mb-4">
-              <label htmlFor="description-input" className="block text-sm font-medium mb-2">
-                {t("game.undercover.describeYourWord")}
-              </label>
-              <div className="flex gap-2">
-                <input
-                  id="description-input"
-                  type="text"
-                  value={descriptionInput}
-                  onChange={(e) => {
-                    setDescriptionInput(e.target.value)
-                    setDescriptionError("")
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleSubmitDescription()
-                  }}
-                  placeholder={t("game.undercover.describeYourWord")}
-                  maxLength={50}
-                  disabled={isSubmittingDescription}
-                  className="flex-1 rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                />
-                <button
-                  type="button"
-                  onClick={handleSubmitDescription}
-                  disabled={isSubmittingDescription || !descriptionInput.trim()}
-                  className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
-                >
-                  {isSubmittingDescription ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    t("game.undercover.submitDescription")
-                  )}
-                </button>
-              </div>
-              {descriptionError && (
-                <p className="text-xs text-destructive mt-1">{descriptionError}</p>
-              )}
-            </div>
-          )}
-
-          {/* Waiting message (not my turn) */}
-          {!isMyTurnToDescribe && currentDescriber && (
-            <div className="rounded-lg bg-muted/50 p-3 mb-4 text-center">
-              <p className="text-sm text-muted-foreground">
-                {t("game.undercover.waitingForDescription", { username: currentDescriber.username })}
-              </p>
-            </div>
-          )}
-
-          {/* All descriptions done but transition not yet visible */}
-          {gameState.currentDescriberIndex >= gameState.descriptionOrder.length && gameState.descriptionOrder.length > 0 && (
-            <div className="rounded-lg bg-muted/50 p-3 mb-4 text-center">
-              <Loader2 className="h-4 w-4 inline animate-spin mr-2" />
-              <span className="text-sm text-muted-foreground">{t("common.loading")}</span>
-            </div>
-          )}
-        </div>
+        <DescriptionPhase
+          myRole={gameState.my_role}
+          myWord={gameState.my_word}
+          descriptionOrder={gameState.descriptionOrder}
+          currentDescriberIndex={gameState.currentDescriberIndex}
+          descriptions={gameState.descriptions}
+          currentUserId={user?.id}
+          isMyTurnToDescribe={isMyTurnToDescribe}
+          isAlive={isAlive}
+          descriptionInput={descriptionInput}
+          descriptionError={descriptionError}
+          isSubmittingDescription={isSubmittingDescription}
+          onDescriptionInputChange={handleDescriptionInputChange}
+          onSubmitDescription={handleSubmitDescription}
+        />
       )}
 
       {/* Playing Phase (Voting) */}
       {gameState.phase === "playing" && (
-        <div className="mb-8">
-          {/* Role/Word reminder */}
-          {gameState.my_role && gameState.my_role !== "mr_white" && gameState.my_word && (
-            <div className="rounded-lg bg-primary/5 border border-primary/20 p-3 mb-4 text-center">
-              <span className="text-sm text-muted-foreground">{t("game.undercover.yourWordReminder")}:</span>{" "}
-              <span className="font-bold text-primary">{gameState.my_word}</span>
-            </div>
-          )}
-
-          {/* Show descriptions from the describing phase */}
-          {Object.keys(gameState.descriptions).length > 0 && (
-            <div className="rounded-lg border bg-card p-4 mb-4">
-              <h3 className="text-sm font-semibold mb-2 flex items-center gap-2">
-                <MessageCircle className="h-4 w-4" />
-                {t("game.undercover.descriptionOrder")}
-              </h3>
-              <div className="flex flex-wrap gap-2">
-                {gameState.descriptionOrder.map((entry) => {
-                  const word = gameState.descriptions[entry.user_id]
-                  if (!word) return null
-                  return (
-                    <div key={entry.user_id} className="rounded-md bg-muted px-3 py-1.5 text-sm">
-                      <span className="font-medium">{entry.username}:</span>{" "}
-                      <span className="text-primary font-semibold">{word}</span>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )}
-
-          {!isAlive && (
-            <div className="rounded-lg bg-destructive/10 border border-destructive/20 p-3 mb-4 text-center">
-              <Skull className="h-5 w-5 inline mr-2 text-destructive" />
-              <span className="text-sm font-medium text-destructive">{t("game.undercover.youAreDead")}</span>
-            </div>
-          )}
-
-          <h2 className="text-xl font-bold text-center mb-2">{t("game.undercover.discussAndVote")}</h2>
-          <p className="text-sm text-muted-foreground text-center mb-4">{t("game.undercover.selectPlayerToVote")}</p>
-
-          {hasVoted && (
-            <div className="rounded-lg bg-muted/50 p-3 mb-4 text-center">
-              <p className="text-sm text-muted-foreground">{t("game.undercover.waitingForVotes")}</p>
-            </div>
-          )}
-
-          {isAlive && <div className="grid gap-3 sm:grid-cols-2">
-            {gameState.players
-              .filter((p) => p.is_alive && p.id !== user?.id)
-              .map((player) => {
-                const hasPlayerVoted = gameState.votedPlayers.includes(player.id)
-                return (
-                  <button
-                    key={player.id}
-                    type="button"
-                    onClick={() => handleSelectPlayer(player.id)}
-                    disabled={hasVoted || !isAlive}
-                    className={cn(
-                      "flex items-center gap-3 rounded-lg border p-4 transition-colors",
-                      selectedVote === player.id
-                        ? "border-primary bg-primary/10 ring-2 ring-primary/30"
-                        : "hover:border-primary/50",
-                      (hasVoted || !isAlive) && "opacity-50 cursor-not-allowed",
-                    )}
-                  >
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
-                      <User className="h-5 w-5" />
-                    </div>
-                    <div className="text-left flex-1">
-                      <div className="font-medium flex items-center gap-2">
-                        {player.username}
-                        {player.is_mayor && (
-                          <Crown className="h-3.5 w-3.5 text-yellow-500" />
-                        )}
-                      </div>
-                      {selectedVote === player.id && !hasVoted && (
-                        <div className="flex items-center gap-1 text-xs text-primary">
-                          <ThumbsUp className="h-3 w-3" />
-                          Selected
-                        </div>
-                      )}
-                      {hasVoted && selectedVote === player.id && (
-                        <div className="flex items-center gap-1 text-xs text-primary">
-                          <ThumbsUp className="h-3 w-3" />
-                          {t("game.undercover.voted")}
-                        </div>
-                      )}
-                    </div>
-                    {hasPlayerVoted && (
-                      <span className="text-xs bg-muted rounded-full px-2 py-0.5 text-muted-foreground">
-                        {t("game.undercover.voted")}
-                      </span>
-                    )}
-                  </button>
-                )
-              })}
-          </div>}
-
-          {/* Vote Confirmation Button */}
-          {isAlive && !hasVoted && (
-            <button
-              type="button"
-              onClick={handleConfirmVote}
-              disabled={!selectedVote}
-              className={cn(
-                "mt-4 w-full rounded-md px-6 py-3 text-sm font-semibold transition-colors",
-                selectedVote
-                  ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                  : "bg-muted text-muted-foreground cursor-not-allowed",
-              )}
-            >
-              {t("game.undercover.voteToEliminate")}
-            </button>
-          )}
-        </div>
+        <VotingPhase
+          players={gameState.players}
+          myRole={gameState.my_role}
+          myWord={gameState.my_word}
+          descriptions={gameState.descriptions}
+          descriptionOrder={gameState.descriptionOrder}
+          isAlive={isAlive}
+          hasVoted={hasVoted}
+          selectedVote={selectedVote}
+          votedPlayers={gameState.votedPlayers}
+          currentUserId={user?.id}
+          onSelectPlayer={handleSelectPlayer}
+          onConfirmVote={handleConfirmVote}
+        />
       )}
 
       {/* Elimination */}
       {gameState.phase === "elimination" && (
-        <div className="rounded-xl border bg-card p-8 text-center mb-8">
-          <Skull className="h-12 w-12 mx-auto text-destructive mb-4" />
-          <h2 className="text-xl font-bold">{t("game.eliminated")}</h2>
-          {gameState.eliminated_player_username && (
-            <p className="text-lg mt-2">{gameState.eliminated_player_username}</p>
-          )}
-          {gameState.eliminated_player_role && (
-            <p className="text-sm text-muted-foreground mt-1">
-              {t("game.yourRole")}: {gameState.eliminated_player_role}
-            </p>
-          )}
-          <button
-            type="button"
-            onClick={handleNextRound}
-            className="mt-6 rounded-md bg-primary px-6 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
-          >
-            {t("game.undercover.nextRound")}
-          </button>
-        </div>
+        <EliminationOverlay
+          eliminatedUsername={gameState.eliminated_player_username}
+          eliminatedRole={gameState.eliminated_player_role}
+          onNextRound={handleNextRound}
+        />
       )}
 
       {/* Game Over */}
       {gameState.phase === "game_over" && (
-        <div className="rounded-xl border bg-card p-8 text-center mb-8">
-          <h2 className="text-3xl font-bold">{t("game.gameOver")}</h2>
-          <p className="text-xl mt-4">
-            {t("game.winner")}: {gameState.winner}
-          </p>
-          <div className="mt-6 flex items-center justify-center gap-3">
-            {roomIdRef.current && (
-              <button
-                type="button"
-                onClick={() => navigate({ to: "/rooms/$roomId", params: { roomId: roomIdRef.current! } })}
-                className="inline-flex items-center gap-2 rounded-md bg-primary px-6 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
-              >
-                {t("game.backToRoom")}
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={handleLeaveRoom}
-              className="inline-flex items-center gap-2 rounded-md border px-6 py-2.5 text-sm font-semibold text-muted-foreground hover:bg-muted transition-colors"
-            >
-              <LogOut className="h-4 w-4" />
-              {t("room.leave")}
-            </button>
-          </div>
-        </div>
+        <GameOverScreen
+          winner={gameState.winner}
+          roomId={roomIdRef.current}
+          onBackToRoom={handleBackToRoom}
+          onLeaveRoom={handleLeaveRoom}
+        />
       )}
 
       {/* Player List */}

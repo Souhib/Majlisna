@@ -19,10 +19,10 @@ export const TEST_USER = {
 // ─── localStorage Keys (must match front/src/lib/auth.ts) ──
 
 export const STORAGE_KEYS = {
-  token: "ibg-token",
-  refreshToken: "ibg-refresh-token",
-  tokenExpiry: "ibg-token-expiry",
-  userData: "ibg-user-data",
+  token: "ipg-token",
+  refreshToken: "ipg-refresh-token",
+  tokenExpiry: "ipg-token-expiry",
+  userData: "ipg-user-data",
 } as const;
 
 // ─── Frontend Routes ────────────────────────────────────────

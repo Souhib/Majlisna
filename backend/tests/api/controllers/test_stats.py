@@ -4,8 +4,8 @@ from uuid import uuid4
 import pytest
 from freezegun import freeze_time
 
-from ibg.api.controllers.stats import StatsController
-from ibg.api.schemas.error import UserNotFoundError
+from ipg.api.controllers.stats import StatsController
+from ipg.api.schemas.error import UserNotFoundError
 
 
 async def test_get_or_create_user_stats_creates(stats_controller: StatsController, create_user):

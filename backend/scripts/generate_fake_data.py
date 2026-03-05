@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Script to generate fake data for IBG platform testing.
+"""Script to generate fake data for IPG platform testing.
 
 This script can be used to:
 1. Create database tables and generate fake users, rooms, games, and seed data
@@ -45,16 +45,16 @@ from faker import Faker
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from ibg.api.controllers.achievement import AchievementController
-from ibg.api.controllers.shared import get_password_hash
-from ibg.api.models.codenames import CodenamesWord, CodenamesWordPack
-from ibg.api.models.game import GameType
-from ibg.api.models.room import RoomStatus, RoomType
-from ibg.api.models.stats import UserStats
-from ibg.api.models.table import Game, Room, User
-from ibg.api.models.undercover import TermPair, Word
-from ibg.database import create_app_engine, create_db_and_tables
-from ibg.settings import Settings
+from ipg.api.controllers.achievement import AchievementController
+from ipg.api.controllers.shared import get_password_hash
+from ipg.api.models.codenames import CodenamesWord, CodenamesWordPack
+from ipg.api.models.game import GameType
+from ipg.api.models.room import RoomStatus, RoomType
+from ipg.api.models.stats import UserStats
+from ipg.api.models.table import Game, Room, User
+from ipg.api.models.undercover import TermPair, Word
+from ipg.database import create_app_engine, create_db_and_tables
+from ipg.settings import Settings
 
 fake = Faker()
 
@@ -693,7 +693,7 @@ async def generate_all_data(
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
-        description="Generate fake data for IBG platform testing",
+        description="Generate fake data for IPG platform testing",
     )
 
     group = parser.add_mutually_exclusive_group(required=True)

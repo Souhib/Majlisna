@@ -1,6 +1,6 @@
 import pytest
 
-from ibg.api.controllers.shared import create_random_public_id, create_random_string, get_password_hash, verify_password
+from ipg.api.controllers.shared import create_random_public_id, create_random_string, get_password_hash, verify_password
 
 
 @pytest.mark.asyncio

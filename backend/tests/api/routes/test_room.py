@@ -7,17 +7,17 @@ from uuid import uuid4
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
-from ibg.api.controllers.room import RoomController
-from ibg.api.models.game import GameType
-from ibg.api.models.room import RoomStatus, RoomType
-from ibg.api.models.table import Room, User
-from ibg.api.schemas.error import (
+from ipg.api.controllers.room import RoomController
+from ipg.api.models.game import GameType
+from ipg.api.models.room import RoomStatus, RoomType
+from ipg.api.models.table import Room, User
+from ipg.api.schemas.error import (
     RoomNotFoundError,
     UserAlreadyInRoomError,
     UserNotInRoomError,
     WrongRoomPasswordError,
 )
-from ibg.dependencies import get_current_user, get_room_controller
+from ipg.dependencies import get_current_user, get_room_controller
 
 BASE_URL = "/api/v1/rooms"
 

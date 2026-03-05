@@ -76,11 +76,11 @@ jobs:
 
       - name: Lint (ruff check)
         continue-on-error: true
-        run: uv run ruff check ibg/ tests/
+        run: uv run ruff check ipg/ tests/
 
       - name: Format check (ruff format)
         continue-on-error: true
-        run: uv run ruff format --check ibg/ tests/
+        run: uv run ruff format --check ipg/ tests/
 
       - name: Type check (mypy)
         continue-on-error: true

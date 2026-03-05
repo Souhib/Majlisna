@@ -2,7 +2,7 @@
 
 import pytest
 
-from ibg.api.controllers.codenames_helpers import (
+from ipg.api.controllers.codenames_helpers import (
     CodenamesCardType,
     CodenamesRole,
     CodenamesTeam,

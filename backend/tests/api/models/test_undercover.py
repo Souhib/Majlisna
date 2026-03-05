@@ -5,7 +5,7 @@ from uuid import uuid4
 import pytest
 from faker import Faker
 
-from ibg.api.models.undercover import TermPairCreate, WordCreate
+from ipg.api.models.undercover import TermPairCreate, WordCreate
 
 
 def test_create_word_with_all_required_fields(faker: Faker):

@@ -30,7 +30,7 @@ export function QueryProvider({ children }: QueryProviderProps) {
             refetchOnWindowFocus: false,
           },
           mutations: {
-            retry: 1,
+            retry: 0,
           },
         },
       }),

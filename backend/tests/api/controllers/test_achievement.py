@@ -1,8 +1,8 @@
 from sqlmodel import select
 
-from ibg.api.controllers.achievement import ACHIEVEMENT_DEFINITIONS, AchievementController
-from ibg.api.controllers.stats import StatsController
-from ibg.api.models.stats import AchievementDefinition, UserStats
+from ipg.api.controllers.achievement import ACHIEVEMENT_DEFINITIONS, AchievementController
+from ipg.api.controllers.stats import StatsController
+from ipg.api.models.stats import AchievementDefinition, UserStats
 
 
 async def test_seed_achievements(achievement_controller: AchievementController):

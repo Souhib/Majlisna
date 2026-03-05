@@ -1,17 +1,17 @@
-# CLAUDE.md - IBG (Islamic Board Games)
+# CLAUDE.md - IPG (Islamic Party Games)
 
 ## Project Overview
 
-IBG is a real-time multiplayer platform for Islamized versions of popular party games. Currently supports **Undercover** and **Codenames**, with plans for more games.
+IPG is a real-time multiplayer platform for Islamized versions of popular party games. Currently supports **Undercover** and **Codenames**, with plans for more games.
 
 ### Architecture
 
 This is a **monorepo** with separate backend and frontend applications:
 
 ```
-IBG/
+IPG/
 ├── backend/                    # Python/FastAPI (pure REST)
-│   ├── ibg/
+│   ├── ipg/
 │   │   ├── api/               # REST API
 │   │   │   ├── controllers/   # Business logic + game logic
 │   │   │   ├── models/        # SQLModel DB tables
@@ -210,15 +210,15 @@ Do not consider a task complete until ALL tests pass with zero failures AND zero
 
 #### Import Organization
 
-**All imports must be at the top of the file.** Never place imports inside functions or methods, even for lazy loading. The only acceptable exception is to break circular imports involving Redis OM models (e.g., `ibg.socketio.models` ↔ `ibg.api.controllers`), and even then, add a comment explaining why.
+**All imports must be at the top of the file.** Never place imports inside functions or methods, even for lazy loading. The only acceptable exception is to break circular imports involving Redis OM models (e.g., `ipg.socketio.models` ↔ `ipg.api.controllers`), and even then, add a comment explaining why.
 
 ```python
 # Good - imports at the top
 from loguru import logger
 from sqlmodel import select
 
-from ibg.api.models.table import User, Room
-from ibg.api.schemas.error import NotFoundError
+from ipg.api.models.table import User, Room
+from ipg.api.schemas.error import NotFoundError
 
 class MyController:
     async def my_method(self):
@@ -235,7 +235,7 @@ class MyController:
     async def _check_redis(self):
         # Lazy import to avoid circular dependency:
         # room.py -> socketio.models.user -> socketio.models.shared -> room.py
-        from ibg.socketio.models.user import User as RedisUser
+        from ipg.socketio.models.user import User as RedisUser
         ...
 ```
 
@@ -243,11 +243,11 @@ class MyController:
 
 - Use `def` for pure functions, `async def` for asynchronous operations
 - Python 3.10+ type hints for all function signatures
-- **CRITICAL: Always use the project's base classes from `ibg.api.schemas.shared`**, never `pydantic.BaseModel` or `sqlmodel.SQLModel` directly
+- **CRITICAL: Always use the project's base classes from `ipg.api.schemas.shared`**, never `pydantic.BaseModel` or `sqlmodel.SQLModel` directly
 - **No nested function definitions.** Do not define functions inside other functions. Extract inner logic into separate methods on the class or standalone module-level functions.
 - Use descriptive variable names with auxiliary verbs (e.g., `is_active`, `has_permission`)
 - Use lowercase with underscores for directories and files
-- Store all magic values in `ibg/api/constants.py`
+- Store all magic values in `ipg/api/constants.py`
 
 #### Route → Controller → Model
 
@@ -271,9 +271,9 @@ class MyController:
 - **Route -> Controller -> Model**: No business logic in routes
 - **Async Everything**: All DB operations and external calls are async
 - **Dependency Injection**: FastAPI's `Depends()` with `Annotated` type hints
-- **BaseModel/BaseTable**: All models inherit from `ibg.api.schemas.shared.BaseModel/BaseTable`
+- **BaseModel/BaseTable**: All models inherit from `ipg.api.schemas.shared.BaseModel/BaseTable`
 - **Enhanced Errors**: Auto i18n keys, auto-logging, `frontend_message` for UI
-- **Multi-env Settings**: `IBG_ENV` selector (.env -> .env.{env})
+- **Multi-env Settings**: `IPG_ENV` selector (.env -> .env.{env})
 - **Pure REST + Polling**: All game state via REST endpoints, TanStack Query polling for real-time updates (no WebSocket)
 - **Game State in PostgreSQL**: `Game.live_state` JSON column stores full game state (previously Redis)
 - **Heartbeat via polling**: `RoomUserLink.last_seen_at` updated on each GET request, background task detects disconnects
@@ -335,7 +335,7 @@ page.locator('text=Discuss and vote')
 
 **The CI/CD pipeline auto-deploys on push to `main`.** GitHub Actions detects which components changed and only rebuilds what's needed.
 
-**E2E docker-compose is separate from production.** `docker-compose.e2e.yml` runs the backend with `IBG_ENV=development` and a dedicated PostgreSQL. Never mix E2E and production compose files.
+**E2E docker-compose is separate from production.** `docker-compose.e2e.yml` runs the backend with `IPG_ENV=development` and a dedicated PostgreSQL. Never mix E2E and production compose files.
 
 **Backend health check endpoint is `/health`.**
 

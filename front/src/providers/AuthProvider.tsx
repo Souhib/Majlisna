@@ -51,15 +51,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const refreshAccessToken = useCallback(async (): Promise<boolean> => {
     if (isRefreshingRef.current) return false
-    const storedRefreshToken = localStorage.getItem("ibg-refresh-token")
-    if (!storedRefreshToken) return false
+    const storedRefreshToken = localStorage.getItem("ipg-refresh-token")
 
     isRefreshingRef.current = true
     try {
       const response = await apiClient({
         method: "POST",
         url: "/api/v1/auth/refresh",
-        data: { refresh_token: storedRefreshToken },
+        // Send refresh token as param if available (cookie is sent automatically)
+        params: storedRefreshToken ? { refresh_token: storedRefreshToken } : undefined,
       })
 
       const { access_token, refresh_token, expires_in } = response.data as {
@@ -114,19 +114,39 @@ export function AuthProvider({ children }: AuthProviderProps) {
     [refreshAccessToken],
   )
 
-  // Initialize auth state from localStorage
+  // Initialize auth state — try /me endpoint (uses cookies), fall back to localStorage
   useEffect(() => {
-    const storedToken = getStoredToken()
-    const storedUserData = getStoredUserData() as UserData | null
-    const storedExpiry = getTokenExpiry()
+    const initAuth = async () => {
+      // First, try cookie-based auth via /me
+      try {
+        const response = await apiClient({
+          method: "GET",
+          url: "/api/v1/auth/me",
+        })
+        const userData = response.data as UserData
+        setUser(userData)
+        setToken("cookie-auth") // sentinel value — actual token is in httpOnly cookie
+        setIsLoading(false)
+        return
+      } catch {
+        // Cookie auth failed, try localStorage fallback
+      }
 
-    if (storedToken) {
-      setToken(storedToken)
-      if (storedUserData) setUser(storedUserData)
-      if (storedExpiry) scheduleTokenRefresh(storedExpiry)
+      // Fallback: localStorage tokens (for transition compatibility)
+      const storedToken = getStoredToken()
+      const storedUserData = getStoredUserData() as UserData | null
+      const storedExpiry = getTokenExpiry()
+
+      if (storedToken) {
+        setToken(storedToken)
+        if (storedUserData) setUser(storedUserData)
+        if (storedExpiry) scheduleTokenRefresh(storedExpiry)
+      }
+
+      setIsLoading(false)
     }
 
-    setIsLoading(false)
+    initAuth()
 
     return () => {
       if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current)
@@ -145,10 +165,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
     [scheduleTokenRefresh],
   )
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
     if (refreshTimerRef.current) {
       clearTimeout(refreshTimerRef.current)
       refreshTimerRef.current = null
+    }
+    // Call backend logout to clear cookies
+    try {
+      await apiClient({ method: "POST", url: "/api/v1/auth/logout" })
+    } catch {
+      // Ignore — we clear local state regardless
     }
     clearAuthData()
     setToken(null)
@@ -158,7 +184,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const setUserData = useCallback((userData: UserData | null) => {
     setUser(userData)
     if (userData) {
-      localStorage.setItem("ibg-user-data", JSON.stringify(userData))
+      localStorage.setItem("ipg-user-data", JSON.stringify(userData))
     }
   }, [])
 

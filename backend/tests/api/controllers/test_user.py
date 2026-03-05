@@ -2,9 +2,9 @@ from uuid import uuid4
 
 import pytest
 
-from ibg.api.controllers.user import UserController
-from ibg.api.models.user import UserCreate, UserUpdate
-from ibg.api.schemas.error import UserAlreadyExistsError, UserNotFoundError
+from ipg.api.controllers.user import UserController
+from ipg.api.models.user import UserCreate, UserUpdate
+from ipg.api.schemas.error import UserAlreadyExistsError, UserNotFoundError
 
 
 async def test_create_user_success(user_controller: UserController):
@@ -219,7 +219,7 @@ async def test_update_user_password_success(user_controller: UserController):
     assert updated_user.id == created_user.id
     assert updated_user.username == "pwuser"
     assert updated_user.email_address == "pw@test.com"
-    assert updated_user.password == "newpassword456"
+    assert updated_user.password != "newpassword456"  # password is hashed, not plaintext
     assert updated_user.password != old_password
     assert updated_user.country is None
 

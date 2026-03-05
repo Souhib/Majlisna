@@ -47,11 +47,6 @@ export default defineConfig({
         target: 'http://127.0.0.1:5000',
         changeOrigin: true,
       },
-      '/socket.io': {
-        target: 'http://127.0.0.1:5000',
-        changeOrigin: true,
-        ws: true,
-      },
     },
     hmr: {
       overlay: true,
@@ -65,7 +60,6 @@ export default defineConfig({
       '@tanstack/react-query',
       'motion/react',
       'lucide-react',
-      'socket.io-client',
     ],
   },
   build: {
@@ -81,8 +75,7 @@ export default defineConfig({
           if (id.includes('@tanstack/react-router') || id.includes('@tanstack/react-query')) return 'router-vendor'
           if (id.includes('/motion/') || id.includes('framer-motion')) return 'motion'
           if (id.includes('@radix-ui')) return 'radix-ui'
-          if (id.includes('socket.io-client')) return 'socket-vendor'
-          if (id.includes('i18next') || id.includes('react-i18next')) return 'i18n'
+if (id.includes('i18next') || id.includes('react-i18next')) return 'i18n'
           if (id.includes('lucide-react')) return 'icons'
         },
         chunkFileNames: 'assets/[name]-[hash].js',

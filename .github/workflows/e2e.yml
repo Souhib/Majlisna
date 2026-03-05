@@ -76,8 +76,8 @@ jobs:
 
       - name: Seed E2E database
         run: |
-          docker exec -w /app ibg-e2e-backend env PYTHONPATH=/app python scripts/generate_fake_data.py --delete
-          docker exec -w /app ibg-e2e-backend env PYTHONPATH=/app python scripts/generate_fake_data.py --create-db
+          docker exec -w /app ipg-e2e-backend env PYTHONPATH=/app python scripts/generate_fake_data.py --delete
+          docker exec -w /app ipg-e2e-backend env PYTHONPATH=/app python scripts/generate_fake_data.py --create-db
 
       # ── Run tests ────────────────────────────────────────────
 

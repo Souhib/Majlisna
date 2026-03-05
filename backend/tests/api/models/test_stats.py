@@ -2,7 +2,7 @@
 
 from uuid import uuid4
 
-from ibg.api.models.stats import AchievementCategory, AchievementDefinition, UserStats
+from ipg.api.models.stats import AchievementCategory, AchievementDefinition, UserStats
 
 
 def test_user_stats_default_values():

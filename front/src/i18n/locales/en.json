@@ -33,13 +33,13 @@
     "loginTitle": "Welcome back",
     "loginDescription": "Enter your credentials to continue",
     "registerTitle": "Create an account",
-    "registerDescription": "Join IBG and play with your friends",
+    "registerDescription": "Join IPG and play with your friends",
     "noAccount": "Don't have an account?",
     "hasAccount": "Already have an account?",
     "forgotPassword": "Forgot password?"
   },
   "home": {
-    "title": "Islamic Board Games",
+    "title": "Islamic Party Games",
     "subtitle": "Play Islamized versions of your favorite party games with friends",
     "playNow": "Play Now",
     "createRoom": "Create Room",
@@ -143,7 +143,8 @@
       "leaveGame": "Leave Game",
       "descriptionSubmitted": "Your hint was submitted!",
       "allDescriptionsIn": "All hints are in!",
-      "timeToVote": "Get ready to vote and eliminate..."
+      "timeToVote": "Get ready to vote and eliminate...",
+      "selected": "Selected"
     },
     "codenames": {
       "giveClue": "Give a Clue",
@@ -206,8 +207,8 @@
     "name": "Souhib TRABELSI",
     "role": "Software Engineer",
     "bio": "Software engineer with 6+ years of experience building scalable web applications with Python, FastAPI, React, and TypeScript. Passionate about real-time apps, clean architecture, and building technology for the Islamic community.",
-    "projectPurpose": "What is IBG?",
-    "projectDescription": "IBG (Islamic Board Games) is a real-time multiplayer platform featuring Islamized versions of popular party games like Undercover and Codenames. Built with FastAPI, Socket.IO, React, and Redis for a seamless gaming experience.",
+    "projectPurpose": "What is IPG?",
+    "projectDescription": "IPG (Islamic Party Games) is a real-time multiplayer platform featuring Islamized versions of popular party games like Undercover and Codenames. Built with FastAPI, Socket.IO, React, and Redis for a seamless gaming experience.",
     "education": "Education",
     "educationEpitech": "Epitech Paris — Master's in Software Engineering",
     "educationSfsu": "San Francisco State University — Certificate",

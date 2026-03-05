@@ -13,7 +13,7 @@ def get_test_app_fixture() -> FastAPI:
     os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
     os.environ["LOGFIRE_TOKEN"] = "fake"
 
-    from ibg.app import create_app  # noqa: PLC0415
+    from ipg.app import create_app  # noqa: PLC0415
 
     return create_app(lifespan=None)
 

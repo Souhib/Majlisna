@@ -1,4 +1,4 @@
-# CLAUDE.md - IBG Backend
+# CLAUDE.md - IPG Backend
 
 ## Overview
 
@@ -28,7 +28,7 @@ PYTHONPATH=. uv run python scripts/generate_fake_data.py --delete
 
 ## Architecture
 
-### API Layer (`ibg/api/`)
+### API Layer (`ipg/api/`)
 
 ```
 api/
@@ -83,7 +83,7 @@ All game state stored in `Game.live_state` JSON column:
 All game mutations use `asyncio.Lock` per game_id:
 ```python
 from sqlalchemy.orm.attributes import flag_modified
-from ibg.api.controllers.game_lock import get_game_lock
+from ipg.api.controllers.game_lock import get_game_lock
 
 async def submit_vote(self, game_id: UUID, ...):
     async with get_game_lock(str(game_id)):
@@ -106,10 +106,10 @@ async def submit_vote(self, game_id: UUID, ...):
 - `GRACE_PERIOD_SECONDS` (30s) → permanent removal
 
 ### Base Classes
-**CRITICAL: Always use `ibg.api.schemas.shared.BaseModel` and `BaseTable`**, never `pydantic.BaseModel` or `sqlmodel.SQLModel` directly.
+**CRITICAL: Always use `ipg.api.schemas.shared.BaseModel` and `BaseTable`**, never `pydantic.BaseModel` or `sqlmodel.SQLModel` directly.
 
 ```python
-from ibg.api.schemas.shared import BaseModel, BaseTable
+from ipg.api.schemas.shared import BaseModel, BaseTable
 
 class UserCreate(BaseModel):     # For schemas
     username: str
@@ -143,7 +143,7 @@ class MyController:
 Errors auto-generate i18n keys and log on construction:
 
 ```python
-from ibg.api.schemas.error import BaseError
+from ipg.api.schemas.error import BaseError
 
 class MyCustomError(BaseError):
     def __init__(self, item_id: UUID):
@@ -162,7 +162,7 @@ Use `Annotated` + `Depends` for DI:
 ```python
 from typing import Annotated
 from fastapi import Depends
-from ibg.dependencies import get_current_user, get_room_controller
+from ipg.dependencies import get_current_user, get_room_controller
 
 async def my_route(
     user: Annotated[User, Depends(get_current_user)],
@@ -184,10 +184,10 @@ async def get_item(
 ```
 
 ### Constants
-All magic values in `ibg/api/constants.py`:
+All magic values in `ipg/api/constants.py`:
 
 ```python
-from ibg.api.constants import MIN_PLAYERS_FOR_GAME, ROOM_PASSWORD_LENGTH
+from ipg.api.constants import MIN_PLAYERS_FOR_GAME, ROOM_PASSWORD_LENGTH
 ```
 
 ## Database Models
@@ -209,11 +209,11 @@ from ibg.api.constants import MIN_PLAYERS_FOR_GAME, ROOM_PASSWORD_LENGTH
 
 ## Environment Configuration
 
-Settings use `IBG_ENV` selector:
+Settings use `IPG_ENV` selector:
 
 | File | Purpose |
 |------|---------|
-| `.env` | `IBG_ENV=development` (selector) |
+| `.env` | `IPG_ENV=development` (selector) |
 | `.env.development` | SQLite, dev JWT key |
 | `.env.production` | PostgreSQL, production keys |
 | `.env.example` | Template (committed) |

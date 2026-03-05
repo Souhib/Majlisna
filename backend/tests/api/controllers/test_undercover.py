@@ -3,9 +3,9 @@ from uuid import uuid4
 import pytest
 from sqlalchemy.exc import NoResultFound
 
-from ibg.api.controllers.undercover import UndercoverController
-from ibg.api.models.undercover import WordCreate, WordUpdate
-from ibg.api.schemas.error import (
+from ipg.api.controllers.undercover import UndercoverController
+from ipg.api.models.undercover import WordCreate, WordUpdate
+from ipg.api.schemas.error import (
     TermPairAlreadyExistsError,
     TermPairNotFoundError,
     WordAlreadyExistsError,

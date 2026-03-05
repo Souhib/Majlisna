@@ -1,4 +1,4 @@
-# Dokploy deployment for IBG
+# Dokploy deployment for IPG
 # Access via IP:
 #   - Frontend: http://<SERVER_IP>:30819
 #   - Backend:  http://<SERVER_IP>:33648
@@ -9,13 +9,13 @@ services:
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: ibg
-      POSTGRES_USER: ibg
+      POSTGRES_DB: ipg
+      POSTGRES_USER: ipg
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ibg"]
+      test: ["CMD-SHELL", "pg_isready -U ipg"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -44,8 +44,8 @@ services:
       dockerfile: Dockerfile
       target: production
     environment:
-      DATABASE_URL: postgresql+asyncpg://ibg:${DB_PASSWORD}@db:5432/ibg
-      REDIS_OM_URL: redis://redis:6379
+      DATABASE_URL: postgresql+asyncpg://ipg:${DB_PASSWORD}@db:5432/ipg
+      REDIS_URL: redis://redis:6379
 
       JWT_SECRET_KEY: ${JWT_SECRET_KEY}
       JWT_ENCRYPTION_ALGORITHM: HS256
@@ -58,8 +58,9 @@ services:
       LOGFIRE_TOKEN: ${LOGFIRE_TOKEN:-}
 
       ENVIRONMENT: ${ENVIRONMENT:-production}
-      IBG_ENV: ${IBG_ENV:-production}
+      IPG_ENV: ${IPG_ENV:-production}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      SENTRY_DSN: ${SENTRY_DSN:-}
     depends_on:
       db:
         condition: service_healthy
@@ -67,6 +68,12 @@ services:
         condition: service_healthy
     ports:
       - "33648:5000"
+    labels:
+      - "traefik.enable=${TRAEFIK_ENABLED:-false}"
+      - "traefik.http.routers.ipg-backend.rule=Host(`${DOMAIN:-ipg.local}`) && PathPrefix(`/api`)"
+      - "traefik.http.routers.ipg-backend.entrypoints=websecure"
+      - "traefik.http.routers.ipg-backend.tls.certresolver=letsencrypt"
+      - "traefik.http.services.ipg-backend.loadbalancer.server.port=5000"
     networks:
       - internal
       - dokploy-network
@@ -81,10 +88,17 @@ services:
       target: production
       args:
         VITE_API_URL: ${VITE_API_URL:-http://<SERVER_IP>:33648}
+        VITE_SENTRY_DSN: ${VITE_SENTRY_DSN:-}
     depends_on:
       - backend
     ports:
       - "30819:80"
+    labels:
+      - "traefik.enable=${TRAEFIK_ENABLED:-false}"
+      - "traefik.http.routers.ipg-frontend.rule=Host(`${DOMAIN:-ipg.local}`)"
+      - "traefik.http.routers.ipg-frontend.entrypoints=websecure"
+      - "traefik.http.routers.ipg-frontend.tls.certresolver=letsencrypt"
+      - "traefik.http.services.ipg-frontend.loadbalancer.server.port=80"
     networks:
       - internal
       - dokploy-network

@@ -8,11 +8,11 @@ from sqlalchemy.orm.attributes import flag_modified
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from ibg.api.controllers.undercover_game import UndercoverGameController
-from ibg.api.models.game import GameStatus
-from ibg.api.models.table import Game, Room
-from ibg.api.models.undercover import UndercoverRole
-from ibg.api.schemas.error import (
+from ipg.api.controllers.undercover_game import UndercoverGameController
+from ipg.api.models.game import GameStatus
+from ipg.api.models.table import Game, Room
+from ipg.api.models.undercover import UndercoverRole
+from ipg.api.schemas.error import (
     BaseError,
     CantVoteBecauseYouDeadError,
     CantVoteForDeadPersonError,

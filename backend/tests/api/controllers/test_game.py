@@ -7,12 +7,12 @@ from sqlalchemy.exc import NoResultFound
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from ibg.api.controllers.game import GameController
-from ibg.api.models.event import EventCreate
-from ibg.api.models.game import GameCreate, GameType, GameUpdate
-from ibg.api.models.room import RoomType
-from ibg.api.models.table import Room
-from ibg.api.schemas.error import GameNotFoundError, NoTurnInsideGameError, RoomIsNotActiveError
+from ipg.api.controllers.game import GameController
+from ipg.api.models.event import EventCreate
+from ipg.api.models.game import GameCreate, GameType, GameUpdate
+from ipg.api.models.room import RoomType
+from ipg.api.models.table import Room
+from ipg.api.schemas.error import GameNotFoundError, NoTurnInsideGameError, RoomIsNotActiveError
 
 
 async def test_create_game_success(sample_room: Room, game_controller: GameController):

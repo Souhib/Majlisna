@@ -7,16 +7,16 @@ import pycountry
 from faker import Faker
 from sqlmodel import Session, SQLModel, create_engine
 
-from ibg.api.controllers.room import RoomController
-from ibg.api.controllers.undercover import UndercoverController
-from ibg.api.controllers.user import UserController
-from ibg.api.models.game import GameType
-from ibg.api.models.room import RoomCreate, RoomJoin, RoomStatus
-from ibg.api.models.table import Game, User
-from ibg.api.models.undercover import Word
-from ibg.api.models.user import UserCreate
-from ibg.socketio.models.room import Room as RedisRoom
-from ibg.socketio.models.user import User as RedisUser
+from ipg.api.controllers.room import RoomController
+from ipg.api.controllers.undercover import UndercoverController
+from ipg.api.controllers.user import UserController
+from ipg.api.models.game import GameType
+from ipg.api.models.room import RoomCreate, RoomJoin, RoomStatus
+from ipg.api.models.table import Game, User
+from ipg.api.models.undercover import Word
+from ipg.api.models.user import UserCreate
+from ipg.socketio.models.room import Room as RedisRoom
+from ipg.socketio.models.user import User as RedisUser
 
 DATABASE_URL = "sqlite:///database.db"
 

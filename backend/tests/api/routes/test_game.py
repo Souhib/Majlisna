@@ -7,12 +7,12 @@ from fastapi import FastAPI
 from sqlalchemy.exc import NoResultFound
 from starlette.testclient import TestClient
 
-from ibg.api.controllers.game import GameController
-from ibg.api.models.error import RoomIsNotActiveError
-from ibg.api.models.game import GameType
-from ibg.api.models.table import Game
-from ibg.api.schemas.game import GameHistoryEntry
-from ibg.dependencies import get_game_controller
+from ipg.api.controllers.game import GameController
+from ipg.api.models.error import RoomIsNotActiveError
+from ipg.api.models.game import GameType
+from ipg.api.models.table import Game
+from ipg.api.schemas.game import GameHistoryEntry
+from ipg.dependencies import get_game_controller
 
 
 @pytest.mark.asyncio

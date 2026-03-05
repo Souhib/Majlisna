@@ -30,7 +30,7 @@ async function globalSetup(): Promise<void> {
   console.log("[E2E Setup] Terminating stale DB connections...");
   try {
     execSync(
-      'docker exec ibg-e2e-db psql -U ibg -d ibg -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid();"',
+      'docker exec ipg-e2e-db psql -U ipg -d ipg -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid();"',
       { stdio: "inherit", timeout: 15_000 },
     );
   } catch {
@@ -39,11 +39,11 @@ async function globalSetup(): Promise<void> {
 
   console.log("[E2E Setup] Resetting and seeding database via docker exec...");
   runDockerExec(
-    "docker exec -w /app ibg-e2e-backend " +
+    "docker exec -w /app ipg-e2e-backend " +
       "env PYTHONPATH=/app python scripts/generate_fake_data.py --delete",
   );
   runDockerExec(
-    "docker exec -w /app ibg-e2e-backend " +
+    "docker exec -w /app ipg-e2e-backend " +
       "env PYTHONPATH=/app python scripts/generate_fake_data.py --create-db",
   );
   console.log("[E2E Setup] Database seeded.");
@@ -61,7 +61,7 @@ async function globalSetup(): Promise<void> {
     console.log("[E2E Setup] Backend already healthy, skipping restart.");
   } else {
     console.log("[E2E Setup] Restarting backend to refresh DB connections...");
-    execSync("docker restart ibg-e2e-backend", {
+    execSync("docker restart ipg-e2e-backend", {
       stdio: "inherit",
       timeout: 30_000,
     });

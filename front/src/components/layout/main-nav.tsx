@@ -44,7 +44,7 @@ function LanguageSwitcher() {
   const toggle = () => {
     const newLang = currentLang === "en" ? "ar" : "en"
     i18n.changeLanguage(newLang)
-    localStorage.setItem("ibg-language", newLang)
+    localStorage.setItem("ipg-language", newLang)
     document.documentElement.dir = newLang === "ar" ? "rtl" : "ltr"
     document.documentElement.lang = newLang
   }
@@ -86,7 +86,7 @@ export function MainNav() {
         {/* Logo */}
         <Link to="/" className="flex items-center gap-2 font-bold text-xl text-primary">
           <BookOpen className="h-6 w-6" />
-          <span>IBG</span>
+          <span>IPG</span>
         </Link>
 
         {/* Desktop nav */}

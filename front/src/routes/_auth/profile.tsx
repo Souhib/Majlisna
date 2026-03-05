@@ -43,7 +43,7 @@ function ProfilePage() {
         is_admin: updated.is_admin,
       })
       localStorage.setItem(
-        "ibg-user-data",
+        "ipg-user-data",
         JSON.stringify({
           id: updated.id,
           username: updated.username,

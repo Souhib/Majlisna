@@ -1,8 +1,8 @@
-# CLAUDE.md - IBG Frontend
+# CLAUDE.md - IPG Frontend
 
 ## Overview
 
-React 19 SPA for the IBG (Islamic Board Games) platform. Uses TanStack Router for file-based routing, TanStack Query for server state management and real-time polling, Tailwind CSS v4 with shadcn/ui components.
+React 19 SPA for the IPG (Islamic Party Games) platform. Uses TanStack Router for file-based routing, TanStack Query for server state management and real-time polling, Tailwind CSS v4 with shadcn/ui components.
 
 ## Development Commands
 
@@ -138,7 +138,7 @@ Phase transitions detected by comparing refs to previous state (`previousPhaseRe
 - `index.tsx` - Index route for directory
 
 ### Authentication
-- JWT stored in localStorage (`ibg-token`, `ibg-refresh-token`, `ibg-token-expiry`)
+- JWT stored in localStorage (`ipg-token`, `ipg-refresh-token`, `ipg-token-expiry`)
 - Auto-refresh 1 minute before expiry
 - 401 responses clear auth state and redirect to login
 

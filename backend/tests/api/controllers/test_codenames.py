@@ -3,14 +3,14 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from ibg.api.controllers.codenames import (
+from ipg.api.controllers.codenames import (
     CodenamesController,
     CodenamesWordNotFoundError,
     CodenamesWordPackAlreadyExistsError,
     CodenamesWordPackNotFoundError,
     NotEnoughWordsError,
 )
-from ibg.api.models.codenames import CodenamesWordCreate, CodenamesWordPackCreate
+from ipg.api.models.codenames import CodenamesWordCreate, CodenamesWordPackCreate
 
 # --- Word Pack CRUD ---
 

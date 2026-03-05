@@ -1,10 +1,10 @@
-# IBG (Islamic Board Games)
+# IPG (Islamic Party Games)
 
 A real-time multiplayer platform for Islamized versions of popular party games. Learn about Islamic words, prophets, and concepts while playing with friends.
 
 ## Overview
 
-IBG brings together classic social deduction and word games, reimagined with Islamic terminology and themes. Players join rooms, get assigned roles, and compete in real-time using Socket.IO for instant communication.
+IPG brings together classic social deduction and word games, reimagined with Islamic terminology and themes. Players join rooms, get assigned roles, and compete in real-time using Socket.IO for instant communication.
 
 ### Key Features
 
@@ -49,7 +49,7 @@ cd backend
 uv sync --dev
 cp .env.example .env.development
 # Edit .env.development with your config
-echo "IBG_ENV=development" > .env
+echo "IPG_ENV=development" > .env
 uv run python main.py
 ```
 
@@ -127,9 +127,9 @@ Two teams (Red and Blue) compete to identify their agents on a 5x5 board of Isla
 ### Monorepo Structure
 
 ```
-IBG/
+IPG/
 ├── backend/                    # FastAPI + Socket.IO
-│   ├── ibg/
+│   ├── ipg/
 │   │   ├── api/               # REST API
 │   │   │   ├── controllers/   # Business logic
 │   │   │   ├── models/        # SQLModel DB tables
@@ -264,11 +264,11 @@ bun run docker:down
 
 ### Environment Configuration
 
-The backend uses `IBG_ENV` to select which `.env.{env}` file to load:
+The backend uses `IPG_ENV` to select which `.env.{env}` file to load:
 
 | File | Purpose |
 |------|---------|
-| `backend/.env` | Selector: `IBG_ENV=development` |
+| `backend/.env` | Selector: `IPG_ENV=development` |
 | `backend/.env.development` | Local dev config (SQLite, local Redis) |
 | `backend/.env.production` | Production config (PostgreSQL, Redis service) |
 | `backend/.env.example` | Reference template (committed) |

@@ -7,16 +7,16 @@ from sqlalchemy.orm.attributes import flag_modified
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from ibg.api.controllers.codenames_game import CodenamesGameController
-from ibg.api.controllers.codenames_helpers import (
+from ipg.api.controllers.codenames_game import CodenamesGameController
+from ipg.api.controllers.codenames_helpers import (
     CodenamesCardType,
     CodenamesGameStatus,
     CodenamesRole,
     CodenamesTeam,
 )
-from ibg.api.models.game import GameStatus
-from ibg.api.models.table import Game, Room
-from ibg.api.schemas.error import (
+from ipg.api.models.game import GameStatus
+from ipg.api.models.table import Game, Room
+from ipg.api.schemas.error import (
     CardAlreadyRevealedError,
     ClueWordIsOnBoardError,
     GameNotInProgressError,

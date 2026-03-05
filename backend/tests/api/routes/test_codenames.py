@@ -8,12 +8,12 @@ import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
-from ibg.api.controllers.codenames import (
+from ipg.api.controllers.codenames import (
     CodenamesController,
     CodenamesWordPackNotFoundError,
 )
-from ibg.api.models.codenames import CodenamesWord, CodenamesWordPack
-from ibg.dependencies import get_codenames_controller
+from ipg.api.models.codenames import CodenamesWord, CodenamesWordPack
+from ipg.dependencies import get_codenames_controller
 
 
 class TestWordPacks:

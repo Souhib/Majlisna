@@ -14,8 +14,8 @@ interface CitySelectorProps {
   initialCity?: string
 }
 
-const STORAGE_CITY_KEY = "ibg-city"
-const STORAGE_COORDS_KEY = "ibg-coordinates"
+const STORAGE_CITY_KEY = "ipg-city"
+const STORAGE_COORDS_KEY = "ipg-coordinates"
 
 export function loadStoredCity(): CityCoordinates | null {
   try {

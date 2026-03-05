@@ -6,11 +6,11 @@ from unittest.mock import AsyncMock, Mock
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
-from ibg.api.controllers.auth import AuthController
-from ibg.api.models.table import User
-from ibg.api.schemas.auth import TokenPairResponse, TokenPayload
-from ibg.api.schemas.error import InvalidTokenError, UserAlreadyExistsError
-from ibg.dependencies import get_auth_controller
+from ipg.api.controllers.auth import AuthController
+from ipg.api.models.table import User
+from ipg.api.schemas.auth import LoginResult, LoginUserData, TokenPairResponse, TokenPayload
+from ipg.api.schemas.error import InvalidCredentialsError, InvalidTokenError, UserAlreadyExistsError
+from ipg.dependencies import get_auth_controller
 
 
 class TestRegister:
@@ -139,20 +139,15 @@ class TestLogin:
         # Arrange
         user_id = uuid.uuid4()
         mock_controller = Mock(spec=AuthController)
-        mock_controller.get_user_by_email = AsyncMock(
-            return_value=User(
-                id=user_id,
-                username="testuser",
-                email_address="test@example.com",
-                country="FRA",
-                password="hashedpassword",
-            )
-        )
-        mock_controller.verify_password = Mock(return_value=True)
-        mock_controller.create_token_pair = Mock(
-            return_value=TokenPairResponse(
+        mock_controller.login = AsyncMock(
+            return_value=LoginResult(
                 access_token="access.jwt.token",
                 refresh_token="refresh.jwt.token",
+                user=LoginUserData(
+                    id=str(user_id),
+                    username="testuser",
+                    email="test@example.com",
+                ),
             )
         )
         test_app.dependency_overrides[get_auth_controller] = lambda: mock_controller
@@ -176,9 +171,7 @@ class TestLogin:
         assert data["user"]["username"] == "testuser"
         assert data["user"]["email"] == "test@example.com"
 
-        mock_controller.get_user_by_email.assert_awaited_once_with("test@example.com")
-        mock_controller.verify_password.assert_called_once_with("securepassword", "hashedpassword")
-        mock_controller.create_token_pair.assert_called_once_with(str(user_id), "test@example.com")
+        mock_controller.login.assert_awaited_once_with("test@example.com", "securepassword")
 
         test_app.dependency_overrides.clear()
 
@@ -186,16 +179,7 @@ class TestLogin:
         """Logging in with wrong password returns 401 Unauthorized."""
         # Arrange
         mock_controller = Mock(spec=AuthController)
-        mock_controller.get_user_by_email = AsyncMock(
-            return_value=User(
-                id=uuid.uuid4(),
-                username="testuser",
-                email_address="test@example.com",
-                country=None,
-                password="hashedpassword",
-            )
-        )
-        mock_controller.verify_password = Mock(return_value=False)
+        mock_controller.login = AsyncMock(side_effect=InvalidCredentialsError(email="test@example.com"))
         test_app.dependency_overrides[get_auth_controller] = lambda: mock_controller
 
         # Act
@@ -219,7 +203,7 @@ class TestLogin:
         """Logging in with a non-existent email returns 401 Unauthorized."""
         # Arrange
         mock_controller = Mock(spec=AuthController)
-        mock_controller.get_user_by_email = AsyncMock(return_value=None)
+        mock_controller.login = AsyncMock(side_effect=InvalidCredentialsError(email="nobody@example.com"))
         test_app.dependency_overrides[get_auth_controller] = lambda: mock_controller
 
         # Act

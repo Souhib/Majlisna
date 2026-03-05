@@ -97,6 +97,7 @@ function serializeParams(params: object): URLSearchParams {
 
 const kyInstance = ky.create({
   prefixUrl: API_BASE_URL,
+  credentials: "include",
   headers: {
     "Content-Type": "application/json",
   },
@@ -109,7 +110,7 @@ const kyInstance = ky.create({
   hooks: {
     beforeRequest: [
       (request) => {
-        const token = localStorage.getItem("ibg-token")
+        const token = localStorage.getItem("ipg-token")
         if (token) {
           request.headers.set("Authorization", `Bearer ${token}`)
         }
@@ -118,12 +119,12 @@ const kyInstance = ky.create({
     afterResponse: [
       async (_request, _options, response) => {
         if (!response.ok && response.status === 401) {
-          const hadToken = !!localStorage.getItem("ibg-token")
+          const hadToken = !!localStorage.getItem("ipg-token")
 
-          localStorage.removeItem("ibg-token")
-          localStorage.removeItem("ibg-refresh-token")
-          localStorage.removeItem("ibg-token-expiry")
-          localStorage.removeItem("ibg-user-data")
+          localStorage.removeItem("ipg-token")
+          localStorage.removeItem("ipg-refresh-token")
+          localStorage.removeItem("ipg-token-expiry")
+          localStorage.removeItem("ipg-user-data")
 
           if (hadToken && typeof window !== "undefined" && !window.location.pathname.includes("/auth/login")) {
             window.location.href = "/auth/login"

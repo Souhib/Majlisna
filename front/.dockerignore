@@ -5,3 +5,7 @@ dist
 .gitignore
 .vscode
 *.md
+playwright-report
+test-results
+coverage
+.env*

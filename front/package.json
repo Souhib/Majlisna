@@ -1,5 +1,5 @@
 {
-  "name": "ibg-front",
+  "name": "ipg-front",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -35,6 +35,7 @@
     "@radix-ui/react-slot": "^1.2.4",
     "@radix-ui/react-switch": "^1.2.6",
     "@radix-ui/react-tabs": "^1.1.13",
+    "@sentry/react": "^10.42.0",
     "@tanstack/react-query": "^5.90.16",
     "@tanstack/react-router": "^1.144.0",
     "@vis.gl/react-google-maps": "^1.7.1",
@@ -51,7 +52,6 @@
     "react-dom": "^19.2.3",
     "react-hook-form": "^7.69.0",
     "react-i18next": "^16.5.2",
-
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.4.0",
     "zod": "^4.3.4"

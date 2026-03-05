@@ -1,6 +1,6 @@
 """Tests for codenames model validation."""
 
-from ibg.api.models.codenames import CodenamesWordCreate, CodenamesWordPackCreate
+from ipg.api.models.codenames import CodenamesWordCreate, CodenamesWordPackCreate
 
 
 def test_create_word_pack_with_name_and_description():

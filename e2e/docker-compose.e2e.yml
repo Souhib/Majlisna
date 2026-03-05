@@ -1,4 +1,4 @@
-# IBG - E2E Testing Docker Compose
+# IPG - E2E Testing Docker Compose
 # Non-standard ports to avoid conflicts with local dev (54339, 5049, 3049)
 # Usage: docker compose -f docker-compose.e2e.yml up -d --build
 
@@ -7,20 +7,20 @@ services:
 
   db:
     image: postgres:16-alpine
-    container_name: ibg-e2e-db
+    container_name: ipg-e2e-db
     environment:
-      POSTGRES_USER: ibg
-      POSTGRES_PASSWORD: ibg
-      POSTGRES_DB: ibg
+      POSTGRES_USER: ipg
+      POSTGRES_PASSWORD: ipg
+      POSTGRES_DB: ipg
     ports:
       - "54339:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ibg"]
+      test: ["CMD-SHELL", "pg_isready -U ipg"]
       interval: 5s
       timeout: 5s
       retries: 5
     networks:
-      - ibg-e2e-network
+      - ipg-e2e-network
 
   # ─── Backend API ──────────────────────────────────────────
 
@@ -31,13 +31,13 @@ services:
       target: production
       args:
         INSTALL_DEV: "true"
-    container_name: ibg-e2e-backend
+    container_name: ipg-e2e-backend
     ports:
       - "5049:5000"
     environment:
-      DATABASE_URL: postgresql+asyncpg://ibg:ibg@db:5432/ibg
+      DATABASE_URL: postgresql+asyncpg://ipg:ipg@db:5432/ipg
       ENVIRONMENT: development
-      IBG_ENV: development
+      IPG_ENV: development
       JWT_SECRET_KEY: e2e-secret-key
       CORS_ORIGINS: "*"
       LOG_LEVEL: WARNING
@@ -54,7 +54,7 @@ services:
       retries: 10
       start_period: 30s
     networks:
-      - ibg-e2e-network
+      - ipg-e2e-network
 
   # ─── Frontend SPA ─────────────────────────────────────────
 
@@ -65,7 +65,7 @@ services:
       target: production
       args:
         VITE_API_URL: http://localhost:5049
-    container_name: ibg-e2e-frontend
+    container_name: ipg-e2e-frontend
     ports:
       - "3049:80"
     depends_on:
@@ -78,8 +78,8 @@ services:
       retries: 5
       start_period: 10s
     networks:
-      - ibg-e2e-network
+      - ipg-e2e-network
 
 networks:
-  ibg-e2e-network:
+  ipg-e2e-network:
     driver: bridge

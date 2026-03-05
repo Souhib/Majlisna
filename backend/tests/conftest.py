@@ -1,4 +1,4 @@
-"""Test configuration and fixtures for IBG backend."""
+"""Test configuration and fixtures for IPG backend."""
 
 from datetime import datetime
 
@@ -11,24 +11,24 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from ibg.api.controllers.achievement import AchievementController
-from ibg.api.controllers.auth import AuthController
-from ibg.api.controllers.codenames import CodenamesController
-from ibg.api.controllers.codenames_game import CodenamesGameController
-from ibg.api.controllers.game import GameController
-from ibg.api.controllers.room import RoomController
-from ibg.api.controllers.shared import get_password_hash
-from ibg.api.controllers.stats import StatsController
-from ibg.api.controllers.undercover import UndercoverController
-from ibg.api.controllers.undercover_game import UndercoverGameController
-from ibg.api.controllers.user import UserController
-from ibg.api.models.codenames import CodenamesWord, CodenamesWordPack, CodenamesWordPackCreate
-from ibg.api.models.game import GameCreate, GameType
-from ibg.api.models.relationship import RoomUserLink
-from ibg.api.models.room import RoomCreate, RoomStatus
-from ibg.api.models.table import Room, User
-from ibg.api.models.undercover import TermPair, Word, WordCreate
-from ibg.settings import Settings
+from ipg.api.controllers.achievement import AchievementController
+from ipg.api.controllers.auth import AuthController
+from ipg.api.controllers.codenames import CodenamesController
+from ipg.api.controllers.codenames_game import CodenamesGameController
+from ipg.api.controllers.game import GameController
+from ipg.api.controllers.room import RoomController
+from ipg.api.controllers.shared import get_password_hash
+from ipg.api.controllers.stats import StatsController
+from ipg.api.controllers.undercover import UndercoverController
+from ipg.api.controllers.undercover_game import UndercoverGameController
+from ipg.api.controllers.user import UserController
+from ipg.api.models.codenames import CodenamesWord, CodenamesWordPack, CodenamesWordPackCreate
+from ipg.api.models.game import GameCreate, GameType
+from ipg.api.models.relationship import RoomUserLink
+from ipg.api.models.room import RoomCreate, RoomStatus
+from ipg.api.models.table import Room, User
+from ipg.api.models.undercover import TermPair, Word, WordCreate
+from ipg.settings import Settings
 
 # ========== Core Infrastructure ==========
 

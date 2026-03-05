@@ -4,12 +4,12 @@ import pytest
 from jose import jwt
 from sqlalchemy.exc import IntegrityError
 
-from ibg.api.controllers.auth import AuthController
-from ibg.api.controllers.shared import get_password_hash
-from ibg.api.models.user import UserCreate
-from ibg.api.schemas.auth import TokenPairResponse, TokenPayload
-from ibg.api.schemas.error import InvalidCredentialsError, InvalidTokenError, TokenExpiredError
-from ibg.settings import Settings
+from ipg.api.controllers.auth import AuthController
+from ipg.api.controllers.shared import get_password_hash
+from ipg.api.models.user import UserCreate
+from ipg.api.schemas.auth import LoginResult, TokenPairResponse, TokenPayload
+from ipg.api.schemas.error import InvalidCredentialsError, InvalidTokenError, TokenExpiredError
+from ipg.settings import Settings
 
 
 async def test_register_success(auth_controller: AuthController):
@@ -53,26 +53,27 @@ async def test_register_duplicate_email(auth_controller: AuthController):
 
 
 async def test_login_success(auth_controller: AuthController, create_user, test_settings: Settings):
-    """Logging in with correct credentials returns a valid token pair."""
+    """Logging in with correct credentials returns tokens and user data."""
     # Arrange
     await create_user(username="loginuser", email="login@test.com", password="mypassword")
 
     # Act
-    token_pair = await auth_controller.login("login@test.com", "mypassword")
+    result = await auth_controller.login("login@test.com", "mypassword")
 
     # Assert
-    assert isinstance(token_pair, TokenPairResponse)
-    assert token_pair.access_token
-    assert token_pair.refresh_token
-    assert token_pair.token_type == "bearer"
+    assert isinstance(result, LoginResult)
+    assert result.access_token
+    assert result.refresh_token
+    assert result.user.username == "loginuser"
+    assert result.user.email == "login@test.com"
 
     access_payload = jwt.decode(
-        token_pair.access_token,
+        result.access_token,
         test_settings.jwt_secret_key,
         algorithms=[test_settings.jwt_encryption_algorithm],
     )
     refresh_payload = jwt.decode(
-        token_pair.refresh_token,
+        result.refresh_token,
         test_settings.jwt_secret_key,
         algorithms=[test_settings.jwt_encryption_algorithm],
     )

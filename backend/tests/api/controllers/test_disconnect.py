@@ -5,18 +5,18 @@ from datetime import datetime
 import pytest
 from sqlmodel import select
 
-from ibg.api.controllers.codenames_helpers import CodenamesGameStatus, CodenamesRole, CodenamesTeam
-from ibg.api.controllers.disconnect import (
+from ipg.api.controllers.codenames_helpers import CodenamesGameStatus, CodenamesRole, CodenamesTeam
+from ipg.api.controllers.disconnect import (
     _handle_codenames_disconnect,
     _handle_permanent_disconnect,
     _handle_undercover_disconnect,
 )
-from ibg.api.controllers.shared import get_password_hash
-from ibg.api.models.game import GameStatus, GameType
-from ibg.api.models.relationship import RoomUserLink
-from ibg.api.models.room import RoomType
-from ibg.api.models.table import Game, Room, User
-from ibg.api.models.undercover import UndercoverRole
+from ipg.api.controllers.shared import get_password_hash
+from ipg.api.models.game import GameStatus, GameType
+from ipg.api.models.relationship import RoomUserLink
+from ipg.api.models.room import RoomType
+from ipg.api.models.table import Game, Room, User
+from ipg.api.models.undercover import UndercoverRole
 
 # ─── Helpers ──────────────────────────────────────────────────
 

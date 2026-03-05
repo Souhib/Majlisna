@@ -6,10 +6,10 @@ from uuid import uuid4
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
-from ibg.api.controllers.undercover_game import UndercoverGameController
-from ibg.api.models.error import GameNotFoundError
-from ibg.api.models.table import User
-from ibg.dependencies import get_current_user, get_undercover_game_controller
+from ipg.api.controllers.undercover_game import UndercoverGameController
+from ipg.api.models.error import GameNotFoundError
+from ipg.api.models.table import User
+from ipg.dependencies import get_current_user, get_undercover_game_controller
 
 BASE_URL = "/api/v1/undercover"
 

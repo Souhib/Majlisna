@@ -6,10 +6,10 @@ from uuid import uuid4
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
-from ibg.api.controllers.codenames_game import CodenamesGameController
-from ibg.api.models.error import GameNotFoundError
-from ibg.api.models.table import User
-from ibg.dependencies import get_codenames_game_controller, get_current_user
+from ipg.api.controllers.codenames_game import CodenamesGameController
+from ipg.api.models.error import GameNotFoundError
+from ipg.api.models.table import User
+from ipg.dependencies import get_codenames_game_controller, get_current_user
 
 BASE_URL = "/api/v1/codenames"
 

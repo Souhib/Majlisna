@@ -3,12 +3,12 @@ from uuid import uuid4
 import pytest
 from sqlmodel import select
 
-from ibg.api.controllers.room import RoomController
-from ibg.api.models.event import EventCreate
-from ibg.api.models.relationship import RoomUserLink
-from ibg.api.models.room import RoomCreate, RoomJoin, RoomLeave, RoomStatus, RoomType
-from ibg.api.models.table import Room, User
-from ibg.api.schemas.error import (
+from ipg.api.controllers.room import RoomController
+from ipg.api.models.event import EventCreate
+from ipg.api.models.relationship import RoomUserLink
+from ipg.api.models.room import RoomCreate, RoomJoin, RoomLeave, RoomStatus, RoomType
+from ipg.api.models.table import Room, User
+from ipg.api.schemas.error import (
     RoomNotFoundError,
     UserAlreadyInRoomError,
     UserNotFoundError,

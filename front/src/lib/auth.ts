@@ -1,7 +1,7 @@
-const TOKEN_KEY = "ibg-token"
-const REFRESH_TOKEN_KEY = "ibg-refresh-token"
-const TOKEN_EXPIRY_KEY = "ibg-token-expiry"
-const USER_DATA_KEY = "ibg-user-data"
+const TOKEN_KEY = "ipg-token"
+const REFRESH_TOKEN_KEY = "ipg-refresh-token"
+const TOKEN_EXPIRY_KEY = "ipg-token-expiry"
+const USER_DATA_KEY = "ipg-user-data"
 
 export function getStoredToken(): string | null {
   return localStorage.getItem(TOKEN_KEY)

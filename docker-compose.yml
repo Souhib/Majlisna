@@ -1,4 +1,4 @@
-# IBG - Local Development Docker Compose
+# IPG - Local Development Docker Compose
 # Usage: docker compose up -d
 
 services:
@@ -7,15 +7,15 @@ services:
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: ibg
-      POSTGRES_PASSWORD: ibg
-      POSTGRES_DB: ibg
+      POSTGRES_USER: ${POSTGRES_USER:-ipg}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ipg}
+      POSTGRES_DB: ${POSTGRES_DB:-ipg}
     ports:
       - "54331:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ibg"]
+      test: ["CMD-SHELL", "pg_isready -U ipg"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -44,13 +44,14 @@ services:
     ports:
       - "5051:5000"
     environment:
-      DATABASE_URL: postgresql+asyncpg://ibg:ibg@db:5432/ibg
-      REDIS_OM_URL: redis://redis:6379
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-ipg}:${POSTGRES_PASSWORD:-ipg}@db:5432/${POSTGRES_DB:-ipg}
+      REDIS_URL: redis://redis:6379
       ENVIRONMENT: development
-      IBG_ENV: development
-      JWT_SECRET_KEY: dev-secret-key-change-me
-      CORS_ORIGINS: "*"
+      IPG_ENV: development
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-secret-key-change-me}
+      CORS_ORIGINS: "http://localhost:3000,http://localhost:3051"
       LOG_LEVEL: DEBUG
+      SENTRY_DSN: ${SENTRY_DSN:-}
     depends_on:
       db:
         condition: service_healthy
