@@ -158,6 +158,8 @@ jobs:
       - name: Build frontend image
         if: needs.changes.outputs.frontend == 'true'
         working-directory: ${{ env.DEPLOY_DIR }}
+        env:
+          VITE_GOOGLE_MAPS_API_KEY: ${{ secrets.VITE_GOOGLE_MAPS_API_KEY }}
         run: docker compose -f docker-compose.dokploy.yml build --no-cache frontend
 
       - name: Deploy backend
