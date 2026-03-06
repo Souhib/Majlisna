@@ -1,6 +1,6 @@
 import { Link, useLocation } from "@tanstack/react-router"
-import { BookOpen, Flame, Globe, LogOut, Menu, Moon, Sun, Trophy, User, UserCircle, Users, X } from "lucide-react"
-import { useState } from "react"
+import { BookOpen, ChevronDown, Flame, Globe, LogOut, Menu, Moon, Sun, Trophy, User, Users, X } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { useAuth } from "@/providers/AuthProvider"
 import { useTheme } from "@/providers/ThemeProvider"
@@ -10,7 +10,6 @@ import { PrayerTimesNav } from "@/components/prayer-times/PrayerTimesNav"
 function ThemeToggle() {
   const { theme, setTheme } = useTheme()
 
-  // Determine the effective (resolved) theme
   const effectiveTheme =
     theme === "system"
       ? window.matchMedia("(prefers-color-scheme: dark)").matches
@@ -22,7 +21,6 @@ function ThemeToggle() {
     setTheme(effectiveTheme === "light" ? "dark" : "light")
   }
 
-  // Show Sun when in dark (click → light), Moon when in light (click → dark)
   const Icon = effectiveTheme === "dark" ? Sun : Moon
 
   return (
@@ -71,44 +69,117 @@ function LanguageSwitcher() {
   )
 }
 
+function UserMenu() {
+  const { t } = useTranslation()
+  const { user, logout } = useAuth()
+  const [open, setOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener("mousedown", handler)
+    return () => document.removeEventListener("mousedown", handler)
+  }, [])
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false)
+    }
+    document.addEventListener("keydown", handler)
+    return () => document.removeEventListener("keydown", handler)
+  }, [])
+
+  const initial = user?.username?.charAt(0).toUpperCase() ?? "?"
+
+  return (
+    <div className="relative" ref={menuRef}>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1.5 rounded-full bg-primary/10 pe-2.5 ps-0.5 py-0.5 text-sm font-medium text-primary hover:bg-primary/20 transition-colors"
+      >
+        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
+          {initial}
+        </span>
+        <span className="max-w-[80px] truncate">{user?.username}</span>
+        <ChevronDown className="h-3 w-3 opacity-60" />
+      </button>
+
+      {open && (
+        <div className="absolute end-0 top-full mt-2 w-48 rounded-xl border bg-popover p-1.5 shadow-lg z-50">
+          <Link
+            to="/profile"
+            className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+            onClick={() => setOpen(false)}
+          >
+            <User className="h-4 w-4" />
+            {t("nav.profile")}
+          </Link>
+          <Link
+            to="/friends"
+            className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+            onClick={() => setOpen(false)}
+          >
+            <Users className="h-4 w-4" />
+            {t("nav.friends")}
+          </Link>
+          <div className="my-1 border-t" />
+          <button
+            type="button"
+            onClick={() => {
+              logout()
+              setOpen(false)
+            }}
+            className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-destructive hover:bg-destructive/10 transition-colors"
+          >
+            <LogOut className="h-4 w-4" />
+            {t("nav.logout")}
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function MainNav() {
   const { t } = useTranslation()
-  const { isAuthenticated, user, logout } = useAuth()
+  const { isAuthenticated, logout } = useAuth()
   const location = useLocation()
   const [mobileOpen, setMobileOpen] = useState(false)
 
-  const navLinks = [
-    { to: "/", label: t("nav.home"), icon: BookOpen },
-    ...(isAuthenticated
-      ? [
-          { to: "/rooms" as const, label: t("nav.rooms"), icon: BookOpen },
-          { to: "/friends" as const, label: t("nav.friends"), icon: Users },
-          { to: "/challenges" as const, label: t("nav.challenges"), icon: Flame },
-          { to: "/leaderboard" as const, label: t("nav.leaderboard"), icon: Trophy },
-          { to: "/profile" as const, label: t("nav.profile"), icon: User },
-        ]
-      : []),
-    { to: "/about" as const, label: t("nav.about"), icon: UserCircle },
-  ]
+  const centerLinks = isAuthenticated
+    ? [
+        { to: "/rooms" as const, label: t("nav.rooms"), icon: BookOpen },
+        { to: "/challenges" as const, label: t("nav.challenges"), icon: Flame },
+        { to: "/leaderboard" as const, label: t("nav.leaderboard"), icon: Trophy },
+      ]
+    : []
 
   return (
     <nav className="sticky top-0 z-50 border-b bg-background/80 backdrop-blur-md">
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4">
-        {/* Logo */}
-        <Link to="/" className="flex items-center gap-2 font-bold text-xl text-primary">
-          <BookOpen className="h-6 w-6" />
-          <span>IPG</span>
-        </Link>
+      {/* 3-column grid: logo | center nav | actions — center column is truly centered */}
+      <div className="mx-auto grid h-14 max-w-7xl grid-cols-[1fr_auto_1fr] items-center px-4">
+        {/* Left — Logo */}
+        <div className="flex items-center">
+          <Link to="/" className="flex items-center gap-2 font-bold text-lg text-primary">
+            <BookOpen className="h-5 w-5" />
+            <span>IPG</span>
+          </Link>
+        </div>
 
-        {/* Desktop nav */}
-        <div className="hidden md:flex items-center gap-6">
-          {navLinks.map((link) => (
+        {/* Center — Nav links */}
+        <div className="hidden md:flex items-center gap-1">
+          {centerLinks.map((link) => (
             <Link
               key={link.to}
               to={link.to}
               className={cn(
-                "text-sm font-medium transition-colors hover:text-primary",
-                location.pathname === link.to ? "text-primary" : "text-muted-foreground",
+                "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+                location.pathname === link.to || location.pathname.startsWith(link.to + "/")
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:text-primary hover:bg-secondary",
               )}
             >
               {link.label}
@@ -116,95 +187,103 @@ export function MainNav() {
           ))}
         </div>
 
-        {/* Prayer times + Theme toggle + Auth buttons */}
-        <div className="hidden md:flex items-center gap-3">
+        {/* Right — Actions */}
+        <div className="hidden md:flex items-center justify-end gap-1">
           <PrayerTimesNav />
           <LanguageSwitcher />
           <ThemeToggle />
           {isAuthenticated ? (
-            <div className="flex items-center gap-3">
-              <span className="text-sm text-muted-foreground">{user?.username}</span>
-              <button
-                type="button"
-                onClick={logout}
-                className="flex items-center gap-1 text-sm text-muted-foreground hover:text-destructive transition-colors"
-              >
-                <LogOut className="h-4 w-4" />
-                {t("nav.logout")}
-              </button>
-            </div>
+            <UserMenu />
           ) : (
-            <>
+            <div className="flex items-center gap-2 ms-1">
               <Link
                 to="/auth/login"
-                className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors"
+                className="rounded-lg px-3 py-1.5 text-sm font-medium text-muted-foreground hover:text-primary hover:bg-secondary transition-colors"
               >
                 {t("nav.login")}
               </Link>
               <Link
                 to="/auth/register"
-                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+                className="rounded-lg bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
               >
                 {t("nav.register")}
               </Link>
-            </>
+            </div>
           )}
         </div>
 
         {/* Mobile menu button */}
-        <button
-          type="button"
-          className="md:hidden"
-          onClick={() => setMobileOpen(!mobileOpen)}
-        >
-          {mobileOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
-        </button>
+        <div className="flex items-center justify-end md:hidden col-start-3">
+          <button
+            type="button"
+            onClick={() => setMobileOpen(!mobileOpen)}
+          >
+            {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </button>
+        </div>
       </div>
 
       {/* Mobile menu */}
       {mobileOpen && (
-        <div className="md:hidden border-t bg-background px-4 py-4 space-y-3">
-          {navLinks.map((link) => (
-            <Link
-              key={link.to}
-              to={link.to}
-              className="block text-sm font-medium text-muted-foreground hover:text-primary"
-              onClick={() => setMobileOpen(false)}
-            >
-              {link.label}
-            </Link>
-          ))}
-          <div className="flex items-center gap-2 py-1">
+        <div className="md:hidden border-t bg-background px-4 py-3 space-y-1">
+          {isAuthenticated && (
+            <>
+              {[
+                { to: "/rooms" as const, label: t("nav.rooms"), icon: BookOpen },
+                { to: "/challenges" as const, label: t("nav.challenges"), icon: Flame },
+                { to: "/leaderboard" as const, label: t("nav.leaderboard"), icon: Trophy },
+                { to: "/profile" as const, label: t("nav.profile"), icon: User },
+                { to: "/friends" as const, label: t("nav.friends"), icon: Users },
+              ].map((link) => (
+                <Link
+                  key={link.to}
+                  to={link.to}
+                  className={cn(
+                    "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                    location.pathname === link.to
+                      ? "bg-primary/10 text-primary"
+                      : "text-muted-foreground hover:text-primary hover:bg-secondary",
+                  )}
+                  onClick={() => setMobileOpen(false)}
+                >
+                  <link.icon className="h-4 w-4" />
+                  {link.label}
+                </Link>
+              ))}
+            </>
+          )}
+          <div className="flex items-center gap-1 py-1">
             <PrayerTimesNav />
-          </div>
-          <div className="flex items-center gap-2 py-1">
             <LanguageSwitcher />
             <ThemeToggle />
-            <span className="text-xs text-muted-foreground">{t("nav.theme")}</span>
           </div>
           {isAuthenticated ? (
-            <button
-              type="button"
-              onClick={() => {
-                logout()
-                setMobileOpen(false)
-              }}
-              className="block text-sm font-medium text-destructive"
-            >
-              {t("nav.logout")}
-            </button>
+            <>
+              <div className="border-t my-1" />
+              <button
+                type="button"
+                onClick={() => {
+                  logout()
+                  setMobileOpen(false)
+                }}
+                className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 transition-colors"
+              >
+                <LogOut className="h-4 w-4" />
+                {t("nav.logout")}
+              </button>
+            </>
           ) : (
-            <div className="space-y-2 pt-2 border-t">
+            <div className="border-t my-1 pt-2 flex gap-2">
               <Link
                 to="/auth/login"
-                className="block text-sm font-medium text-muted-foreground"
+                className="flex-1 rounded-lg border px-3 py-2 text-center text-sm font-medium text-muted-foreground hover:text-primary transition-colors"
                 onClick={() => setMobileOpen(false)}
               >
                 {t("nav.login")}
               </Link>
               <Link
                 to="/auth/register"
-                className="block text-sm font-medium text-primary"
+                className="flex-1 rounded-lg bg-primary px-3 py-2 text-center text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
                 onClick={() => setMobileOpen(false)}
               >
                 {t("nav.register")}
