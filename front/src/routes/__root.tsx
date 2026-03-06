@@ -9,6 +9,7 @@ import { NotFound } from "@/components/NotFound"
 import { Toaster } from "sonner"
 import { AuthProvider, QueryProvider, ThemeProvider } from "@/providers"
 import { GoogleMapsProvider } from "@/providers/GoogleMapsProvider"
+import { LanguageWelcomeModal } from "@/components/language/LanguageWelcomeModal"
 
 const TanStackRouterDevtools =
   import.meta.env.PROD
@@ -65,6 +66,7 @@ function RootLayout() {
               </main>
               <Footer />
               <Toaster position="bottom-right" richColors closeButton expand visibleToasts={3} />
+              <LanguageWelcomeModal />
             </div>
             <Suspense>
               <TanStackRouterDevtools position="bottom-right" />

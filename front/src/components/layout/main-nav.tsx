@@ -1,5 +1,5 @@
 import { Link, useLocation } from "@tanstack/react-router"
-import { BookOpen, ChevronDown, Flame, Globe, LogOut, Menu, Moon, Sun, Trophy, User, Users, X } from "lucide-react"
+import { BookOpen, Check, ChevronDown, Flame, LogOut, Menu, Moon, Sun, Trophy, User, Users, X } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { useAuth } from "@/providers/AuthProvider"
@@ -36,36 +36,79 @@ function ThemeToggle() {
 }
 
 const LANGUAGES = [
-  { code: "en", label: "EN", dir: "ltr" },
-  { code: "fr", label: "FR", dir: "ltr" },
-  { code: "ar", label: "ع", dir: "rtl" },
+  { code: "en", fullName: "English", flag: "\u{1F1EC}\u{1F1E7}", dir: "ltr" },
+  { code: "fr", fullName: "Fran\u00E7ais", flag: "\u{1F1EB}\u{1F1F7}", dir: "ltr" },
+  { code: "ar", fullName: "\u0627\u0644\u0639\u0631\u0628\u064A\u0629", flag: "\u{1F1E6}\u{1F1EA}", dir: "rtl" },
 ] as const
 
 function LanguageSwitcher() {
   const { i18n } = useTranslation()
-  const currentLang = i18n.language?.startsWith("ar") ? "ar" : i18n.language?.startsWith("fr") ? "fr" : "en"
+  const [open, setOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
 
-  const cycle = () => {
-    const currentIndex = LANGUAGES.findIndex((l) => l.code === currentLang)
-    const next = LANGUAGES[(currentIndex + 1) % LANGUAGES.length]
-    i18n.changeLanguage(next.code)
-    localStorage.setItem("ipg-language", next.code)
-    document.documentElement.dir = next.dir
-    document.documentElement.lang = next.code
+  const currentLang = LANGUAGES.find((l) => l.code === (i18n.language?.startsWith("ar") ? "ar" : i18n.language?.startsWith("fr") ? "fr" : "en")) || LANGUAGES[0]
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener("mousedown", handler)
+    return () => document.removeEventListener("mousedown", handler)
+  }, [])
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false)
+    }
+    document.addEventListener("keydown", handler)
+    return () => document.removeEventListener("keydown", handler)
+  }, [])
+
+  const changeLanguage = (langCode: string) => {
+    const lang = LANGUAGES.find((l) => l.code === langCode)
+    if (!lang) return
+    i18n.changeLanguage(lang.code)
+    localStorage.setItem("ipg-language", lang.code)
+    document.documentElement.dir = lang.dir
+    document.documentElement.lang = lang.code
+    setOpen(false)
   }
 
-  const currentLabel = LANGUAGES.find((l) => l.code === currentLang)?.label ?? "EN"
-
   return (
-    <button
-      type="button"
-      onClick={cycle}
-      className="flex items-center gap-1 rounded-md p-2 text-muted-foreground hover:text-primary hover:bg-secondary transition-colors"
-      aria-label="Switch language"
-    >
-      <Globe className="h-4 w-4" />
-      <span className="text-xs font-medium">{currentLabel}</span>
-    </button>
+    <div className="relative" ref={menuRef}>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-medium text-muted-foreground hover:text-primary hover:bg-secondary transition-colors"
+        aria-label="Switch language"
+      >
+        <span aria-hidden="true">{currentLang.flag}</span>
+        <span lang={currentLang.code}>{currentLang.fullName}</span>
+        <ChevronDown className="h-3 w-3 opacity-50" />
+      </button>
+
+      {open && (
+        <div className="absolute end-0 top-full mt-2 w-44 rounded-xl border bg-popover p-1.5 shadow-lg z-50">
+          {LANGUAGES.map((lang) => (
+            <button
+              key={lang.code}
+              type="button"
+              onClick={() => changeLanguage(lang.code)}
+              className={cn(
+                "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors",
+                i18n.language?.startsWith(lang.code)
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:text-foreground hover:bg-secondary",
+              )}
+            >
+              <span aria-hidden="true">{lang.flag}</span>
+              <span lang={lang.code} className="flex-1 text-start">{lang.fullName}</span>
+              {i18n.language?.startsWith(lang.code) && <Check className="h-4 w-4 text-primary" />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
