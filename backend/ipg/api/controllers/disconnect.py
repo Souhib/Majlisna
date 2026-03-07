@@ -1,9 +1,6 @@
-import asyncio
-import os
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from loguru import logger
-from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy.orm.attributes import flag_modified
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -15,54 +12,6 @@ from ipg.api.models.relationship import RoomUserLink
 from ipg.api.models.room import RoomType
 from ipg.api.models.table import Game, Room
 from ipg.api.models.undercover import UndercoverRole
-
-HEARTBEAT_STALE_SECONDS = int(os.getenv("HEARTBEAT_STALE_SECONDS", "10"))
-GRACE_PERIOD_SECONDS = int(os.getenv("DISCONNECT_GRACE_PERIOD_SECONDS", "30"))
-
-
-async def disconnect_checker_loop(engine: AsyncEngine) -> None:
-    """Background task that checks for stale heartbeats every 5 seconds."""
-    while True:
-        try:
-            async with AsyncSession(engine, expire_on_commit=False) as session:
-                now = datetime.now()
-                stale = now - timedelta(seconds=HEARTBEAT_STALE_SECONDS)
-                grace_expired = now - timedelta(seconds=GRACE_PERIOD_SECONDS)
-
-                # Mark recently-stale users as disconnected
-                newly_stale = (
-                    await session.exec(
-                        select(RoomUserLink)
-                        .where(RoomUserLink.connected == True)  # noqa: E712
-                        .where(RoomUserLink.last_seen_at != None)  # noqa: E711
-                        .where(RoomUserLink.last_seen_at < stale)
-                    )
-                ).all()
-                for link in newly_stale:
-                    link.connected = False
-                    link.disconnected_at = now
-                    session.add(link)
-                if newly_stale:
-                    await session.commit()
-
-                # Permanently remove users whose grace period expired
-                expired = (
-                    await session.exec(
-                        select(RoomUserLink)
-                        .where(RoomUserLink.connected == False)  # noqa: E712
-                        .where(RoomUserLink.disconnected_at != None)  # noqa: E711
-                        .where(RoomUserLink.disconnected_at < grace_expired)
-                    )
-                ).all()
-                for link in expired:
-                    await _handle_permanent_disconnect(session, link)
-
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.exception("Error in disconnect checker loop")
-
-        await asyncio.sleep(5)
 
 
 async def _handle_permanent_disconnect(session: AsyncSession, link: RoomUserLink) -> None:

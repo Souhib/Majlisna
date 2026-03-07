@@ -116,7 +116,9 @@
     "enableMrWhite": "Enable Mr. White role",
     "mrWhiteMinPlayers": "Requires 4+ players",
     "spectators": "Spectators",
-    "watchGame": "Watch"
+    "watchGame": "Watch",
+    "kick": "Kick",
+    "noLimit": "No limit"
   },
   "toast": {
     "playerJoined": "{{username}} joined the room",
@@ -140,7 +142,9 @@
     "youLeftRoom": "You left the room",
     "roomJoined": "You joined the room",
     "roomCreated": "Room created",
-    "copied": "{{label}} copied!"
+    "copied": "{{label}} copied!",
+    "playerKicked": "{{username}} was kicked",
+    "youWereKicked": "You were kicked from the room"
   },
   "game": {
     "vote": "Vote",

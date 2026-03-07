@@ -8,6 +8,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from ipg.api.controllers.disconnect import _handle_permanent_disconnect
 from ipg.api.controllers.shared import create_random_public_id
 from ipg.api.models.error import (
     RoomNotFoundError,
@@ -280,24 +281,10 @@ class RoomController:
         return room
 
     async def get_room_state(self, room_id: UUID, user_id: UUID) -> dict:
-        """Get room state with connection status for all players. Updates heartbeat."""
+        """Get room state for all players."""
         room = await self.get_room_by_id(room_id)
 
-        # Update heartbeat for requesting user
-        link = (
-            await self.session.exec(
-                select(RoomUserLink).where(RoomUserLink.room_id == room_id).where(RoomUserLink.user_id == user_id)
-            )
-        ).first()
-        if link:
-            link.last_seen_at = datetime.now()
-            if not link.connected:
-                link.connected = True
-                link.disconnected_at = None
-            self.session.add(link)
-            await self.session.commit()
-
-        # Get all connected users with their connection status (bulk fetch to avoid N+1)
+        # Get all users in the room (bulk fetch to avoid N+1)
         all_links = (await self.session.exec(select(RoomUserLink).where(RoomUserLink.room_id == room_id))).all()
 
         user_ids = [rul.user_id for rul in all_links]
@@ -312,8 +299,8 @@ class RoomController:
                     {
                         "user_id": str(u.id),
                         "username": u.username,
-                        "is_connected": rul.connected,
-                        "is_disconnected": not rul.connected and rul.disconnected_at is not None,
+                        "is_connected": True,
+                        "is_disconnected": False,
                         "is_host": room.owner_id == u.id,
                         "is_spectator": rul.is_spectator,
                     }
@@ -337,6 +324,36 @@ class RoomController:
             "type": room.type.value,
             "settings": room.settings,
         }
+
+    async def kick_player(self, room_id: UUID, host_id: UUID, target_id: UUID) -> dict:
+        """Kick a player from the room. Only the host can kick."""
+        room = await self.get_room_by_id(room_id)
+        if room.owner_id != host_id:
+            raise BaseError(
+                message="Only the host can kick players.",
+                frontend_message="Only the host can kick players.",
+                status_code=403,
+            )
+        if target_id == host_id:
+            raise BaseError(
+                message="You cannot kick yourself.",
+                frontend_message="You cannot kick yourself.",
+                status_code=400,
+            )
+
+        link = (
+            await self.session.exec(
+                select(RoomUserLink).where(
+                    RoomUserLink.room_id == room_id,
+                    RoomUserLink.user_id == target_id,
+                )
+            )
+        ).first()
+        if not link:
+            raise UserNotInRoomError(user_id=target_id, room_id=room_id)
+
+        await _handle_permanent_disconnect(self.session, link)
+        return {"message": "Player kicked"}
 
     async def update_room_settings(self, room_id: UUID, user_id: UUID, settings: dict) -> dict:
         """Update room settings. Only the host can update."""

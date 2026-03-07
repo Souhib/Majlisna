@@ -43,7 +43,7 @@ api/
 │   ├── codenames_game.py  # Codenames game logic (REST + PostgreSQL JSON)
 │   ├── codenames_helpers.py # Board builder, player assigner
 │   ├── game_lock.py   # In-process asyncio.Lock per game_id
-│   ├── disconnect.py  # Background disconnect checker (heartbeat-based)
+│   ├── disconnect.py  # Disconnect/kick handlers (used by kick_player)
 │   ├── stats.py       # User statistics
 │   └── achievement.py # Achievement tracking + seeding
 ├── models/            # SQLModel DB tables ONLY
@@ -98,12 +98,11 @@ async def submit_vote(self, game_id: UUID, ...):
 
 **CRITICAL: Always call `flag_modified(game, "live_state")` before committing.** SQLAlchemy's change detection doesn't see in-place mutations to JSON columns. Without it, `session.commit()` silently does nothing.
 
-### Heartbeat & Disconnect Detection
+### Kick Player
 
-- `RoomUserLink.last_seen_at` updated on each GET request (piggyback on polling)
-- Background `disconnect_checker_loop` runs every 5s, checks for stale heartbeats
-- `HEARTBEAT_STALE_SECONDS` (10s) → mark disconnected
-- `GRACE_PERIOD_SECONDS` (30s) → permanent removal
+- Host can kick players via `PATCH /api/v1/rooms/{room_id}/kick` with `{ user_id }`
+- Reuses `_handle_permanent_disconnect` from `disconnect.py` for game cleanup
+- No auto-disconnect — players are only removed by explicit kick or leaving
 
 ### Base Classes
 **CRITICAL: Always use `ipg.api.schemas.shared.BaseModel` and `BaseTable`**, never `pydantic.BaseModel` or `sqlmodel.SQLModel` directly.

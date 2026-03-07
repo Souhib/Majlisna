@@ -104,6 +104,21 @@ async def join_room_as_spectator(
     return RoomView.model_validate(await room_controller.join_room_as_spectator(body.room_id, current_user.id))
 
 
+class KickPlayerRequest(PydanticBaseModel):
+    user_id: UUID
+
+
+@router.patch("/{room_id}/kick")
+async def kick_player(
+    room_id: UUID,
+    body: KickPlayerRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+    room_controller: RoomController = Depends(get_room_controller),
+) -> dict:
+    """Kick a player from the room. Host only."""
+    return await room_controller.kick_player(room_id, current_user.id, body.user_id)
+
+
 class RoomSettingsRequest(PydanticBaseModel):
     description_timer: int | None = None
     voting_timer: int | None = None

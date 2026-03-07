@@ -30,9 +30,11 @@ export const PhaseTimer = memo(function PhaseTimer({
   }, [timerStartedAt, durationSeconds, now])
 
   const progress = useMemo(() => {
-    if (!durationSeconds) return 100
-    return (remaining / durationSeconds) * 100
-  }, [remaining, durationSeconds])
+    if (!timerStartedAt || !durationSeconds) return 100
+    const startMs = new Date(timerStartedAt).getTime()
+    const elapsedSec = (now - startMs) / 1000
+    return Math.max(0, Math.min(100, ((durationSeconds - elapsedSec) / durationSeconds) * 100))
+  }, [timerStartedAt, durationSeconds, now])
 
   // Fire onExpired once when timer reaches 0
   useEffect(() => {
@@ -65,10 +67,10 @@ export const PhaseTimer = memo(function PhaseTimer({
         >
           {display}
         </span>
-        <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+        <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
           <div
             className={cn(
-              "h-full rounded-full transition-all duration-500",
+              "h-full rounded-full transition-[width] duration-500",
               isCritical ? "bg-red-500" : isLow ? "bg-amber-500" : "bg-primary",
             )}
             style={{ width: `${progress}%` }}

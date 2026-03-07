@@ -276,7 +276,7 @@ class MyController:
 - **Multi-env Settings**: `IPG_ENV` selector (.env -> .env.{env})
 - **Pure REST + Polling**: All game state via REST endpoints, TanStack Query polling for real-time updates (no WebSocket)
 - **Game State in PostgreSQL**: `Game.live_state` JSON column stores full game state (previously Redis)
-- **Heartbeat via polling**: `RoomUserLink.last_seen_at` updated on each GET request, background task detects disconnects
+- **Manual kick**: Host can kick players from room; no auto-disconnect
 - **Kubb Codegen**: Auto-generated React Query hooks from FastAPI's OpenAPI spec
 
 ## Lessons Learned

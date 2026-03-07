@@ -99,6 +99,7 @@ function UndercoverGamePage() {
       }
     },
     refetchInterval: 2000,
+    refetchIntervalInBackground: true,
     refetchOnWindowFocus: true,
     enabled: !!user,
   })
@@ -475,7 +476,8 @@ function UndercoverGamePage() {
       )}
 
       {/* Phase Timer */}
-      {serverState?.timer_config && serverState?.timer_started_at && (gameState.phase === "describing" || gameState.phase === "playing") && (
+      {serverState?.timer_config && serverState?.timer_started_at && (gameState.phase === "describing" || gameState.phase === "playing") &&
+        (gameState.phase === "describing" ? serverState.timer_config.description_seconds : serverState.timer_config.voting_seconds) > 0 && (
         <div className="mb-4">
           <PhaseTimer
             timerStartedAt={serverState.timer_started_at}

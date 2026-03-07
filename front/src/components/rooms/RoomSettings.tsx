@@ -11,7 +11,7 @@ interface RoomSettingsProps {
   playerCount: number
 }
 
-const TIMER_OPTIONS = [15, 30, 45, 60, 90, 120]
+const TIMER_OPTIONS = [0, 15, 30, 45, 60, 90, 120, 180]
 
 export const RoomSettings = memo(function RoomSettings({
   roomId,
@@ -23,21 +23,23 @@ export const RoomSettings = memo(function RoomSettings({
   const [isOpen, setIsOpen] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
 
-  const [descriptionTimer, setDescriptionTimer] = useState(30)
-  const [votingTimer, setVotingTimer] = useState(45)
-  const [codenamesClueTimer, setCodenamesClueTimer] = useState(60)
-  const [codenamesGuessTimer, setCodenamesGuessTimer] = useState(90)
+  const [descriptionTimer, setDescriptionTimer] = useState(0)
+  const [votingTimer, setVotingTimer] = useState(0)
+  const [codenamesClueTimer, setCodenamesClueTimer] = useState(0)
+  const [codenamesGuessTimer, setCodenamesGuessTimer] = useState(0)
   const [enableMrWhite, setEnableMrWhite] = useState(true)
 
   useEffect(() => {
     if (settings) {
-      if (settings.description_timer) setDescriptionTimer(settings.description_timer as number)
-      if (settings.voting_timer) setVotingTimer(settings.voting_timer as number)
-      if (settings.codenames_clue_timer) setCodenamesClueTimer(settings.codenames_clue_timer as number)
-      if (settings.codenames_guess_timer) setCodenamesGuessTimer(settings.codenames_guess_timer as number)
+      if (settings.description_timer !== undefined) setDescriptionTimer(settings.description_timer as number)
+      if (settings.voting_timer !== undefined) setVotingTimer(settings.voting_timer as number)
+      if (settings.codenames_clue_timer !== undefined) setCodenamesClueTimer(settings.codenames_clue_timer as number)
+      if (settings.codenames_guess_timer !== undefined) setCodenamesGuessTimer(settings.codenames_guess_timer as number)
       if (settings.enable_mr_white !== undefined) setEnableMrWhite(settings.enable_mr_white as boolean)
     }
   }, [settings])
+
+  const timerLabel = (val: number) => (val === 0 ? t("room.noLimit") : `${val}s`)
 
   const handleSave = useCallback(async () => {
     setIsSaving(true)
@@ -97,7 +99,7 @@ export const RoomSettings = memo(function RoomSettings({
                           : "bg-muted hover:bg-muted/80"
                       }`}
                     >
-                      {val}s
+                      {timerLabel(val)}
                     </button>
                   ))}
                 </div>
@@ -120,7 +122,7 @@ export const RoomSettings = memo(function RoomSettings({
                           : "bg-muted hover:bg-muted/80"
                       }`}
                     >
-                      {val}s
+                      {timerLabel(val)}
                     </button>
                   ))}
                 </div>
@@ -173,7 +175,7 @@ export const RoomSettings = memo(function RoomSettings({
                           : "bg-muted hover:bg-muted/80"
                       }`}
                     >
-                      {val}s
+                      {timerLabel(val)}
                     </button>
                   ))}
                 </div>
@@ -196,7 +198,7 @@ export const RoomSettings = memo(function RoomSettings({
                           : "bg-muted hover:bg-muted/80"
                       }`}
                     >
-                      {val}s
+                      {timerLabel(val)}
                     </button>
                   ))}
                 </div>

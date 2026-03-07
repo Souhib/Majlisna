@@ -1,6 +1,6 @@
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
-import { Check, Copy, Crown, Eye, KeyRound, LogOut, Users } from "lucide-react"
+import { Check, Copy, Crown, Eye, KeyRound, LogOut, Users, X } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
@@ -18,14 +18,13 @@ interface RoomData {
   active_game_id?: string | null
   game_type?: string | null
   settings?: Record<string, unknown> | null
-  users: { id: string; username: string; is_connected?: boolean; is_disconnected?: boolean; is_spectator?: boolean }[]
+  users: { id: string; username: string; is_spectator?: boolean }[]
 }
 
 interface Player {
   id: string
   username: string
   is_host: boolean
-  is_disconnected?: boolean
   is_spectator?: boolean
 }
 
@@ -43,6 +42,7 @@ function RoomLobbyPage() {
   const [copied, setCopied] = useState("")
   const [gameType, setGameType] = useState<GameType>("undercover")
   const [isStartingGame, setIsStartingGame] = useState(false)
+  const queryClient = useQueryClient()
   const joinedRef = useRef(false)
   const navigatingToGameRef = useRef(false)
   const previousPlayerIdsRef = useRef<Map<string, string>>(new Map())
@@ -92,8 +92,6 @@ function RoomLobbyPage() {
         users: state.players.map((p) => ({
           id: p.user_id,
           username: p.username,
-          is_connected: p.is_connected,
-          is_disconnected: p.is_disconnected,
           is_spectator: p.is_spectator,
         })),
       } as RoomData
@@ -105,15 +103,12 @@ function RoomLobbyPage() {
 
   // Derive players and spectators from room data
   const allUsers: Player[] = roomData
-    ? roomData.users
-        .filter((u) => u.is_connected || u.is_disconnected)
-        .map((u) => ({
-          id: u.id,
-          username: u.username,
-          is_host: u.id === roomData.owner_id,
-          is_disconnected: u.is_disconnected,
-          is_spectator: u.is_spectator,
-        }))
+    ? roomData.users.map((u) => ({
+        id: u.id,
+        username: u.username,
+        is_host: u.id === roomData.owner_id,
+        is_spectator: u.is_spectator,
+      }))
     : []
 
   const players = allUsers.filter((u) => !u.is_spectator)
@@ -197,6 +192,31 @@ function RoomLobbyPage() {
     }
     toast.info(t("toast.youLeftRoom"))
     navigate({ to: "/rooms" })
+  }
+
+  // Detect being kicked: if current user was in the list but disappears
+  useEffect(() => {
+    if (!user || !roomData) return
+    const wasInRoom = previousPlayerIdsRef.current.has(user.id)
+    const isInRoom = allUsers.some((u) => u.id === user.id)
+    if (wasInRoom && !isInRoom) {
+      toast.error(t("toast.youWereKicked"))
+      navigate({ to: "/rooms" })
+    }
+  }, [allUsers, user, roomData, navigate, t])
+
+  const handleKickPlayer = async (userId: string) => {
+    if (!roomData) return
+    try {
+      await apiClient({
+        method: "PATCH",
+        url: `/api/v1/rooms/${roomData.id}/kick`,
+        data: { user_id: userId },
+      })
+      queryClient.invalidateQueries({ queryKey: ["room", roomId] })
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, "Failed to kick player"))
+    }
   }
 
   const minPlayers = gameType === "codenames" ? 4 : 3
@@ -313,21 +333,25 @@ function RoomLobbyPage() {
             {players.map((player) => (
               <div
                 key={player.id}
-                className={cn(
-                  "flex items-center justify-between rounded-lg px-4 py-2.5",
-                  player.is_disconnected ? "bg-destructive/10 opacity-60" : "bg-muted/50",
-                )}
+                className="flex items-center justify-between rounded-lg bg-muted/50 px-4 py-2.5"
               >
                 <span className="text-sm font-medium">{player.username}</span>
                 <div className="flex items-center gap-2">
-                  {player.is_disconnected && (
-                    <span className="text-xs text-destructive">{t("room.disconnected")}</span>
-                  )}
                   {player.is_host && (
                     <span className="flex items-center gap-1 text-xs text-accent">
                       <Crown className="h-3 w-3" />
                       {t("room.host")}
                     </span>
+                  )}
+                  {isHost && player.id !== user?.id && (
+                    <button
+                      type="button"
+                      onClick={() => handleKickPlayer(player.id)}
+                      className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+                      title={t("room.kick")}
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
                   )}
                 </div>
               </div>

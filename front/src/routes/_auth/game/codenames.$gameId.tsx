@@ -103,6 +103,7 @@ function CodenamesGamePage() {
       }
     },
     refetchInterval: 2000,
+    refetchIntervalInBackground: true,
     refetchOnWindowFocus: true,
     enabled: !!user,
   })
@@ -339,7 +340,8 @@ function CodenamesGamePage() {
       />
 
       {/* Phase Timer */}
-      {serverState?.timer_config && serverState?.timer_started_at && gameState.status === "in_progress" && (
+      {serverState?.timer_config && serverState?.timer_started_at && gameState.status === "in_progress" &&
+        (gameState.current_turn?.clue_word ? serverState.timer_config.guess_seconds : serverState.timer_config.clue_seconds) > 0 && (
         <div className="mb-4">
           <PhaseTimer
             timerStartedAt={serverState.timer_started_at}

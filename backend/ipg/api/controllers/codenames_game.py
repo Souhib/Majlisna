@@ -376,17 +376,19 @@ class CodenamesGameController:
             timer_config = state.get("timer_config", {})
             timer_started_at = state.get("timer_started_at")
             if timer_started_at:
-                started = datetime.fromisoformat(timer_started_at)
-                if started.tzinfo is None:
-                    started = started.replace(tzinfo=UTC)
-                now = datetime.now(UTC)
-                elapsed = (now - started).total_seconds()
                 # Use the appropriate timer based on whether a clue has been given
                 current_turn = state.get("current_turn", {})
                 if current_turn and current_turn.get("clue_word"):
                     allowed = timer_config.get("guess_seconds", DEFAULT_CODENAMES_GUESS_TIMER_SECONDS)
                 else:
                     allowed = timer_config.get("clue_seconds", DEFAULT_CODENAMES_CLUE_TIMER_SECONDS)
+                if allowed == 0:
+                    return {"game_id": str(game_id), "action": "timer_not_expired"}
+                started = datetime.fromisoformat(timer_started_at)
+                if started.tzinfo is None:
+                    started = started.replace(tzinfo=UTC)
+                now = datetime.now(UTC)
+                elapsed = (now - started).total_seconds()
                 # Allow 2s tolerance for network latency
                 if elapsed < allowed - 2:
                     return {"game_id": str(game_id), "action": "timer_not_expired"}

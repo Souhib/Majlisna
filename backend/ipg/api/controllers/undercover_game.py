@@ -413,15 +413,17 @@ class UndercoverGameController:
         timer_started_at = state.get("timer_started_at")
         if not timer_started_at:
             return True
-        started = datetime.fromisoformat(timer_started_at)
-        if started.tzinfo is None:
-            started = started.replace(tzinfo=UTC)
-        elapsed = (datetime.now(UTC) - started).total_seconds()
         current_phase = state["turns"][-1]["phase"]
         if current_phase == "describing":
             allowed = timer_config.get("description_seconds", DEFAULT_DESCRIPTION_TIMER_SECONDS)
         else:
             allowed = timer_config.get("voting_seconds", DEFAULT_VOTING_TIMER_SECONDS)
+        if allowed == 0:
+            return False  # No time limit — timer never expires
+        started = datetime.fromisoformat(timer_started_at)
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=UTC)
+        elapsed = (datetime.now(UTC) - started).total_seconds()
         return elapsed >= allowed - 2  # 2s tolerance for network latency
 
     async def handle_timer_expired(self, game_id: UUID, user_id: UUID) -> dict:
