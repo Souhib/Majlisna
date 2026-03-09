@@ -34,11 +34,11 @@ bun run test:ui             # Vitest UI
 - **Runtime**: Bun
 - **Framework**: React 19 + TypeScript
 - **Routing**: TanStack Router (file-based)
-- **State**: TanStack Query (React Query) for server state + polling
+- **State**: TanStack Query (React Query) for server state
 - **Styling**: Tailwind CSS v4 + shadcn/ui (new-york style)
 - **Forms**: React Hook Form + Zod validation
 - **API**: Kubb-generated hooks from OpenAPI spec + ky HTTP client
-- **Real-time**: TanStack Query polling (2s `refetchInterval`)
+- **Real-time**: Socket.IO (socket.io-client) pushes state into TanStack Query cache via `useSocket` hook
 - **i18n**: i18next (English + Arabic with RTL support)
 - **Testing**: Vitest + Testing Library + MSW
 
@@ -55,6 +55,7 @@ src/
 │   ├── ErrorBoundary.tsx
 │   └── NotFound.tsx
 ├── hooks/
+│   ├── use-socket.ts        # Socket.IO hook (real-time state into TanStack Query cache)
 │   └── use-prayer-times.ts  # Prayer times hook
 ├── i18n/
 │   ├── index.ts             # i18next config
@@ -76,10 +77,10 @@ src/
 │   │   ├── rooms/
 │   │   │   ├── index.tsx    # Room list + join form
 │   │   │   ├── create.tsx   # Create room
-│   │   │   └── $roomId.tsx  # Room lobby (REST polling)
+│   │   │   └── $roomId.tsx  # Room lobby (Socket.IO real-time)
 │   │   ├── game/
-│   │   │   ├── undercover.$gameId.tsx  # Undercover game UI (polling)
-│   │   │   └── codenames.$gameId.tsx   # Codenames game UI (polling)
+│   │   │   ├── undercover.$gameId.tsx  # Undercover game UI (Socket.IO)
+│   │   │   └── codenames.$gameId.tsx   # Codenames game UI (Socket.IO)
 │   │   ├── profile.tsx      # User profile + stats
 │   │   └── achievements.tsx # Achievement badges
 │   └── auth/

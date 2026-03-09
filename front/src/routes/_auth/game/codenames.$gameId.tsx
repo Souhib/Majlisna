@@ -13,6 +13,7 @@ import { CluePanel } from "@/components/games/codenames/CluePanel"
 import { GameBoard } from "@/components/games/codenames/GameBoard"
 import { GameOverScreen } from "@/components/games/codenames/GameOverScreen"
 import { ScorePanel } from "@/components/games/codenames/ScorePanel"
+import { useSocket } from "@/hooks/use-socket"
 import { useAuth } from "@/providers/AuthProvider"
 import { cn } from "@/lib/utils"
 
@@ -64,6 +65,11 @@ function CodenamesGamePage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const roomIdRef = useRef<string | null>(null)
+  const [socketRoomId, setSocketRoomId] = useState<string | null>(null)
+
+  // Socket.IO for real-time updates (replaces polling)
+  useSocket({ roomId: socketRoomId, gameId, gameType: "codenames", enabled: !!user })
+
   const [clueWord, setClueWord] = useState("")
   const [clueNumber, setClueNumber] = useState(1)
   const [isSubmittingClue, setIsSubmittingClue] = useState(false)
@@ -106,16 +112,18 @@ function CodenamesGamePage() {
         newly_unlocked_achievements?: { user_id: string; achievements: { code: string; name: string; icon: string; tier: number }[] }[]
       }
     },
-    refetchInterval: 2000,
-    refetchIntervalInBackground: true,
     refetchOnWindowFocus: true,
+    refetchInterval: 5000,
     enabled: !!user,
   })
 
   // Derive game state from server data
   const gameState = useMemo<CodenamesGameState | null>(() => {
     if (!serverState) return null
-    if (serverState.room_id) roomIdRef.current = serverState.room_id
+    if (serverState.room_id) {
+      roomIdRef.current = serverState.room_id
+      if (!socketRoomId) setSocketRoomId(serverState.room_id)
+    }
     return {
       board: serverState.board,
       current_team: serverState.current_team,

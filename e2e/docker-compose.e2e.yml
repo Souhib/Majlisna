@@ -22,6 +22,43 @@ services:
     networks:
       - ipg-e2e-network
 
+  # ─── PgBouncer ────────────────────────────────────────────
+
+  pgbouncer:
+    image: edoburu/pgbouncer:v1.25.1-p0
+    container_name: ipg-e2e-pgbouncer
+    environment:
+      DATABASE_URL: postgres://ipg:ipg@db:5432/ipg
+      POOL_MODE: transaction
+      DEFAULT_POOL_SIZE: 20
+      MAX_CLIENT_CONN: 200
+      LISTEN_PORT: 6432
+      AUTH_TYPE: scram-sha-256
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-p", "6432"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ipg-e2e-network
+
+  # ─── Redis ───────────────────────────────────────────────
+
+  redis:
+    image: redis:7-alpine
+    container_name: ipg-e2e-redis
+    command: redis-server --maxmemory 64mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - ipg-e2e-network
+
   # ─── Backend API ──────────────────────────────────────────
 
   backend:
@@ -35,7 +72,8 @@ services:
     ports:
       - "5049:5000"
     environment:
-      DATABASE_URL: postgresql+asyncpg://ipg:ipg@db:5432/ipg
+      DATABASE_URL: postgresql+asyncpg://ipg:ipg@pgbouncer:6432/ipg
+      REDIS_URL: redis://redis:6379/0
       ENVIRONMENT: development
       IPG_ENV: development
       JWT_SECRET_KEY: e2e-secret-key
@@ -44,7 +82,9 @@ services:
       HEARTBEAT_STALE_SECONDS: "10"
       RATE_LIMIT_ENABLED: "false"
     depends_on:
-      db:
+      pgbouncer:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/health')"]

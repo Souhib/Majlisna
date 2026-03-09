@@ -23,6 +23,43 @@ services:
       - internal
     restart: always
 
+  # ─── PgBouncer ───────────────────────────────────────────────
+
+  pgbouncer:
+    image: edoburu/pgbouncer:v1.25.1-p0
+    environment:
+      DATABASE_URL: postgres://ipg:${DB_PASSWORD}@db:5432/ipg
+      POOL_MODE: transaction
+      DEFAULT_POOL_SIZE: 20
+      MAX_CLIENT_CONN: 200
+      LISTEN_PORT: 6432
+      AUTH_TYPE: scram-sha-256
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-p", "6432"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - internal
+    restart: always
+
+  # ─── Redis ─────────────────────────────────────────────────
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --maxmemory 64mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - internal
+    restart: always
+
   # ─── Backend API ─────────────────────────────────────────────
 
   backend:
@@ -31,7 +68,8 @@ services:
       dockerfile: Dockerfile
       target: production
     environment:
-      DATABASE_URL: postgresql+asyncpg://ipg:${DB_PASSWORD}@db:5432/ipg
+      DATABASE_URL: postgresql+asyncpg://ipg:${DB_PASSWORD}@pgbouncer:6432/ipg
+      REDIS_URL: redis://redis:6379/0
       JWT_SECRET_KEY: ${JWT_SECRET_KEY}
       JWT_ENCRYPTION_ALGORITHM: HS256
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-15}
@@ -47,13 +85,15 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       SENTRY_DSN: ${SENTRY_DSN:-}
     depends_on:
-      db:
+      pgbouncer:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     ports:
       - "33648:5000"
     labels:
       - "traefik.enable=${TRAEFIK_ENABLED:-false}"
-      - "traefik.http.routers.ipg-backend.rule=Host(`${DOMAIN:-ipg.local}`) && PathPrefix(`/api`)"
+      - "traefik.http.routers.ipg-backend.rule=Host(`${DOMAIN:-ipg.local}`) && (PathPrefix(`/api`) || PathPrefix(`/socket.io`))"
       - "traefik.http.routers.ipg-backend.entrypoints=websecure"
       - "traefik.http.routers.ipg-backend.tls.certresolver=letsencrypt"
       - "traefik.http.services.ipg-backend.loadbalancer.server.port=5000"

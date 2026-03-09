@@ -7,6 +7,7 @@ import { toast } from "sonner"
 import apiClient, { getApiErrorMessage } from "@/api/client"
 import { ChatPanel } from "@/components/rooms/ChatPanel"
 import { RoomSettings } from "@/components/rooms/RoomSettings"
+import { useSocket } from "@/hooks/use-socket"
 import { useAuth } from "@/providers/AuthProvider"
 import { cn } from "@/lib/utils"
 
@@ -46,6 +47,9 @@ function RoomLobbyPage() {
   const joinedRef = useRef(false)
   const navigatingToGameRef = useRef(false)
   const previousPlayerIdsRef = useRef<Map<string, string>>(new Map())
+
+  // Socket.IO for real-time updates (replaces polling)
+  useSocket({ roomId, enabled: !!user })
 
   // Join room via REST on mount
   useEffect(() => {
@@ -96,8 +100,8 @@ function RoomLobbyPage() {
         })),
       } as RoomData
     },
-    refetchInterval: 2000,
     refetchOnWindowFocus: true,
+    refetchInterval: 5000,
     enabled: !!user,
   })
 

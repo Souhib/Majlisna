@@ -68,5 +68,15 @@ export default defineConfig({
       testMatch: ["**/codenames/**"],
       timeout: 120_000,
     },
+    {
+      name: "websocket",
+      testMatch: ["**/websocket/**"],
+      timeout: 120_000,
+    },
+    {
+      name: "user-journey",
+      testMatch: ["**/user-journey/**"],
+      timeout: 120_000,
+    },
   ],
 });

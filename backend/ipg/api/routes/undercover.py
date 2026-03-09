@@ -2,7 +2,7 @@ from collections.abc import Sequence
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends
 from starlette.status import HTTP_201_CREATED
 
 from ipg.api.controllers.undercover import UndercoverController
@@ -10,6 +10,7 @@ from ipg.api.controllers.undercover_game import UndercoverGameController
 from ipg.api.models.table import User
 from ipg.api.models.undercover import TermPair, TermPairCreate, Word, WordCreate
 from ipg.api.schemas.shared import BaseModel
+from ipg.api.ws.notify import notify_game_changed, notify_room_changed
 from ipg.dependencies import get_current_user, get_undercover_controller, get_undercover_game_controller
 
 router = APIRouter(
@@ -45,9 +46,13 @@ class HintViewedRequest(BaseModel):
 async def start_undercover_game(
     room_id: UUID,
     current_user: Annotated[User, Depends(get_current_user)],
+    background_tasks: BackgroundTasks,
     controller: Annotated[UndercoverGameController, Depends(get_undercover_game_controller)],
 ) -> dict:
-    return await controller.create_and_start(room_id, current_user.id)
+    result = await controller.create_and_start(room_id, current_user.id)
+    background_tasks.add_task(notify_room_changed, str(room_id))
+    background_tasks.add_task(notify_game_changed, result["game_id"], str(room_id))
+    return result
 
 
 @router.get("/games/{game_id}/state")
@@ -66,9 +71,12 @@ async def submit_description(
     game_id: UUID,
     body: DescriptionRequest,
     current_user: Annotated[User, Depends(get_current_user)],
+    background_tasks: BackgroundTasks,
     controller: Annotated[UndercoverGameController, Depends(get_undercover_game_controller)],
 ) -> dict:
-    return await controller.submit_description(game_id, current_user.id, body.word)
+    result = await controller.submit_description(game_id, current_user.id, body.word)
+    background_tasks.add_task(notify_game_changed, str(game_id))
+    return result
 
 
 @router.post("/games/{game_id}/vote")
@@ -76,18 +84,24 @@ async def submit_vote(
     game_id: UUID,
     body: VoteRequest,
     current_user: Annotated[User, Depends(get_current_user)],
+    background_tasks: BackgroundTasks,
     controller: Annotated[UndercoverGameController, Depends(get_undercover_game_controller)],
 ) -> dict:
-    return await controller.submit_vote(game_id, current_user.id, body.voted_for)
+    result = await controller.submit_vote(game_id, current_user.id, body.voted_for)
+    background_tasks.add_task(notify_game_changed, str(game_id))
+    return result
 
 
 @router.post("/games/{game_id}/timer-expired")
 async def timer_expired(
     game_id: UUID,
     current_user: Annotated[User, Depends(get_current_user)],
+    background_tasks: BackgroundTasks,
     controller: Annotated[UndercoverGameController, Depends(get_undercover_game_controller)],
 ) -> dict:
-    return await controller.handle_timer_expired(game_id, current_user.id)
+    result = await controller.handle_timer_expired(game_id, current_user.id)
+    background_tasks.add_task(notify_game_changed, str(game_id))
+    return result
 
 
 @router.post("/games/{game_id}/hint-viewed")
@@ -105,9 +119,12 @@ async def start_next_round(
     game_id: UUID,
     body: NextRoundRequest,
     current_user: Annotated[User, Depends(get_current_user)],
+    background_tasks: BackgroundTasks,
     controller: Annotated[UndercoverGameController, Depends(get_undercover_game_controller)],
 ) -> dict:
-    return await controller.start_next_round(game_id, body.room_id, current_user.id)
+    result = await controller.start_next_round(game_id, body.room_id, current_user.id)
+    background_tasks.add_task(notify_game_changed, str(game_id))
+    return result
 
 
 @router.post("/words", response_model=Word, status_code=201)

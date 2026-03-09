@@ -2,7 +2,7 @@
 
 ## Overview
 
-FastAPI backend for real-time multiplayer Islamic board games. Uses SQLModel/SQLAlchemy async for database operations. Game state stored as JSON in PostgreSQL (`Game.live_state` column). Pure REST architecture with TanStack Query polling on the frontend.
+FastAPI backend for real-time multiplayer Islamic board games. Uses SQLModel/SQLAlchemy async for database operations. Game state stored as JSON in PostgreSQL (`Game.live_state` column). REST endpoints for mutations + Socket.IO for real-time state notifications. PgBouncer for connection pooling, Redis for Socket.IO cross-worker pub/sub only.
 
 ## Development Commands
 
@@ -59,20 +59,42 @@ api/
 │   ├── shared.py      # BaseModel, BaseTable (USE THESE)
 │   ├── error.py       # Enhanced error classes
 │   └── auth.py        # TokenPayload, LoginRequest, etc.
-├── routes/            # FastAPI routers (thin, delegate to controllers)
+├── routes/            # FastAPI routers (thin, delegate to controllers, trigger notify)
 │   ├── auth.py        # /api/v1/auth/*
 │   ├── user.py        # /api/v1/users/*
-│   ├── room.py        # /api/v1/rooms/*
+│   ├── room.py        # /api/v1/rooms/* (notify_room_changed after mutations)
 │   ├── game.py        # /api/v1/games/*
-│   ├── undercover.py  # /api/v1/undercover/*
-│   ├── codenames.py   # /api/v1/codenames/*
+│   ├── undercover.py  # /api/v1/undercover/* (notify_game_changed after mutations)
+│   ├── codenames.py   # /api/v1/codenames/* (notify_game_changed after mutations)
 │   └── stats.py       # /api/v1/users/{id}/stats, achievements, leaderboard
+├── ws/                # Socket.IO real-time notification layer
+│   ├── __init__.py    # Exports sio, socketio_app
+│   ├── server.py      # AsyncServer with Redis adapter
+│   ├── handlers.py    # connect (JWT auth), join_game, disconnect
+│   ├── state.py       # Thin wrappers: fetch_room_state, fetch_game_state (reuse controllers)
+│   └── notify.py      # notify_room_changed, notify_game_changed (best-effort broadcast)
 ├── constants.py       # All magic values
 ├── middleware.py       # Security, RequestID, Logging
 └── services/          # External integrations (future)
 ```
 
 ## Key Patterns
+
+### Socket.IO Notification Layer
+
+Socket.IO is a **notification layer**, not a game engine. The flow is:
+1. Client → REST POST → Controller (with advisory lock) → PostgreSQL → Response
+2. Route calls `notify_room_changed()` or `notify_game_changed()` via `BackgroundTasks`
+3. Notify functions open a fresh DB session, call existing controllers with `update_heartbeat=False`, and emit to Socket.IO rooms
+
+**Key rules:**
+- PostgreSQL is the ONLY source of truth. Redis is ONLY for Socket.IO adapter cross-worker pub/sub.
+- ZERO game state in Redis. No TTL watchers, no Redis OM.
+- Notify functions are **best-effort** — they swallow exceptions. If a broadcast fails, the REST response still succeeds.
+- `notify_game_changed` sends **per-user state** (because Codenames role visibility differs per player).
+- Socket.IO handlers are thin wrappers, NOT new controllers. They reuse `RoomController.get_room_state()`, `UndercoverGameController.get_state()`, `CodenamesGameController.get_board()`.
+- Broadcasts go to Socket.IO rooms (`room:{room_id}`, `game:{game_id}`), NEVER to individual SIDs (except for per-user game state).
+- Socket.IO `disconnect` does NOT trigger any game/room cleanup. Only explicit kick or `last_seen_at` staleness handles disconnect.
 
 ### Game State in PostgreSQL
 

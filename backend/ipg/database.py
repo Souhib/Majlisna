@@ -13,8 +13,8 @@ async def create_app_engine(settings: Settings) -> AsyncEngine:
     engine = create_async_engine(
         settings.database_url,
         poolclass=AsyncAdaptedQueuePool,
-        pool_size=20,
-        max_overflow=30,
+        pool_size=5,
+        max_overflow=10,
         pool_timeout=30,
         pool_recycle=3600,
         pool_pre_ping=True,

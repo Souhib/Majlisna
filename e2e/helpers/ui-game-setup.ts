@@ -454,11 +454,104 @@ function extractGameId(page: Page): string | null {
 }
 
 /**
+ * Submit a description via the UI for the current describer.
+ * Fills the #description-input and presses Enter.
+ */
+export async function submitDescriptionViaUI(
+  page: Page,
+  word: string,
+): Promise<void> {
+  const input = page.locator("#description-input");
+  await input.fill(word);
+  await input.press("Enter");
+}
+
+/**
+ * Submit descriptions for all alive players via the UI.
+ * Finds which player's page has the description input visible (only the
+ * current describer sees it), fills and submits, then waits for the next
+ * describer or phase transition.
+ */
+export async function submitDescriptionsForAllPlayersViaUI(
+  activePlayers: PlayerContext[],
+): Promise<void> {
+  const alivePlayers = activePlayers.filter((p) => isPageAlive(p.page));
+  if (alivePlayers.length === 0) return;
+
+  const maxIterations = alivePlayers.length + 2;
+
+  for (let i = 0; i < maxIterations; i++) {
+    // Check if phase already transitioned past describing
+    const anyPage = alivePlayers.find((p) => isPageAlive(p.page))?.page;
+    if (!anyPage) break;
+
+    const phaseTransitioned = await anyPage
+      .locator('text=Discuss and vote')
+      .or(anyPage.locator('h2:has-text("Game Over")'))
+      .isVisible()
+      .catch(() => false);
+    if (phaseTransitioned) break;
+
+    // Find which player's page has the description input visible.
+    // Retry with increasing waits since polling may take time to update the UI.
+    let describer: PlayerContext | undefined;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      for (const player of alivePlayers) {
+        if (!isPageAlive(player.page)) continue;
+        const inputVisible = await player.page
+          .locator("#description-input")
+          .isVisible()
+          .catch(() => false);
+        if (inputVisible) {
+          describer = player;
+          break;
+        }
+      }
+      if (describer) break;
+
+      // Wait for polling to deliver the updated state
+      await anyPage.waitForTimeout(2000);
+
+      // Re-check for phase transition while waiting
+      const transitioned = await anyPage
+        .locator('text=Discuss and vote')
+        .or(anyPage.locator('h2:has-text("Game Over")'))
+        .isVisible()
+        .catch(() => false);
+      if (transitioned) break;
+    }
+
+    if (!describer) break;
+
+    // Submit description via UI
+    const word = `desc${Math.random().toString(36).slice(2, 6)}`;
+    await submitDescriptionViaUI(describer.page, word);
+
+    // Wait for the input to disappear (server processed the description)
+    await describer.page
+      .locator("#description-input")
+      .waitFor({ state: "hidden", timeout: 10_000 })
+      .catch(() => {});
+  }
+
+  // Wait for all players to see the voting phase or game over
+  for (const player of activePlayers) {
+    if (!isPageAlive(player.page)) continue;
+    await player.page
+      .locator("text=Discuss and vote")
+      .or(player.page.locator('h2:has-text("Game Over")'))
+      .waitFor({ state: "visible", timeout: 30_000 })
+      .catch(() => {});
+  }
+}
+
+/**
  * Submit descriptions for all alive players via the API.
  * This bypasses UI interaction entirely for reliability, then waits
  * for the voting phase to appear on all players' UIs.
+ * Use this only for setup in error/boundary tests, not for gameplay E2E.
  */
-export async function submitDescriptionsForAllPlayers(
+export async function submitDescriptionsForAllPlayersViaAPI(
   activePlayers: PlayerContext[],
 ): Promise<void> {
   const alivePlayers = activePlayers.filter((p) => isPageAlive(p.page));
@@ -641,6 +734,7 @@ export async function giveClue(
   count: number,
 ): Promise<void> {
   const clueInput = spymasterPage.locator('input[placeholder]').first();
+  await clueInput.waitFor({ state: "visible", timeout: 15_000 });
   await clueInput.fill(clue);
 
   const numberInput = spymasterPage.locator('input[type="number"]');
@@ -657,8 +751,23 @@ export async function guessCard(
   operativePage: Page,
   cardWord: string,
 ): Promise<void> {
-  const card = operativePage.locator(`.grid-cols-5 button:has-text("${cardWord}")`).first();
+  // Use :text-is() for exact text matching to avoid substring collisions (e.g. "Hud" vs "Tashahhud")
+  const card = operativePage.locator(`.grid-cols-5 button:text-is("${cardWord}")`).first();
+  // Wait for the card to be enabled (operative can only click when canGuess is true)
+  await expect(card).toBeEnabled({ timeout: 15_000 });
   await card.click();
+}
+
+/**
+ * Click the "End Turn" button as an operative.
+ * The button is only visible when canGuess is true (operative's turn with a clue given).
+ */
+export async function endTurnViaUI(
+  operativePage: Page,
+): Promise<void> {
+  const endTurnBtn = operativePage.locator('button:has-text("End Turn")');
+  await endTurnBtn.waitFor({ state: "visible", timeout: 10_000 });
+  await endTurnBtn.click();
 }
 
 // ─── Codenames: Role Discovery ──────────────────────────────

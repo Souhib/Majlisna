@@ -4,32 +4,16 @@ import {
   setupRoomWithPlayers,
   startGameViaAPI,
   isPageAlive,
-  findAllOperatives,
+  giveClue,
+  guessCard,
+  endTurnViaUI,
   type PlayerContext,
 } from "../../helpers/ui-game-setup";
-import {
-  apiGetCodenamesBoard,
-  apiGiveClue,
-  apiGuessCard,
-  apiEndTurn,
-} from "../../helpers/api-client";
+import { apiGetCodenamesBoard } from "../../helpers/api-client";
 
 /**
- * Find spymaster/operative from a board response without extra API calls.
+ * Find all operatives from a board response without extra API calls.
  */
-function findPlayerByRole(
-  board: Awaited<ReturnType<typeof apiGetCodenamesBoard>>,
-  players: PlayerContext[],
-  team: "red" | "blue",
-  role: "spymaster" | "operative",
-): PlayerContext {
-  const bp = board.players.find((p) => p.team === team && p.role === role);
-  if (!bp) throw new Error(`No ${role} found for team ${team}`);
-  const pc = players.find((p) => p.login.user.id === bp.user_id);
-  if (!pc) throw new Error(`No PlayerContext for ${role} ${bp.user_id}`);
-  return pc;
-}
-
 function findAllPlayersByRole(
   board: Awaited<ReturnType<typeof apiGetCodenamesBoard>>,
   players: PlayerContext[],
@@ -43,6 +27,19 @@ function findAllPlayersByRole(
       if (!pc) throw new Error(`No PlayerContext for ${role} ${bp.user_id}`);
       return pc;
     });
+}
+
+function findPlayerByRole(
+  board: Awaited<ReturnType<typeof apiGetCodenamesBoard>>,
+  players: PlayerContext[],
+  team: "red" | "blue",
+  role: "spymaster" | "operative",
+): PlayerContext {
+  const bp = board.players.find((p) => p.team === team && p.role === role);
+  if (!bp) throw new Error(`No ${role} found for team ${team}`);
+  const pc = players.find((p) => p.login.user.id === bp.user_id);
+  if (!pc) throw new Error(`No PlayerContext for ${role} ${bp.user_id}`);
+  return pc;
 }
 
 test.describe("Codenames Voting (6-player)", () => {
@@ -76,28 +73,29 @@ test.describe("Codenames Voting (6-player)", () => {
     );
     expect(operatives.length).toBeGreaterThanOrEqual(2);
 
-    // Spymaster gives clue
-    await apiGiveClue(gameId!, "testvote", 1, spymaster.login.access_token);
+    // Spymaster gives clue via UI
+    await giveClue(spymaster.page, "testvote", 1);
 
-    // Get spymaster board to find a team card
+    // Read spymaster board to find a team card word
     const spymasterBoard = await apiGetCodenamesBoard(
       gameId!,
       spymaster.login.access_token,
     );
-    const teamCardIndex = spymasterBoard.board.findIndex(
+    const teamCard = spymasterBoard.board.find(
       (c) => c.card_type === currentTeam && !c.revealed,
     );
-    expect(teamCardIndex).toBeGreaterThanOrEqual(0);
+    expect(teamCard).toBeTruthy();
+    const teamCardWord = teamCard!.word;
+    const teamCardIndex = spymasterBoard.board.indexOf(teamCard!);
 
-    // First operative votes via API
-    const voteResult = (await apiGuessCard(
-      gameId!,
-      teamCardIndex,
-      operatives[0].login.access_token,
-    )) as Record<string, unknown>;
+    // Wait for operative to see the clue
+    await operatives[0].page.waitForTimeout(3000);
 
-    // Verify response indicates not all voted yet
-    expect(voteResult["all_voted"]).toBe(false);
+    // First operative votes via UI (clicks the card)
+    await guessCard(operatives[0].page, teamCardWord);
+
+    // Wait for polling to process
+    await operatives[0].page.waitForTimeout(3000);
 
     // Verify the card is NOT revealed yet (partial vote)
     const boardAfterVote = await apiGetCodenamesBoard(
@@ -138,37 +136,37 @@ test.describe("Codenames Voting (6-player)", () => {
     );
     expect(operatives.length).toBeGreaterThanOrEqual(2);
 
-    // Give clue
-    await apiGiveClue(gameId!, "teamwork", 1, spymaster.login.access_token);
+    // Give clue via UI
+    await giveClue(spymaster.page, "teamwork", 1);
 
-    // Find a team card
+    // Find a team card word
     const spymasterBoard = await apiGetCodenamesBoard(
       gameId!,
       spymaster.login.access_token,
     );
-    const teamCardIndex = spymasterBoard.board.findIndex(
+    const teamCard = spymasterBoard.board.find(
       (c) => c.card_type === currentTeam && !c.revealed,
     );
-    expect(teamCardIndex).toBeGreaterThanOrEqual(0);
+    expect(teamCard).toBeTruthy();
+    const teamCardWord = teamCard!.word;
+    const teamCardIndex = spymasterBoard.board.indexOf(teamCard!);
 
-    // First operative votes
-    await apiGuessCard(
-      gameId!,
-      teamCardIndex,
-      operatives[0].login.access_token,
-    );
+    // Wait for operatives to see the clue
+    await operatives[0].page.waitForTimeout(3000);
 
-    // Second operative votes same card
-    const secondVoteResult = (await apiGuessCard(
-      gameId!,
-      teamCardIndex,
-      operatives[1].login.access_token,
-    )) as Record<string, unknown>;
+    // First operative votes via UI
+    await guessCard(operatives[0].page, teamCardWord);
 
-    // Verify all voted
-    expect(secondVoteResult["all_voted"]).toBe(true);
+    // Wait briefly for vote to register
+    await operatives[0].page.waitForTimeout(2000);
 
-    // Verify card is now revealed
+    // Second operative votes same card via UI
+    await guessCard(operatives[1].page, teamCardWord);
+
+    // Wait for polling to update
+    await operatives[1].page.waitForTimeout(3000);
+
+    // Verify card is now revealed via API
     const updatedBoard = await apiGetCodenamesBoard(
       gameId!,
       setup.players[0].login.access_token,
@@ -209,31 +207,31 @@ test.describe("Codenames Voting (6-player)", () => {
     );
     expect(operatives.length).toBeGreaterThanOrEqual(2);
 
-    // Give clue
-    await apiGiveClue(gameId!, "badge", 1, spymaster.login.access_token);
+    // Give clue via UI
+    await giveClue(spymaster.page, "badge", 1);
 
-    // Find a team card
+    // Find a team card word
     const spymasterBoard = await apiGetCodenamesBoard(
       gameId!,
       spymaster.login.access_token,
     );
-    const teamCardIndex = spymasterBoard.board.findIndex(
+    const teamCard = spymasterBoard.board.find(
       (c) => c.card_type === currentTeam && !c.revealed,
     );
-    expect(teamCardIndex).toBeGreaterThanOrEqual(0);
+    expect(teamCard).toBeTruthy();
+    const teamCardWord = teamCard!.word;
+    const teamCardIndex = spymasterBoard.board.indexOf(teamCard!);
 
-    // First operative votes via API
-    await apiGuessCard(
-      gameId!,
-      teamCardIndex,
-      operatives[0].login.access_token,
-    );
+    // Wait for operative to see the clue
+    await operatives[0].page.waitForTimeout(3000);
+
+    // First operative votes via UI
+    await guessCard(operatives[0].page, teamCardWord);
 
     // Wait for polling to update the UI
     await setup.players[0].page.waitForTimeout(3000);
 
     // On an operative's page, check for vote badge visibility
-    // The badge is a span inside a button in .grid-cols-5
     const operativePage = operatives[0].page;
     if (isPageAlive(operativePage)) {
       const cardButtons = operativePage.locator(".grid-cols-5 button");
@@ -246,6 +244,7 @@ test.describe("Codenames Voting (6-player)", () => {
   });
 
   test("full game to completion with voting", async ({ browser }) => {
+    test.setTimeout(300_000);
     const accounts = await generateTestAccounts(6);
     const setup = await setupRoomWithPlayers(browser, accounts, "codenames");
     await startGameViaAPI(setup.players, "codenames", setup.roomId);
@@ -284,43 +283,43 @@ test.describe("Codenames Voting (6-player)", () => {
         break;
       }
 
-      // Give clue
-      await apiGiveClue(
-        gameId!,
-        `clue${turn}`,
-        1,
-        spymaster.login.access_token,
-      );
+      // Give clue via UI
+      await giveClue(spymaster.page, `clue${turn}`, 1);
 
-      // Get spymaster board to find team cards
+      // Get spymaster board to find team card word
       const smBoard = await apiGetCodenamesBoard(
         gameId!,
         spymaster.login.access_token,
       );
       if (smBoard.status === "finished") break;
 
-      const teamCard = smBoard.board.findIndex(
+      const teamCard = smBoard.board.find(
         (c) => c.card_type === currentTeam && !c.revealed,
       );
 
-      if (teamCard >= 0) {
-        // All operatives vote for the same team card
+      if (teamCard) {
+        // All operatives vote for the same team card via UI
+        // guessCard() waits for the card to be enabled (polling delivers clue)
         for (const op of operatives) {
-          await apiGuessCard(gameId!, teamCard, op.login.access_token);
+          await guessCard(op.page, teamCard.word);
         }
       }
 
-      // Check if game ended after guess
+      // Wait for votes to process
+      await operatives[0].page.waitForTimeout(1000);
+
+      // Check if game ended or turn already switched after guess
       const afterGuess = await apiGetCodenamesBoard(
         gameId!,
         setup.players[0].login.access_token,
       );
       if (afterGuess.status === "finished") break;
 
-      // End turn
-      await apiEndTurn(gameId!, operatives[0].login.access_token).catch(
-        () => {},
-      );
+      // Only end turn if the current team hasn't changed (guess didn't auto-end turn)
+      if (afterGuess.current_team === currentTeam) {
+        await endTurnViaUI(operatives[0].page).catch(() => {});
+        await operatives[0].page.waitForTimeout(1000);
+      }
     }
 
     // Verify game finished
@@ -332,7 +331,6 @@ test.describe("Codenames Voting (6-player)", () => {
     expect(finalBoard.winner).toBeTruthy();
 
     // Verify UI shows game over
-    await setup.players[0].page.waitForTimeout(3000);
     const anyPage = setup.players.find((p) => isPageAlive(p.page))?.page;
     if (anyPage) {
       await expect(
@@ -375,34 +373,33 @@ test.describe("Codenames Voting (6-player)", () => {
     );
     expect(operatives.length).toBeGreaterThanOrEqual(2);
 
-    // Give clue
-    await apiGiveClue(gameId!, "danger", 1, spymaster.login.access_token);
+    // Give clue via UI
+    await giveClue(spymaster.page, "danger", 1);
 
-    // Find assassin card from spymaster board view
+    // Find assassin card word from spymaster board view
     const spymasterBoard = await apiGetCodenamesBoard(
       gameId!,
       spymaster.login.access_token,
     );
-    const assassinIndex = spymasterBoard.board.findIndex(
+    const assassinCard = spymasterBoard.board.find(
       (c) => c.card_type === "assassin",
     );
-    expect(assassinIndex).toBeGreaterThanOrEqual(0);
+    expect(assassinCard).toBeTruthy();
+    const assassinWord = assassinCard!.word;
 
-    // Both operatives vote for assassin
+    // Wait for operatives to see the clue
+    await operatives[0].page.waitForTimeout(3000);
+
+    // Both operatives vote for assassin via UI
     for (const op of operatives) {
-      await apiGuessCard(gameId!, assassinIndex, op.login.access_token);
+      await guessCard(op.page, assassinWord);
+      await op.page.waitForTimeout(1000);
     }
 
-    // Verify game finished with opponent winning
-    const finalBoard = await apiGetCodenamesBoard(
-      gameId!,
-      setup.players[0].login.access_token,
-    );
-    expect(finalBoard.status).toBe("finished");
-    expect(finalBoard.winner).toBe(opponentTeam);
+    // Wait for UI to update
+    await setup.players[0].page.waitForTimeout(3000);
 
     // Verify UI shows game over
-    await setup.players[0].page.waitForTimeout(3000);
     const anyPage = setup.players.find((p) => isPageAlive(p.page))?.page;
     if (anyPage) {
       await expect(
@@ -411,6 +408,14 @@ test.describe("Codenames Voting (6-player)", () => {
           .or(anyPage.locator("text=Game Over")),
       ).toBeVisible({ timeout: 15_000 });
     }
+
+    // Verify via API that opponent won
+    const finalBoard = await apiGetCodenamesBoard(
+      gameId!,
+      setup.players[0].login.access_token,
+    );
+    expect(finalBoard.status).toBe("finished");
+    expect(finalBoard.winner).toBe(opponentTeam);
 
     await setup.cleanup();
   });

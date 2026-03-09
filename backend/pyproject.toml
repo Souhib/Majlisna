@@ -26,6 +26,8 @@ dependencies = [
     "uvloop>=0.21.0",
     "httptools>=0.6.0",
     "sentry-sdk[fastapi]>=2.0.0",
+    "python-socketio[asyncio]>=5.12.0",
+    "redis[hiredis]>=5.0.0",
     "resend>=2.0.0",
     "jinja2>=3.1.0",
 ]

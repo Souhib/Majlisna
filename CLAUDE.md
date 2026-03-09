@@ -10,13 +10,14 @@ This is a **monorepo** with separate backend and frontend applications:
 
 ```
 IPG/
-├── backend/                    # Python/FastAPI (pure REST)
+├── backend/                    # Python/FastAPI (REST + Socket.IO)
 │   ├── ipg/
-│   │   ├── api/               # REST API
+│   │   ├── api/               # REST API + WebSocket
 │   │   │   ├── controllers/   # Business logic + game logic
 │   │   │   ├── models/        # SQLModel DB tables
 │   │   │   ├── schemas/       # Pydantic request/response + base classes
-│   │   │   ├── routes/        # FastAPI routers
+│   │   │   ├── routes/        # FastAPI routers (trigger notify after mutations)
+│   │   │   ├── ws/            # Socket.IO server, handlers, notify, state
 │   │   │   ├── services/      # External integrations
 │   │   │   ├── constants.py   # All magic values
 │   │   │   └── middleware.py  # Security, request ID, logging
@@ -121,7 +122,8 @@ docker compose -f docker-compose.dokploy.yml up -d
 | Game State | PostgreSQL JSON column (`Game.live_state`) |
 | Auth | JWT (python-jose, bcrypt) |
 | Frontend | React 19, TanStack Router/Query, Tailwind v4, shadcn/ui |
-| Real-time | TanStack Query polling (2s interval) |
+| Real-time | Socket.IO (python-socketio + socket.io-client) — notification layer over REST |
+| Infra | PgBouncer (connection pooling), Redis (Socket.IO pub/sub only) |
 | API Codegen | Kubb (OpenAPI -> React Query hooks) |
 | i18n | i18next (English + Arabic + French) |
 | Testing | pytest (backend), Vitest (frontend) |
@@ -267,7 +269,7 @@ class MyController:
 - **BaseModel/BaseTable**: All models inherit from `ipg.api.schemas.shared.BaseModel/BaseTable`
 - **Enhanced Errors**: Auto i18n keys, auto-logging, `frontend_message` for UI
 - **Multi-env Settings**: `IPG_ENV` selector (.env -> .env.{env})
-- **Pure REST + Polling**: All game state via REST endpoints, TanStack Query polling for real-time updates (no WebSocket)
+- **REST + Socket.IO Notifications**: Mutations go through REST. Socket.IO pushes state updates to clients after mutations. PostgreSQL is the ONLY source of truth — Redis is ONLY for Socket.IO cross-worker pub/sub (ephemeral, no game data).
 - **Game State in PostgreSQL**: `Game.live_state` JSON column stores full game state
 - **Manual kick**: Host can kick players from room; no auto-disconnect
 - **Kubb Codegen**: Auto-generated React Query hooks from FastAPI's OpenAPI spec
@@ -302,13 +304,15 @@ await session.commit()
 
 **Always use timezone-aware timestamps for values sent to the frontend.** Use `datetime.now(UTC).isoformat()` (produces `+00:00` suffix) instead of `datetime.now().isoformat()` (naive). JavaScript's `new Date()` interprets naive ISO strings as local time, causing clock skew between Docker containers (UTC) and browsers (local timezone).
 
-### Frontend — Polling Architecture
+### Frontend — Socket.IO + TanStack Query
 
-**Game state is derived from server via `useMemo`, not accumulated from events.** The `useQuery` hook polls every 2s, and all UI state is derived from the server response. No local state accumulation.
+**Socket.IO pushes state into TanStack Query cache via `queryClient.setQueryData()`.** The `useSocket` hook connects to Socket.IO, receives `room_state` and `game_state` events, and writes them directly into the query cache. `useQuery` is kept for initial load + `refetchOnWindowFocus` fallback, but `refetchInterval` is removed.
 
-**Phase transitions detected by comparing refs to previous state.** `previousPhaseRef` and `previousRoundRef` track changes between polling cycles to trigger animations (e.g., voting transition overlay).
+**Game state is derived from server via `useMemo`, not accumulated from events.** All UI state is derived from the server response (whether from Socket.IO push or initial fetch). No local state accumulation.
 
-**`refetchOnWindowFocus: true` for game pages.** When user returns to tab, game state refreshes immediately.
+**Phase transitions detected by comparing refs to previous state.** `previousPhaseRef` and `previousRoundRef` track changes to trigger animations (e.g., voting transition overlay).
+
+**Socket.IO is a NOTIFICATION LAYER, not a game engine.** Mutations go through REST POST. Socket.IO only broadcasts AFTER the mutation succeeds. If the broadcast fails, the REST response still succeeds, and `refetchOnWindowFocus` catches up.
 
 ### E2E — Playwright
 

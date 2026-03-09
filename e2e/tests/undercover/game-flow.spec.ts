@@ -4,7 +4,7 @@ import {
   setupRoomWithPlayers,
   startGameViaAPI,
   dismissRoleRevealAll,
-  submitDescriptionsForAllPlayers,
+  submitDescriptionsForAllPlayersViaUI,
   voteForPlayer,
   verifyAllPlayersVoted,
   waitForEliminationOrGameOver,
@@ -37,8 +37,8 @@ test.describe("Undercover Game Flow", () => {
     await startGameViaAPI(setup.players, "undercover", setup.roomId);
     const activePlayers = await dismissRoleRevealAll(setup.players);
 
-    // Description phase
-    await submitDescriptionsForAllPlayers(activePlayers);
+    // Description phase via UI
+    await submitDescriptionsForAllPlayersViaUI(activePlayers);
 
     // All players should see voting phase
     for (const player of activePlayers) {

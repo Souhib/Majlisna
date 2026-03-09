@@ -4,7 +4,7 @@ import {
   setupRoomWithPlayers,
   startGameViaAPI,
   dismissRoleRevealAll,
-  submitDescriptionsForAllPlayers,
+  submitDescriptionsForAllPlayersViaUI,
   voteForPlayer,
   verifyAllPlayersVoted,
   waitForEliminationOrGameOver,
@@ -40,7 +40,7 @@ test.describe("Undercover Game Completion", () => {
       if (state.winner) { gameOver = true; break; }
 
       // Description phase via API
-      await submitDescriptionsForAllPlayers(activePlayers);
+      await submitDescriptionsForAllPlayersViaUI(activePlayers);
 
       // Re-check state after descriptions
       let stateAfterDesc;
@@ -120,7 +120,7 @@ test.describe("Undercover Game Completion", () => {
     expect(gameId).toBeTruthy();
 
     // Description phase
-    await submitDescriptionsForAllPlayers(activePlayers);
+    await submitDescriptionsForAllPlayersViaUI(activePlayers);
 
     let state;
     try {
@@ -188,7 +188,7 @@ test.describe("Undercover Game Completion", () => {
     expect(gameId).toBeTruthy();
 
     // Play one round via API to finish fast
-    await submitDescriptionsForAllPlayers(activePlayers);
+    await submitDescriptionsForAllPlayersViaUI(activePlayers);
 
     let state;
     try {

@@ -21,6 +21,39 @@ services:
       retries: 5
     restart: unless-stopped
 
+  # ─── PgBouncer ────────────────────────────────────────────
+
+  pgbouncer:
+    image: edoburu/pgbouncer:v1.25.1-p0
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-ipg}:${POSTGRES_PASSWORD:-ipg}@db:5432/${POSTGRES_DB:-ipg}
+      POOL_MODE: transaction
+      DEFAULT_POOL_SIZE: 20
+      MAX_CLIENT_CONN: 200
+      LISTEN_PORT: 6432
+      AUTH_TYPE: scram-sha-256
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-p", "6432"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ─── Redis ───────────────────────────────────────────────
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --maxmemory 64mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
   # ─── Backend API ──────────────────────────────────────────
 
   backend:
@@ -31,7 +64,8 @@ services:
     ports:
       - "5051:5000"
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-ipg}:${POSTGRES_PASSWORD:-ipg}@db:5432/${POSTGRES_DB:-ipg}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-ipg}:${POSTGRES_PASSWORD:-ipg}@pgbouncer:6432/${POSTGRES_DB:-ipg}
+      REDIS_URL: redis://redis:6379/0
       ENVIRONMENT: development
       IPG_ENV: development
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-secret-key-change-me}
@@ -39,7 +73,9 @@ services:
       LOG_LEVEL: DEBUG
       SENTRY_DSN: ${SENTRY_DSN:-}
     depends_on:
-      db:
+      pgbouncer:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     restart: unless-stopped
 

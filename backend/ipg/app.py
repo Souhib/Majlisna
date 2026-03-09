@@ -29,6 +29,7 @@ from ipg.api.routes.stats import router as stats_router
 from ipg.api.routes.undercover import router as undercover_router
 from ipg.api.routes.user import router as user_router
 from ipg.api.schemas.error import BaseError
+from ipg.api.ws import socketio_app
 from ipg.database import get_engine as _get_engine
 from ipg.settings import Settings
 
@@ -72,6 +73,9 @@ def create_app(lifespan) -> FastAPI:
     app.include_router(friend_router, prefix="/api/v1")
     app.include_router(chat_router, prefix="/api/v1")
     app.include_router(challenge_router, prefix="/api/v1")
+
+    # Mount Socket.IO (separate ASGI app, bypasses FastAPI middleware)
+    app.mount("/socket.io", socketio_app)
 
     @app.get("/scalar", include_in_schema=False)
     async def scalar_html():

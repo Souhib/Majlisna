@@ -280,7 +280,7 @@ class RoomController:
         ).one()
         return room
 
-    async def get_room_state(self, room_id: UUID, user_id: UUID) -> dict:
+    async def get_room_state(self, room_id: UUID, user_id: UUID, update_heartbeat: bool = True) -> dict:
         """Get room state for all players."""
         room = await self.get_room_by_id(room_id)
 

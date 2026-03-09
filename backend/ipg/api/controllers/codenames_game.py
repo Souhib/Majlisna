@@ -369,7 +369,9 @@ class CodenamesGameController:
             "current_team": state["current_team"],
         }
 
-    async def get_board(self, game_id: UUID, user_id: UUID, sid: str | None = None, lang: str = "en") -> dict:
+    async def get_board(
+        self, game_id: UUID, user_id: UUID, sid: str | None = None, lang: str = "en", update_heartbeat: bool = True
+    ) -> dict:
         """Get the current board state for a player. Used for polling."""
         game = await self._get_game(game_id)
         state = game.live_state
@@ -401,21 +403,26 @@ class CodenamesGameController:
                 else:
                     card_view["hint"] = None
 
-        # Update heartbeat and check host status in one query batch
-        link = (
-            await self.session.exec(
-                select(RoomUserLink).where(RoomUserLink.room_id == game.room_id).where(RoomUserLink.user_id == user_id)
-            )
-        ).first()
+        # Check host status
         room = (await self.session.exec(select(Room).where(Room.id == game.room_id))).first()
         is_host = bool(room and room.owner_id == user_id)
-        if link:
-            link.last_seen_at = datetime.now()
-            link.connected = True
-            if link.disconnected_at is not None:
-                link.disconnected_at = None
-            self.session.add(link)
-            await self.session.commit()
+
+        # Update heartbeat
+        if update_heartbeat:
+            link = (
+                await self.session.exec(
+                    select(RoomUserLink)
+                    .where(RoomUserLink.room_id == game.room_id)
+                    .where(RoomUserLink.user_id == user_id)
+                )
+            ).first()
+            if link:
+                link.last_seen_at = datetime.now()
+                link.connected = True
+                if link.disconnected_at is not None:
+                    link.disconnected_at = None
+                self.session.add(link)
+                await self.session.commit()
 
         return {
             "game_id": str(game.id),

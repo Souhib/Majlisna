@@ -14,6 +14,7 @@ import { VoteHistory } from "@/components/games/undercover/VoteHistory"
 import { GameOverScreen } from "@/components/games/undercover/GameOverScreen"
 import { RoleRevealPhase } from "@/components/games/undercover/RoleRevealPhase"
 import { VotingPhase } from "@/components/games/undercover/VotingPhase"
+import { useSocket } from "@/hooks/use-socket"
 import { useAuth } from "@/providers/AuthProvider"
 import { cn } from "@/lib/utils"
 
@@ -50,6 +51,11 @@ function UndercoverGamePage() {
   const queryClient = useQueryClient()
 
   const roomIdRef = useRef<string | null>(null)
+  const [socketRoomId, setSocketRoomId] = useState<string | null>(null)
+
+  // Socket.IO for real-time updates (replaces polling)
+  useSocket({ roomId: socketRoomId, gameId, gameType: "undercover", enabled: !!user })
+
   const [roleRevealed, setRoleRevealed] = useState(false)
   const [selectedVote, setSelectedVote] = useState<string | null>(null)
   const [descriptionInput, setDescriptionInput] = useState("")
@@ -106,9 +112,8 @@ function UndercoverGamePage() {
         }
       }
     },
-    refetchInterval: 2000,
-    refetchIntervalInBackground: true,
     refetchOnWindowFocus: true,
+    refetchInterval: 5000,
     enabled: !!user,
   })
 
@@ -127,7 +132,10 @@ function UndercoverGamePage() {
       }
     }
 
-    if (serverState.room_id) roomIdRef.current = serverState.room_id
+    if (serverState.room_id) {
+      roomIdRef.current = serverState.room_id
+      if (!socketRoomId) setSocketRoomId(serverState.room_id)
+    }
 
     const votedPlayerIds = serverState.votes ? Object.keys(serverState.votes) : []
 

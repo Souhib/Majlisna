@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     # Database
     database_url: str
 
+    # Redis (Socket.IO cross-worker pub/sub)
+    redis_url: str = "redis://redis:6379/0"
+
     # JWT Authentication
     jwt_secret_key: str = "dev-secret-key-change-in-production"
     jwt_encryption_algorithm: str = "HS256"

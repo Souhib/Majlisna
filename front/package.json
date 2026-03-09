@@ -54,6 +54,7 @@
     "react-dom": "^19.2.3",
     "react-hook-form": "^7.69.0",
     "react-i18next": "^16.5.2",
+    "socket.io-client": "^4.8.3",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.4.0",
     "zod": "^4.3.4"

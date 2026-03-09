@@ -4,7 +4,8 @@ import {
   setupRoomWithPlayers,
   startGameViaAPI,
   dismissRoleRevealAll,
-  submitDescriptionsForAllPlayers,
+  submitDescriptionsForAllPlayersViaUI,
+  submitDescriptionsForAllPlayersViaAPI,
   voteForPlayer,
   verifyAllPlayersVoted,
   waitForEliminationOrGameOver,
@@ -25,8 +26,8 @@ test.describe("Undercover Game Errors", () => {
     const gameId = setup.players[0].page.url().match(/\/game\/undercover\/([a-f0-9-]+)/)?.[1];
     expect(gameId).toBeTruthy();
 
-    // Complete description phase first
-    await submitDescriptionsForAllPlayers(activePlayers);
+    // Complete description phase via API (this is error test setup, not gameplay)
+    await submitDescriptionsForAllPlayersViaAPI(activePlayers);
 
     // Wait for voting phase with retries (polling may take a moment)
     let state;
@@ -112,8 +113,8 @@ test.describe("Undercover Game Errors", () => {
     const gameId = setup.players[0].page.url().match(/\/game\/undercover\/([a-f0-9-]+)/)?.[1];
     expect(gameId).toBeTruthy();
 
-    // Description phase
-    await submitDescriptionsForAllPlayers(activePlayers);
+    // Description phase via UI
+    await submitDescriptionsForAllPlayersViaUI(activePlayers);
 
     // Get state to find vote targets
     let state;

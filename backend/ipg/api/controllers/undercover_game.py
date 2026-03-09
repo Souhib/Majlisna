@@ -546,7 +546,9 @@ class UndercoverGameController:
             return UndercoverRole.UNDERCOVER.value
         return None
 
-    async def get_state(self, game_id: UUID, user_id: UUID, sid: str | None = None, lang: str = "en") -> dict:
+    async def get_state(
+        self, game_id: UUID, user_id: UUID, sid: str | None = None, lang: str = "en", update_heartbeat: bool = True
+    ) -> dict:
         """Get full game state for a player. Used for polling and initial page load."""
         game = await self._get_game(game_id)
         state = game.live_state
@@ -556,18 +558,21 @@ class UndercoverGameController:
             raise PlayerRemovedFromGameError(user_id=str(user_id), game_id=str(game_id))
 
         # Update heartbeat
-        link = (
-            await self.session.exec(
-                select(RoomUserLink).where(RoomUserLink.room_id == game.room_id).where(RoomUserLink.user_id == user_id)
-            )
-        ).first()
-        if link:
-            link.last_seen_at = datetime.now()
-            link.connected = True
-            if link.disconnected_at is not None:
-                link.disconnected_at = None
-            self.session.add(link)
-            await self.session.commit()
+        if update_heartbeat:
+            link = (
+                await self.session.exec(
+                    select(RoomUserLink)
+                    .where(RoomUserLink.room_id == game.room_id)
+                    .where(RoomUserLink.user_id == user_id)
+                )
+            ).first()
+            if link:
+                link.last_seen_at = datetime.now()
+                link.connected = True
+                if link.disconnected_at is not None:
+                    link.disconnected_at = None
+                self.session.add(link)
+                await self.session.commit()
 
         my_word = self._get_player_word(player, state)
         my_word_hint = self._get_player_word_hint(player, state, lang)
