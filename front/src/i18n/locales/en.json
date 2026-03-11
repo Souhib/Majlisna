@@ -371,6 +371,14 @@
     "anyGame": "any game",
     "challengeCompleted": "Challenge completed!"
   },
+  "prayer": {
+    "prayerTimes": "Prayer Times",
+    "next": "Next",
+    "tahajjud": "Tahajjud",
+    "useMyLocation": "Use my location",
+    "searchCity": "Search city...",
+    "changeCity": "Change"
+  },
   "errors": {
     "loadFailed": "Failed to load data. Please try again.",
     "api": {

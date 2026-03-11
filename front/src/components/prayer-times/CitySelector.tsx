@@ -1,5 +1,6 @@
 import { MapPin, Search, Loader2 } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
+import { useTranslation } from "react-i18next"
 import { useMapsLibrary } from "@vis.gl/react-google-maps"
 
 export interface CityCoordinates {
@@ -110,13 +111,13 @@ async function reverseGeocodeFree(lat: number, lng: number): Promise<string> {
 
 export async function autoDetectLocationByIP(): Promise<CityCoordinates | null> {
   try {
-    const res = await fetch("http://ip-api.com/json/?fields=status,city,lat,lon,timezone")
+    const res = await fetch("https://ipapi.co/json/")
     const data = await res.json()
-    if (data.status === "success" && data.city && data.lat && data.lon) {
+    if (data.city && data.latitude && data.longitude) {
       const coords: CityCoordinates = {
         city: data.city,
-        lat: data.lat,
-        lng: data.lon,
+        lat: data.latitude,
+        lng: data.longitude,
         timezone: data.timezone,
       }
       storeCity(coords)
@@ -129,6 +130,7 @@ export async function autoDetectLocationByIP(): Promise<CityCoordinates | null> 
 }
 
 export function CitySelector({ onSelect, initialCity }: CitySelectorProps) {
+  const { t } = useTranslation()
   const [query, setQuery] = useState("")
   const [detecting, setDetecting] = useState(false)
   const [selectedCity, setSelectedCity] = useState(initialCity || "")
@@ -295,7 +297,7 @@ export function CitySelector({ onSelect, initialCity }: CitySelectorProps) {
             }}
             className="text-xs text-muted-foreground hover:text-primary transition-colors underline"
           >
-            Change
+            {t("prayer.changeCity")}
           </button>
         </div>
       ) : (
@@ -311,7 +313,7 @@ export function CitySelector({ onSelect, initialCity }: CitySelectorProps) {
             ) : (
               <MapPin className="h-3.5 w-3.5" />
             )}
-            Use my location
+            {t("prayer.useMyLocation")}
           </button>
           <div className="relative flex-1">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
@@ -321,7 +323,7 @@ export function CitySelector({ onSelect, initialCity }: CitySelectorProps) {
               value={query}
               onChange={(e) => handleSearch(e.target.value)}
               onFocus={() => (googlePredictions.length > 0 || freePredictions.length > 0) && setShowDropdown(true)}
-              placeholder="Search city..."
+              placeholder={t("prayer.searchCity")}
               className="w-full rounded-md border bg-background py-1.5 pl-8 pr-3 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
             />
             {showDropdown && hasGoogleMaps && googlePredictions.length > 0 && (

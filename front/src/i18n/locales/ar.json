@@ -386,5 +386,13 @@
       "gameNotFound": "اللعبة غير موجودة.",
       "resourceNotFound": "المورد غير موجود."
     }
+  },
+  "prayer": {
+    "prayerTimes": "مواقيت الصلاة",
+    "next": "التالية",
+    "tahajjud": "التهجد",
+    "useMyLocation": "استخدام موقعي",
+    "searchCity": "ابحث عن مدينة...",
+    "changeCity": "تغيير"
   }
 }

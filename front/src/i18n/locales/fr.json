@@ -362,5 +362,13 @@
       "gameNotFound": "Partie introuvable.",
       "resourceNotFound": "Ressource introuvable."
     }
+  },
+  "prayer": {
+    "prayerTimes": "Horaires de prière",
+    "next": "Suivante",
+    "tahajjud": "Tahajjud",
+    "useMyLocation": "Utiliser ma position",
+    "searchCity": "Rechercher une ville...",
+    "changeCity": "Changer"
   }
 }

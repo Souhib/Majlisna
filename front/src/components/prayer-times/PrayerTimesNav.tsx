@@ -1,5 +1,6 @@
 import { Clock, MapPin, Moon, ChevronDown } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
+import { useTranslation } from "react-i18next"
 import { usePrayerTimes } from "@/hooks/use-prayer-times"
 import { CitySelector, autoDetectLocationByIP, loadStoredCity, refreshTimezoneIfMissing, type CityCoordinates } from "./CitySelector"
 
@@ -19,6 +20,7 @@ function formatTime(date: Date, timezone?: string): string {
 }
 
 export function PrayerTimesNav() {
+  const { t } = useTranslation()
   const [coordinates, setCoordinates] = useState<CityCoordinates | null>(() => loadStoredCity())
   const [open, setOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
@@ -88,7 +90,7 @@ export function PrayerTimesNav() {
         ) : (
           <>
             <MapPin className="h-3.5 w-3.5" />
-            <span>Set location</span>
+            <span>{t("prayer.prayerTimes")}</span>
           </>
         )}
       </button>
@@ -105,7 +107,7 @@ export function PrayerTimesNav() {
               </div>
               {nextPrayer && (
                 <span className="text-xs text-muted-foreground">
-                  Next: <span className="font-medium text-primary">{nextPrayer.name}</span>
+                  {t("prayer.next")}: <span className="font-medium text-primary">{nextPrayer.name}</span>
                 </span>
               )}
             </div>
@@ -145,7 +147,7 @@ export function PrayerTimesNav() {
                 <Moon className="h-4 w-4 text-primary mt-0.5 shrink-0" />
                 <div>
                   <div className="flex items-baseline gap-1.5">
-                    <span className="text-xs font-bold">Tahajjud</span>
+                    <span className="text-xs font-bold">{t("prayer.tahajjud")}</span>
                     <span className="text-xs font-bold tabular-nums text-primary">
                       {formatTime(tahajjud, timezone)}
                     </span>
