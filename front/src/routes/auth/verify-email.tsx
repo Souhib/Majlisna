@@ -40,22 +40,12 @@ function VerifyEmailPage() {
 
   return (
     <div className="flex min-h-[80vh] items-center justify-center px-4">
-      <div className="flex w-full max-w-4xl overflow-hidden rounded-2xl">
-        {/* Decorative left panel */}
-        <div className="hidden lg:flex lg:w-1/2 relative flex-col items-center justify-center gap-6 bg-gradient-to-br from-primary via-primary/80 to-primary/60 p-12">
-          <div className="absolute inset-0 opacity-10" style={{ backgroundImage: "radial-gradient(circle at 1px 1px, currentColor 1px, transparent 0)", backgroundSize: "24px 24px" }} />
-          <div className="relative z-10 text-center space-y-4">
-            <h2 className="gradient-text text-4xl font-extrabold tracking-tight">{t("auth.verifyEmail")}</h2>
-          </div>
-        </div>
-
-        {/* Content right panel */}
-        <motion.div
-          initial={{ opacity: 0, y: 25 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-          className="glass animate-scale-in w-full lg:w-1/2 rounded-2xl p-8 space-y-6 text-center"
-        >
+      <motion.div
+        initial={{ opacity: 0, y: 25 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+        className="glass w-full max-w-md rounded-2xl p-8 space-y-6 text-center"
+      >
           {status === "loading" && (
             <>
               <div className="mx-auto h-12 w-12 animate-spin rounded-full border-4 border-primary border-t-transparent" />
@@ -98,8 +88,7 @@ function VerifyEmailPage() {
               </Link>
             </>
           )}
-        </motion.div>
-      </div>
+      </motion.div>
     </div>
   )
 }

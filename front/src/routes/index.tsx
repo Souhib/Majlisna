@@ -202,16 +202,16 @@ function HomePage() {
               href={charity.url}
               target="_blank"
               rel="noopener noreferrer"
-              className={`group glass rounded-2xl border ${charity.borderColor} p-6 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl`}
+              className={`group flex flex-col glass rounded-2xl border ${charity.borderColor} p-6 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl`}
             >
-              <div className={`inline-flex rounded-xl bg-gradient-to-br ${charity.color} p-3 mb-4`}>
+              <div className={`inline-flex w-fit rounded-xl bg-gradient-to-br ${charity.color} p-3 mb-4`}>
                 <Heart className={`h-5 w-5 ${charity.textColor}`} />
               </div>
               <h3 className="text-lg font-extrabold tracking-tight mb-2">{charity.name}</h3>
-              <p className="text-sm text-muted-foreground leading-relaxed mb-5">
+              <p className="text-sm text-muted-foreground leading-relaxed mb-5 flex-1">
                 {t(charity.description)}
               </p>
-              <span className={`inline-flex items-center gap-2 rounded-xl ${charity.btnColor} px-5 py-2.5 text-sm font-semibold shadow-md transition-all duration-200 group-hover:shadow-lg group-hover:gap-3`}>
+              <span className={`inline-flex items-center gap-2 rounded-xl ${charity.btnColor} px-5 py-2.5 text-sm font-semibold shadow-md transition-all duration-200 group-hover:shadow-lg group-hover:gap-3 self-start`}>
                 {t("home.charity.donate")}
                 <ExternalLink className="h-3.5 w-3.5" />
               </span>
