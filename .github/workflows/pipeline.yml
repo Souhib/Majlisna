@@ -21,7 +21,7 @@ concurrency:
 
 env:
   DEPLOY_DIR: /etc/dokploy/compose/<REDACTED_DOKPLOY_ID>/code
-  FRONTEND_IMAGE: ghcr.io/${{ github.repository_owner }}/ipg-frontend
+  FRONTEND_IMAGE: ghcr.io/souhib/ipg-frontend
 
 jobs:
   # ── Detect which paths changed ──────────────────────────────
