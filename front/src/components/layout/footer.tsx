@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router"
-import { BookOpen, Github, Heart, Linkedin, Mail, User } from "lucide-react"
+import { BookOpen, ExternalLink, Github, Heart, Linkedin, Mail, User } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { motion, useReducedMotion } from "motion/react"
 
@@ -44,7 +44,7 @@ export function Footer() {
       />
 
       <div className="relative mx-auto max-w-7xl px-4 py-12">
-        <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-[1.2fr_1fr_1.5fr]">
+        <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-[1.2fr_0.8fr_0.8fr_1.5fr]">
           {/* Brand column */}
           <div>
             <Link to="/" className="inline-flex items-center gap-2.5 group">
@@ -80,6 +80,33 @@ export function Footer() {
                   {link.label}
                 </Link>
               ))}
+            </nav>
+          </div>
+
+          {/* Support */}
+          <div>
+            <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground/70 mb-4">
+              {t("home.charity.badge")}
+            </h3>
+            <nav className="flex flex-col gap-3">
+              <a
+                href="https://humanappeal.org.uk/donate"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-all duration-200 hover:text-emerald-600 dark:hover:text-emerald-400 hover:translate-x-0.5 w-fit"
+              >
+                Human Appeal
+                <ExternalLink className="h-3 w-3" />
+              </a>
+              <a
+                href="https://ummahcharity.org.uk/donate"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-all duration-200 hover:text-sky-600 dark:hover:text-sky-400 hover:translate-x-0.5 w-fit"
+              >
+                Ummah Charity
+                <ExternalLink className="h-3 w-3" />
+              </a>
             </nav>
           </div>
 

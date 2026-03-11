@@ -1,8 +1,29 @@
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { motion } from "motion/react"
-import { BookOpen, Grid2x2, Shield, Users } from "lucide-react"
+import { BookOpen, ExternalLink, Grid2x2, Heart, Shield, Users } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { useAuth } from "@/providers/AuthProvider"
+
+const charities = [
+  {
+    name: "Human Appeal",
+    url: "https://humanappeal.org.uk/donate",
+    description: "home.charity.humanAppealDesc",
+    color: "from-emerald-500/15 to-teal-500/15",
+    borderColor: "border-emerald-500/20 hover:border-emerald-500/40",
+    textColor: "text-emerald-700 dark:text-emerald-400",
+    btnColor: "bg-emerald-600 hover:bg-emerald-700 text-white",
+  },
+  {
+    name: "Ummah Charity",
+    url: "https://ummahcharity.org.uk/donate",
+    description: "home.charity.ummahCharityDesc",
+    color: "from-sky-500/15 to-indigo-500/15",
+    borderColor: "border-sky-500/20 hover:border-sky-500/40",
+    textColor: "text-sky-700 dark:text-sky-400",
+    btnColor: "bg-sky-600 hover:bg-sky-700 text-white",
+  },
+] as const
 
 export const Route = createFileRoute("/")({
   component: HomePage,
@@ -153,6 +174,51 @@ function HomePage() {
           </div>
         </motion.div>
       </div>
+
+      {/* Support Section */}
+      <motion.div
+        initial={{ opacity: 0, y: 25 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, delay: 0.8 }}
+        className="relative mt-24 max-w-4xl mx-auto"
+      >
+        <div className="text-center mb-10">
+          <div className="inline-flex items-center gap-2 rounded-full border border-accent/20 bg-accent/10 px-4 py-1.5 mb-4">
+            <Heart className="h-3.5 w-3.5 text-accent" />
+            <span className="text-xs font-semibold text-accent tracking-wide">{t("home.charity.badge")}</span>
+          </div>
+          <h2 className="text-3xl font-extrabold tracking-tight gradient-text sm:text-4xl">
+            {t("home.charity.title")}
+          </h2>
+          <p className="mt-3 text-muted-foreground max-w-lg mx-auto">
+            {t("home.charity.subtitle")}
+          </p>
+        </div>
+
+        <div className="grid gap-6 md:grid-cols-2">
+          {charities.map((charity) => (
+            <a
+              key={charity.name}
+              href={charity.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`group glass rounded-2xl border ${charity.borderColor} p-6 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl`}
+            >
+              <div className={`inline-flex rounded-xl bg-gradient-to-br ${charity.color} p-3 mb-4`}>
+                <Heart className={`h-5 w-5 ${charity.textColor}`} />
+              </div>
+              <h3 className="text-lg font-extrabold tracking-tight mb-2">{charity.name}</h3>
+              <p className="text-sm text-muted-foreground leading-relaxed mb-5">
+                {t(charity.description)}
+              </p>
+              <span className={`inline-flex items-center gap-2 rounded-xl ${charity.btnColor} px-5 py-2.5 text-sm font-semibold shadow-md transition-all duration-200 group-hover:shadow-lg group-hover:gap-3`}>
+                {t("home.charity.donate")}
+                <ExternalLink className="h-3.5 w-3.5" />
+              </span>
+            </a>
+          ))}
+        </div>
+      </motion.div>
     </div>
   )
 }

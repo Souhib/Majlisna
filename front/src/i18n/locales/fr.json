@@ -62,7 +62,15 @@
     "subtitle": "Jouez à des versions islamiques de vos jeux de soirée préférés avec vos amis",
     "playNow": "Jouer",
     "createRoom": "Créer un salon",
-    "joinRoom": "Rejoindre un salon"
+    "joinRoom": "Rejoindre un salon",
+    "charity": {
+      "badge": "Soutenir la Oumma",
+      "title": "Faites la différence",
+      "subtitle": "En jouant, pensez à soutenir ceux dans le besoin via ces associations de confiance",
+      "humanAppealDesc": "Aide humanitaire, secours d'urgence et programmes de développement à travers le monde pour les communautés dans le besoin.",
+      "ummahCharityDesc": "Aide vitale et développement durable pour les communautés vulnérables à travers le monde.",
+      "donate": "Faire un don"
+    }
   },
   "games": {
     "undercover": {

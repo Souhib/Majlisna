@@ -62,7 +62,15 @@
     "subtitle": "Play Islamized versions of your favorite party games with friends",
     "playNow": "Play Now",
     "createRoom": "Create Room",
-    "joinRoom": "Join Room"
+    "joinRoom": "Join Room",
+    "charity": {
+      "badge": "Support the Ummah",
+      "title": "Make a Difference",
+      "subtitle": "While you play, consider supporting those in need through these trusted charities",
+      "humanAppealDesc": "Providing humanitarian aid, emergency relief, and development programs across the globe to communities in need.",
+      "ummahCharityDesc": "Delivering vital aid and sustainable development to vulnerable communities worldwide.",
+      "donate": "Donate Now"
+    }
   },
   "games": {
     "undercover": {
