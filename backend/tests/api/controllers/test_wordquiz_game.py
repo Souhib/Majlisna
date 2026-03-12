@@ -344,6 +344,10 @@ async def test_normalize_answer_static():
     assert normalize("إِبْرَاهِيم") == "إبراهيم"
     assert normalize("  multiple   spaces  ") == "multiple spaces"
     assert normalize("") == ""
+    # Hyphens are replaced with spaces so "Al-Aqsa" matches "Al Aqsa"
+    assert normalize("Al-Aqsa") == "al aqsa"
+    assert normalize("Al Aqsa") == "al aqsa"
+    assert normalize("al-aqsa") == "al aqsa"
 
 
 @pytest.mark.asyncio
@@ -365,6 +369,26 @@ async def test_check_answer_accepted_variants():
     assert WordQuizGameController._check_answer("إبراهيم", word) is True
     assert WordQuizGameController._check_answer("ابراهيم", word) is True
     assert WordQuizGameController._check_answer("WrongWord", word) is False
+
+
+@pytest.mark.asyncio
+async def test_check_answer_hyphen_insensitive():
+    """_check_answer treats hyphens and spaces as equivalent."""
+    word = {
+        "word_en": "Al-Aqsa",
+        "word_ar": "الأقصى",
+        "word_fr": "Al-Aqsa",
+        "accepted_answers": {
+            "en": ["Al-Aqsa", "Aqsa", "Masjid Al-Aqsa"],
+            "ar": ["الأقصى", "المسجد الأقصى"],
+        },
+    }
+
+    assert WordQuizGameController._check_answer("Al-Aqsa", word) is True
+    assert WordQuizGameController._check_answer("Al Aqsa", word) is True
+    assert WordQuizGameController._check_answer("al aqsa", word) is True
+    assert WordQuizGameController._check_answer("Masjid Al Aqsa", word) is True
+    assert WordQuizGameController._check_answer("masjid al-aqsa", word) is True
 
 
 # === Spectator ===

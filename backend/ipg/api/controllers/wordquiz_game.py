@@ -66,12 +66,14 @@ class WordQuizGameController:
 
     @staticmethod
     def _normalize_answer(answer: str) -> str:
-        """Normalize an answer for comparison: strip diacritics, lowercase, collapse whitespace."""
+        """Normalize an answer for comparison: strip diacritics, lowercase, collapse whitespace, remove hyphens."""
         text = answer.strip()
         text = _ARABIC_DIACRITICS.sub("", text)
         # NFC normalization recomposes characters (e.g., alef + hamza → alef-with-hamza)
         text = unicodedata.normalize("NFC", text)
         text = text.lower()
+        # Remove hyphens so "Al-Aqsa" matches "Al Aqsa" and vice versa
+        text = text.replace("-", " ")
         text = re.sub(r"\s+", " ", text).strip()
         return text
 
