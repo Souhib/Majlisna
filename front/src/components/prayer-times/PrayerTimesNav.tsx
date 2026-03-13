@@ -97,7 +97,7 @@ export function PrayerTimesNav() {
 
       {/* Dropdown panel */}
       {open && (
-        <div className="absolute top-full mt-2 w-[min(20rem,calc(100vw-2rem))] rounded-xl border bg-popover p-4 shadow-lg z-50 right-0 max-sm:left-1/2 max-sm:-translate-x-1/2 max-sm:right-auto">
+        <div className="absolute top-full mt-2 w-[min(20rem,calc(100vw-2rem))] rounded-xl border bg-popover p-4 shadow-lg z-50 right-0">
           {/* Header with city */}
           {coordinates && (
             <div className="flex items-center justify-between mb-3">

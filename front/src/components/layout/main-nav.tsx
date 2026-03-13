@@ -191,6 +191,19 @@ export function MainNav() {
   const { isAuthenticated, logout } = useAuth()
   const location = useLocation()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const navRef = useRef<HTMLElement>(null)
+
+  // Close mobile menu on outside click
+  useEffect(() => {
+    if (!mobileOpen) return
+    const handler = (e: MouseEvent) => {
+      if (navRef.current && !navRef.current.contains(e.target as Node)) {
+        setMobileOpen(false)
+      }
+    }
+    document.addEventListener("mousedown", handler)
+    return () => document.removeEventListener("mousedown", handler)
+  }, [mobileOpen])
 
   const centerLinks = isAuthenticated
     ? [
@@ -200,7 +213,7 @@ export function MainNav() {
     : []
 
   return (
-    <nav className="sticky top-0 z-50 border-b border-border/50 bg-background/70 backdrop-blur-xl">
+    <nav ref={navRef} className="sticky top-0 z-50 border-b border-border/50 bg-background/70 backdrop-blur-xl">
       {/* Gradient bottom border accent */}
       <div
         className="absolute bottom-0 inset-x-0 h-px"
@@ -272,8 +285,9 @@ export function MainNav() {
           )}
         </div>
 
-        {/* Mobile menu button */}
-        <div className="flex items-center justify-end md:hidden col-start-3">
+        {/* Mobile: prayer times + menu button */}
+        <div className="flex items-center justify-end gap-1 md:hidden col-start-3">
+          <PrayerTimesNav />
           <button
             type="button"
             onClick={() => setMobileOpen(!mobileOpen)}
@@ -286,9 +300,7 @@ export function MainNav() {
 
       {/* Mobile menu */}
       {mobileOpen && (
-        <>
-        <div className="fixed inset-0 z-40 md:hidden" onClick={() => setMobileOpen(false)} />
-        <div className="md:hidden relative z-50 border-t border-border/50 bg-background/95 backdrop-blur-xl px-4 py-3 space-y-1 animate-slide-up">
+        <div className="md:hidden border-t border-border/50 bg-background/95 backdrop-blur-xl px-4 py-3 space-y-1 animate-slide-up">
           {isAuthenticated && (
             <>
               {[
@@ -315,7 +327,6 @@ export function MainNav() {
             </>
           )}
           <div className="flex items-center gap-1 py-1">
-            <PrayerTimesNav />
             <LanguageSwitcher />
             <ThemeToggle />
           </div>
@@ -353,7 +364,6 @@ export function MainNav() {
             </div>
           )}
         </div>
-        </>
       )}
     </nav>
   )
