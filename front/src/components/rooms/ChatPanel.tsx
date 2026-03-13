@@ -28,11 +28,14 @@ export function ChatPanel({ roomId, currentUserId }: ChatPanelProps) {
   const [isSending, setIsSending] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
   const lastMessageIdRef = useRef<string | null>(null)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+    const container = messagesContainerRef.current
+    if (container) {
+      container.scrollTop = container.scrollHeight
+    }
   }, [])
 
   const fetchMessages = useCallback(async () => {
@@ -128,7 +131,7 @@ export function ChatPanel({ roomId, currentUserId }: ChatPanelProps) {
         <div className="border-t border-border/30" />
 
         {/* Messages */}
-        <div className="overflow-y-auto px-4 py-3 space-y-2.5" style={{ maxHeight: "280px", minHeight: "120px" }}>
+        <div ref={messagesContainerRef} className="overflow-y-auto px-4 py-3 space-y-2.5" style={{ maxHeight: "280px", minHeight: "120px" }}>
           {messages.length === 0 ? (
             <p className="text-center text-sm text-muted-foreground py-6">{t("chat.noMessages")}</p>
           ) : (
@@ -153,7 +156,7 @@ export function ChatPanel({ roomId, currentUserId }: ChatPanelProps) {
               )
             })
           )}
-          <div ref={messagesEndRef} />
+          <div />
         </div>
 
         {/* Input */}
