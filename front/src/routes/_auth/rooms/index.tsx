@@ -1,11 +1,11 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
-import { ArrowRight, Loader2, LogIn, Plus } from "lucide-react"
+import { ArrowRight, Loader2, LogIn, LogOut, Plus } from "lucide-react"
 import { useCallback, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { motion } from "motion/react"
 import { toast } from "sonner"
 import { getApiErrorMessage } from "@/api/client"
-import { useJoinRoomApiV1RoomsJoinPatch, useGetActiveRoomApiV1RoomsActiveGet } from "@/api/generated"
+import { useJoinRoomApiV1RoomsJoinPatch, useGetActiveRoomApiV1RoomsActiveGet, useLeaveRoomApiV1RoomsLeavePatch } from "@/api/generated"
 import { useAuth } from "@/providers/AuthProvider"
 
 export const Route = createFileRoute("/_auth/rooms/")({
@@ -108,8 +108,18 @@ function RoomsPage() {
 
   const isFormValid = roomCode.length === 5 && password.every((d) => d !== "")
 
-  const { data: activeRoom } = useGetActiveRoomApiV1RoomsActiveGet({
+  const { data: activeRoom, refetch: refetchActiveRoom } = useGetActiveRoomApiV1RoomsActiveGet({
     query: { staleTime: 10_000 },
+  })
+
+  const leaveMutation = useLeaveRoomApiV1RoomsLeavePatch({
+    mutation: {
+      onSuccess: () => {
+        toast.success(t("toast.youLeftRoom"))
+        refetchActiveRoom()
+      },
+      onError: (err) => toast.error(getApiErrorMessage(err)),
+    },
   })
 
   return (
@@ -123,22 +133,33 @@ function RoomsPage() {
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="mb-6 flex items-center justify-between glass rounded-2xl border-primary/30 px-5 py-4"
+          className="mb-6 glass rounded-2xl border-primary/30 px-5 py-4 space-y-3"
         >
-          <div>
-            <p className="text-sm font-extrabold tracking-tight">{t("room.rejoinRoom")}</p>
-            <p className="text-xs text-muted-foreground">
-              {t("room.roomCode")}: <span className="font-mono tabular-nums">{activeRoom.public_id}</span>
-            </p>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-extrabold tracking-tight">{t("room.rejoinRoom")}</p>
+              <p className="text-xs text-muted-foreground">
+                {t("room.roomCode")}: <span className="font-mono tabular-nums">{activeRoom.public_id}</span>
+              </p>
+            </div>
+            <Link
+              to="/rooms/$roomId"
+              params={{ roomId: activeRoom.room_id }}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-primary to-primary/90 px-5 py-2.5 text-sm font-medium text-primary-foreground shadow-md shadow-primary/20 hover:shadow-lg transition-all duration-200"
+            >
+              {t("room.rejoinButton")}
+              <ArrowRight className="h-4 w-4" />
+            </Link>
           </div>
-          <Link
-            to="/rooms/$roomId"
-            params={{ roomId: activeRoom.room_id }}
-            className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-primary to-primary/90 px-5 py-2.5 text-sm font-medium text-primary-foreground shadow-md shadow-primary/20 hover:shadow-lg transition-all duration-200"
+          <button
+            type="button"
+            onClick={() => user && leaveMutation.mutate({ data: { user_id: user.id, room_id: activeRoom.room_id } })}
+            disabled={leaveMutation.isPending}
+            className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-destructive transition-colors duration-200"
           >
-            {t("room.rejoinButton")}
-            <ArrowRight className="h-4 w-4" />
-          </Link>
+            <LogOut className="h-3 w-3" />
+            {t("room.leave")}
+          </button>
         </motion.div>
       )}
 

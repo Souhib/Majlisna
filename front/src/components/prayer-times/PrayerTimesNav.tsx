@@ -83,7 +83,7 @@ export function PrayerTimesNav() {
         {coordinates && nextPrayer ? (
           <>
             <Clock className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">{nextPrayer.name}</span>
+            <span>{nextPrayer.name}</span>
             <span className="tabular-nums font-bold text-primary">{countdown}</span>
             <ChevronDown className="h-3 w-3 opacity-50" />
           </>
