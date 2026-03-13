@@ -24,22 +24,22 @@ export const Route = createFileRoute("/_auth/challenges")({
   component: ChallengesPage,
 })
 
-function getTimeRemaining(expiresAt: string): string {
+function getTimeRemaining(expiresAt: string, t: (key: string, opts?: Record<string, unknown>) => string): string {
   const now = Date.now()
   const expires = new Date(expiresAt).getTime()
   const diff = expires - now
 
-  if (diff <= 0) return "Expired"
+  if (diff <= 0) return t("challenges.time.expired")
 
   const hours = Math.floor(diff / (1000 * 60 * 60))
   const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
 
   if (hours >= 24) {
     const days = Math.floor(hours / 24)
-    return `${days}d ${hours % 24}h`
+    return t("challenges.time.days", { d: days, h: hours % 24 })
   }
-  if (hours > 0) return `${hours}h ${minutes}m`
-  return `${minutes}m`
+  if (hours > 0) return t("challenges.time.hours", { h: hours, m: minutes })
+  return t("challenges.time.minutes", { m: minutes })
 }
 
 function ChallengesPage() {
@@ -120,7 +120,7 @@ function ChallengesPage() {
 function ChallengeCard({ challenge }: { challenge: ChallengeData }) {
   const { t } = useTranslation()
   const progressPercent = Math.min((challenge.progress / challenge.target_count) * 100, 100)
-  const timeRemaining = getTimeRemaining(challenge.expires_at)
+  const timeRemaining = getTimeRemaining(challenge.expires_at, t)
 
   return (
     <div
@@ -148,9 +148,13 @@ function ChallengeCard({ challenge }: { challenge: ChallengeData }) {
             )}
           </div>
           <div>
-            <p className="font-extrabold tracking-tight text-sm leading-tight">{challenge.description}</p>
+            <p className="font-extrabold tracking-tight text-sm leading-tight">{t(`challenges.items.${challenge.code}`, { defaultValue: challenge.description })}</p>
             {challenge.game_type && (
-              <span className="text-[11px] text-muted-foreground capitalize">{challenge.game_type}</span>
+              <span className="text-[11px] text-muted-foreground">
+                {challenge.game_type === "undercover" ? t("games.undercover.name") :
+                 challenge.game_type === "codenames" ? t("games.codenames.name") :
+                 challenge.game_type === "word_quiz" ? t("games.wordQuiz.name") : challenge.game_type}
+              </span>
             )}
           </div>
         </div>

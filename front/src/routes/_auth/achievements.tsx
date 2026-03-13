@@ -17,13 +17,13 @@ interface AchievementData {
   rarity_percentage: number | null
 }
 
-function getRarityLabel(rarity: number | null): { label: string; color: string } | null {
+function getRarityLabel(rarity: number | null, t: (key: string) => string): { label: string; color: string } | null {
   if (rarity === null) return null
-  if (rarity <= 1) return { label: "Mythic", color: "text-red-500 bg-red-500/10" }
-  if (rarity <= 5) return { label: "Legendary", color: "text-purple-500 bg-purple-500/10" }
-  if (rarity <= 15) return { label: "Epic", color: "text-yellow-500 bg-yellow-500/10" }
-  if (rarity <= 30) return { label: "Rare", color: "text-blue-500 bg-blue-500/10" }
-  return { label: "Common", color: "text-muted-foreground bg-muted" }
+  if (rarity <= 1) return { label: t("achievements.rarity.mythic"), color: "text-red-500 bg-red-500/10" }
+  if (rarity <= 5) return { label: t("achievements.rarity.legendary"), color: "text-purple-500 bg-purple-500/10" }
+  if (rarity <= 15) return { label: t("achievements.rarity.epic"), color: "text-yellow-500 bg-yellow-500/10" }
+  if (rarity <= 30) return { label: t("achievements.rarity.rare"), color: "text-blue-500 bg-blue-500/10" }
+  return { label: t("achievements.rarity.common"), color: "text-muted-foreground bg-muted" }
 }
 
 const TIER_COLORS: Record<number, string> = {
@@ -42,15 +42,6 @@ const TIER_GLOW: Record<number, string> = {
   4: "hover:shadow-emerald-500/20",
   5: "hover:shadow-purple-500/20",
   6: "hover:shadow-red-500/20",
-}
-
-const TIER_LABELS: Record<number, string> = {
-  1: "Bronze",
-  2: "Silver",
-  3: "Gold",
-  4: "Emerald",
-  5: "Diamond",
-  6: "Mythic",
 }
 
 export const Route = createFileRoute("/_auth/achievements")({
@@ -120,13 +111,13 @@ function AchievementsPage() {
                   )}
                 </div>
                 <div>
-                  <h3 className="font-extrabold tracking-tight text-sm">{achievement.name}</h3>
+                  <h3 className="font-extrabold tracking-tight text-sm">{t(`achievements.items.${achievement.code}.name`, { defaultValue: achievement.name })}</h3>
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs text-muted-foreground font-mono">
-                      {TIER_LABELS[achievement.tier] || `Tier ${achievement.tier}`}
+                      {t(`achievements.tiers.${achievement.tier}`)}
                     </span>
                     {(() => {
-                      const rarity = getRarityLabel(achievement.rarity_percentage)
+                      const rarity = getRarityLabel(achievement.rarity_percentage, t)
                       if (!rarity) return null
                       return (
                         <span className={`rounded-lg px-1.5 py-0.5 text-[9px] font-bold ${rarity.color}`}>
@@ -137,7 +128,7 @@ function AchievementsPage() {
                   </div>
                 </div>
               </div>
-              <p className="text-xs text-muted-foreground mb-3">{achievement.description}</p>
+              <p className="text-xs text-muted-foreground mb-3">{t(`achievements.items.${achievement.code}.description`, { defaultValue: achievement.description })}</p>
 
               {/* Progress bar */}
               <div className="space-y-1">
