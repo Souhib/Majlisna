@@ -17,7 +17,7 @@ function CreateRoomPage() {
   const { t } = useTranslation()
   const { user } = useAuth()
   const navigate = useNavigate()
-  const [gameType, setGameType] = useState<"undercover" | "codenames" | "word_quiz">("undercover")
+  const [gameType, setGameType] = useState<"undercover" | "codenames" | "word_quiz" | "mcq_quiz">("undercover")
   const [error, setError] = useState("")
 
   const { data: activeRoom, refetch: refetchActiveRoom } = useGetActiveRoomApiV1RoomsActiveGet({
@@ -55,7 +55,7 @@ function CreateRoomPage() {
   const isLoading = createMutation.isPending
 
   return (
-    <div className="mx-auto max-w-md px-4 py-8 animate-slide-up">
+    <div className="mx-auto max-w-xl px-4 py-8 animate-slide-up">
       <h1 className="text-3xl font-extrabold tracking-tight gradient-text mb-8">{t("room.create")}</h1>
 
       {/* Rejoin / Leave Room Banner */}
@@ -101,13 +101,14 @@ function CreateRoomPage() {
         {/* Game Type */}
         <div>
           <label className="block text-sm font-medium mb-3">{t("room.gameType")}</label>
-          <div className="grid grid-cols-3 gap-2 sm:gap-4">
-            {(["undercover", "codenames", "word_quiz"] as const).map((type) => {
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
+            {(["undercover", "codenames", "word_quiz", "mcq_quiz"] as const).map((type) => {
               const selected = gameType === type
               const config = {
                 undercover: { icon: "🕵️", players: "3-12", nameKey: "undercover" },
                 codenames: { icon: "🔤", players: "4-10", nameKey: "codenames" },
                 word_quiz: { icon: "❓", players: "1+", nameKey: "wordQuiz" },
+                mcq_quiz: { icon: "📝", players: "1+", nameKey: "mcqQuiz" },
               }[type]
               return (
                 <button

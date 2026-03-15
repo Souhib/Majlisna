@@ -329,12 +329,14 @@ class RoomController:
                     )
                 )
 
-        # Get game type from active game
+        # Get game type from active game, or from room settings (set at creation)
         game_type = None
         if room.active_game_id:
             game = (await self.session.exec(select(Game).where(Game.id == room.active_game_id))).first()
             if game:
                 game_type = game.type.value
+        if not game_type and room.settings and room.settings.get("game_type"):
+            game_type = room.settings["game_type"]
 
         return RoomState(
             id=str(room.id),

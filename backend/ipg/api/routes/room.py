@@ -34,7 +34,7 @@ router = APIRouter(
 @router.post("", response_model=RoomView, status_code=HTTP_201_CREATED)
 async def create_room(
     *,
-    body: RoomCreateRequest,  # noqa: ARG001
+    body: RoomCreateRequest,
     current_user: Annotated[User, Depends(get_current_user)],
     room_controller: RoomController = Depends(get_room_controller),
 ) -> RoomView:
@@ -44,7 +44,13 @@ async def create_room(
         password=password,
         owner_id=current_user.id,
     )
-    return RoomView.model_validate(await room_controller.create_room(room_create))
+    room = await room_controller.create_room(room_create)
+    # Persist the selected game type in room settings
+    room.settings = {"game_type": body.game_type.value}
+    room_controller.session.add(room)
+    await room_controller.session.commit()
+    await room_controller.session.refresh(room)
+    return RoomView.model_validate(room)
 
 
 @router.get("", response_model=list[RoomView])
