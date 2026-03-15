@@ -112,7 +112,7 @@ export async function apiRefreshToken(
 
 export async function apiCreateRoom(
   token: string,
-  gameType: "undercover" | "codenames" | "word_quiz" = "undercover",
+  gameType: "undercover" | "codenames" | "word_quiz" | "mcq_quiz" = "undercover",
 ): Promise<RoomResponse> {
   return postJSON<RoomResponse>(
     "/api/v1/rooms",
@@ -208,15 +208,16 @@ export async function apiLeaveAllRooms(
 
 export async function apiStartGame(
   roomId: string,
-  gameType: "undercover" | "codenames" | "word_quiz",
+  gameType: "undercover" | "codenames" | "word_quiz" | "mcq_quiz",
   token: string,
 ): Promise<{ game_id: string; room_id: string }> {
-  const path = gameType === "undercover"
-    ? `/api/v1/undercover/games/${roomId}/start`
-    : gameType === "word_quiz"
-      ? `/api/v1/wordquiz/games/${roomId}/start`
-      : `/api/v1/codenames/games/${roomId}/start`;
-  return postJSON(path, {}, token);
+  const pathMap: Record<string, string> = {
+    undercover: `/api/v1/undercover/games/${roomId}/start`,
+    word_quiz: `/api/v1/wordquiz/games/${roomId}/start`,
+    codenames: `/api/v1/codenames/games/${roomId}/start`,
+    mcq_quiz: `/api/v1/mcqquiz/games/${roomId}/start`,
+  };
+  return postJSON(pathMap[gameType], {}, token);
 }
 
 // ─── Undercover Game API ────────────────────────────────────
@@ -454,6 +455,92 @@ export async function apiWordQuizNextRound(
   );
 }
 
+// ─── MCQ Quiz Game API ──────────────────────────────────────
+
+export interface MCQQuizGameState {
+  game_id: string;
+  room_id: string;
+  is_host: boolean;
+  is_spectator: boolean;
+  current_round: number;
+  total_rounds: number;
+  round_phase: string;
+  question: string | null;
+  choices: string[];
+  turn_duration_seconds: number;
+  round_started_at: string | null;
+  players: {
+    user_id: string;
+    username: string;
+    total_score: number;
+    current_round_answered: boolean;
+    current_round_points: number;
+  }[];
+  my_answered: boolean;
+  my_points: number;
+  round_results: {
+    user_id: string;
+    username: string;
+    choice_index: number | null;
+    points: number;
+    correct: boolean;
+  }[];
+  correct_answer_index: number | null;
+  explanation: string | null;
+  winner: string | null;
+  leaderboard: {
+    user_id: string;
+    username: string;
+    total_score: number;
+  }[];
+  game_over: boolean;
+}
+
+export async function apiGetMCQQuizState(
+  gameId: string,
+  token: string,
+  lang = "en",
+): Promise<MCQQuizGameState> {
+  return getJSON<MCQQuizGameState>(
+    `/api/v1/mcqquiz/games/${gameId}/state?lang=${lang}`,
+    token,
+  );
+}
+
+export async function apiSubmitMCQQuizAnswer(
+  gameId: string,
+  choiceIndex: number,
+  token: string,
+): Promise<{ correct: boolean; points_earned: number }> {
+  return postJSON(
+    `/api/v1/mcqquiz/games/${gameId}/answer`,
+    { choice_index: choiceIndex },
+    token,
+  );
+}
+
+export async function apiMCQQuizTimerExpired(
+  gameId: string,
+  token: string,
+): Promise<Record<string, unknown>> {
+  return postJSON(
+    `/api/v1/mcqquiz/games/${gameId}/timer-expired`,
+    {},
+    token,
+  );
+}
+
+export async function apiMCQQuizNextRound(
+  gameId: string,
+  token: string,
+): Promise<Record<string, unknown>> {
+  return postJSON(
+    `/api/v1/mcqquiz/games/${gameId}/next-round`,
+    {},
+    token,
+  );
+}
+
 // ─── Raw HTTP helpers (for error testing) ──────────────────
 
 /**
@@ -565,6 +652,8 @@ export async function apiUpdateRoomSettings(
     voting_timer?: number;
     codenames_clue_timer?: number;
     codenames_guess_timer?: number;
+    word_quiz_turn_duration?: number;
+    mcq_quiz_turn_duration?: number;
   },
   token: string,
 ): Promise<Record<string, unknown>> {

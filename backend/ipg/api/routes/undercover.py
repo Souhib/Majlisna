@@ -20,7 +20,8 @@ from ipg.api.schemas.undercover import (
     UndercoverHintViewedRequest,
     VoteRequest,
 )
-from ipg.api.ws.notify import fire_notify_game_changed, fire_notify_room_changed
+from ipg.api.ws.handlers import auto_join_game_room
+from ipg.api.ws.notify import notify_game_changed, notify_room_changed
 from ipg.dependencies import get_current_user, get_undercover_controller, get_undercover_game_controller
 
 router = APIRouter(
@@ -40,8 +41,9 @@ async def start_undercover_game(
     controller: Annotated[UndercoverGameController, Depends(get_undercover_game_controller)],
 ) -> GameStartResponse:
     result = await controller.create_and_start(room_id, current_user.id)
-    fire_notify_room_changed(str(room_id))
-    fire_notify_game_changed(result.game_id, str(room_id))
+    auto_join_game_room(result.game_id, str(room_id))
+    await notify_room_changed(str(room_id))
+    await notify_game_changed(result.game_id, str(room_id))
     return result
 
 
@@ -64,7 +66,7 @@ async def submit_description(
     controller: Annotated[UndercoverGameController, Depends(get_undercover_game_controller)],
 ) -> SubmitDescriptionResponse:
     result = await controller.submit_description(game_id, current_user.id, body.word)
-    fire_notify_game_changed(str(game_id))
+    await notify_game_changed(str(game_id))
     return result
 
 
@@ -76,7 +78,7 @@ async def submit_vote(
     controller: Annotated[UndercoverGameController, Depends(get_undercover_game_controller)],
 ) -> SubmitVoteResponse:
     result = await controller.submit_vote(game_id, current_user.id, body.voted_for)
-    fire_notify_game_changed(str(game_id))
+    await notify_game_changed(str(game_id))
     return result
 
 
@@ -87,7 +89,7 @@ async def timer_expired(
     controller: Annotated[UndercoverGameController, Depends(get_undercover_game_controller)],
 ) -> TimerExpiredResponse:
     result = await controller.handle_timer_expired(game_id, current_user.id)
-    fire_notify_game_changed(str(game_id))
+    await notify_game_changed(str(game_id))
     return result
 
 
@@ -109,7 +111,7 @@ async def start_next_round(
     controller: Annotated[UndercoverGameController, Depends(get_undercover_game_controller)],
 ) -> StartNextRoundResponse:
     result = await controller.start_next_round(game_id, body.room_id, current_user.id)
-    fire_notify_game_changed(str(game_id))
+    await notify_game_changed(str(game_id))
     return result
 
 

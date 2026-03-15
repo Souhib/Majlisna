@@ -62,6 +62,8 @@ class RoomSettingsRequest(BaseModel):
     word_quiz_turn_duration: int | None = None
     word_quiz_rounds: int | None = None
     word_quiz_hint_interval: int | None = None
+    mcq_quiz_turn_duration: int | None = None
+    mcq_quiz_rounds: int | None = None
 
 
 class RoomInviteRequest(BaseModel):

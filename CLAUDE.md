@@ -348,7 +348,9 @@ await session.commit()
 
 **Phase transitions detected by comparing refs to previous state.** `previousPhaseRef` and `previousRoundRef` track changes to trigger animations (e.g., voting transition overlay).
 
-**Socket.IO is a NOTIFICATION LAYER, not a game engine.** Mutations go through REST POST. Socket.IO only broadcasts AFTER the mutation succeeds. If the broadcast fails, the REST response still succeeds, and `refetchOnWindowFocus` catches up.
+**Socket.IO is a NOTIFICATION LAYER, not a game engine.** Mutations go through REST POST. Route handlers **await** Socket.IO notifications so events are guaranteed to be emitted before the HTTP response returns. Game start routes call `auto_join_game_room()` to pre-join all room members into the game's Socket.IO room, eliminating the race condition where `game_updated` fires before clients call `join_game`. The client's `useSocket` hook invalidates queries on reconnect to catch up on any events missed during disconnection.
+
+**Route handlers MUST `await notify_*()`, never `fire_notify_*()`** in route code. The `fire_*` variants are reserved for background tasks only (disconnect checker loop, Socket.IO event handlers).
 
 ### E2E — Playwright
 
@@ -406,6 +408,17 @@ Cloudflare handles DNS (proxied/orange cloud) and SSL termination (Flexible mode
 - Multiple rounds, highest score wins
 - Answer matching: Arabic diacritics stripped, case-insensitive, whitespace-normalized
 - Trilingual hints (EN, FR, AR) with `QuizWord` model
+
+### MCQ Quiz
+- 1+ players (solo or group)
+- Multiple choice questions with 4 answer choices per question
+- Configurable timer (default 15s) and number of rounds (default 10)
+- One attempt per round — answer locks in on submit
+- Simple scoring: correct = 1pt, wrong = 0pt
+- Shows explanation after each round
+- 200+ trilingual questions (EN, FR, AR) across 8 Islamic knowledge categories
+- Prophet names use Arabic transliteration (e.g., "Yunus" not "Jonah")
+- `McqQuestion` model with JSON columns for multilingual choices and explanations
 
 ### Hint System (All Games)
 - Words have multilingual hints (JSON `hint` column: `{en, ar, fr}`)

@@ -89,9 +89,13 @@ test.describe("Word Quiz Single Player", () => {
       }
     }
 
-    // Verify game over
+    // Verify game over via API
     state = await apiGetWordQuizState(gameId, token);
     expect(state.game_over).toBe(true);
+
+    // Reload page to ensure browser picks up the latest state
+    // (API calls above were made outside the browser, so the query cache is stale)
+    await setup.players[0].page.reload();
 
     // UI should show game over
     await expect(

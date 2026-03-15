@@ -6,6 +6,7 @@ import pytest
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from ipg.api.constants import DEFAULT_WORD_QUIZ_ROUNDS
 from ipg.api.controllers.wordquiz_game import WordQuizGameController
 from ipg.api.models.relationship import RoomUserLink
 from ipg.api.models.table import Game
@@ -63,7 +64,7 @@ async def test_create_and_start_multiple_players(wordquiz_game_controller, setup
     game = await _get_game(session, result.game_id)
     state = game.live_state
     assert len(state["players"]) == 3
-    assert state["total_rounds"] == 10
+    assert state["total_rounds"] == DEFAULT_WORD_QUIZ_ROUNDS
     assert state["hints_revealed"] == 1
     assert state["round_phase"] == "playing"
     assert state["game_over"] is False

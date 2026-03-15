@@ -25,7 +25,8 @@ from ipg.api.schemas.codenames import (
     StartCodenamesRequest,
 )
 from ipg.api.schemas.common import GameStartResponse, HintRecordResponse, TimerExpiredResponse
-from ipg.api.ws.notify import fire_notify_game_changed, fire_notify_room_changed
+from ipg.api.ws.handlers import auto_join_game_room
+from ipg.api.ws.notify import notify_game_changed, notify_room_changed
 from ipg.dependencies import get_codenames_controller, get_codenames_game_controller, get_current_user
 
 router = APIRouter(
@@ -47,8 +48,9 @@ async def start_codenames_game(
 ) -> GameStartResponse:
     word_pack_ids = body.word_pack_ids if body else None
     result = await controller.create_and_start(room_id, current_user.id, word_pack_ids=word_pack_ids)
-    fire_notify_room_changed(str(room_id))
-    fire_notify_game_changed(result.game_id, str(room_id))
+    auto_join_game_room(result.game_id, str(room_id))
+    await notify_room_changed(str(room_id))
+    await notify_game_changed(result.game_id, str(room_id))
     return result
 
 
@@ -71,7 +73,7 @@ async def give_clue(
     controller: Annotated[CodenamesGameController, Depends(get_codenames_game_controller)],
 ) -> GiveClueResponse:
     result = await controller.give_clue(game_id, current_user.id, body.clue_word, body.clue_number)
-    fire_notify_game_changed(str(game_id))
+    await notify_game_changed(str(game_id))
     return result
 
 
@@ -83,7 +85,7 @@ async def guess_card(
     controller: Annotated[CodenamesGameController, Depends(get_codenames_game_controller)],
 ) -> GuessCardResponse:
     result = await controller.guess_card(game_id, current_user.id, body.card_index)
-    fire_notify_game_changed(str(game_id))
+    await notify_game_changed(str(game_id))
     return result
 
 
@@ -94,7 +96,7 @@ async def timer_expired(
     controller: Annotated[CodenamesGameController, Depends(get_codenames_game_controller)],
 ) -> TimerExpiredResponse:
     result = await controller.handle_timer_expired(game_id, current_user.id)
-    fire_notify_game_changed(str(game_id))
+    await notify_game_changed(str(game_id))
     return result
 
 
@@ -115,7 +117,7 @@ async def end_turn(
     controller: Annotated[CodenamesGameController, Depends(get_codenames_game_controller)],
 ) -> EndTurnResponse:
     result = await controller.end_turn(game_id, current_user.id)
-    fire_notify_game_changed(str(game_id))
+    await notify_game_changed(str(game_id))
     return result
 
 

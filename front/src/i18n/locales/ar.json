@@ -98,6 +98,10 @@
     "wordQuiz": {
       "name": "مسابقة الكلمات",
       "description": "خمّن المصطلح الإسلامي من خلال تلميحات متدرجة! كلما أجبت أسرع، كلما حصلت على نقاط أكثر."
+    },
+    "mcqQuiz": {
+      "name": "اختبار متعدد الخيارات",
+      "description": "اختبر معلوماتك الإسلامية بأسئلة متعددة الخيارات! أجب بسرعة قبل انتهاء الوقت."
     }
   },
   "room": {
@@ -140,7 +144,9 @@
     "joinInvite": "انضم",
     "wordQuizTurnDuration": "مدة الدور (ثواني)",
     "wordQuizRounds": "عدد الجولات",
-    "wordQuizHintInterval": "فترة التلميحات (ثواني)"
+    "wordQuizHintInterval": "فترة التلميحات (ثواني)",
+    "mcqQuizTurnDuration": "الوقت لكل سؤال (ثواني)",
+    "mcqQuizRounds": "عدد الأسئلة"
   },
   "toast": {
     "playerJoined": "{{username}} انضم للغرفة",
@@ -263,6 +269,20 @@
       "backToRoom": "العودة للغرفة",
       "waiting": "في انتظار النتائج...",
       "category": "الفئة",
+      "players": "{{count}} لاعب(ين)"
+    },
+    "mcqQuiz": {
+      "chooseAnswer": "اختر إجابتك",
+      "correctAnswer": "صحيح!",
+      "wrongAnswer": "خطأ!",
+      "explanation": "التفسير",
+      "waitingForPlayers": "في انتظار اللاعبين الآخرين...",
+      "timeUp": "انتهى الوقت!",
+      "round": "السؤال {{current}}/{{total}}",
+      "nextRound": "السؤال التالي",
+      "finalScores": "النتائج النهائية",
+      "winner": "{{username}} فاز!",
+      "backToRoom": "العودة للغرفة",
       "players": "{{count}} لاعب(ين)"
     }
   },

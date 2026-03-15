@@ -11,6 +11,7 @@ import {
   useStartUndercoverGameApiV1UndercoverGamesRoomIdStartPost,
   useStartCodenamesGameApiV1CodenamesGamesRoomIdStartPost,
   useStartWordquizGameApiV1WordquizGamesRoomIdStartPost,
+  useStartMcqquizGameApiV1McqquizGamesRoomIdStartPost,
   useLeaveRoomApiV1RoomsLeavePatch,
   useKickPlayerApiV1RoomsRoomIdKickPatch,
 } from "@/api/generated"
@@ -45,7 +46,7 @@ export const Route = createFileRoute("/_auth/rooms/$roomId")({
   component: RoomLobbyPage,
 })
 
-type GameType = "undercover" | "codenames" | "word_quiz"
+type GameType = "undercover" | "codenames" | "word_quiz" | "mcq_quiz"
 
 function RoomLobbyPage() {
   const { roomId } = Route.useParams()
@@ -119,7 +120,7 @@ function RoomLobbyPage() {
   useEffect(() => {
     if (!gameTypeSyncedRef.current && roomData?.game_type) {
       const serverType = roomData.game_type as GameType
-      if (["undercover", "codenames", "word_quiz"].includes(serverType)) {
+      if (["undercover", "codenames", "word_quiz", "mcq_quiz"].includes(serverType)) {
         setGameType(serverType)
       }
       gameTypeSyncedRef.current = true
@@ -160,6 +161,8 @@ function RoomLobbyPage() {
       navigate({ to: "/game/codenames/$gameId", params: { gameId: roomData.active_game_id } })
     } else if (gt === "word_quiz") {
       navigate({ to: "/game/wordquiz/$gameId", params: { gameId: roomData.active_game_id } })
+    } else if (gt === "mcq_quiz") {
+      navigate({ to: "/game/mcqquiz/$gameId", params: { gameId: roomData.active_game_id } })
     } else {
       navigate({ to: "/game/undercover/$gameId", params: { gameId: roomData.active_game_id } })
     }
@@ -204,7 +207,20 @@ function RoomLobbyPage() {
     },
   })
 
-  const isStartingGame = startUndercoverMutation.isPending || startCodenamesMutation.isPending || startWordQuizMutation.isPending
+  const startMcqQuizMutation = useStartMcqquizGameApiV1McqquizGamesRoomIdStartPost({
+    mutation: {
+      onSuccess: (data) => {
+        const d = data as { game_id: string; room_id: string }
+        navigatingToGameRef.current = true
+        storeRoomIdForGame(d.game_id, d.room_id)
+        toast.success(t("toast.gameStarting"))
+        navigate({ to: "/game/mcqquiz/$gameId", params: { gameId: d.game_id } })
+      },
+      onError: (err) => toast.error(getApiErrorMessage(err, "Failed to start game")),
+    },
+  })
+
+  const isStartingGame = startUndercoverMutation.isPending || startCodenamesMutation.isPending || startWordQuizMutation.isPending || startMcqQuizMutation.isPending
 
   const handleStartGame = () => {
     if (!roomData || isStartingGame) return
@@ -213,6 +229,8 @@ function RoomLobbyPage() {
       startCodenamesMutation.mutate({ room_id: roomData.id })
     } else if (gameType === "word_quiz") {
       startWordQuizMutation.mutate({ room_id: roomData.id })
+    } else if (gameType === "mcq_quiz") {
+      startMcqQuizMutation.mutate({ room_id: roomData.id })
     } else {
       startUndercoverMutation.mutate({ room_id: roomData.id })
     }
@@ -257,7 +275,7 @@ function RoomLobbyPage() {
     }
   }
 
-  const minPlayers = gameType === "codenames" ? 4 : gameType === "word_quiz" ? 1 : 3
+  const minPlayers = gameType === "codenames" ? 4 : (gameType === "word_quiz" || gameType === "mcq_quiz") ? 1 : 3
 
   const copyToClipboard = useCallback((text: string, key: string, label: string) => {
     const onSuccess = () => {
@@ -503,6 +521,18 @@ function RoomLobbyPage() {
                 )}
               >
                 {t("games.wordQuiz.name")}
+              </button>
+              <button
+                type="button"
+                onClick={() => setGameType("mcq_quiz")}
+                className={cn(
+                  "flex-1 rounded-xl px-4 py-2.5 text-sm font-medium transition-all duration-200 cursor-pointer",
+                  gameType === "mcq_quiz"
+                    ? "bg-gradient-to-r from-primary to-primary/90 text-primary-foreground shadow-md shadow-primary/20"
+                    : "glass hover:bg-muted/80",
+                )}
+              >
+                {t("games.mcqQuiz.name")}
               </button>
             </div>
           </div>

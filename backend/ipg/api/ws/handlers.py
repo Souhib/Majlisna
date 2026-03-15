@@ -133,6 +133,26 @@ async def join_game(sid, data):
         logger.opt(exception=True).warning("Failed to send initial game_state to sid={}", sid)
 
 
+def auto_join_game_room(game_id: str, room_id: str) -> int:
+    """Auto-join all connected room members into the game's Socket.IO room.
+
+    Called from game start routes so players are already in the game room
+    when the first ``game_updated`` event is emitted — eliminates the race
+    condition where the event fires before ``join_game`` from the client.
+
+    Returns the number of SIDs joined.
+    """
+    joined = 0
+    suffix = f":{room_id}"
+    for key, sid in _user_sids.items():
+        if key.endswith(suffix):
+            sio.enter_room(sid, f"game:{game_id}")
+            joined += 1
+    if joined:
+        logger.debug("Auto-joined {} SIDs into game:{} from room:{}", joined, game_id, room_id)
+    return joined
+
+
 @sio.event
 async def disconnect(sid):
     """Mark user as disconnected in DB and clean up SID tracking."""

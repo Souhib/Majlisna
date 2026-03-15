@@ -310,6 +310,15 @@ export type {
   GetLeaderboardApiV1StatsLeaderboardGetQuery,
 } from "./GetLeaderboardApiV1StatsLeaderboardGet.ts";
 export type {
+  GetMcqquizStateApiV1McqquizGamesGameIdStateGetPathParams,
+  GetMcqquizStateApiV1McqquizGamesGameIdStateGetQueryParams,
+  GetMcqquizStateApiV1McqquizGamesGameIdStateGet200,
+  GetMcqquizStateApiV1McqquizGamesGameIdStateGet404,
+  GetMcqquizStateApiV1McqquizGamesGameIdStateGet422,
+  GetMcqquizStateApiV1McqquizGamesGameIdStateGetQueryResponse,
+  GetMcqquizStateApiV1McqquizGamesGameIdStateGetQuery,
+} from "./GetMcqquizStateApiV1McqquizGamesGameIdStateGet.ts";
+export type {
   GetMeApiV1AuthMeGet200,
   GetMeApiV1AuthMeGetQueryResponse,
   GetMeApiV1AuthMeGetQuery,
@@ -546,6 +555,19 @@ export type {
   LogoutApiV1AuthLogoutPostMutationResponse,
   LogoutApiV1AuthLogoutPostMutation,
 } from "./LogoutApiV1AuthLogoutPost.ts";
+export type { McqQuizGameState } from "./McqQuizGameState.ts";
+export type { McqQuizPlayerState } from "./McqQuizPlayerState.ts";
+export type { McqQuizRoundResult } from "./McqQuizRoundResult.ts";
+export type { McqSubmitAnswerRequest } from "./McqSubmitAnswerRequest.ts";
+export type { McqSubmitAnswerResponse } from "./McqSubmitAnswerResponse.ts";
+export type {
+  NextRoundApiV1McqquizGamesGameIdNextRoundPostPathParams,
+  NextRoundApiV1McqquizGamesGameIdNextRoundPost200,
+  NextRoundApiV1McqquizGamesGameIdNextRoundPost404,
+  NextRoundApiV1McqquizGamesGameIdNextRoundPost422,
+  NextRoundApiV1McqquizGamesGameIdNextRoundPostMutationResponse,
+  NextRoundApiV1McqquizGamesGameIdNextRoundPostMutation,
+} from "./NextRoundApiV1McqquizGamesGameIdNextRoundPost.ts";
 export type {
   NextRoundApiV1WordquizGamesGameIdNextRoundPostPathParams,
   NextRoundApiV1WordquizGamesGameIdNextRoundPost200,
@@ -683,6 +705,14 @@ export type {
 } from "./StartCodenamesGameApiV1CodenamesGamesRoomIdStartPost.ts";
 export type { StartCodenamesRequest } from "./StartCodenamesRequest.ts";
 export type {
+  StartMcqquizGameApiV1McqquizGamesRoomIdStartPostPathParams,
+  StartMcqquizGameApiV1McqquizGamesRoomIdStartPost201,
+  StartMcqquizGameApiV1McqquizGamesRoomIdStartPost404,
+  StartMcqquizGameApiV1McqquizGamesRoomIdStartPost422,
+  StartMcqquizGameApiV1McqquizGamesRoomIdStartPostMutationResponse,
+  StartMcqquizGameApiV1McqquizGamesRoomIdStartPostMutation,
+} from "./StartMcqquizGameApiV1McqquizGamesRoomIdStartPost.ts";
+export type {
   StartNextRoundApiV1UndercoverGamesGameIdNextRoundPostPathParams,
   StartNextRoundApiV1UndercoverGamesGameIdNextRoundPost200,
   StartNextRoundApiV1UndercoverGamesGameIdNextRoundPost404,
@@ -710,6 +740,15 @@ export type {
 } from "./StartWordquizGameApiV1WordquizGamesRoomIdStartPost.ts";
 export type { StatusMessageResponse } from "./StatusMessageResponse.ts";
 export type { StatusResponse } from "./StatusResponse.ts";
+export type {
+  SubmitAnswerApiV1McqquizGamesGameIdAnswerPostPathParams,
+  SubmitAnswerApiV1McqquizGamesGameIdAnswerPost200,
+  SubmitAnswerApiV1McqquizGamesGameIdAnswerPost404,
+  SubmitAnswerApiV1McqquizGamesGameIdAnswerPost422,
+  SubmitAnswerApiV1McqquizGamesGameIdAnswerPostMutationRequest,
+  SubmitAnswerApiV1McqquizGamesGameIdAnswerPostMutationResponse,
+  SubmitAnswerApiV1McqquizGamesGameIdAnswerPostMutation,
+} from "./SubmitAnswerApiV1McqquizGamesGameIdAnswerPost.ts";
 export type {
   SubmitAnswerApiV1WordquizGamesGameIdAnswerPostPathParams,
   SubmitAnswerApiV1WordquizGamesGameIdAnswerPost200,
@@ -751,6 +790,14 @@ export type {
   TimerExpiredApiV1CodenamesGamesGameIdTimerExpiredPostMutationResponse,
   TimerExpiredApiV1CodenamesGamesGameIdTimerExpiredPostMutation,
 } from "./TimerExpiredApiV1CodenamesGamesGameIdTimerExpiredPost.ts";
+export type {
+  TimerExpiredApiV1McqquizGamesGameIdTimerExpiredPostPathParams,
+  TimerExpiredApiV1McqquizGamesGameIdTimerExpiredPost200,
+  TimerExpiredApiV1McqquizGamesGameIdTimerExpiredPost404,
+  TimerExpiredApiV1McqquizGamesGameIdTimerExpiredPost422,
+  TimerExpiredApiV1McqquizGamesGameIdTimerExpiredPostMutationResponse,
+  TimerExpiredApiV1McqquizGamesGameIdTimerExpiredPostMutation,
+} from "./TimerExpiredApiV1McqquizGamesGameIdTimerExpiredPost.ts";
 export type {
   TimerExpiredApiV1UndercoverGamesGameIdTimerExpiredPostPathParams,
   TimerExpiredApiV1UndercoverGamesGameIdTimerExpiredPost200,

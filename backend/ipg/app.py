@@ -23,6 +23,7 @@ from ipg.api.routes.chat import router as chat_router
 from ipg.api.routes.codenames import router as codenames_router
 from ipg.api.routes.friend import router as friend_router
 from ipg.api.routes.game import router as game_router
+from ipg.api.routes.mcqquiz import router as mcqquiz_router
 from ipg.api.routes.profile import router as profile_router
 from ipg.api.routes.room import router as room_router
 from ipg.api.routes.stats import router as stats_router
@@ -70,6 +71,7 @@ def create_app(lifespan) -> FastAPI:
     app.include_router(undercover_router, prefix="/api/v1")
     app.include_router(codenames_router, prefix="/api/v1")
     app.include_router(wordquiz_router, prefix="/api/v1")
+    app.include_router(mcqquiz_router, prefix="/api/v1")
     app.include_router(stats_router, prefix="/api/v1")
     app.include_router(profile_router, prefix="/api/v1")
     app.include_router(friend_router, prefix="/api/v1")

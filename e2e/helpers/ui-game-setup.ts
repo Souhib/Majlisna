@@ -60,7 +60,7 @@ export function isPageAlive(page: Page): boolean {
 export async function setupRoomWithPlayers(
   browser: Browser,
   accounts: { email: string; password: string }[],
-  gameType: "undercover" | "codenames" | "word_quiz" = "undercover",
+  gameType: "undercover" | "codenames" | "word_quiz" | "mcq_quiz" = "undercover",
 ): Promise<UIGameSetup> {
   // Login all players via API (parallel)
   const logins = await Promise.all(
@@ -267,12 +267,18 @@ export async function setupRoomWithPlayersViaUI(
  */
 export async function startGameViaAPI(
   players: PlayerContext[],
-  gameType: "undercover" | "codenames" | "word_quiz",
+  gameType: "undercover" | "codenames" | "word_quiz" | "mcq_quiz",
   roomId: string,
 ): Promise<void> {
   const hostToken = players[0].login.access_token;
   const result = await apiStartGame(roomId, gameType, hostToken);
-  const gameUrlPath = gameType === "word_quiz" ? "wordquiz" : gameType;
+  const gameUrlPathMap: Record<string, string> = {
+    undercover: "undercover",
+    codenames: "codenames",
+    word_quiz: "wordquiz",
+    mcq_quiz: "mcqquiz",
+  };
+  const gameUrlPath = gameUrlPathMap[gameType] || gameType;
   const gameUrl = `/game/${gameUrlPath}/${result.game_id}`;
 
   // Navigate all players to the game page
@@ -288,6 +294,7 @@ export async function startGameViaAPI(
     undercover: /\/game\/undercover\//,
     codenames: /\/game\/codenames\//,
     word_quiz: /\/game\/wordquiz\//,
+    mcq_quiz: /\/game\/mcqquiz\//,
   };
   const urlPattern = urlPatterns[gameType];
 
@@ -300,6 +307,10 @@ export async function startGameViaAPI(
     } else if (gameType === "word_quiz") {
       await expect(
         player.page.locator("h1:has-text('Word Quiz')").or(player.page.locator("h1:has-text('مسابقة الكلمات')")),
+      ).toBeVisible({ timeout: 15_000 });
+    } else if (gameType === "mcq_quiz") {
+      await expect(
+        player.page.locator("h1:has-text('MCQ Quiz')").or(player.page.locator("h1:has-text('اختبار')")).or(player.page.locator("h1:has-text('QCM')")),
       ).toBeVisible({ timeout: 15_000 });
     } else {
       await expect(
@@ -320,7 +331,7 @@ export async function startGameViaAPI(
  */
 export async function startGameViaUI(
   players: PlayerContext[],
-  gameType: "undercover" | "codenames" | "word_quiz",
+  gameType: "undercover" | "codenames" | "word_quiz" | "mcq_quiz",
 ): Promise<void> {
   const hostPage = players[0].page;
 
@@ -344,6 +355,8 @@ export async function startGameViaUI(
     await hostPage.locator('button:has-text("Codenames")').click();
   } else if (gameType === "word_quiz") {
     await hostPage.locator('button:has-text("Word Quiz")').click();
+  } else if (gameType === "mcq_quiz") {
+    await hostPage.locator('button:has-text("MCQ Quiz")').click();
   }
 
   // Click start game
@@ -353,12 +366,13 @@ export async function startGameViaUI(
 
   // Wait for all players to navigate to game page
   // With polling, the room page auto-navigates when active_game_id appears
-  const urlPattern =
-    gameType === "undercover"
-      ? /\/game\/undercover\//
-      : gameType === "word_quiz"
-        ? /\/game\/wordquiz\//
-        : /\/game\/codenames\//;
+  const urlPatternMap: Record<string, RegExp> = {
+    undercover: /\/game\/undercover\//,
+    codenames: /\/game\/codenames\//,
+    word_quiz: /\/game\/wordquiz\//,
+    mcq_quiz: /\/game\/mcqquiz\//,
+  };
+  const urlPattern = urlPatternMap[gameType];
 
   // Wait for host to navigate first
   let gameUrl = "";

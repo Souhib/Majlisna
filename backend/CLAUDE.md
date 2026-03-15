@@ -40,11 +40,14 @@ api/
 │   ├── undercover.py  # Undercover word/term pairs
 │   ├── codenames.py   # Codenames words/packs
 │   ├── wordquiz.py    # QuizWord model (word_en/ar/fr, accepted_answers, hints JSON)
+│   ├── mcqquiz.py     # McqQuestion model (trilingual questions, JSON choices/explanations)
 │   ├── undercover_game.py # Undercover game logic (REST + PostgreSQL JSON)
 │   ├── codenames_game.py  # Codenames game logic (REST + PostgreSQL JSON)
 │   ├── codenames_helpers.py # Board builder, player assigner
 │   ├── wordquiz.py        # QuizWord CRUD (get_random_words, create, delete)
 │   ├── wordquiz_game.py   # Word Quiz game logic (create, submit_answer, timer, rounds)
+│   ├── mcqquiz.py         # McqQuestion CRUD (get_random_questions)
+│   ├── mcqquiz_game.py    # MCQ Quiz game logic (create, submit_answer, timer, rounds)
 │   ├── game_lock.py   # PostgreSQL advisory locks per game_id (asyncio.Lock fallback for SQLite)
 │   ├── disconnect.py  # Disconnect/kick handlers (used by kick_player)
 │   ├── stats.py       # User statistics
@@ -62,6 +65,7 @@ api/
 │   ├── shared.py      # BaseModel, BaseTable (USE THESE)
 │   ├── error.py       # Enhanced error classes
 │   ├── wordquiz.py    # Word Quiz schemas (QuizWordCreate, SubmitAnswer, WordQuizGameState)
+│   ├── mcqquiz.py     # MCQ Quiz schemas (McqSubmitAnswerRequest, McqQuizGameState)
 │   └── auth.py        # TokenPayload, LoginRequest, etc.
 ├── routes/            # FastAPI routers (thin, delegate to controllers, trigger notify)
 │   ├── auth.py        # /api/v1/auth/*
@@ -71,11 +75,12 @@ api/
 │   ├── undercover.py  # /api/v1/undercover/* (notify_game_changed after mutations)
 │   ├── codenames.py   # /api/v1/codenames/* (notify_game_changed after mutations)
 │   ├── wordquiz.py    # /api/v1/wordquiz/* (start, state, answer, timer, next-round)
+│   ├── mcqquiz.py     # /api/v1/mcqquiz/* (start, state, answer, timer, next-round)
 │   └── stats.py       # /api/v1/users/{id}/stats, achievements, leaderboard
 ├── ws/                # Socket.IO real-time notification layer
 │   ├── __init__.py    # Exports sio, socketio_app
 │   ├── server.py      # AsyncServer with Redis adapter
-│   ├── handlers.py    # connect (JWT auth), join_game, disconnect
+│   ├── handlers.py    # connect (JWT auth), join_game, disconnect, auto_join_game_room
 │   ├── state.py       # Thin wrappers: fetch_room_state, fetch_game_state (reuse controllers)
 │   └── notify.py      # notify_room_changed, notify_game_changed (best-effort broadcast)
 ├── constants.py       # All magic values
@@ -89,14 +94,16 @@ api/
 
 Socket.IO is a **notification layer**, not a game engine. The flow is:
 1. Client → REST POST → Controller (with advisory lock) → PostgreSQL → Response
-2. Route calls `notify_room_changed()` or `notify_game_changed()` via `BackgroundTasks`
+2. Route **awaits** `notify_room_changed()` or `notify_game_changed()` — Socket.IO event is guaranteed to be emitted before the HTTP response returns
 3. Notify functions open a fresh DB session, call existing controllers with `update_heartbeat=False`, and emit to Socket.IO rooms
 
 **Key rules:**
+- **Route handlers MUST `await` notify functions** — never fire-and-forget. This eliminates the race condition where the client receives the REST response before the Socket.IO event is emitted. `fire_notify_*` variants exist ONLY for background tasks (disconnect checker loop, Socket.IO event handlers).
+- **Game start routes call `auto_join_game_room(game_id, room_id)`** before emitting notifications. This auto-joins all connected room members into `game:{game_id}` Socket.IO room, eliminating the race where `game_updated` fires before clients call `join_game`.
 - PostgreSQL is the ONLY source of truth. Redis is ONLY for Socket.IO adapter cross-worker pub/sub.
 - ZERO game state in Redis. No TTL watchers, no Redis OM.
-- Notify functions are **best-effort** — they swallow exceptions. If a broadcast fails, the REST response still succeeds.
-- `notify_game_changed` sends **per-user state** (because Codenames role visibility differs per player).
+- Notify functions log errors but don't raise — if a broadcast fails, the REST response still succeeds.
+- `notify_game_changed` sends a lightweight `game_updated` signal. Each client invalidates its TanStack Query cache, triggering a REST re-fetch of its own role-aware state.
 - Socket.IO handlers are thin wrappers, NOT new controllers. They reuse `RoomController.get_room_state()`, `UndercoverGameController.get_state()`, `CodenamesGameController.get_board()`.
 - Broadcasts go to Socket.IO rooms (`room:{room_id}`, `game:{game_id}`), NEVER to individual SIDs (except for per-user game state).
 - Socket.IO `disconnect` marks the user as disconnected in DB (starts grace period). A background `disconnect_checker_loop` runs every 5s to mark stale heartbeats and permanently remove users past the 60s grace period. Multi-tab connections are deduplicated via `_user_sids` dict. `join_game` validates user membership in the room and game ownership via DB queries. `you_were_kicked` event is emitted to `user:{user_id}` when the host kicks a player.
@@ -231,6 +238,7 @@ from ipg.api.constants import MIN_PLAYERS_FOR_GAME, ROOM_PASSWORD_LENGTH
 | CodenamesWord | codenames_word | Codenames board words |
 | CodenamesWordPack | codenames_word_pack | Word pack groupings |
 | QuizWord | quiz_word | Word Quiz words (multilingual hints, accepted answers) |
+| McqQuestion | mcq_question | MCQ Quiz questions (trilingual questions, JSON choices/explanations) |
 | UserStats | user_stats | Aggregated player statistics |
 | AchievementDefinition | achievement_definition | Badge definitions |
 | UserAchievement | user_achievement | Earned achievements |

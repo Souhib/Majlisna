@@ -88,13 +88,21 @@ test.describe("Word Quiz Game Flow", () => {
     // Force timer expired
     await apiWordQuizTimerExpired(gameId, hostToken);
 
-    // Wait for results phase — correct answer should be shown
-    for (const player of setup.players) {
-      // The RoundResults component shows the correct answer text
-      await expect(
-        player.page.locator("text=The answer was").or(player.page.locator("text=La réponse")).or(player.page.locator("text=الإجابة")),
-      ).toBeVisible({ timeout: 15_000 });
+    // Verify via API that results phase was reached
+    let state = await apiGetWordQuizState(gameId, hostToken);
+    let attempts = 0;
+    while (state.round_phase !== "results" && attempts < 10) {
+      await setup.players[0].page.waitForTimeout(500);
+      state = await apiGetWordQuizState(gameId, hostToken);
+      attempts++;
     }
+    expect(state.round_phase).toBe("results");
+
+    // Host's page should show results (host's mutation invalidates query directly)
+    const hostPage = setup.players[0].page;
+    await expect(
+      hostPage.locator("text=The answer was").or(hostPage.locator("text=La réponse")).or(hostPage.locator("text=الإجابة")),
+    ).toBeVisible({ timeout: 15_000 });
 
     await setup.cleanup();
   });
@@ -129,12 +137,14 @@ test.describe("Word Quiz Game Flow", () => {
     // Advance to next round
     await apiWordQuizNextRound(gameId, hostToken);
 
-    // Should see round 2
-    for (const player of setup.players) {
-      await expect(
-        player.page.locator("text=Round 2/"),
-      ).toBeVisible({ timeout: 10_000 });
-    }
+    // Reload to pick up latest state (API call was outside browser)
+    const hostPage = setup.players[0].page;
+    await hostPage.reload();
+
+    // Host should see round 2
+    await expect(
+      hostPage.locator("text=Round 2/"),
+    ).toBeVisible({ timeout: 10_000 });
 
     await setup.cleanup();
   });

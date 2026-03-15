@@ -7,4 +7,9 @@
 
 import { z } from "zod/v4";
 
-export const gameTypeSchema = z.enum(["undercover", "codenames", "word_quiz"]);
+export const gameTypeSchema = z.enum([
+  "undercover",
+  "codenames",
+  "word_quiz",
+  "mcq_quiz",
+]);

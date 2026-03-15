@@ -64,6 +64,7 @@ from ipg.api.models.table import Game, Room, User
 from ipg.api.models.undercover import TermPair, Word
 from ipg.api.models.wordquiz import QuizWord
 from ipg.database import create_app_engine, create_db_and_tables
+from scripts.mcq_questions_data import seed_mcq_questions
 from ipg.settings import Settings
 
 # Lazy imports for dev-only dependencies (not in production image)
@@ -3251,6 +3252,10 @@ async def generate_all_data(
         print("\n[5b/12] Seeding Word Quiz words...")
         await seed_quiz_words(session)
 
+        # 5c. Seed MCQ Quiz questions
+        print("\n[5c/12] Seeding MCQ Quiz questions...")
+        await seed_mcq_questions(session)
+
         # 6. Seed achievements
         print("\n[6/12] Seeding achievement definitions...")
         await seed_achievements(session)
@@ -3302,13 +3307,16 @@ async def seed_game_content(engine: AsyncEngine) -> None:
         print("\n[2/4] Seeding Codenames word packs...")
         await seed_codenames_words(session)
 
-        print("\n[3/5] Seeding Word Quiz words...")
+        print("\n[3/6] Seeding Word Quiz words...")
         await seed_quiz_words(session)
 
-        print("\n[4/5] Seeding achievement definitions...")
+        print("\n[4/6] Seeding MCQ Quiz questions...")
+        await seed_mcq_questions(session)
+
+        print("\n[5/6] Seeding achievement definitions...")
         await seed_achievements(session)
 
-        print("\n[5/5] Seeding challenge definitions...")
+        print("\n[6/6] Seeding challenge definitions...")
         await seed_challenges(session)
 
     print("\nGame content seeding complete!")

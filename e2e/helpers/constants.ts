@@ -37,6 +37,7 @@ export const ROUTES = {
   undercoverGame: (id: string) => `/game/undercover/${id}`,
   codenamesGame: (id: string) => `/game/codenames/${id}`,
   wordquizGame: (id: string) => `/game/wordquiz/${id}`,
+  mcqquizGame: (id: string) => `/game/mcqquiz/${id}`,
   profile: "/profile",
   leaderboard: "/leaderboard",
   challenges: "/challenges",

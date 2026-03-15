@@ -4,6 +4,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from ipg.api.controllers.codenames_game import CodenamesGameController
+from ipg.api.controllers.mcqquiz_game import McqQuizGameController
 from ipg.api.controllers.room import RoomController
 from ipg.api.controllers.undercover_game import UndercoverGameController
 from ipg.api.controllers.wordquiz_game import WordQuizGameController
@@ -39,6 +40,10 @@ async def fetch_game_state(game_id: str, user_id: str) -> dict:
                 return result.model_dump()
             elif game.type.value == "word_quiz":
                 controller = WordQuizGameController(session)
+                result = await controller.get_state(UUID(game_id), UUID(user_id), update_heartbeat=False)
+                return result.model_dump()
+            elif game.type.value == "mcq_quiz":
+                controller = McqQuizGameController(session)
                 result = await controller.get_state(UUID(game_id), UUID(user_id), update_heartbeat=False)
                 return result.model_dump()
             else:

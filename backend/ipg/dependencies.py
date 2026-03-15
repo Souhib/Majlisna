@@ -15,6 +15,8 @@ from ipg.api.controllers.codenames import CodenamesController
 from ipg.api.controllers.codenames_game import CodenamesGameController
 from ipg.api.controllers.friend import FriendController
 from ipg.api.controllers.game import GameController
+from ipg.api.controllers.mcqquiz import McqQuizController
+from ipg.api.controllers.mcqquiz_game import McqQuizGameController
 from ipg.api.controllers.profile import ProfileController
 from ipg.api.controllers.room import RoomController
 from ipg.api.controllers.stats import StatsController
@@ -196,6 +198,20 @@ async def get_wordquiz_game_controller(
 ) -> WordQuizGameController:
     """Get WordQuizGameController with injected session."""
     return WordQuizGameController(session)
+
+
+async def get_mcqquiz_controller(
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> McqQuizController:
+    """Get McqQuizController with injected session."""
+    return McqQuizController(session)
+
+
+async def get_mcqquiz_game_controller(
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> McqQuizGameController:
+    """Get McqQuizGameController with injected session."""
+    return McqQuizGameController(session)
 
 
 def get_email_service(

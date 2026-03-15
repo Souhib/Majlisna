@@ -5,12 +5,13 @@ import { getRoomStateApiV1RoomsRoomIdStateGetQueryKey } from '@/api/generated'
 import { getCodenamesBoardApiV1CodenamesGamesGameIdBoardGetQueryKey } from '@/api/generated'
 import { getUndercoverStateApiV1UndercoverGamesGameIdStateGetQueryKey } from '@/api/generated'
 import { getWordquizStateApiV1WordquizGamesGameIdStateGetQueryKey } from '@/api/generated'
+import { getMcqquizStateApiV1McqquizGamesGameIdStateGetQueryKey } from '@/api/generated'
 import { getStoredToken } from '@/lib/auth'
 
 interface UseSocketOptions {
   roomId: string | null | undefined
   gameId?: string | null
-  gameType?: 'undercover' | 'codenames' | 'word_quiz'
+  gameType?: 'undercover' | 'codenames' | 'word_quiz' | 'mcq_quiz'
   enabled?: boolean
   onKicked?: (roomId: string) => void
 }
@@ -21,6 +22,9 @@ function getGameQueryKeyPrefix(gameType: string, gameId: string) {
   }
   if (gameType === 'word_quiz') {
     return getWordquizStateApiV1WordquizGamesGameIdStateGetQueryKey({ game_id: gameId })
+  }
+  if (gameType === 'mcq_quiz') {
+    return getMcqquizStateApiV1McqquizGamesGameIdStateGetQueryKey({ game_id: gameId })
   }
   return getUndercoverStateApiV1UndercoverGamesGameIdStateGetQueryKey({ game_id: gameId })
 }
@@ -53,7 +57,17 @@ export function useSocket({ roomId, gameId, gameType, enabled = true, onKicked }
     if (gameIdRef.current) {
       socketRef.current?.emit('join_game', { game_id: gameIdRef.current })
     }
-  }, [])
+    // On reconnect, invalidate queries to catch up on events missed while disconnected
+    if (roomId) {
+      queryClient.invalidateQueries({
+        queryKey: getRoomStateApiV1RoomsRoomIdStateGetQueryKey({ room_id: roomId }),
+      })
+    }
+    if (gameIdRef.current && gameTypeRef.current) {
+      const keyPrefix = getGameQueryKeyPrefix(gameTypeRef.current, gameIdRef.current)
+      queryClient.invalidateQueries({ queryKey: keyPrefix })
+    }
+  }, [roomId, queryClient])
 
   const handleDisconnect = useCallback(() => {
     setConnected(false)
@@ -89,9 +103,8 @@ export function useSocket({ roomId, gameId, gameType, enabled = true, onKicked }
     socket.on('game_state', (state: Record<string, unknown>) => {
       if (gameIdRef.current && gameTypeRef.current) {
         const keyPrefix = getGameQueryKeyPrefix(gameTypeRef.current, gameIdRef.current)
-        if (gameTypeRef.current === 'word_quiz') {
-          // Word Quiz needs lang-aware fetch — invalidate to trigger REST refetch
-          // instead of caching English-default hints from Socket.IO
+        if (gameTypeRef.current === 'word_quiz' || gameTypeRef.current === 'mcq_quiz') {
+          // Word Quiz / MCQ Quiz needs lang-aware fetch — invalidate to trigger REST refetch
           queryClient.invalidateQueries({ queryKey: keyPrefix })
         } else {
           queryClient.setQueriesData({ queryKey: keyPrefix }, state)

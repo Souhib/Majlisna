@@ -583,3 +583,29 @@ class NotHostError(BaseError):
             status_code=status.HTTP_403_FORBIDDEN,
             details={"user_id": str(user_id)},
         )
+
+
+# ========== MCQ Quiz Errors ==========
+
+
+class NoMcqQuestionsAvailableError(BaseError):
+    """Raised when no MCQ questions are available for a game."""
+
+    def __init__(self):
+        super().__init__(
+            message="No MCQ questions available in the database",
+            frontend_message="No MCQ questions available. Please seed the database.",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+
+class InvalidChoiceIndexError(BaseError):
+    """Raised when an invalid choice index is submitted."""
+
+    def __init__(self, choice_index: int):
+        super().__init__(
+            message=f"Invalid choice index: {choice_index}. Must be 0-3.",
+            frontend_message="Invalid answer selection.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            details={"choice_index": choice_index},
+        )

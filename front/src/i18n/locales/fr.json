@@ -98,6 +98,10 @@
     "wordQuiz": {
       "name": "Quiz de Mots",
       "description": "Devinez le terme islamique à partir d'indices progressifs ! Plus vous répondez vite, plus vous gagnez de points."
+    },
+    "mcqQuiz": {
+      "name": "Quiz QCM",
+      "description": "Testez vos connaissances islamiques avec des questions à choix multiples ! Répondez vite avant la fin du temps."
     }
   },
   "room": {
@@ -139,7 +143,9 @@
     "mrWhiteMinPlayers": "Nécessite 4+ joueurs",
     "wordQuizTurnDuration": "Durée du tour (secondes)",
     "wordQuizRounds": "Nombre de manches",
-    "wordQuizHintInterval": "Intervalle des indices (secondes)"
+    "wordQuizHintInterval": "Intervalle des indices (secondes)",
+    "mcqQuizTurnDuration": "Temps par question (secondes)",
+    "mcqQuizRounds": "Nombre de questions"
   },
   "toast": {
     "playerJoined": "{{username}} a rejoint le salon",
@@ -254,6 +260,20 @@
       "backToRoom": "Retour au salon",
       "waiting": "En attente des résultats...",
       "category": "Catégorie",
+      "players": "{{count}} joueur(s)"
+    },
+    "mcqQuiz": {
+      "chooseAnswer": "Choisissez votre réponse",
+      "correctAnswer": "Correct !",
+      "wrongAnswer": "Faux !",
+      "explanation": "Explication",
+      "waitingForPlayers": "En attente des autres joueurs...",
+      "timeUp": "Temps écoulé !",
+      "round": "Question {{current}}/{{total}}",
+      "nextRound": "Question suivante",
+      "finalScores": "Scores finaux",
+      "winner": "{{username}} gagne !",
+      "backToRoom": "Retour au salon",
       "players": "{{count}} joueur(s)"
     }
   },

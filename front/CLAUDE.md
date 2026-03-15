@@ -81,7 +81,8 @@ src/
 │   │   ├── game/
 │   │   │   ├── undercover.$gameId.tsx  # Undercover game UI (Socket.IO)
 │   │   │   ├── codenames.$gameId.tsx   # Codenames game UI (Socket.IO)
-│   │   │   └── wordquiz.$gameId.tsx   # Word Quiz game UI (Socket.IO)
+│   │   │   ├── wordquiz.$gameId.tsx   # Word Quiz game UI (Socket.IO)
+│   │   │   └── mcqquiz.$gameId.tsx   # MCQ Quiz game UI (Socket.IO)
 │   │   ├── profile.tsx      # User profile + stats
 │   │   └── achievements.tsx # Achievement badges
 │   └── auth/

@@ -98,6 +98,10 @@
     "wordQuiz": {
       "name": "Word Quiz",
       "description": "Guess the Islamic term from progressive hints! The faster you answer, the more points you earn."
+    },
+    "mcqQuiz": {
+      "name": "MCQ Quiz",
+      "description": "Test your Islamic knowledge with multiple choice questions! Answer quickly before time runs out."
     }
   },
   "room": {
@@ -140,7 +144,9 @@
     "joinInvite": "Join",
     "wordQuizTurnDuration": "Turn Duration (seconds)",
     "wordQuizRounds": "Number of Rounds",
-    "wordQuizHintInterval": "Hint Interval (seconds)"
+    "wordQuizHintInterval": "Hint Interval (seconds)",
+    "mcqQuizTurnDuration": "Time per question (seconds)",
+    "mcqQuizRounds": "Number of questions"
   },
   "toast": {
     "playerJoined": "{{username}} joined the room",
@@ -263,6 +269,20 @@
       "backToRoom": "Back to Room",
       "waiting": "Waiting for results...",
       "category": "Category",
+      "players": "{{count}} player(s)"
+    },
+    "mcqQuiz": {
+      "chooseAnswer": "Choose your answer",
+      "correctAnswer": "Correct!",
+      "wrongAnswer": "Wrong!",
+      "explanation": "Explanation",
+      "waitingForPlayers": "Waiting for other players...",
+      "timeUp": "Time's up!",
+      "round": "Question {{current}}/{{total}}",
+      "nextRound": "Next Question",
+      "finalScores": "Final Scores",
+      "winner": "{{username}} wins!",
+      "backToRoom": "Back to Room",
       "players": "{{count}} player(s)"
     }
   },

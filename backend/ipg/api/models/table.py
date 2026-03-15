@@ -11,6 +11,7 @@ from ipg.api.models.codenames import CodenamesWord, CodenamesWordPack  # noqa: F
 from ipg.api.models.event import TurnBase
 from ipg.api.models.friendship import Friendship  # noqa: F401
 from ipg.api.models.game import GameBase
+from ipg.api.models.mcqquiz import McqQuestion  # noqa: F401
 from ipg.api.models.relationship import (
     GameTurnLink,
     RoomActivityLink,

@@ -9,6 +9,7 @@ export const gameTypeEnum = {
   undercover: "undercover",
   codenames: "codenames",
   word_quiz: "word_quiz",
+  mcq_quiz: "mcq_quiz",
 } as const;
 
 export type GameTypeEnumKey = (typeof gameTypeEnum)[keyof typeof gameTypeEnum];

@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils"
 interface RoomSettingsProps {
   roomId: string
   settings: Record<string, unknown> | null
-  gameType: "undercover" | "codenames" | "word_quiz"
+  gameType: "undercover" | "codenames" | "word_quiz" | "mcq_quiz"
   playerCount: number
 }
 
@@ -33,6 +33,8 @@ export const RoomSettings = memo(function RoomSettings({
   const [wordQuizTurnDuration, setWordQuizTurnDuration] = useState(60)
   const [wordQuizRounds, setWordQuizRounds] = useState(7)
   const [wordQuizHintInterval, setWordQuizHintInterval] = useState(10)
+  const [mcqQuizTurnDuration, setMcqQuizTurnDuration] = useState(15)
+  const [mcqQuizRounds, setMcqQuizRounds] = useState(10)
 
   useEffect(() => {
     if (settings) {
@@ -44,6 +46,8 @@ export const RoomSettings = memo(function RoomSettings({
       if (settings.word_quiz_turn_duration !== undefined) setWordQuizTurnDuration(settings.word_quiz_turn_duration as number)
       if (settings.word_quiz_rounds !== undefined) setWordQuizRounds(settings.word_quiz_rounds as number)
       if (settings.word_quiz_hint_interval !== undefined) setWordQuizHintInterval(settings.word_quiz_hint_interval as number)
+      if (settings.mcq_quiz_turn_duration !== undefined) setMcqQuizTurnDuration(settings.mcq_quiz_turn_duration as number)
+      if (settings.mcq_quiz_rounds !== undefined) setMcqQuizRounds(settings.mcq_quiz_rounds as number)
     }
   }, [settings])
 
@@ -65,13 +69,16 @@ export const RoomSettings = memo(function RoomSettings({
         payload.word_quiz_turn_duration = wordQuizTurnDuration
         payload.word_quiz_rounds = wordQuizRounds
         payload.word_quiz_hint_interval = wordQuizHintInterval
+      } else if (gameType === "mcq_quiz") {
+        payload.mcq_quiz_turn_duration = mcqQuizTurnDuration
+        payload.mcq_quiz_rounds = mcqQuizRounds
       }
       await settingsMutation.mutateAsync({ room_id: roomId, data: payload })
       toast.success(t("room.settingsSaved"))
     } catch (err) {
       toast.error(getApiErrorMessage(err, "Failed to save settings"))
     }
-  }, [roomId, gameType, descriptionTimer, votingTimer, codenamesClueTimer, codenamesGuessTimer, enableMrWhite, wordQuizTurnDuration, wordQuizRounds, wordQuizHintInterval, t, settingsMutation])
+  }, [roomId, gameType, descriptionTimer, votingTimer, codenamesClueTimer, codenamesGuessTimer, enableMrWhite, wordQuizTurnDuration, wordQuizRounds, wordQuizHintInterval, mcqQuizTurnDuration, mcqQuizRounds, t, settingsMutation])
 
   return (
     <div className="glass rounded-2xl p-5">
@@ -221,7 +228,7 @@ export const RoomSettings = memo(function RoomSettings({
                 </div>
               </div>
             </>
-          ) : (
+          ) : gameType === "word_quiz" ? (
             <>
               {/* Turn Duration */}
               <div>
@@ -264,6 +271,39 @@ export const RoomSettings = memo(function RoomSettings({
                       className={cn("rounded-xl px-3 py-1.5 text-xs font-medium transition-all duration-200",
                         wordQuizHintInterval === val ? "bg-gradient-to-r from-primary to-primary/90 text-primary-foreground shadow-sm" : "bg-muted/50 hover:bg-muted")}>
                       {val}s
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              {/* MCQ Quiz — Time per question */}
+              <div>
+                <label className="text-xs font-semibold text-muted-foreground block mb-2">
+                  {t("room.mcqQuizTurnDuration")}
+                </label>
+                <div className="flex gap-1.5 flex-wrap">
+                  {[10, 15, 20, 30, 45, 60].map((val) => (
+                    <button key={val} type="button" onClick={() => setMcqQuizTurnDuration(val)}
+                      className={cn("rounded-xl px-3 py-1.5 text-xs font-medium transition-all duration-200",
+                        mcqQuizTurnDuration === val ? "bg-gradient-to-r from-primary to-primary/90 text-primary-foreground shadow-sm" : "bg-muted/50 hover:bg-muted")}>
+                      {val}s
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {/* MCQ Quiz — Number of questions */}
+              <div>
+                <label className="text-xs font-semibold text-muted-foreground block mb-2">
+                  {t("room.mcqQuizRounds")}
+                </label>
+                <div className="flex gap-1.5 flex-wrap">
+                  {[5, 10, 15, 20, 30].map((val) => (
+                    <button key={val} type="button" onClick={() => setMcqQuizRounds(val)}
+                      className={cn("rounded-xl px-3 py-1.5 text-xs font-medium transition-all duration-200",
+                        mcqQuizRounds === val ? "bg-gradient-to-r from-primary to-primary/90 text-primary-foreground shadow-sm" : "bg-muted/50 hover:bg-muted")}>
+                      {val}
                     </button>
                   ))}
                 </div>

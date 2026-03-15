@@ -21,7 +21,7 @@ from ipg.api.schemas.room import (
     RoomState,
     UpdateRoomSettingsResponse,
 )
-from ipg.api.ws.notify import fire_notify_room_changed, fire_notify_user_kicked
+from ipg.api.ws.notify import notify_room_changed, notify_user_kicked
 from ipg.dependencies import get_current_user, get_room_controller
 
 router = APIRouter(
@@ -90,7 +90,7 @@ async def join_room(
     room_controller: RoomController = Depends(get_room_controller),
 ) -> RoomView:
     result = await room_controller.join_room(room_join)
-    fire_notify_room_changed(str(result.id))
+    await notify_room_changed(str(result.id))
     return RoomView.model_validate(result)
 
 
@@ -101,7 +101,7 @@ async def leave_room(
     room_controller: RoomController = Depends(get_room_controller),
 ) -> RoomView:
     result = await room_controller.leave_room(room_leave)
-    fire_notify_room_changed(str(result.id))
+    await notify_room_changed(str(result.id))
     return RoomView.model_validate(result)
 
 
@@ -114,7 +114,7 @@ async def join_room_as_spectator(
 ) -> RoomView:
     """Join a room as a spectator (watch-only mode)."""
     result = await room_controller.join_room_as_spectator(body.room_id, current_user.id)
-    fire_notify_room_changed(str(result.id))
+    await notify_room_changed(str(result.id))
     return RoomView.model_validate(result)
 
 
@@ -127,8 +127,8 @@ async def kick_player(
 ) -> KickPlayerResponse:
     """Kick a player from the room. Host only."""
     result = await room_controller.kick_player(room_id, current_user.id, body.user_id)
-    fire_notify_user_kicked(str(body.user_id), str(room_id))
-    fire_notify_room_changed(str(room_id))
+    await notify_user_kicked(str(body.user_id), str(room_id))
+    await notify_room_changed(str(room_id))
     return result
 
 
@@ -141,7 +141,7 @@ async def update_room_settings(
 ) -> UpdateRoomSettingsResponse:
     settings = {k: v for k, v in body.model_dump().items() if v is not None}
     result = await room_controller.update_room_settings(room_id, current_user.id, settings)
-    fire_notify_room_changed(str(room_id))
+    await notify_room_changed(str(room_id))
     return result
 
 
@@ -152,7 +152,7 @@ async def rematch(
     room_controller: RoomController = Depends(get_room_controller),
 ) -> RematchResponse:
     result = await room_controller.rematch(room_id, current_user.id)
-    fire_notify_room_changed(str(room_id))
+    await notify_room_changed(str(room_id))
     return result
 
 

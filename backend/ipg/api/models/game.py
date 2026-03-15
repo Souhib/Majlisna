@@ -13,6 +13,7 @@ class GameType(StrEnum):
     UNDERCOVER = "undercover"
     CODENAMES = "codenames"
     WORD_QUIZ = "word_quiz"
+    MCQ_QUIZ = "mcq_quiz"
 
 
 class GameStatus(StrEnum):
