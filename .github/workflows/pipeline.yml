@@ -198,7 +198,14 @@ jobs:
       - name: Ensure infrastructure is running
         if: needs.changes.outputs.backend == 'true'
         working-directory: ${{ env.DEPLOY_DIR }}
-        run: docker compose -f docker-compose.dokploy.yml up -d db pgbouncer redis || true
+        run: |
+          output=$(docker compose -f docker-compose.dokploy.yml up -d db pgbouncer redis 2>&1) && exit 0
+          if echo "$output" | grep -q "is already in use"; then
+            echo "Infrastructure containers already running (managed by Dokploy)"
+          else
+            echo "$output"
+            exit 1
+          fi
 
       - name: Wait for PgBouncer health
         if: needs.changes.outputs.backend == 'true'
@@ -235,7 +242,14 @@ jobs:
 
       - name: Ensure monitoring tools are running
         working-directory: ${{ env.DEPLOY_DIR }}
-        run: docker compose -f docker-compose.dokploy.yml up -d dozzle uptime-kuma beszel beszel-agent watchtower crowdsec || true
+        run: |
+          output=$(docker compose -f docker-compose.dokploy.yml up -d dozzle uptime-kuma beszel beszel-agent watchtower crowdsec 2>&1) && exit 0
+          if echo "$output" | grep -q "is already in use"; then
+            echo "Monitoring containers already running (managed by Dokploy)"
+          else
+            echo "$output"
+            exit 1
+          fi
 
       - name: Health check
         if: needs.changes.outputs.backend == 'true'
