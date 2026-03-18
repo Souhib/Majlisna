@@ -210,7 +210,6 @@ services:
       - "traefik.http.routers.majlisna-umami.rule=Host(`analytics.${DOMAIN:-ipg.local}`)"
       - "traefik.http.routers.majlisna-umami.entrypoints=web,websecure"
       - "traefik.http.services.majlisna-umami.loadbalancer.server.port=3000"
-      - "com.centurylinklabs.watchtower.enable=true"
     networks:
       - internal
       - dokploy-network
@@ -337,7 +336,6 @@ services:
       - "traefik.http.routers.majlisna-dozzle.rule=Host(`dozzle.${DOMAIN:-ipg.local}`)"
       - "traefik.http.routers.majlisna-dozzle.entrypoints=web,websecure"
       - "traefik.http.services.majlisna-dozzle.loadbalancer.server.port=8080"
-      - "com.centurylinklabs.watchtower.enable=true"
     networks:
       - dokploy-network
     logging: *default-logging
@@ -363,7 +361,6 @@ services:
       - "traefik.http.routers.majlisna-kuma.rule=Host(`kuma.${DOMAIN:-ipg.local}`)"
       - "traefik.http.routers.majlisna-kuma.entrypoints=web,websecure"
       - "traefik.http.services.majlisna-kuma.loadbalancer.server.port=3001"
-      - "com.centurylinklabs.watchtower.enable=true"
     networks:
       - dokploy-network
     logging: *default-logging
@@ -405,20 +402,6 @@ services:
     logging: *default-logging
     restart: always
 
-  # ─── Watchtower (Auto-Update Third-Party Containers) ───────
-
-  watchtower:
-    container_name: majlisna-watchtower
-    image: containrrr/watchtower:latest
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    environment:
-      WATCHTOWER_CLEANUP: "true"
-      WATCHTOWER_SCHEDULE: "0 0 4 * * *"
-      WATCHTOWER_LABEL_ENABLE: "true"
-      DOCKER_API_VERSION: "1.44"
-    logging: *default-logging
-    restart: always
 
   # ─── CrowdSec (Collaborative Security) ──────────────────────
 
