@@ -1,11 +1,5 @@
-# Dokploy deployment for IPG
-# Access via IP:
-#   - Frontend:  http://<SERVER_IP>:30819
-#   - Backend:   http://<SERVER_IP>:33648
-#   - Umami:     http://<SERVER_IP>:31200  (analytics.majlisna.app)
-#   - GlitchTip: http://<SERVER_IP>:31300  (glitchtip.majlisna.app)
-#   - Dozzle:    http://<SERVER_IP>:31400  (dozzle.majlisna.app)
-#   - Kuma:      http://<SERVER_IP>:31500  (kuma.majlisna.app)
+# Dokploy deployment for Majlisna (IPG)
+# App-only compose — monitoring services live in ~/monitoring/docker-compose.yml on the server
 
 name: majlisna
 
@@ -16,8 +10,7 @@ x-logging: &default-logging
     max-file: "5"
 
 services:
-  # ─── Databases (internal only) ───────────────────────────────
-
+  # ─── Database ────────────────────────────────────────────────
   db:
     container_name: majlisna-db
     image: postgres:16-alpine
@@ -41,7 +34,6 @@ services:
     restart: always
 
   # ─── PgBouncer ───────────────────────────────────────────────
-
   pgbouncer:
     container_name: majlisna-pgbouncer
     image: edoburu/pgbouncer:v1.25.1-p0
@@ -65,8 +57,7 @@ services:
     logging: *default-logging
     restart: always
 
-  # ─── Redis ─────────────────────────────────────────────────
-
+  # ─── Redis (Socket.IO pub/sub only) ──────────────────────────
   redis:
     container_name: majlisna-redis
     image: redis:7-alpine
@@ -82,7 +73,6 @@ services:
     restart: always
 
   # ─── Backend API ─────────────────────────────────────────────
-
   backend:
     container_name: majlisna-backend
     build:
@@ -96,16 +86,14 @@ services:
       JWT_ENCRYPTION_ALGORITHM: HS256
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-15}
       REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-7}
-
       FRONTEND_URL: ${FRONTEND_URL:-http://<SERVER_IP>:30819}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://<SERVER_IP>:30819}
-
       LOGFIRE_TOKEN: ${LOGFIRE_TOKEN:-}
-
       ENVIRONMENT: ${ENVIRONMENT:-production}
       IPG_ENV: ${IPG_ENV:-production}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       SENTRY_DSN: ${SENTRY_DSN:-}
+      GOOGLE_CLIENT_ID_WEB: ${GOOGLE_CLIENT_ID_WEB:-}
     depends_on:
       pgbouncer:
         condition: service_healthy
@@ -131,7 +119,6 @@ services:
     restart: always
 
   # ─── Frontend SPA ────────────────────────────────────────────
-
   frontend:
     container_name: majlisna-frontend
     build:
@@ -143,8 +130,6 @@ services:
         VITE_SENTRY_DSN: ${VITE_SENTRY_DSN:-}
         VITE_UMAMI_URL: ${VITE_UMAMI_URL:-}
         VITE_UMAMI_WEBSITE_ID: ${VITE_UMAMI_WEBSITE_ID:-}
-        VITE_GLITCHTIP_DSN: ${VITE_GLITCHTIP_DSN:-}
-        VITE_GOOGLE_MAPS_API_KEY: ${VITE_GOOGLE_MAPS_API_KEY:-}
         VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID:-}
     depends_on:
       - backend
@@ -167,275 +152,8 @@ services:
     logging: *default-logging
     restart: always
 
-  # ─── Umami Analytics ─────────────────────────────────────────
-
-  umami-db:
-    container_name: majlisna-umami-db
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: umami
-      POSTGRES_PASSWORD: ${UMAMI_DB_PASSWORD}
-      POSTGRES_DB: umami
-    volumes:
-      - umami_postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U umami"]
-      interval: 10s
-      timeout: 5s
-      start_period: 30s
-      retries: 10
-    networks:
-      - internal
-    logging: *default-logging
-    restart: always
-
-  umami:
-    container_name: majlisna-umami
-    image: ghcr.io/umami-software/umami:postgresql-v2.15.1
-    environment:
-      DATABASE_URL: postgresql://umami:${UMAMI_DB_PASSWORD}@umami-db:5432/umami
-    depends_on:
-      umami-db:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:3000/api/heartbeat"]
-      interval: 30s
-      timeout: 5s
-      start_period: 30s
-      retries: 3
-    ports:
-      - "31200:3000"
-    labels:
-      - "traefik.enable=${TRAEFIK_ENABLED:-false}"
-      - "traefik.http.routers.majlisna-umami.rule=Host(`analytics.${DOMAIN:-ipg.local}`)"
-      - "traefik.http.routers.majlisna-umami.entrypoints=web,websecure"
-      - "traefik.http.services.majlisna-umami.loadbalancer.server.port=3000"
-    networks:
-      - internal
-      - dokploy-network
-    logging: *default-logging
-    restart: always
-
-  # ─── GlitchTip Error Tracking ──────────────────────────────
-
-  glitchtip-db:
-    container_name: majlisna-glitchtip-db
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: glitchtip
-      POSTGRES_PASSWORD: ${GLITCHTIP_DB_PASSWORD}
-      POSTGRES_DB: glitchtip
-    volumes:
-      - glitchtip_postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U glitchtip"]
-      interval: 10s
-      timeout: 5s
-      start_period: 30s
-      retries: 10
-    networks:
-      - internal
-    logging: *default-logging
-    restart: always
-
-  glitchtip-redis:
-    container_name: majlisna-glitchtip-redis
-    image: redis:7-alpine
-    command: redis-server --maxmemory 32mb --maxmemory-policy allkeys-lru
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-    networks:
-      - internal
-    logging: *default-logging
-    restart: always
-
-  glitchtip:
-    container_name: majlisna-glitchtip
-    image: glitchtip/glitchtip:v4.1
-    environment:
-      DATABASE_URL: postgresql://glitchtip:${GLITCHTIP_DB_PASSWORD}@glitchtip-db:5432/glitchtip
-      REDIS_URL: redis://glitchtip-redis:6379/0
-      SECRET_KEY: ${GLITCHTIP_SECRET_KEY}
-      PORT: 8000
-      GLITCHTIP_DOMAIN: https://glitchtip.${DOMAIN:-ipg.local}
-      DEFAULT_FROM_EMAIL: noreply@${DOMAIN:-ipg.local}
-      CELERY_WORKER_AUTOSCALE: "1,3"
-      CELERY_WORKER_MAX_TASKS_PER_CHILD: 10000
-    depends_on:
-      glitchtip-db:
-        condition: service_healthy
-      glitchtip-redis:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/_health/')\""]
-      interval: 30s
-      timeout: 5s
-      start_period: 30s
-      retries: 3
-    ports:
-      - "31300:8000"
-    labels:
-      - "traefik.enable=${TRAEFIK_ENABLED:-false}"
-      - "traefik.http.routers.majlisna-glitchtip.rule=Host(`glitchtip.${DOMAIN:-ipg.local}`)"
-      - "traefik.http.routers.majlisna-glitchtip.entrypoints=web,websecure"
-      - "traefik.http.services.majlisna-glitchtip.loadbalancer.server.port=8000"
-    networks:
-      - internal
-      - dokploy-network
-    logging: *default-logging
-    restart: always
-
-  glitchtip-worker:
-    container_name: majlisna-glitchtip-worker
-    image: glitchtip/glitchtip:v4.1
-    command: bin/run-celery-with-beat.sh
-    environment:
-      DATABASE_URL: postgresql://glitchtip:${GLITCHTIP_DB_PASSWORD}@glitchtip-db:5432/glitchtip
-      REDIS_URL: redis://glitchtip-redis:6379/0
-      SECRET_KEY: ${GLITCHTIP_SECRET_KEY}
-      GLITCHTIP_DOMAIN: https://glitchtip.${DOMAIN:-ipg.local}
-      DEFAULT_FROM_EMAIL: noreply@${DOMAIN:-ipg.local}
-      CELERY_WORKER_AUTOSCALE: "1,3"
-      CELERY_WORKER_MAX_TASKS_PER_CHILD: 10000
-    depends_on:
-      glitchtip-db:
-        condition: service_healthy
-      glitchtip-redis:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "celery -A glitchtip inspect ping --timeout 5 || exit 1"]
-      interval: 60s
-      timeout: 10s
-      start_period: 30s
-      retries: 3
-    networks:
-      - internal
-    logging: *default-logging
-    restart: always
-
-  # ─── Dozzle (Docker Log Viewer) ─────────────────────────────
-
-  dozzle:
-    container_name: majlisna-dozzle
-    image: amir20/dozzle:v8.12.8
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    healthcheck:
-      test: ["CMD", "/dozzle", "healthcheck"]
-      interval: 30s
-      timeout: 5s
-      start_period: 5s
-      retries: 3
-    ports:
-      - "31400:8080"
-    labels:
-      - "traefik.enable=${TRAEFIK_ENABLED:-false}"
-      - "traefik.http.routers.majlisna-dozzle.rule=Host(`dozzle.${DOMAIN:-ipg.local}`)"
-      - "traefik.http.routers.majlisna-dozzle.entrypoints=web,websecure"
-      - "traefik.http.services.majlisna-dozzle.loadbalancer.server.port=8080"
-    networks:
-      - dokploy-network
-    logging: *default-logging
-    restart: always
-
-  # ─── Uptime Kuma (Monitoring) ──────────────────────────────
-
-  uptime-kuma:
-    container_name: majlisna-uptime-kuma
-    image: louislam/uptime-kuma:1.23.16
-    volumes:
-      - uptime_kuma_data:/app/data
-    healthcheck:
-      test: ["CMD-SHELL", "extra/healthcheck"]
-      interval: 60s
-      timeout: 10s
-      start_period: 30s
-      retries: 3
-    ports:
-      - "31500:3001"
-    labels:
-      - "traefik.enable=${TRAEFIK_ENABLED:-false}"
-      - "traefik.http.routers.majlisna-kuma.rule=Host(`kuma.${DOMAIN:-ipg.local}`)"
-      - "traefik.http.routers.majlisna-kuma.entrypoints=web,websecure"
-      - "traefik.http.services.majlisna-kuma.loadbalancer.server.port=3001"
-    networks:
-      - dokploy-network
-    logging: *default-logging
-    restart: always
-
-  # ─── Beszel (Server & Container Monitoring) ────────────────
-
-  beszel:
-    container_name: majlisna-beszel
-    image: henrygd/beszel:0.9.1
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    volumes:
-      - beszel_data:/beszel_data
-    healthcheck:
-      disable: true
-    ports:
-      - "31600:8090"
-    labels:
-      - "traefik.enable=${TRAEFIK_ENABLED:-false}"
-      - "traefik.http.routers.majlisna-beszel.rule=Host(`beszel.${DOMAIN:-ipg.local}`)"
-      - "traefik.http.routers.majlisna-beszel.entrypoints=web,websecure"
-      - "traefik.http.services.majlisna-beszel.loadbalancer.server.port=8090"
-    networks:
-      - dokploy-network
-    logging: *default-logging
-    restart: always
-
-  beszel-agent:
-    container_name: majlisna-beszel-agent
-    image: henrygd/beszel-agent:0.9.1
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    environment:
-      PORT: 45876
-      KEY: ${BESZEL_AGENT_KEY:-}
-    networks:
-      - dokploy-network
-    logging: *default-logging
-    restart: always
-
-
-  # ─── CrowdSec (Collaborative Security) ──────────────────────
-
-  crowdsec:
-    container_name: majlisna-crowdsec
-    image: crowdsecurity/crowdsec:v1.6.4
-    environment:
-      COLLECTIONS: "crowdsecurity/traefik crowdsecurity/http-cve crowdsecurity/whitelist-good-actors"
-      GID: "${GID-1000}"
-      BOUNCER_KEY_traefik: ${CROWDSEC_BOUNCER_KEY:-}
-    volumes:
-      - crowdsec_config:/etc/crowdsec
-      - crowdsec_data:/var/lib/crowdsec/data
-      - /var/log:/var/log/host:ro
-    healthcheck:
-      test: ["CMD", "cscli", "version"]
-      interval: 30s
-      timeout: 5s
-      start_period: 30s
-      retries: 3
-    networks:
-      - internal
-      - dokploy-network
-    logging: *default-logging
-    restart: always
-
 volumes:
   postgres_data:
-  umami_postgres_data:
-  glitchtip_postgres_data:
-  uptime_kuma_data:
-  beszel_data:
-  crowdsec_config:
-  crowdsec_data:
 
 networks:
   internal:
