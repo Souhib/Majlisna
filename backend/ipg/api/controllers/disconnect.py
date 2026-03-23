@@ -79,12 +79,21 @@ async def _remove_expired_users(session: AsyncSession) -> tuple[set[str], set[st
     room_ids: set[str] = set()
     game_ids: set[str] = set()
     for link in expired:
-        if link.room_id:
-            room_ids.add(str(link.room_id))
-            # Check if room has an active game before disconnect removes the link
-            room = (await session.exec(select(Room).where(Room.id == link.room_id))).first()
-            if room and room.active_game_id:
-                game_ids.add(str(room.active_game_id))
+        if not link.room_id:
+            await _handle_permanent_disconnect(session, link)
+            continue
+
+        room = (await session.exec(select(Room).where(Room.id == link.room_id))).first()
+
+        # Skip removal for rooms without an active game (lobby).
+        # Mobile users frequently background the tab — don't punish them.
+        # The host can manually kick idle players if needed.
+        if room and not room.active_game_id:
+            continue
+
+        room_ids.add(str(link.room_id))
+        if room and room.active_game_id:
+            game_ids.add(str(room.active_game_id))
         await _handle_permanent_disconnect(session, link)
     return room_ids, game_ids
 

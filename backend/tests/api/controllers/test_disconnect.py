@@ -854,10 +854,26 @@ async def test_mark_stale_users_ignores_recent_null_last_seen(session):
 
 @pytest.mark.asyncio
 async def test_remove_expired_users(session):
-    """Users past grace period are permanently removed."""
+    """Users past grace period are permanently removed when room has an active game."""
     # Prepare
     user = await _create_user(session)
     room = await _create_room(session, user)
+
+    # Create an active game so the room qualifies for permanent removal
+    game = Game(
+        room_id=room.id,
+        type=GameType.UNDERCOVER,
+        number_of_players=3,
+        game_status=GameStatus.IN_PROGRESS,
+        live_state={"players": [], "eliminated_players": [], "turns": []},
+    )
+    session.add(game)
+    await session.commit()
+    await session.refresh(game)
+    room.active_game_id = game.id
+    session.add(room)
+    await session.commit()
+
     link = await _create_link(session, room.id, user.id, connected=False)
 
     # Set disconnected_at past the grace period
@@ -876,6 +892,32 @@ async def test_remove_expired_users(session):
     ).first()
     assert remaining is None
     assert str(room.id) in affected_rooms
+
+
+@pytest.mark.asyncio
+async def test_remove_expired_skips_lobby_users(session):
+    """Users in rooms without an active game (lobby) are NOT removed even past grace period."""
+    # Prepare
+    user = await _create_user(session)
+    room = await _create_room(session, user)
+    link = await _create_link(session, room.id, user.id, connected=False)
+
+    # Set disconnected_at well past the grace period
+    link.disconnected_at = datetime.now() - timedelta(seconds=GRACE_PERIOD_SECONDS + 100)
+    session.add(link)
+    await session.commit()
+
+    # Act
+    affected_rooms, _affected_games = await _remove_expired_users(session)
+
+    # Assert — link should still exist (lobby users are never auto-removed)
+    remaining = (
+        await session.exec(
+            select(RoomUserLink).where(RoomUserLink.room_id == room.id).where(RoomUserLink.user_id == user.id)
+        )
+    ).first()
+    assert remaining is not None
+    assert len(affected_rooms) == 0
 
 
 @pytest.mark.asyncio

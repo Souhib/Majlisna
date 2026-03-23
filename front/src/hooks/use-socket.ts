@@ -142,8 +142,26 @@ export function useSocket({ roomId, gameId, gameType, enabled = true, onKicked, 
       }
     }, 10_000)
 
+    // On tab refocus (mobile app switch, etc.), send immediate heartbeat
+    // and invalidate queries to sync state that changed while backgrounded
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') return
+      if (socket.connected) {
+        socket.emit('heartbeat')
+      }
+      if (roomId) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.room.state(roomId) })
+      }
+      if (gameIdRef.current && gameTypeRef.current) {
+        const keyPrefix = getGameQueryKeyPrefix(gameTypeRef.current, gameIdRef.current)
+        queryClient.invalidateQueries({ queryKey: keyPrefix })
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
     return () => {
       clearInterval(heartbeatInterval)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
       socket.disconnect()
       socketRef.current = null
       setConnected(false)

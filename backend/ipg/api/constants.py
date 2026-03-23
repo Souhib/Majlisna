@@ -44,7 +44,7 @@ TIMER_EXPIRATION_TOLERANCE_SECONDS = 2
 
 # Connection lifecycle constants (seconds)
 HEARTBEAT_STALE_SECONDS = 20  # Mark disconnected after 20s without heartbeat
-GRACE_PERIOD_SECONDS = 60  # Permanently remove after 60s of being disconnected
+GRACE_PERIOD_SECONDS = 180  # Permanently remove after 180s of being disconnected (game only)
 DISCONNECT_CHECK_INTERVAL_SECONDS = 5  # How often the checker loop runs
 
 # Auth constants

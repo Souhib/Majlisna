@@ -307,6 +307,7 @@ When a test fails, the goal is NEVER to make the test pass — it's to have a wo
 - **REST + Socket.IO Notifications**: Mutations go through REST. Socket.IO pushes state updates to clients after mutations. PostgreSQL is the ONLY source of truth — Redis is ONLY for Socket.IO cross-worker pub/sub (ephemeral, no game data).
 - **Game State in PostgreSQL**: `Game.live_state` JSON column stores full game state
 - **Manual kick**: Host can kick players from room; no auto-disconnect
+- **Lobby disconnect tolerance**: Players in rooms without an active game are NEVER auto-removed (mobile users background tabs constantly). They are marked `connected=False` but their `RoomUserLink` is preserved. Only rooms with an active game enforce the 180s grace period for permanent removal. The host can manually kick idle players.
 - **Kubb Codegen**: Auto-generated React Query hooks from FastAPI's OpenAPI spec
 - **Spectator Mode**: Users can join rooms as spectators (`RoomUserLink.is_spectator`). Spectators see sanitized game state (no roles/words until game over), read-only UI with no action buttons.
 - **Friend Invites**: Room hosts can invite friends via `POST /api/v1/rooms/{id}/invite`. Socket.IO personal rooms (`user:{user_id}`) deliver real-time invite notifications.
@@ -323,7 +324,7 @@ When a test fails, the goal is NEVER to make the test pass — it's to have a wo
 
 ### Backend — Game Logic
 
-**`get_room_state()` includes ALL room members, not just connected ones.** The room state query must NOT filter by `connected == True`. Players who briefly disconnect (Socket.IO reconnection) must still appear in the player list. They are only removed when permanently disconnected (RoomUserLink deleted after 60s grace period). Filtering by connection status causes the player count to flicker during brief disconnections, breaking game start flows.
+**`get_room_state()` includes ALL room members, not just connected ones.** The room state query must NOT filter by `connected == True`. Players who briefly disconnect (Socket.IO reconnection) must still appear in the player list. In the lobby (no active game), disconnected players are NEVER auto-removed — only the host can kick them. During active games, players are permanently removed after 180s grace period. Filtering by connection status causes the player count to flicker during brief disconnections, breaking game start flows.
 
 **All game state mutations use `get_game_lock(game_id, session)`.** This uses PostgreSQL **transaction-level** advisory locks (`pg_try_advisory_xact_lock`) in production — they auto-release on commit/rollback, preventing lock leaks. Falls back to in-process `asyncio.Lock` for SQLite (tests). Vote submission, description submission, and disconnect handling ALL acquire the same lock. If you add a new game mutation endpoint, wrap it in `get_game_lock(str(game_id), self.session)`. **Never use session-level advisory locks** (`pg_advisory_lock`) — they leak when connections are recycled by the pool.
 
