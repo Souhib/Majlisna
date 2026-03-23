@@ -160,6 +160,22 @@ async def auto_join_game_room(game_id: str, room_id: str) -> int:
 
 
 @sio.event
+async def heartbeat(sid):
+    """Update heartbeat timestamp to prevent stale-user detection."""
+    session_data = await sio.get_session(sid)
+    user_id = session_data.get("user_id")
+    room_id = session_data.get("room_id")
+    if not user_id or not room_id:
+        return
+    try:
+        engine = await get_engine()
+        async with AsyncSession(engine) as session:
+            await update_heartbeat(session, user_id, room_id)
+    except Exception:
+        logger.opt(exception=True).warning("Failed to update heartbeat for sid={}", sid)
+
+
+@sio.event
 async def disconnect(sid):
     """Mark user as disconnected in DB and clean up SID tracking."""
     session_data = await sio.get_session(sid)

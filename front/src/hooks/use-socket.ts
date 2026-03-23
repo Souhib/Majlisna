@@ -135,7 +135,15 @@ export function useSocket({ roomId, gameId, gameType, enabled = true, onKicked, 
       console.error('Socket.IO connection error:', err.message)
     })
 
+    // Send periodic heartbeat to prevent stale-user detection (20s threshold)
+    const heartbeatInterval = setInterval(() => {
+      if (socket.connected) {
+        socket.emit('heartbeat')
+      }
+    }, 10_000)
+
     return () => {
+      clearInterval(heartbeatInterval)
       socket.disconnect()
       socketRef.current = null
       setConnected(false)
