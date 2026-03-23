@@ -79,6 +79,16 @@ class WordExplanations(BaseModel):
     undercover_word_hint: str | None
 
 
+class MrWhiteGuessRequest(BaseModel):
+    guess_word: str
+
+
+class MrWhiteGuessResponse(BaseModel):
+    game_id: str
+    correct: bool
+    winner: str | None = None
+
+
 class UndercoverTimerConfig(BaseModel):
     description_seconds: int
     voting_seconds: int
@@ -107,3 +117,4 @@ class UndercoverGameState(BaseModel):
     current_describer_index: int
     descriptions: dict
     word_explanations: WordExplanations | None = None
+    mr_white_guesser: str | None = None

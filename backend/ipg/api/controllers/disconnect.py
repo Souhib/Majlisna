@@ -1,6 +1,6 @@
 import asyncio
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import UUID
 
 from loguru import logger
@@ -9,7 +9,12 @@ from sqlalchemy.orm.attributes import flag_modified
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from ipg.api.constants import DISCONNECT_CHECK_INTERVAL_SECONDS, GRACE_PERIOD_SECONDS, HEARTBEAT_STALE_SECONDS
+from ipg.api.constants import (
+    DISCONNECT_CHECK_INTERVAL_SECONDS,
+    GRACE_PERIOD_SECONDS,
+    HEARTBEAT_STALE_SECONDS,
+    LOBBY_GRACE_PERIOD_SECONDS,
+)
 from ipg.api.controllers.codenames_helpers import CodenamesGameStatus
 from ipg.api.controllers.game_lock import get_game_lock
 from ipg.api.models.game import GameStatus, GameType
@@ -85,11 +90,13 @@ async def _remove_expired_users(session: AsyncSession) -> tuple[set[str], set[st
 
         room = (await session.exec(select(Room).where(Room.id == link.room_id))).first()
 
-        # Skip removal for rooms without an active game (lobby).
-        # Mobile users frequently background the tab — don't punish them.
-        # The host can manually kick idle players if needed.
+        # For rooms without an active game (lobby), use a longer grace period.
+        # Mobile users frequently background the tab — don't punish them too quickly.
+        # The host can also manually kick idle players if needed.
         if room and not room.active_game_id:
-            continue
+            lobby_grace_threshold = datetime.fromtimestamp(datetime.now().timestamp() - LOBBY_GRACE_PERIOD_SECONDS)
+            if not link.disconnected_at or link.disconnected_at >= lobby_grace_threshold:
+                continue
 
         room_ids.add(str(link.room_id))
         if room and room.active_game_id:
@@ -214,6 +221,8 @@ async def _handle_game_disconnect(session: AsyncSession, game: Game, user_id: st
         await _handle_codenames_disconnect(session, game, user_id, room)
     elif game.type == GameType.WORD_QUIZ:
         await _handle_wordquiz_disconnect(session, game, user_id, room)
+    elif game.type == GameType.MCQ_QUIZ:
+        await _handle_mcqquiz_disconnect(session, game, user_id, room)
 
 
 async def _handle_undercover_disconnect(session: AsyncSession, game: Game, user_id: str, room: Room) -> None:
@@ -238,34 +247,35 @@ async def _handle_undercover_disconnect(session: AsyncSession, game: Game, user_
             }
         )
 
-        alive_count = sum(1 for p in state["players"] if p["is_alive"])
-        if alive_count < 3:
-            # Cancel game
-            game.game_status = GameStatus.CANCELLED
-            game.end_time = datetime.now()
+        # Check win conditions BEFORE checking alive_count < 3
+        # (e.g., the last undercover disconnected — civilians should win, not cancel)
+        num_alive_undercover = sum(
+            1 for p in state["players"] if p["role"] == UndercoverRole.UNDERCOVER.value and p["is_alive"]
+        )
+        num_alive_civilian = sum(
+            1 for p in state["players"] if p["role"] == UndercoverRole.CIVILIAN.value and p["is_alive"]
+        )
+        num_alive_mr_white = sum(
+            1 for p in state["players"] if p["role"] == UndercoverRole.MR_WHITE.value and p["is_alive"]
+        )
+
+        game_over = (
+            (num_alive_undercover == 0 and num_alive_mr_white == 0)
+            or num_alive_civilian == 0
+            or (num_alive_undercover + num_alive_mr_white >= num_alive_civilian)
+        )
+
+        if game_over:
+            game.game_status = GameStatus.FINISHED
+            game.end_time = datetime.now(UTC)
             room.active_game_id = None
             session.add(room)
         else:
-            # Check win conditions
-            num_alive_undercover = sum(
-                1 for p in state["players"] if p["role"] == UndercoverRole.UNDERCOVER.value and p["is_alive"]
-            )
-            num_alive_civilian = sum(
-                1 for p in state["players"] if p["role"] == UndercoverRole.CIVILIAN.value and p["is_alive"]
-            )
-            num_alive_mr_white = sum(
-                1 for p in state["players"] if p["role"] == UndercoverRole.MR_WHITE.value and p["is_alive"]
-            )
-
-            game_over = (
-                (num_alive_undercover == 0 and num_alive_mr_white == 0)
-                or num_alive_civilian == 0
-                or (num_alive_undercover + num_alive_mr_white >= num_alive_civilian)
-            )
-
-            if game_over:
-                game.game_status = GameStatus.FINISHED
-                game.end_time = datetime.now()
+            alive_count = sum(1 for p in state["players"] if p["is_alive"])
+            if alive_count < 3:
+                # Cancel game — not enough players and no winner
+                game.game_status = GameStatus.CANCELLED
+                game.end_time = datetime.now(UTC)
                 room.active_game_id = None
                 session.add(room)
 
@@ -302,7 +312,7 @@ async def _handle_codenames_disconnect(session: AsyncSession, game: Game, user_i
             else:
                 state["winner"] = "red"
             game.game_status = GameStatus.FINISHED
-            game.end_time = datetime.now()
+            game.end_time = datetime.now(UTC)
             room.active_game_id = None
             session.add(room)
 
@@ -334,7 +344,39 @@ async def _handle_wordquiz_disconnect(session: AsyncSession, game: Game, user_id
             # No players left — cancel game
             state["game_over"] = True
             game.game_status = GameStatus.CANCELLED
-            game.end_time = datetime.now()
+            game.end_time = datetime.now(UTC)
+            room.active_game_id = None
+            session.add(room)
+
+        game.live_state = state
+        flag_modified(game, "live_state")
+        session.add(game)
+        await session.commit()
+
+
+async def _handle_mcqquiz_disconnect(session: AsyncSession, game: Game, user_id: str, room: Room) -> None:
+    """Handle MCQ Quiz game disconnect: remove player, end if no players left."""
+    async with get_game_lock(str(game.id), session):
+        game = (await session.exec(select(Game).where(Game.id == game.id))).first()
+        if not game or not game.live_state:
+            return
+        state = game.live_state
+
+        player = next((p for p in state["players"] if p["user_id"] == user_id), None)
+        if not player:
+            return
+
+        # Remove player from game
+        state["players"] = [p for p in state["players"] if p["user_id"] != user_id]
+
+        # Remove their answer if any
+        state.get("answers", {}).pop(user_id, None)
+
+        if not state["players"]:
+            # No players left — cancel game
+            state["game_over"] = True
+            game.game_status = GameStatus.CANCELLED
+            game.end_time = datetime.now(UTC)
             room.active_game_id = None
             session.add(room)
 

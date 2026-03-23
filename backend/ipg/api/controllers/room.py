@@ -410,6 +410,12 @@ class RoomController:
     async def rematch(self, room_id: UUID, user_id: UUID) -> RematchResponse:
         """Clear active game and return to lobby. Preserves room settings and connected players."""
         room = await self.get_room_by_id(room_id)
+        if room.owner_id != user_id:
+            raise BaseError(
+                message="Only the host can trigger a rematch.",
+                frontend_message="Only the host can trigger a rematch.",
+                status_code=403,
+            )
         room.active_game_id = None
         self.session.add(room)
         await self.session.commit()

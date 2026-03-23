@@ -82,3 +82,6 @@ class WordQuizGameState(BaseModel):
     leaderboard: list[WordQuizPlayerState]
     game_over: bool
     timer_config: WordQuizTimerConfig | None = None
+    ready_players: list[str] = []
+    ready_count: int = 0
+    total_players: int = 0

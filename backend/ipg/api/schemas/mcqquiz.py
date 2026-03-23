@@ -46,3 +46,6 @@ class McqQuizGameState(BaseModel):
     winner: str | None = None
     leaderboard: list[McqQuizPlayerState]
     game_over: bool
+    ready_players: list[str] = []
+    ready_count: int = 0
+    total_players: int = 0

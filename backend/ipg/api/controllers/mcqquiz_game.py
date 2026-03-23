@@ -18,7 +18,6 @@ from ipg.api.models.error import (
     AlreadyAnsweredError,
     InvalidChoiceIndexError,
     NoMcqQuestionsAvailableError,
-    NotHostError,
     PlayerRemovedFromGameError,
     RoundNotPlayingError,
     SpectatorCannotAnswerError,
@@ -26,8 +25,8 @@ from ipg.api.models.error import (
 from ipg.api.models.game import GameCreate, GameStatus, GameType
 from ipg.api.models.mcqquiz import McqQuestion
 from ipg.api.models.relationship import RoomUserLink
-from ipg.api.models.table import Room
-from ipg.api.schemas.common import GameStartResponse, TimerExpiredResponse
+from ipg.api.models.table import Game, Room
+from ipg.api.schemas.common import AdvanceRoundResponse, GameStartResponse, TimerExpiredResponse
 from ipg.api.schemas.error import BaseError
 from ipg.api.schemas.mcqquiz import (
     McqQuizGameState,
@@ -177,6 +176,9 @@ class McqQuizGameController(BaseGameController):
             winner=state.get("winner"),
             leaderboard=leaderboard,
             game_over=state.get("game_over", False),
+            ready_players=state.get("ready_players", []),
+            ready_count=len(state.get("ready_players", [])),
+            total_players=len(state["players"]),
         )
 
     async def submit_answer(self, game_id: UUID, user_id: UUID, choice_index: int) -> McqSubmitAnswerResponse:
@@ -213,7 +215,19 @@ class McqQuizGameController(BaseGameController):
 
             correct_index = state["current_question"]["correct_answer_index"]
             correct = choice_index == correct_index
-            points = 1 if correct else 0
+
+            # Calculate points: 1 base + up to 2 bonus for fast answers
+            if correct:
+                elapsed = (datetime.now(UTC) - datetime.fromisoformat(state["round_started_at"])).total_seconds()
+                turn_duration = state.get("turn_duration_seconds", DEFAULT_MCQ_QUIZ_TURN_DURATION)
+                if turn_duration > 0:
+                    time_ratio = max(0, 1 - elapsed / turn_duration)
+                    bonus = round(time_ratio * 2)
+                else:
+                    bonus = 0
+                points = 1 + bonus  # 1-3 points
+            else:
+                points = 0
 
             answers[str(user_id)] = {
                 "choice_index": choice_index,
@@ -242,10 +256,6 @@ class McqQuizGameController(BaseGameController):
             game = await self._get_game(game_id)
             state = game.live_state
 
-            is_host = await self._check_is_host(game.room_id, user_id)
-            if not is_host:
-                raise NotHostError(user_id=user_id)
-
             if state["round_phase"] != "playing":
                 return TimerExpiredResponse(game_id=str(game_id), action="not_playing")
 
@@ -262,15 +272,15 @@ class McqQuizGameController(BaseGameController):
 
         return TimerExpiredResponse(game_id=str(game_id), action="results")
 
-    async def advance_to_next_round(self, game_id: UUID, user_id: UUID) -> GameStartResponse:
-        """Advance to the next round or finalize the game."""
+    async def advance_to_next_round(self, game_id: UUID, user_id: UUID) -> AdvanceRoundResponse:
+        """Advance to the next round or finalize the game.
+
+        Host can always advance immediately. Non-host marks themselves as ready;
+        round advances when all players are ready.
+        """
         async with get_game_lock(str(game_id), self.session):
             game = await self._get_game(game_id)
             state = game.live_state
-
-            is_host = await self._check_is_host(game.room_id, user_id)
-            if not is_host:
-                raise NotHostError(user_id=user_id)
 
             if state["round_phase"] != "results":
                 raise BaseError(
@@ -279,66 +289,105 @@ class McqQuizGameController(BaseGameController):
                     status_code=400,
                 )
 
-            current_round = state["current_round"]
-            total_rounds = state["total_rounds"]
+            is_host = await self._check_is_host(game.room_id, user_id)
+            total_players = len(state["players"])
 
-            if current_round >= total_rounds:
-                # Game over
-                state["round_phase"] = "game_over"
-                state["game_over"] = True
-                sorted_players = sorted(state["players"], key=lambda p: p["total_score"], reverse=True)
-                if sorted_players:
-                    state["winner"] = sorted_players[0]["username"]
+            # Non-host: mark as ready
+            if not is_host:
+                ready_players = state.setdefault("ready_players", [])
+                if str(user_id) not in ready_players:
+                    ready_players.append(str(user_id))
 
-                game.game_status = GameStatus.FINISHED
-                game.end_time = datetime.now()
-                room = (await self.session.exec(select(Room).where(Room.id == game.room_id))).first()
-                if room:
-                    room.active_game_id = None
-                    self.session.add(room)
+                # Check if all players are now ready
+                if len(ready_players) < total_players:
+                    game.live_state = state
+                    flag_modified(game, "live_state")
+                    self.session.add(game)
+                    await self.session.commit()
+                    return AdvanceRoundResponse(
+                        game_id=str(game_id),
+                        room_id=str(game.room_id),
+                        advanced=False,
+                        ready_players=ready_players,
+                        ready_count=len(ready_players),
+                        total_players=total_players,
+                    )
+                # All ready — fall through to advance
 
-                # Process stats
-                await self._process_game_end_stats(state)
+            await self._do_advance_round(game, state)
+
+        return AdvanceRoundResponse(
+            game_id=str(game_id),
+            room_id=str(game.room_id),
+            advanced=True,
+            ready_players=[],
+            ready_count=total_players,
+            total_players=total_players,
+        )
+
+    async def _do_advance_round(self, game: Game, state: dict) -> None:
+        """Actually advance the round or end the game. Commits to DB."""
+        current_round = state["current_round"]
+        total_rounds = state["total_rounds"]
+
+        # Clear ready_players for the new round
+        state["ready_players"] = []
+
+        if current_round >= total_rounds:
+            # Game over
+            state["round_phase"] = "game_over"
+            state["game_over"] = True
+            sorted_players = sorted(state["players"], key=lambda p: p["total_score"], reverse=True)
+            if sorted_players:
+                state["winner"] = sorted_players[0]["username"]
+
+            game.game_status = GameStatus.FINISHED
+            game.end_time = datetime.now(UTC)
+            room = (await self.session.exec(select(Room).where(Room.id == game.room_id))).first()
+            if room:
+                room.active_game_id = None
+                self.session.add(room)
+
+            # Process stats
+            await self._process_game_end_stats(state)
+        else:
+            # Pick next pre-selected question
+            question_ids = state.get("question_ids", [])
+            next_question_id = question_ids[current_round] if current_round < len(question_ids) else None
+
+            if next_question_id:
+                q = (
+                    await self.session.exec(select(McqQuestion).where(McqQuestion.id == UUID(next_question_id)))
+                ).first()
             else:
-                # Pick next pre-selected question
-                question_ids = state.get("question_ids", [])
-                next_question_id = question_ids[current_round] if current_round < len(question_ids) else None
+                q = None
 
-                if next_question_id:
-                    q = (
-                        await self.session.exec(select(McqQuestion).where(McqQuestion.id == UUID(next_question_id)))
-                    ).first()
-                else:
-                    q = None
+            if not q:
+                # Fallback: pick a random question
+                random_questions = await self._mcqquiz_controller.get_random_questions(1)
+                q = random_questions[0] if random_questions else None
 
-                if not q:
-                    # Fallback: pick a random question
-                    random_questions = await self._mcqquiz_controller.get_random_questions(1)
-                    q = random_questions[0] if random_questions else None
+            if not q:
+                raise NoMcqQuestionsAvailableError()
 
-                if not q:
-                    raise NoMcqQuestionsAvailableError()
+            state["current_round"] = current_round + 1
+            state["current_question"] = {
+                "question_en": q.question_en,
+                "question_ar": q.question_ar,
+                "question_fr": q.question_fr,
+                "choices": q.choices,
+                "correct_answer_index": q.correct_answer_index,
+            }
+            state["explanation"] = q.explanation
+            state["round_started_at"] = datetime.now(UTC).isoformat()
+            state["round_phase"] = "playing"
+            state["answers"] = {}
+            state["round_results"] = []
 
-                state["current_round"] = current_round + 1
-                state["current_question"] = {
-                    "question_en": q.question_en,
-                    "question_ar": q.question_ar,
-                    "question_fr": q.question_fr,
-                    "choices": q.choices,
-                    "correct_answer_index": q.correct_answer_index,
-                }
-                state["explanation"] = q.explanation
-                state["round_started_at"] = datetime.now(UTC).isoformat()
-                state["round_phase"] = "playing"
-                state["answers"] = {}
-                state["round_results"] = []
-
-            game.live_state = state
-            flag_modified(game, "live_state")
-            self.session.add(game)
-            await self.session.commit()
-
-        return GameStartResponse(game_id=str(game_id), room_id=str(game.room_id))
+        game.live_state = state
+        flag_modified(game, "live_state")
+        self.session.add(game)
+        await self.session.commit()
 
     # ── Private helpers ──────────────────────────────────────────────────────
 

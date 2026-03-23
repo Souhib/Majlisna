@@ -59,11 +59,6 @@ class SecurityMiddleware:
         self.is_production = is_production
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] not in ("http", "websocket"):
-            await self.app(scope, receive, send)
-            return
-
-        # Only apply security logic to HTTP requests
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return

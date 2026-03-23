@@ -101,6 +101,8 @@ function WordQuizGamePage() {
   })
 
   const [showGameOverTransition, setShowGameOverTransition] = useState(false)
+  const gameOverTransitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const previousWinnerRef = useRef<string | null>(null)
   const previousRoundRef = useRef<number>(0)
   const [cancelMessage, setCancelMessage] = useState<string | null>(null)
@@ -131,10 +133,15 @@ function WordQuizGamePage() {
     if (!serverState) return null
     if (serverState.room_id) {
       roomIdRef.current = serverState.room_id
-      if (!socketRoomId) setSocketRoomId(serverState.room_id)
     }
     return serverState
   }, [serverState])
+
+  useEffect(() => {
+    if (serverState?.room_id && !socketRoomId) {
+      setSocketRoomId(serverState.room_id)
+    }
+  }, [serverState?.room_id, socketRoomId])
 
   // Client-side hint timer: calculate hints_revealed locally from round_started_at
   useEffect(() => {
@@ -167,7 +174,10 @@ function WordQuizGamePage() {
     if (currentWinner && !previousWinnerRef.current && !showGameOverTransition) {
       trackEvent("game-over", { game: "word_quiz" })
       setShowGameOverTransition(true)
-      setTimeout(() => setShowGameOverTransition(false), 3000)
+      gameOverTransitionTimerRef.current = setTimeout(() => {
+        setShowGameOverTransition(false)
+        gameOverTransitionTimerRef.current = null
+      }, 3000)
     }
     previousWinnerRef.current = currentWinner
     previousRoundRef.current = state.current_round
@@ -179,10 +189,17 @@ function WordQuizGamePage() {
       const errMsg = getApiErrorMessage(queryError, "Game not found")
       if (errMsg.includes("not found") || errMsg.includes("removed")) {
         setCancelMessage(errMsg)
-        setTimeout(() => navigate({ to: "/" }), 3000)
+        redirectTimerRef.current = setTimeout(() => navigate({ to: "/" }), 3000)
       }
     }
   }, [queryError, navigate])
+
+  useEffect(() => {
+    return () => {
+      if (gameOverTransitionTimerRef.current) clearTimeout(gameOverTransitionTimerRef.current)
+      if (redirectTimerRef.current) clearTimeout(redirectTimerRef.current)
+    }
+  }, [])
 
   const handleSubmitAnswer = useCallback(
     async (answer: string) => {

@@ -100,6 +100,7 @@ export function useCodenamesGame(gameId: string) {
   const [clueNumber, setClueNumber] = useState(1)
   const [isSubmittingClue, setIsSubmittingClue] = useState(false)
   const [cancelMessage, setCancelMessage] = useState<string | null>(null)
+  const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [showGameOverTransition, setShowGameOverTransition] = useState(false)
   const gameOverTransitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const previousStatusRef = useRef<string | null>(null)
@@ -133,7 +134,6 @@ export function useCodenamesGame(gameId: string) {
     if (!serverState) return null
     if (serverState.room_id) {
       roomIdRef.current = serverState.room_id
-      if (!socketRoomId) setSocketRoomId(serverState.room_id)
     }
     return {
       board: serverState.board,
@@ -149,6 +149,12 @@ export function useCodenamesGame(gameId: string) {
       room_id: serverState.room_id,
     }
   }, [serverState])
+
+  useEffect(() => {
+    if (serverState?.room_id && !socketRoomId) {
+      setSocketRoomId(serverState.room_id)
+    }
+  }, [serverState?.room_id, socketRoomId])
 
   useEffect(() => {
     if (!serverState) return
@@ -169,10 +175,17 @@ export function useCodenamesGame(gameId: string) {
       const errMsg = getApiErrorMessage(queryError, "Game not found")
       if (errMsg.includes("not found") || errMsg.includes("cancelled") || errMsg.includes("removed")) {
         setCancelMessage(errMsg)
-        setTimeout(() => navigate({ to: "/" }), 3000)
+        redirectTimerRef.current = setTimeout(() => navigate({ to: "/" }), 3000)
       }
     }
   }, [queryError, navigate])
+
+  useEffect(() => {
+    return () => {
+      if (gameOverTransitionTimerRef.current) clearTimeout(gameOverTransitionTimerRef.current)
+      if (redirectTimerRef.current) clearTimeout(redirectTimerRef.current)
+    }
+  }, [])
 
   const invalidateBoard = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: queryKeys.game.codenames(gameId) })

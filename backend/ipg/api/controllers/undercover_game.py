@@ -1,4 +1,5 @@
 import random
+import unicodedata
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -28,6 +29,7 @@ from ipg.api.schemas.common import GameStartResponse, HintRecordResponse, TimerE
 from ipg.api.schemas.error import BaseError
 from ipg.api.schemas.undercover import (
     EliminatedPlayer,
+    MrWhiteGuessResponse,
     StartNextRoundResponse,
     SubmitDescriptionResponse,
     SubmitVoteResponse,
@@ -354,29 +356,25 @@ class UndercoverGameController(BaseGameController):
 
             if all_voted:
                 eliminated_player, number_of_votes = self._eliminate_player_based_on_votes(state)
-                winner = self._get_winning_team(state)
 
                 result.eliminated_player = eliminated_player["user_id"]
                 result.eliminated_player_role = eliminated_player["role"]
                 result.eliminated_player_username = eliminated_player["username"]
                 result.number_of_votes = number_of_votes
 
-                if winner:
-                    winner_label = "civilians" if winner == UndercoverRole.CIVILIAN.value else "undercovers"
-                    result.winner = winner_label
-                    game.game_status = GameStatus.FINISHED
-                    game.end_time = datetime.now()
-                    # Clear active game on room
-                    room = (await self.session.exec(select(Room).where(Room.id == game.room_id))).first()
-                    if room:
-                        room.active_game_id = None
-                        self.session.add(room)
-                    # Process stats and achievements
-                    newly_unlocked = await self._process_game_end_stats(state, winner_label)
-                    if newly_unlocked:
-                        state["newly_unlocked_achievements"] = newly_unlocked
-                else:
+                # If the eliminated player is Mr. White, give them a chance to guess
+                if eliminated_player["role"] == UndercoverRole.MR_WHITE.value:
+                    state["turns"][-1]["phase"] = "mr_white_guessing"
+                    state["mr_white_guesser"] = eliminated_player["user_id"]
+                    state["timer_started_at"] = datetime.now(UTC).isoformat()
                     result.winner = None
+                else:
+                    winner = self._get_winning_team(state)
+                    if winner:
+                        await self._finish_game(game, state, winner)
+                        result.winner = "civilians" if winner == UndercoverRole.CIVILIAN.value else "undercovers"
+                    else:
+                        result.winner = None
 
             game.live_state = state
             flag_modified(game, "live_state")
@@ -384,6 +382,81 @@ class UndercoverGameController(BaseGameController):
             await self.session.commit()
 
         return result
+
+    async def _finish_game(self, game, state: dict, winner: str) -> None:
+        """Finish the game: set status, clear active_game_id, process stats."""
+        winner_label = "civilians" if winner == UndercoverRole.CIVILIAN.value else "undercovers"
+        game.game_status = GameStatus.FINISHED
+        game.end_time = datetime.now(UTC)
+        room = (await self.session.exec(select(Room).where(Room.id == game.room_id))).first()
+        if room:
+            room.active_game_id = None
+            self.session.add(room)
+        newly_unlocked = await self._process_game_end_stats(state, winner_label)
+        if newly_unlocked:
+            state["newly_unlocked_achievements"] = newly_unlocked
+
+    @staticmethod
+    def _normalize_guess(word: str) -> str:
+        """Normalize a guess word for comparison: strip, lowercase, remove Arabic diacritics."""
+        text = word.strip().lower()
+        # Remove Arabic diacritics (tashkeel) — unicode category Mn (nonspacing marks)
+        return "".join(c for c in unicodedata.normalize("NFD", text) if unicodedata.category(c) != "Mn")
+
+    async def submit_mr_white_guess(self, game_id: UUID, user_id: UUID, guess_word: str) -> MrWhiteGuessResponse:
+        """Mr. White submits a guess for the civilian word after being eliminated."""
+        logger.info("Mr. White guess: game={} user={}", game_id, user_id)
+        async with get_game_lock(str(game_id), self.session):
+            game = await self._get_game(game_id)
+            state = game.live_state
+            current_turn = state["turns"][-1]
+
+            if current_turn["phase"] != "mr_white_guessing":
+                raise BaseError(
+                    message="Not in Mr. White guessing phase.",
+                    frontend_message="Not in Mr. White guessing phase.",
+                    status_code=400,
+                )
+
+            if state.get("mr_white_guesser") != str(user_id):
+                raise BaseError(
+                    message="Only the eliminated Mr. White can guess.",
+                    frontend_message="Only the eliminated Mr. White can guess.",
+                    status_code=403,
+                )
+
+            normalized_guess = self._normalize_guess(guess_word)
+            normalized_civilian_word = self._normalize_guess(state["civilian_word"])
+            correct = normalized_guess == normalized_civilian_word
+
+            state.pop("mr_white_guesser", None)
+
+            if correct:
+                # Undercovers win — Mr. White guessed correctly
+                winner = UndercoverRole.UNDERCOVER.value
+                await self._finish_game(game, state, winner)
+                current_turn["phase"] = "game_over"
+            else:
+                # Wrong guess — check normal win conditions
+                current_turn["phase"] = "voting"  # Reset phase for next round flow
+                winner_raw = self._get_winning_team(state)
+                if winner_raw:
+                    await self._finish_game(game, state, winner_raw)
+                    current_turn["phase"] = "game_over"
+
+            game.live_state = state
+            flag_modified(game, "live_state")
+            self.session.add(game)
+            await self.session.commit()
+
+        winner_label = None
+        if correct:
+            winner_label = "undercovers"
+        elif game.game_status == GameStatus.FINISHED:
+            winner_raw = self._get_winning_team(state)
+            winner_label = "civilians" if winner_raw == UndercoverRole.CIVILIAN.value else "undercovers"
+
+        return MrWhiteGuessResponse(game_id=str(game_id), correct=correct, winner=winner_label)
 
     @staticmethod
     def _auto_fill_missing_votes(state: dict) -> None:
@@ -417,7 +490,7 @@ class UndercoverGameController(BaseGameController):
         return elapsed >= allowed - TIMER_EXPIRATION_TOLERANCE_SECONDS
 
     async def handle_timer_expired(self, game_id: UUID, user_id: UUID) -> TimerExpiredResponse:
-        """Handle timer expiration — auto-skip description or auto-random-vote."""
+        """Handle timer expiration — auto-skip description, auto-random-vote, or mr_white guess timeout."""
         async with get_game_lock(str(game_id), self.session):
             game = await self._get_game(game_id)
             state = game.live_state
@@ -447,22 +520,26 @@ class UndercoverGameController(BaseGameController):
             elif current_turn["phase"] == "voting":
                 self._auto_fill_missing_votes(state)
                 # Now eliminate
-                self._eliminate_player_based_on_votes(state)
-                winner = self._get_winning_team(state)
+                eliminated_player, _ = self._eliminate_player_based_on_votes(state)
                 action = "auto_vote"
 
+                # If Mr. White was eliminated, enter guessing phase
+                if eliminated_player["role"] == UndercoverRole.MR_WHITE.value:
+                    current_turn["phase"] = "mr_white_guessing"
+                    state["mr_white_guesser"] = eliminated_player["user_id"]
+                    state["timer_started_at"] = datetime.now(UTC).isoformat()
+                else:
+                    winner = self._get_winning_team(state)
+                    if winner:
+                        await self._finish_game(game, state, winner)
+
+            elif current_turn["phase"] == "mr_white_guessing":
+                # Timer expired during Mr. White guessing — treat as wrong guess
+                state.pop("mr_white_guesser", None)
+                action = "mr_white_guess_timeout"
+                winner = self._get_winning_team(state)
                 if winner:
-                    winner_label = "civilians" if winner == UndercoverRole.CIVILIAN.value else "undercovers"
-                    game.game_status = GameStatus.FINISHED
-                    game.end_time = datetime.now()
-                    room = (await self.session.exec(select(Room).where(Room.id == game.room_id))).first()
-                    if room:
-                        room.active_game_id = None
-                        self.session.add(room)
-                    # Process stats and achievements
-                    newly_unlocked = await self._process_game_end_stats(state, winner_label)
-                    if newly_unlocked:
-                        state["newly_unlocked_achievements"] = newly_unlocked
+                    await self._finish_game(game, state, winner)
 
             game.live_state = state
             flag_modified(game, "live_state")
@@ -487,8 +564,13 @@ class UndercoverGameController(BaseGameController):
         if len(players_with_max_votes) > 1:
             # Mayor breaks tie
             mayor = next((p for p in state["players"] if p.get("is_mayor")), None)
-            mayor_vote = votes.get(mayor["user_id"]) if mayor else None
-            player_with_most_vote = mayor_vote if mayor_vote in players_with_max_votes else players_with_max_votes[0]
+            if mayor and mayor.get("is_alive"):
+                mayor_vote = votes.get(mayor["user_id"])
+                player_with_most_vote = (
+                    mayor_vote if mayor_vote in players_with_max_votes else random.choice(players_with_max_votes)
+                )
+            else:
+                player_with_most_vote = random.choice(players_with_max_votes)
         else:
             player_with_most_vote = players_with_max_votes[0]
 
@@ -593,6 +675,7 @@ class UndercoverGameController(BaseGameController):
             timer_config=state.get("timer_config"),
             timer_started_at=state.get("timer_started_at"),
             word_explanations=word_explanations,
+            mr_white_guesser=state.get("mr_white_guesser"),
             **turn_state,
         )
 

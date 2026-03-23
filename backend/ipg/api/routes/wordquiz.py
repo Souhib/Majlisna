@@ -6,7 +6,7 @@ from starlette.status import HTTP_201_CREATED
 
 from ipg.api.controllers.wordquiz_game import WordQuizGameController
 from ipg.api.models.table import User
-from ipg.api.schemas.common import GameStartResponse, HintRecordResponse, TimerExpiredResponse
+from ipg.api.schemas.common import AdvanceRoundResponse, GameStartResponse, HintRecordResponse, TimerExpiredResponse
 from ipg.api.schemas.wordquiz import SubmitAnswerRequest, SubmitAnswerResponse, WordQuizGameState
 from ipg.api.ws.handlers import auto_join_game_room
 from ipg.api.ws.notify import notify_game_changed, notify_room_changed
@@ -70,7 +70,7 @@ async def next_round(
     game_id: UUID,
     current_user: Annotated[User, Depends(get_current_user)],
     controller: Annotated[WordQuizGameController, Depends(get_wordquiz_game_controller)],
-) -> GameStartResponse:
+) -> AdvanceRoundResponse:
     result = await controller.advance_to_next_round(game_id, current_user.id)
     await notify_game_changed(str(game_id))
     return result

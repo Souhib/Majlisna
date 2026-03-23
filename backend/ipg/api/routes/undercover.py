@@ -12,6 +12,8 @@ from ipg.api.models.undercover import TermPair, TermPairCreate, Word, WordCreate
 from ipg.api.schemas.common import GameStartResponse, HintRecordResponse, TimerExpiredResponse
 from ipg.api.schemas.undercover import (
     DescriptionRequest,
+    MrWhiteGuessRequest,
+    MrWhiteGuessResponse,
     NextRoundRequest,
     StartNextRoundResponse,
     SubmitDescriptionResponse,
@@ -78,6 +80,18 @@ async def submit_vote(
     controller: Annotated[UndercoverGameController, Depends(get_undercover_game_controller)],
 ) -> SubmitVoteResponse:
     result = await controller.submit_vote(game_id, current_user.id, body.voted_for)
+    await notify_game_changed(str(game_id))
+    return result
+
+
+@router.post("/games/{game_id}/mr-white-guess")
+async def mr_white_guess(
+    game_id: UUID,
+    body: MrWhiteGuessRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+    controller: Annotated[UndercoverGameController, Depends(get_undercover_game_controller)],
+) -> MrWhiteGuessResponse:
+    result = await controller.submit_mr_white_guess(game_id, current_user.id, body.guess_word)
     await notify_game_changed(str(game_id))
     return result
 

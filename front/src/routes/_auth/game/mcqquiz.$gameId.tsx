@@ -97,6 +97,8 @@ function McqQuizGamePage() {
   })
 
   const [showGameOverTransition, setShowGameOverTransition] = useState(false)
+  const gameOverTransitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const previousWinnerRef = useRef<string | null>(null)
   const [cancelMessage, setCancelMessage] = useState<string | null>(null)
   const [selectedChoice, setSelectedChoice] = useState<number | null>(null)
@@ -126,10 +128,15 @@ function McqQuizGamePage() {
     if (!serverState) return null
     if (serverState.room_id) {
       roomIdRef.current = serverState.room_id
-      if (!socketRoomId) setSocketRoomId(serverState.room_id)
     }
     return serverState
   }, [serverState])
+
+  useEffect(() => {
+    if (serverState?.room_id && !socketRoomId) {
+      setSocketRoomId(serverState.room_id)
+    }
+  }, [serverState?.room_id, socketRoomId])
 
   // Reset selected choice on round change
   const previousRoundRef = useRef<number>(0)
@@ -148,7 +155,10 @@ function McqQuizGamePage() {
     if (currentWinner && !previousWinnerRef.current && !showGameOverTransition) {
       trackEvent("game-over", { game: "mcq_quiz" })
       setShowGameOverTransition(true)
-      setTimeout(() => setShowGameOverTransition(false), 3000)
+      gameOverTransitionTimerRef.current = setTimeout(() => {
+        setShowGameOverTransition(false)
+        gameOverTransitionTimerRef.current = null
+      }, 3000)
     }
     previousWinnerRef.current = currentWinner
   }, [state])
@@ -159,10 +169,17 @@ function McqQuizGamePage() {
       const errMsg = getApiErrorMessage(queryError, "Game not found")
       if (errMsg.includes("not found") || errMsg.includes("removed")) {
         setCancelMessage(errMsg)
-        setTimeout(() => navigate({ to: "/" }), 3000)
+        redirectTimerRef.current = setTimeout(() => navigate({ to: "/" }), 3000)
       }
     }
   }, [queryError, navigate])
+
+  useEffect(() => {
+    return () => {
+      if (gameOverTransitionTimerRef.current) clearTimeout(gameOverTransitionTimerRef.current)
+      if (redirectTimerRef.current) clearTimeout(redirectTimerRef.current)
+    }
+  }, [])
 
   const handleSelectChoice = useCallback(
     (index: number) => {

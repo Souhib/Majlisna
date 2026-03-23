@@ -180,7 +180,7 @@ class CodenamesGameController(BaseGameController):
                 "clue_word": clue_word,
                 "clue_number": clue_number,
                 "guesses_made": 0,
-                "max_guesses": clue_number + 1,
+                "max_guesses": CODENAMES_BOARD_SIZE if clue_number == 0 else clue_number + 1,
                 "card_votes": {},
             }
 
@@ -289,7 +289,7 @@ class CodenamesGameController(BaseGameController):
 
         if state["status"] == CodenamesGameStatus.FINISHED.value:
             game.game_status = GameStatus.FINISHED
-            game.end_time = datetime.now()
+            game.end_time = datetime.now(UTC)
             # Clear active game on room
             room = (await self.session.exec(select(Room).where(Room.id == game.room_id))).first()
             if room:
@@ -451,15 +451,6 @@ class CodenamesGameController(BaseGameController):
 
             if state["status"] != CodenamesGameStatus.IN_PROGRESS.value:
                 raise GameNotInProgressError(game_id=str(game_id))
-
-            # Only the host can trigger timer expiration
-            is_host = await self._check_is_host(game.room_id, user_id)
-            if not is_host:
-                raise BaseError(
-                    message="Only the host can trigger timer expiration.",
-                    frontend_message="Only the host can trigger timer expiration.",
-                    status_code=403,
-                )
 
             # Server-side validation: check the timer has actually expired
             timer_config = state.get("timer_config", {})

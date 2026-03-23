@@ -79,6 +79,7 @@ export function useUndercoverGame(gameId: string) {
   const previousWinnerRef = useRef<string | null>(null)
   const previousPhaseRef = useRef<string | null>(null)
   const previousRoundRef = useRef<number>(0)
+  const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [cancelMessage, setCancelMessage] = useState<string | null>(null)
   const [showEliminationOverlay, setShowEliminationOverlay] = useState(false)
   const [eliminationData, setEliminationData] = useState<EliminationData | null>(null)
@@ -153,7 +154,6 @@ export function useUndercoverGame(gameId: string) {
 
     if (serverState.room_id) {
       roomIdRef.current = serverState.room_id
-      if (!socketRoomId) setSocketRoomId(serverState.room_id)
     }
 
     const votedPlayerIds = deriveVotedPlayers(serverState.votes)
@@ -180,6 +180,12 @@ export function useUndercoverGame(gameId: string) {
       descriptions: serverState.descriptions || {},
     }
   }, [serverState, roleRevealed])
+
+  useEffect(() => {
+    if (serverState?.room_id && !socketRoomId) {
+      setSocketRoomId(serverState.room_id)
+    }
+  }, [serverState?.room_id, socketRoomId])
 
   useEffect(() => {
     if (!serverState) return
@@ -240,10 +246,18 @@ export function useUndercoverGame(gameId: string) {
       const errMsg = getApiErrorMessage(queryError, "Game not found")
       if (errMsg.includes("not found") || errMsg.includes("removed")) {
         setCancelMessage(errMsg)
-        setTimeout(() => navigate({ to: "/" }), 3000)
+        redirectTimerRef.current = setTimeout(() => navigate({ to: "/" }), 3000)
       }
     }
   }, [queryError, navigate])
+
+  useEffect(() => {
+    return () => {
+      if (votingTransitionTimerRef.current) clearTimeout(votingTransitionTimerRef.current)
+      if (gameOverTransitionTimerRef.current) clearTimeout(gameOverTransitionTimerRef.current)
+      if (redirectTimerRef.current) clearTimeout(redirectTimerRef.current)
+    }
+  }, [])
 
   const hasVoted = useMemo(() => {
     if (!user) return false

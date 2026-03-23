@@ -15,6 +15,15 @@ class GameStartResponse(BaseModel):
     room_id: str
 
 
+class AdvanceRoundResponse(BaseModel):
+    game_id: str
+    room_id: str
+    advanced: bool  # True if round actually advanced, False if just marked ready
+    ready_players: list[str] = []  # user_ids of players who are ready
+    ready_count: int = 0
+    total_players: int = 0
+
+
 class HintRecordResponse(BaseModel):
     game_id: str
     recorded: bool

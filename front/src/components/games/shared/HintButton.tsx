@@ -1,6 +1,6 @@
 import * as Popover from "@radix-ui/react-popover"
 import { Info } from "lucide-react"
-import { memo, useCallback, useRef } from "react"
+import { memo, useCallback, useEffect, useRef } from "react"
 import { cn } from "@/lib/utils"
 
 interface HintButtonProps {
@@ -11,6 +11,10 @@ interface HintButtonProps {
 
 export const HintButton = memo(function HintButton({ hint, onView, className }: HintButtonProps) {
   const hasNotified = useRef(false)
+
+  useEffect(() => {
+    hasNotified.current = false
+  }, [hint])
 
   const handleOpenChange = useCallback(
     (open: boolean) => {

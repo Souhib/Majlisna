@@ -22,15 +22,14 @@ from ipg.api.models.error import (
     AlreadyAnsweredError,
     EmptyAnswerError,
     NoQuizWordsAvailableError,
-    NotHostError,
     PlayerRemovedFromGameError,
     RoundNotPlayingError,
     SpectatorCannotAnswerError,
 )
 from ipg.api.models.game import GameCreate, GameStatus, GameType
 from ipg.api.models.relationship import RoomUserLink
-from ipg.api.models.table import Room
-from ipg.api.schemas.common import GameStartResponse, HintRecordResponse, TimerExpiredResponse
+from ipg.api.models.table import Game, Room
+from ipg.api.schemas.common import AdvanceRoundResponse, GameStartResponse, HintRecordResponse, TimerExpiredResponse
 from ipg.api.schemas.error import BaseError
 from ipg.api.schemas.wordquiz import (
     SubmitAnswerResponse,
@@ -204,11 +203,13 @@ class WordQuizGameController(BaseGameController):
         max_hints = DEFAULT_WORD_QUIZ_MAX_HINTS
         if state["round_phase"] != "playing" or not state.get("round_started_at"):
             return state.get("hints_revealed", 1)
+        hint_interval = state.get("hint_interval_seconds", DEFAULT_WORD_QUIZ_HINT_INTERVAL)
+        if hint_interval <= 0:
+            return max_hints
         started = datetime.fromisoformat(state["round_started_at"])
         if started.tzinfo is None:
             started = started.replace(tzinfo=UTC)
         elapsed = (datetime.now(UTC) - started).total_seconds()
-        hint_interval = state.get("hint_interval_seconds", DEFAULT_WORD_QUIZ_HINT_INTERVAL)
         return min(max_hints, int(elapsed / hint_interval) + 1)
 
     @staticmethod
@@ -305,6 +306,9 @@ class WordQuizGameController(BaseGameController):
                 turn_duration_seconds=state.get("turn_duration_seconds", DEFAULT_WORD_QUIZ_TURN_DURATION),
                 hint_interval_seconds=state.get("hint_interval_seconds", DEFAULT_WORD_QUIZ_HINT_INTERVAL),
             ),
+            ready_players=state.get("ready_players", []),
+            ready_count=len(state.get("ready_players", [])),
+            total_players=len(state["players"]),
         )
 
     async def submit_answer(self, game_id: UUID, user_id: UUID, answer: str) -> SubmitAnswerResponse:
@@ -346,7 +350,7 @@ class WordQuizGameController(BaseGameController):
             if started.tzinfo is None:
                 started = started.replace(tzinfo=UTC)
             elapsed = (datetime.now(UTC) - started).total_seconds()
-            current_hint = min(max_hints, int(elapsed / hint_interval) + 1)
+            current_hint = max_hints if hint_interval <= 0 else min(max_hints, int(elapsed / hint_interval) + 1)
 
             correct = self._check_answer(answer, state["current_word"])
             points = 0
@@ -386,10 +390,6 @@ class WordQuizGameController(BaseGameController):
             game = await self._get_game(game_id)
             state = game.live_state
 
-            is_host = await self._check_is_host(game.room_id, user_id)
-            if not is_host:
-                raise NotHostError(user_id=user_id)
-
             if state["round_phase"] != "playing":
                 return TimerExpiredResponse(game_id=str(game_id), action="not_playing")
 
@@ -406,15 +406,15 @@ class WordQuizGameController(BaseGameController):
 
         return TimerExpiredResponse(game_id=str(game_id), action="results")
 
-    async def advance_to_next_round(self, game_id: UUID, user_id: UUID) -> GameStartResponse:
-        """Advance to the next round or finalize the game."""
+    async def advance_to_next_round(self, game_id: UUID, user_id: UUID) -> AdvanceRoundResponse:
+        """Advance to the next round or finalize the game.
+
+        Host can always advance immediately. Non-host marks themselves as ready;
+        round advances when all players are ready.
+        """
         async with get_game_lock(str(game_id), self.session):
             game = await self._get_game(game_id)
             state = game.live_state
-
-            is_host = await self._check_is_host(game.room_id, user_id)
-            if not is_host:
-                raise NotHostError(user_id=user_id)
 
             if state["round_phase"] != "results":
                 raise BaseError(
@@ -423,58 +423,99 @@ class WordQuizGameController(BaseGameController):
                     status_code=400,
                 )
 
-            current_round = state["current_round"]
-            total_rounds = state["total_rounds"]
+            is_host = await self._check_is_host(game.room_id, user_id)
+            total_players = len(state["players"])
 
-            if current_round >= total_rounds:
-                # Game over
-                state["round_phase"] = "game_over"
-                state["game_over"] = True
-                # Determine winner
-                sorted_players = sorted(state["players"], key=lambda p: p["total_score"], reverse=True)
-                if sorted_players:
-                    state["winner"] = sorted_players[0]["username"]
+            # Non-host: mark as ready
+            if not is_host:
+                ready_players = state.setdefault("ready_players", [])
+                if str(user_id) not in ready_players:
+                    ready_players.append(str(user_id))
 
-                game.game_status = GameStatus.FINISHED
-                game.end_time = datetime.now()
-                room = (await self.session.exec(select(Room).where(Room.id == game.room_id))).first()
-                if room:
-                    room.active_game_id = None
-                    self.session.add(room)
+                # Check if all players are now ready
+                if len(ready_players) < total_players:
+                    game.live_state = state
+                    flag_modified(game, "live_state")
+                    self.session.add(game)
+                    await self.session.commit()
+                    return AdvanceRoundResponse(
+                        game_id=str(game_id),
+                        room_id=str(game.room_id),
+                        advanced=False,
+                        ready_players=ready_players,
+                        ready_count=len(ready_players),
+                        total_players=total_players,
+                    )
+                # All ready — fall through to advance
 
-                # Process stats
-                await self._process_game_end_stats(state)
-            else:
-                # Pick new word
-                used_ids = state.get("used_word_ids", [])
-                random_words = await self._wordquiz_controller.get_random_words(1, exclude_ids=used_ids)
-                if not random_words:
-                    random_words = await self._wordquiz_controller.get_random_words(1)
-                new_word = random_words[0]
+            await self._do_advance_round(game, state)
 
-                state["current_round"] = current_round + 1
-                state["current_word_id"] = str(new_word.id)
-                state["current_word"] = {
-                    "word_en": new_word.word_en,
-                    "word_ar": new_word.word_ar,
-                    "word_fr": new_word.word_fr,
-                    "accepted_answers": new_word.accepted_answers,
-                }
-                state["hints"] = new_word.hints
-                state["explanation"] = new_word.explanation
-                state["hints_revealed"] = 1
-                state["round_started_at"] = datetime.now(UTC).isoformat()
-                state["round_phase"] = "playing"
-                state["answers"] = {}
-                state["round_results"] = []
-                state["used_word_ids"].append(str(new_word.id))
+        return AdvanceRoundResponse(
+            game_id=str(game_id),
+            room_id=str(game.room_id),
+            advanced=True,
+            ready_players=[],
+            ready_count=total_players,
+            total_players=total_players,
+        )
 
-            game.live_state = state
-            flag_modified(game, "live_state")
-            self.session.add(game)
-            await self.session.commit()
+    async def _do_advance_round(self, game: Game, state: dict) -> None:
+        """Actually advance the round or end the game. Commits to DB."""
+        current_round = state["current_round"]
+        total_rounds = state["total_rounds"]
 
-        return GameStartResponse(game_id=str(game_id), room_id=str(game.room_id))
+        # Clear ready_players for the new round
+        state["ready_players"] = []
+
+        if current_round >= total_rounds:
+            # Game over
+            state["round_phase"] = "game_over"
+            state["game_over"] = True
+            # Determine winner
+            sorted_players = sorted(state["players"], key=lambda p: p["total_score"], reverse=True)
+            if sorted_players:
+                state["winner"] = sorted_players[0]["username"]
+
+            game.game_status = GameStatus.FINISHED
+            game.end_time = datetime.now(UTC)
+            room = (await self.session.exec(select(Room).where(Room.id == game.room_id))).first()
+            if room:
+                room.active_game_id = None
+                self.session.add(room)
+
+            # Process stats
+            await self._process_game_end_stats(state)
+        else:
+            # Pick new word
+            used_ids = state.get("used_word_ids", [])
+            random_words = await self._wordquiz_controller.get_random_words(1, exclude_ids=used_ids)
+            if not random_words:
+                random_words = await self._wordquiz_controller.get_random_words(1)
+            if not random_words:
+                raise NoQuizWordsAvailableError()
+            new_word = random_words[0]
+
+            state["current_round"] = current_round + 1
+            state["current_word_id"] = str(new_word.id)
+            state["current_word"] = {
+                "word_en": new_word.word_en,
+                "word_ar": new_word.word_ar,
+                "word_fr": new_word.word_fr,
+                "accepted_answers": new_word.accepted_answers,
+            }
+            state["hints"] = new_word.hints
+            state["explanation"] = new_word.explanation
+            state["hints_revealed"] = 1
+            state["round_started_at"] = datetime.now(UTC).isoformat()
+            state["round_phase"] = "playing"
+            state["answers"] = {}
+            state["round_results"] = []
+            state["used_word_ids"].append(str(new_word.id))
+
+        game.live_state = state
+        flag_modified(game, "live_state")
+        self.session.add(game)
+        await self.session.commit()
 
     async def record_hint_view(self, game_id: UUID, user_id: UUID) -> HintRecordResponse:
         """Record that a player viewed a hint (for achievements)."""

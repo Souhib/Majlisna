@@ -173,6 +173,8 @@ A task is NEVER complete until the ENTIRE test suite passes with:
 3. Re-run the full test suite **3 consecutive times** to confirm 0 failures and 0 flaky
 4. Only then is the task complete
 
+**⛔ NEVER commit or push without running ALL tests first.** You MUST run the full backend test suite (`uv run pytest`) and the full frontend test suite (`bun run test`) BEFORE every commit. Do NOT rely on CI to catch failures — CI is a safety net, not a substitute for local verification. If you commit broken code, you break the deploy (Dokploy auto-deploys from `main`). Running linters alone is NOT sufficient.
+
 **What you MUST NOT do:**
 - Do NOT report a task as done if any test is broken
 - Do NOT say "this is a pre-existing flaky test" as an excuse to skip it
