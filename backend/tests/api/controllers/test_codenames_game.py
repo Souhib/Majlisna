@@ -94,6 +94,8 @@ async def test_create_25_card_board(codenames_game_controller, setup_codenames_g
 
     game = await _get_game(session, result.game_id)
     assert len(game.live_state["board"]) == 25
+    assert game.game_status == GameStatus.IN_PROGRESS
+    assert game.live_state["status"] == CodenamesGameStatus.IN_PROGRESS.value
 
 
 @pytest.mark.asyncio
@@ -288,6 +290,7 @@ async def test_guess_assassin_ends_game(codenames_game_controller, setup_codenam
     game = await _get_game(session, result.game_id)
     assert game.live_state["status"] == CodenamesGameStatus.FINISHED.value
     assert game.game_status == GameStatus.FINISHED
+    assert game.end_time is not None
     other_team = CodenamesTeam.BLUE.value if current_team == CodenamesTeam.RED.value else CodenamesTeam.RED.value
     assert game.live_state["winner"] == other_team
 
@@ -309,6 +312,8 @@ async def test_guess_opponent_card_ends_turn(codenames_game_controller, setup_co
 
     game = await _get_game(session, result.game_id)
     assert game.live_state["current_team"] == other_team
+    assert game.live_state["board"][opponent_card_idx]["revealed"] is True
+    assert game.game_status == GameStatus.IN_PROGRESS
 
 
 @pytest.mark.asyncio
@@ -342,6 +347,7 @@ async def test_guess_last_team_card_wins(codenames_game_controller, setup_codena
     game = await _get_game(session, result.game_id)
     assert game.live_state["winner"] == current_team
     assert game.game_status == GameStatus.FINISHED
+    assert game.end_time is not None
 
 
 @pytest.mark.asyncio
@@ -497,6 +503,12 @@ async def test_end_turn_switches_team(codenames_game_controller, setup_codenames
     other_team = CodenamesTeam.BLUE.value if current_team == CodenamesTeam.RED.value else CodenamesTeam.RED.value
     assert end_result.current_team == other_team
 
+    # Verify DB state
+    game = await _get_game(session, result.game_id)
+    assert game.live_state["current_team"] == other_team
+    assert game.live_state["current_turn"]["clue_word"] is None
+    assert game.game_status == GameStatus.IN_PROGRESS
+
 
 @pytest.mark.asyncio
 async def test_end_turn_spymaster_rejected(codenames_game_controller, setup_codenames_game, session):
@@ -604,6 +616,9 @@ async def test_board_room_active_game_cleared_on_finish(codenames_game_controlle
     # Assert
     room = (await session.exec(select(Room).where(Room.id == setup["room"].id))).first()
     assert room.active_game_id is None
+    game = await _get_game(session, result.game_id)
+    assert game.game_status == GameStatus.FINISHED
+    assert game.end_time is not None
 
 
 @pytest.mark.asyncio
@@ -860,6 +875,7 @@ async def test_vote_assassin_ends_game(codenames_game_controller, setup_codename
     assert game.live_state["status"] == CodenamesGameStatus.FINISHED.value
     assert game.live_state["winner"] == other_team
     assert game.game_status == GameStatus.FINISHED
+    assert game.end_time is not None
 
 
 @pytest.mark.asyncio
@@ -896,6 +912,7 @@ async def test_vote_last_card_wins(codenames_game_controller, setup_codenames_ga
     game = await _get_game(session, result.game_id)
     assert game.live_state["winner"] == current_team
     assert game.game_status == GameStatus.FINISHED
+    assert game.end_time is not None
 
 
 @pytest.mark.asyncio
@@ -1367,6 +1384,7 @@ async def test_guess_opponent_last_card_opponent_wins(codenames_game_controller,
     assert game.live_state["status"] == CodenamesGameStatus.FINISHED.value
     assert game.live_state["winner"] == other_team
     assert game.game_status == GameStatus.FINISHED
+    assert game.end_time is not None
 
 
 # ─── Guess Neutral Switches Turn Test ───────────────────────

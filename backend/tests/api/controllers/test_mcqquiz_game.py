@@ -7,6 +7,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from ipg.api.controllers.mcqquiz_game import McqQuizGameController
+from ipg.api.models.game import GameStatus
 from ipg.api.models.relationship import RoomUserLink
 from ipg.api.models.table import Game
 from ipg.api.schemas.error import (
@@ -93,6 +94,12 @@ async def test_submit_correct_answer(mcqquiz_game_controller, setup_mcqquiz_game
     assert answer_result.correct is True
     assert 1 <= answer_result.points_earned <= 3
 
+    # Verify DB state
+    game = await _get_game(session, result.game_id)
+    player = next(p for p in game.live_state["players"] if p["user_id"] == str(users[0].id))
+    assert player["total_score"] == answer_result.points_earned
+    assert str(users[0].id) in game.live_state["answers"]
+
 
 @pytest.mark.asyncio
 async def test_submit_wrong_answer(mcqquiz_game_controller, setup_mcqquiz_game, session):
@@ -111,6 +118,12 @@ async def test_submit_wrong_answer(mcqquiz_game_controller, setup_mcqquiz_game, 
     # Assert
     assert answer_result.correct is False
     assert answer_result.points_earned == 0
+
+    # Verify DB state
+    game = await _get_game(session, result.game_id)
+    player = next(p for p in game.live_state["players"] if p["user_id"] == str(users[0].id))
+    assert player["total_score"] == 0
+    assert str(users[0].id) in game.live_state["answers"]
 
 
 @pytest.mark.asyncio
@@ -184,6 +197,10 @@ async def test_timer_expired_non_host_allowed(mcqquiz_game_controller, setup_mcq
 
     # Assert — should succeed
     assert timer_result.action == "results"
+
+    # Verify DB state
+    game = await _get_game(session, result.game_id)
+    assert game.live_state["round_phase"] == "results"
 
 
 # === Round Advancement ===
@@ -285,6 +302,8 @@ async def test_game_over_after_final_round(mcqquiz_game_controller, setup_mcqqui
     assert game.live_state["game_over"] is True
     assert game.live_state["round_phase"] == "game_over"
     assert game.live_state["winner"] is not None
+    assert game.game_status == GameStatus.FINISHED
+    assert game.end_time is not None
 
 
 # === Spectator ===
@@ -416,6 +435,10 @@ async def test_submit_choice_index_boundary_valid(mcqquiz_game_controller, setup
     # Assert — should not raise, answer is accepted (may or may not be correct)
     assert 0 <= answer_result.points_earned <= 3
 
+    # Verify DB state
+    game = await _get_game(session, result.game_id)
+    assert str(users[0].id) in game.live_state["answers"]
+
 
 @pytest.mark.asyncio
 async def test_submit_choice_index_4_invalid(mcqquiz_game_controller, setup_mcqquiz_game):
@@ -475,6 +498,8 @@ async def test_advance_final_round_ends_game(mcqquiz_game_controller, setup_mcqq
     assert game.live_state["game_over"] is True
     assert game.live_state["round_phase"] == "game_over"
     assert game.live_state["winner"] is not None
+    assert game.game_status == GameStatus.FINISHED
+    assert game.end_time is not None
 
 
 # === Get State — Explanation During Results ===

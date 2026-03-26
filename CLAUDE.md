@@ -136,7 +136,7 @@ docker compose -f docker-compose.dokploy.yml up -d
 | Security | Trivy (CI vulnerability scanning) |
 | API Codegen | Kubb (OpenAPI -> React Query hooks) |
 | i18n | i18next (English + Arabic + French) |
-| Testing | pytest (backend, 587+ tests), Vitest (frontend, 166 tests), Playwright (E2E, 145 tests) |
+| Testing | pytest (backend, 791+ tests), Vitest (frontend, 248 tests), Playwright (E2E, 145 tests) |
 | CI/CD | GitHub Actions |
 | Deployment | Docker + Dokploy (Oracle VPS) |
 | Domain | `majlisna.app` (Cloudflare DNS + proxy) |
@@ -309,7 +309,7 @@ When a test fails, the goal is NEVER to make the test pass — it's to have a wo
 - **REST + Socket.IO Notifications**: Mutations go through REST. Socket.IO pushes state updates to clients after mutations. PostgreSQL is the ONLY source of truth — Redis is ONLY for Socket.IO cross-worker pub/sub (ephemeral, no game data).
 - **Game State in PostgreSQL**: `Game.live_state` JSON column stores full game state
 - **Manual kick**: Host can kick players from room; no auto-disconnect
-- **Lobby disconnect tolerance**: Players in rooms without an active game are NEVER auto-removed (mobile users background tabs constantly). They are marked `connected=False` but their `RoomUserLink` is preserved. Only rooms with an active game enforce the 180s grace period for permanent removal. The host can manually kick idle players.
+- **Lobby disconnect tolerance**: Players in rooms without an active game have a 10-minute grace period (`LOBBY_GRACE_PERIOD_SECONDS = 600`) before auto-removal. They are marked `connected=False` but their `RoomUserLink` is preserved during the grace period. Rooms with an active game enforce a shorter 180s grace period. The host can manually kick idle players at any time.
 - **Kubb Codegen**: Auto-generated React Query hooks from FastAPI's OpenAPI spec
 - **Spectator Mode**: Users can join rooms as spectators (`RoomUserLink.is_spectator`). Spectators see sanitized game state (no roles/words until game over), read-only UI with no action buttons.
 - **Friend Invites**: Room hosts can invite friends via `POST /api/v1/rooms/{id}/invite`. Socket.IO personal rooms (`user:{user_id}`) deliver real-time invite notifications.
@@ -320,13 +320,14 @@ When a test fails, the goal is NEVER to make the test pass — it's to have a wo
 - **BaseGameController**: All 4 game controllers inherit from `ipg.api.controllers.base_game.BaseGameController`, which provides shared methods: `_get_game`, `_check_is_host`, `_update_heartbeat_throttled`, `_check_spectator`, `_resolve_multilingual`. Game-specific logic stays in each subclass.
 - **Room Share Links**: `GET /api/v1/rooms/{id}/share-link` returns `public_id` + `password`. Frontend constructs URL `majlisna.app/rooms/join?code=X&pin=Y`. The `/rooms/join` route auto-joins via `useEffect` with the join mutation.
 - **Shared Quiz Components**: `PlayerScoreboard` and `QuizGameOver` in `components/games/shared/` are used by both Word Quiz and MCQ Quiz. Game-specific i18n keys passed via props.
+- **Timer expiration**: Any player can trigger timer expiration (not just host). The server validates that the timer has actually elapsed before processing the action.
 - **Google OAuth**: "Continue with Google" on login/register pages. Frontend uses `@react-oauth/google` (`useGoogleLogin` hook → access token). Backend `POST /api/v1/auth/social/login` verifies via Google userinfo API, creates/links user, returns JWT pair. User model has `google_sub`, `auth_provider`, `profile_picture_url` fields. Social users get a sentinel password and cannot use password login. GCP project: same as Latabdhir (`<REDACTED_GCP_PROJECT_ID>`), OAuth client: "Majlisna Web". Env vars: `GOOGLE_CLIENT_ID_WEB` (backend), `VITE_GOOGLE_CLIENT_ID` (frontend).
 
 ## Lessons Learned
 
 ### Backend — Game Logic
 
-**`get_room_state()` includes ALL room members, not just connected ones.** The room state query must NOT filter by `connected == True`. Players who briefly disconnect (Socket.IO reconnection) must still appear in the player list. In the lobby (no active game), disconnected players are NEVER auto-removed — only the host can kick them. During active games, players are permanently removed after 180s grace period. Filtering by connection status causes the player count to flicker during brief disconnections, breaking game start flows.
+**`get_room_state()` includes ALL room members, not just connected ones.** The room state query must NOT filter by `connected == True`. Players who briefly disconnect (Socket.IO reconnection) must still appear in the player list. In the lobby (no active game), disconnected players have a 10-minute grace period (`LOBBY_GRACE_PERIOD_SECONDS = 600`) before auto-removal. During active games, players are permanently removed after 180s grace period. The host can manually kick idle players at any time. Filtering by connection status causes the player count to flicker during brief disconnections, breaking game start flows.
 
 **All game state mutations use `get_game_lock(game_id, session)`.** This uses PostgreSQL **transaction-level** advisory locks (`pg_try_advisory_xact_lock`) in production — they auto-release on commit/rollback, preventing lock leaks. Falls back to in-process `asyncio.Lock` for SQLite (tests). Vote submission, description submission, and disconnect handling ALL acquire the same lock. If you add a new game mutation endpoint, wrap it in `get_game_lock(str(game_id), self.session)`. **Never use session-level advisory locks** (`pg_advisory_lock`) — they leak when connections are recycled by the pool.
 
@@ -429,6 +430,7 @@ Cloudflare handles DNS (proxied/orange cloud) and SSL termination (Flexible mode
 - Roles: Civilian, Undercover, Mr. White
 - Each player gets an Islamic term; undercover gets a different one
 - Vote to eliminate the undercover agent
+- **Mr. White guessing**: When Mr. White is eliminated by vote, they get one chance to guess the civilian word. If correct, undercovers win. If wrong, game continues normally. Endpoint: `POST /api/v1/undercover/games/{game_id}/mr-white-guess`
 
 ### Codenames
 - 4-10 players, 2 teams (Red/Blue)
@@ -443,17 +445,19 @@ Cloudflare handles DNS (proxied/orange cloud) and SSL termination (Flexible mode
 - Multiple rounds, highest score wins
 - Answer matching: Arabic diacritics stripped, case-insensitive, whitespace-normalized
 - Trilingual hints (EN, FR, AR) with `QuizWord` model
+- **Ready system**: Non-host players can mark themselves as ready for next round. Round advances when all players are ready OR host overrides.
 
 ### MCQ Quiz
 - 1+ players (solo or group)
 - Multiple choice questions with 4 answer choices per question
 - Configurable timer (default 15s) and number of rounds (default 10)
 - One attempt per round — answer locks in on submit
-- Simple scoring: correct = 1pt, wrong = 0pt
+- **Time-based scoring**: 1 base point + up to 2 bonus points for fast answers (1-3 points total)
 - Shows explanation after each round
 - 200+ trilingual questions (EN, FR, AR) across 8 Islamic knowledge categories
 - Prophet names use Arabic transliteration (e.g., "Yunus" not "Jonah")
 - `McqQuestion` model with JSON columns for multilingual choices and explanations
+- **Ready system**: Non-host players can mark themselves as ready for next round. Round advances when all players are ready OR host overrides.
 
 ### Hint System (All Games)
 - Words have multilingual hints (JSON `hint` column: `{en, ar, fr}`)

@@ -10,6 +10,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from ipg.api.constants import DEFAULT_WORD_QUIZ_ROUNDS
 from ipg.api.controllers.wordquiz_game import WordQuizGameController
+from ipg.api.models.game import GameStatus
 from ipg.api.models.relationship import RoomUserLink
 from ipg.api.models.table import Game
 from ipg.api.schemas.error import (
@@ -94,9 +95,15 @@ async def test_submit_correct_answer(wordquiz_game_controller, setup_wordquiz_ga
     assert answer_result.correct is True
     assert answer_result.points_earned > 0
 
+    # Verify DB state
+    game = await _get_game(session, result.game_id)
+    player = next(p for p in game.live_state["players"] if p["user_id"] == str(users[0].id))
+    assert player["total_score"] == answer_result.points_earned
+    assert str(users[0].id) in game.live_state["answers"]
+
 
 @pytest.mark.asyncio
-async def test_submit_wrong_answer(wordquiz_game_controller, setup_wordquiz_game):
+async def test_submit_wrong_answer(wordquiz_game_controller, setup_wordquiz_game, session):
     """Wrong answer gives 0 points, player can retry."""
     # Prepare
     setup = await setup_wordquiz_game(num_players=2)
@@ -111,6 +118,11 @@ async def test_submit_wrong_answer(wordquiz_game_controller, setup_wordquiz_game
     # Assert
     assert answer_result.correct is False
     assert answer_result.points_earned == 0
+
+    # Verify DB state — wrong answer doesn't lock player out (can retry)
+    game = await _get_game(session, result.game_id)
+    player = next(p for p in game.live_state["players"] if p["user_id"] == str(users[0].id))
+    assert player["total_score"] == 0
 
 
 @pytest.mark.asyncio
@@ -153,6 +165,10 @@ async def test_submit_answer_case_insensitive(wordquiz_game_controller, setup_wo
     # Assert
     assert answer_result.correct is True
 
+    # Verify DB state
+    game = await _get_game(session, result.game_id)
+    assert str(users[0].id) in game.live_state["answers"]
+
 
 @pytest.mark.asyncio
 async def test_submit_answer_whitespace(wordquiz_game_controller, setup_wordquiz_game, session):
@@ -171,6 +187,10 @@ async def test_submit_answer_whitespace(wordquiz_game_controller, setup_wordquiz
 
     # Assert
     assert answer_result.correct is True
+
+    # Verify DB state
+    game = await _get_game(session, result.game_id)
+    assert str(users[0].id) in game.live_state["answers"]
 
 
 @pytest.mark.asyncio
@@ -243,6 +263,10 @@ async def test_timer_expired_non_host_allowed(wordquiz_game_controller, setup_wo
 
     # Assert — should succeed
     assert timer_result.action == "results"
+
+    # Verify DB state
+    game = await _get_game(session, result.game_id)
+    assert game.live_state["round_phase"] == "results"
 
 
 # === Round Advancement ===
@@ -357,6 +381,8 @@ async def test_game_over_after_all_rounds(wordquiz_game_controller, setup_wordqu
     assert game.live_state["game_over"] is True
     assert game.live_state["round_phase"] == "game_over"
     assert game.live_state["winner"] is not None
+    assert game.game_status == GameStatus.FINISHED
+    assert game.end_time is not None
 
 
 # === Points ===
@@ -378,6 +404,11 @@ async def test_points_at_hint_1(wordquiz_game_controller, setup_wordquiz_game, s
     # Assert
     assert answer_result.hint_number == 1
     assert answer_result.points_earned == 6  # max_hints(6) - hint(1) + 1
+
+    # Verify DB state
+    game = await _get_game(session, result.game_id)
+    player = next(p for p in game.live_state["players"] if p["user_id"] == str(users[0].id))
+    assert player["total_score"] == 6
 
 
 # === Normalization ===
@@ -762,6 +793,8 @@ async def test_advance_final_round_ends_game(wordquiz_game_controller, setup_wor
     assert game.live_state["game_over"] is True
     assert game.live_state["round_phase"] == "game_over"
     assert game.live_state["winner"] is not None
+    assert game.game_status == GameStatus.FINISHED
+    assert game.end_time is not None
 
 
 # === Calculate Hints Revealed ===

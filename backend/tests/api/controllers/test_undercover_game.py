@@ -123,6 +123,7 @@ async def test_create_3_players(undercover_game_controller, setup_undercover_gam
     turn = state["turns"][0]
     assert len(turn["description_order"]) == 3
     assert turn["phase"] == "describing"
+    assert game.game_status == GameStatus.IN_PROGRESS
 
 
 @pytest.mark.asyncio
@@ -383,6 +384,7 @@ async def test_vote_all_votes_eliminates_majority_target(undercover_game_control
     eliminated = next(p for p in state["players"] if p["user_id"] == str(target.id))
     assert eliminated["is_alive"] is False
     assert any(e["user_id"] == str(target.id) for e in state["eliminated_players"])
+    assert game.game_status in (GameStatus.IN_PROGRESS, GameStatus.FINISHED)
 
 
 @pytest.mark.asyncio
@@ -409,10 +411,10 @@ async def test_vote_civilians_win_when_all_undercovers_eliminated(
     # Assert
     game = await _get_game(session, result.game_id)
     state = game.live_state
-    # Check if undercover was eliminated and civilians won
     uc = next(p for p in state["players"] if p["role"] == UndercoverRole.UNDERCOVER.value)
     if not uc["is_alive"]:
         assert game.game_status == GameStatus.FINISHED
+        assert game.end_time is not None
 
 
 @pytest.mark.asyncio
@@ -546,6 +548,7 @@ async def test_next_round_appends_turn(undercover_game_controller, setup_underco
     assert len(game.live_state["turns"]) == 2
     assert game.live_state["turns"][1]["phase"] == "describing"
     assert round_result.turn_number == 2
+    assert game.game_status == GameStatus.IN_PROGRESS
 
 
 # ========== GetState ==========
@@ -666,6 +669,7 @@ async def test_edge_undercovers_win_when_outnumbering_civilians(
     )
     if alive_uc >= alive_civ:
         assert game.game_status == GameStatus.FINISHED
+        assert game.end_time is not None
 
 
 @pytest.mark.asyncio
@@ -710,6 +714,7 @@ async def test_edge_mayor_breaks_tie_vote(undercover_game_controller, setup_unde
     game = await _get_game(session, result.game_id)
     eliminated = game.live_state["eliminated_players"]
     assert len(eliminated) > 0
+    assert game.game_status in (GameStatus.IN_PROGRESS, GameStatus.FINISHED)
 
 
 @pytest.mark.asyncio

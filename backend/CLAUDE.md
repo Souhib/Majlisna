@@ -50,7 +50,7 @@ api/
 │   ├── mcqquiz.py         # McqQuestion CRUD (get_random_questions)
 │   ├── mcqquiz_game.py    # MCQ Quiz game logic (extends BaseGameController)
 │   ├── game_lock.py   # PostgreSQL advisory locks per game_id (asyncio.Lock fallback for SQLite)
-│   ├── disconnect.py  # Disconnect/kick handlers (used by kick_player)
+│   ├── disconnect.py  # Disconnect/kick handlers (used by kick_player, includes _handle_mcqquiz_disconnect)
 │   ├── stats.py       # User statistics
 │   └── achievement.py # Achievement tracking + seeding
 ├── models/            # SQLModel DB tables ONLY
@@ -67,13 +67,14 @@ api/
 │   ├── error.py       # Enhanced error classes
 │   ├── wordquiz.py    # Word Quiz schemas (QuizWordCreate, SubmitAnswer, WordQuizGameState)
 │   ├── mcqquiz.py     # MCQ Quiz schemas (McqSubmitAnswerRequest, McqQuizGameState)
+│   ├── common.py      # Shared schemas (AdvanceRoundResponse for quiz ready system)
 │   └── auth.py        # TokenPayload, LoginRequest, etc.
 ├── routes/            # FastAPI routers (thin, delegate to controllers, trigger notify)
 │   ├── auth.py        # /api/v1/auth/*
 │   ├── user.py        # /api/v1/users/*
 │   ├── room.py        # /api/v1/rooms/* (notify_room_changed after mutations, share-link)
 │   ├── game.py        # /api/v1/games/*
-│   ├── undercover.py  # /api/v1/undercover/* (notify_game_changed after mutations)
+│   ├── undercover.py  # /api/v1/undercover/* (notify_game_changed after mutations, mr-white-guess)
 │   ├── codenames.py   # /api/v1/codenames/* (notify_game_changed after mutations)
 │   ├── wordquiz.py    # /api/v1/wordquiz/* (start, state, answer, timer, next-round)
 │   ├── mcqquiz.py     # /api/v1/mcqquiz/* (start, state, answer, timer, next-round)
@@ -134,6 +135,17 @@ async def submit_vote(self, game_id: UUID, ...):
 ```
 
 **CRITICAL: Always call `flag_modified(game, "live_state")` before committing.** SQLAlchemy's change detection doesn't see in-place mutations to JSON columns. Without it, `session.commit()` silently does nothing.
+
+### Timezone-Aware Timestamps
+
+- `Game.start_time` and `Game.end_time` use `DateTime(timezone=True)` columns. Always use `datetime.now(UTC)` for these fields.
+- `RoomUserLink.last_seen_at` and `disconnected_at` remain naive (consistent within disconnect checker loop).
+
+### Mr. White Guessing
+
+- Route: `POST /api/v1/undercover/games/{game_id}/mr-white-guess`
+- Schemas: `MrWhiteGuessRequest` (contains the guessed word), `MrWhiteGuessResponse` (contains result)
+- When Mr. White is eliminated by vote, the game enters a guessing phase. If the guess matches the civilian word, undercovers win. Otherwise, the game continues normally.
 
 ### Kick Player
 
