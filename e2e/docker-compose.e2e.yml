@@ -105,6 +105,7 @@ services:
       target: production
       args:
         VITE_API_URL: http://localhost:5049
+        VITE_GOOGLE_CLIENT_ID: "000000000000-placeholder.apps.googleusercontent.com"
     container_name: majlisna-e2e-frontend
     ports:
       - "3049:80"

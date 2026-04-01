@@ -10,6 +10,10 @@ _engine: AsyncEngine | None = None
 
 async def create_app_engine(settings: Settings) -> AsyncEngine:
     """Create an async database engine with connection pooling."""
+    connect_args = {}
+    if "postgresql" in settings.database_url:
+        connect_args["prepared_statement_cache_size"] = 0  # Required for PgBouncer transaction pooling
+
     engine = create_async_engine(
         settings.database_url,
         poolclass=AsyncAdaptedQueuePool,
@@ -19,6 +23,7 @@ async def create_app_engine(settings: Settings) -> AsyncEngine:
         pool_recycle=3600,
         pool_pre_ping=True,
         echo=False,
+        connect_args=connect_args,
     )
     return engine
 

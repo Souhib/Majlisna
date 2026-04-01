@@ -95,7 +95,7 @@ test.describe("Disconnect During Active Game", () => {
   test("player closing browser during codenames game removes them", async ({
     browser,
   }) => {
-    test.setTimeout(180_000);
+    test.setTimeout(300_000);
 
     const accounts = await generateTestAccounts(4);
     const setup = await setupRoomWithPlayers(browser, accounts, "codenames");
@@ -130,12 +130,12 @@ test.describe("Disconnect During Active Game", () => {
     // Remaining players should see the disconnect reflected in the UI:
     // either the player disappears from the team list, or "Game Over" appears
     // (if removing the player empties a team).
-    // Wait for UI to reflect the disconnect (stale 20s + grace 60s + checker 5s ≈ 85s)
+    // Wait for UI to reflect the disconnect (stale 20s + grace 180s + checker 5s ≈ 210s)
     await expect(async () => {
       const nameGone = (await remainingPage.getByText(leavingUsername).count()) === 0;
       const gameOver = (await remainingPage.locator('h2:has-text("Game Over")').count()) > 0;
       expect(nameGone || gameOver).toBe(true);
-    }).toPass({ timeout: 170_000 });
+    }).toPass({ timeout: 250_000 });
   });
 
   test("kick during active undercover game removes player from game", async ({
