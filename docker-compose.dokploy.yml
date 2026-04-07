@@ -94,6 +94,7 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       SENTRY_DSN: ${SENTRY_DSN:-}
       GOOGLE_CLIENT_ID_WEB: ${GOOGLE_CLIENT_ID_WEB:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
     depends_on:
       pgbouncer:
         condition: service_healthy
