@@ -79,9 +79,11 @@ async def register(
     *,
     user: UserCreate,
     auth_controller: Annotated[AuthController, Depends(get_auth_controller)],
+    email_service: Annotated[EmailService, Depends(get_email_service)],
 ) -> UserView:
     """Register a new user."""
     new_user = await auth_controller.register(user)
+    await auth_controller.send_verification_email(new_user, email_service)
     return UserView.model_validate(new_user)
 
 
