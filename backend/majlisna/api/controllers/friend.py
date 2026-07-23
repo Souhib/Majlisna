@@ -140,16 +140,21 @@ class FriendController:
             )
         ).all()
 
+        # Batch-fetch friend usernames in a single query to avoid N+1.
+        friend_uids = [f.addressee_id if f.requester_id == user_id else f.requester_id for f in results]
+        users = (await self.session.exec(select(User).where(User.id.in_(friend_uids)))).all() if friend_uids else []
+        username_by_id = {u.id: u.username for u in users}
+
         friends: list[FriendEntry] = []
         for f in results:
             friend_uid = f.addressee_id if f.requester_id == user_id else f.requester_id
-            friend_user = (await self.session.exec(select(User).where(User.id == friend_uid))).first()
-            if friend_user:
+            username = username_by_id.get(friend_uid)
+            if username is not None:
                 friends.append(
                     FriendEntry(
                         friendship_id=f.id,
                         user_id=friend_uid,
-                        username=friend_user.username,
+                        username=username,
                         status=f.status.value,
                     )
                 )
@@ -166,15 +171,20 @@ class FriendController:
             )
         ).all()
 
+        # Batch-fetch requester usernames in a single query to avoid N+1.
+        requester_ids = [f.requester_id for f in results]
+        users = (await self.session.exec(select(User).where(User.id.in_(requester_ids)))).all() if requester_ids else []
+        username_by_id = {u.id: u.username for u in users}
+
         entries: list[FriendEntry] = []
         for f in results:
-            requester = (await self.session.exec(select(User).where(User.id == f.requester_id))).first()
-            if requester:
+            username = username_by_id.get(f.requester_id)
+            if username is not None:
                 entries.append(
                     FriendEntry(
                         friendship_id=f.id,
                         user_id=f.requester_id,
-                        username=requester.username,
+                        username=username,
                         status=f.status.value,
                     )
                 )

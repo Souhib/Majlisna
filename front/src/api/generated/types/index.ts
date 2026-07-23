@@ -35,14 +35,6 @@ export type { CodenamesWordCreate } from "./CodenamesWordCreate.ts";
 export type { CodenamesWordPack } from "./CodenamesWordPack.ts";
 export type { CodenamesWordPackCreate } from "./CodenamesWordPackCreate.ts";
 export type {
-  CreateGameApiV1GamesPost201,
-  CreateGameApiV1GamesPost404,
-  CreateGameApiV1GamesPost422,
-  CreateGameApiV1GamesPostMutationRequest,
-  CreateGameApiV1GamesPostMutationResponse,
-  CreateGameApiV1GamesPostMutation,
-} from "./CreateGameApiV1GamesPost.ts";
-export type {
   CreateRoomApiV1RoomsPost201,
   CreateRoomApiV1RoomsPost404,
   CreateRoomApiV1RoomsPost422,
@@ -109,14 +101,6 @@ export type {
   DeleteTermPairApiV1UndercoverTermpairTermPairIdDeleteMutation,
 } from "./DeleteTermPairApiV1UndercoverTermpairTermPairIdDelete.ts";
 export type {
-  DeleteUndercoverGameApiV1GamesGameIdDeletePathParams,
-  DeleteUndercoverGameApiV1GamesGameIdDelete204,
-  DeleteUndercoverGameApiV1GamesGameIdDelete404,
-  DeleteUndercoverGameApiV1GamesGameIdDelete422,
-  DeleteUndercoverGameApiV1GamesGameIdDeleteMutationResponse,
-  DeleteUndercoverGameApiV1GamesGameIdDeleteMutation,
-} from "./DeleteUndercoverGameApiV1GamesGameIdDelete.ts";
-export type {
   DeleteUserApiV1UsersUserIdDeletePathParams,
   DeleteUserApiV1UsersUserIdDelete204,
   DeleteUserApiV1UsersUserIdDelete404,
@@ -162,14 +146,6 @@ export type {
 } from "./EndTurnApiV1CodenamesGamesGameIdEndTurnPost.ts";
 export type { EndTurnResponse } from "./EndTurnResponse.ts";
 export type {
-  EndUndercoverGameApiV1GamesGameIdEndPatchPathParams,
-  EndUndercoverGameApiV1GamesGameIdEndPatch200,
-  EndUndercoverGameApiV1GamesGameIdEndPatch404,
-  EndUndercoverGameApiV1GamesGameIdEndPatch422,
-  EndUndercoverGameApiV1GamesGameIdEndPatchMutationResponse,
-  EndUndercoverGameApiV1GamesGameIdEndPatchMutation,
-} from "./EndUndercoverGameApiV1GamesGameIdEndPatch.ts";
-export type {
   ForgotPasswordApiV1AuthForgotPasswordPost200,
   ForgotPasswordApiV1AuthForgotPasswordPost422,
   ForgotPasswordApiV1AuthForgotPasswordPostMutationRequest,
@@ -186,7 +162,6 @@ export type {
 } from "./FriendshipStatusEnum.ts";
 export type { FriendshipStatusResponse } from "./FriendshipStatusResponse.ts";
 export type { Game } from "./Game.ts";
-export type { GameCreate } from "./GameCreate.ts";
 export type { GameDurationStats } from "./GameDurationStats.ts";
 export type { GameHistoryEntry } from "./GameHistoryEntry.ts";
 export type { GameStartResponse } from "./GameStartResponse.ts";
@@ -194,7 +169,6 @@ export type { GameStatusEnumKey, GameStatus } from "./GameStatus.ts";
 export type { GameSummary } from "./GameSummary.ts";
 export type { GameSummaryPlayer } from "./GameSummaryPlayer.ts";
 export type { GameTypeEnumKey, GameType } from "./GameType.ts";
-export type { GameUpdate } from "./GameUpdate.ts";
 export type {
   GetActiveChallengesApiV1ChallengesActiveGet200,
   GetActiveChallengesApiV1ChallengesActiveGet404,
@@ -219,12 +193,6 @@ export type {
   GetAllTermPairsApiV1UndercoverTermpairGetQueryResponse,
   GetAllTermPairsApiV1UndercoverTermpairGetQuery,
 } from "./GetAllTermPairsApiV1UndercoverTermpairGet.ts";
-export type {
-  GetAllUndercoverGamesApiV1GamesGet200,
-  GetAllUndercoverGamesApiV1GamesGet404,
-  GetAllUndercoverGamesApiV1GamesGetQueryResponse,
-  GetAllUndercoverGamesApiV1GamesGetQuery,
-} from "./GetAllUndercoverGamesApiV1GamesGet.ts";
 export type {
   GetAllUsersApiV1UsersGet200,
   GetAllUsersApiV1UsersGet404,
@@ -385,14 +353,6 @@ export type {
   GetTermPairByIdApiV1UndercoverTermpairTermPairIdGetQueryResponse,
   GetTermPairByIdApiV1UndercoverTermpairTermPairIdGetQuery,
 } from "./GetTermPairByIdApiV1UndercoverTermpairTermPairIdGet.ts";
-export type {
-  GetUndercoverGameApiV1GamesGameIdGetPathParams,
-  GetUndercoverGameApiV1GamesGameIdGet200,
-  GetUndercoverGameApiV1GamesGameIdGet404,
-  GetUndercoverGameApiV1GamesGameIdGet422,
-  GetUndercoverGameApiV1GamesGameIdGetQueryResponse,
-  GetUndercoverGameApiV1GamesGameIdGetQuery,
-} from "./GetUndercoverGameApiV1GamesGameIdGet.ts";
 export type {
   GetUndercoverStateApiV1UndercoverGamesGameIdStateGetPathParams,
   GetUndercoverStateApiV1UndercoverGamesGameIdStateGetQueryParams,
@@ -872,15 +832,6 @@ export type {
   UpdateRoomSettingsApiV1RoomsRoomIdSettingsPatchMutation,
 } from "./UpdateRoomSettingsApiV1RoomsRoomIdSettingsPatch.ts";
 export type { UpdateRoomSettingsResponse } from "./UpdateRoomSettingsResponse.ts";
-export type {
-  UpdateUndercoverGameApiV1GamesGameIdPatchPathParams,
-  UpdateUndercoverGameApiV1GamesGameIdPatch200,
-  UpdateUndercoverGameApiV1GamesGameIdPatch404,
-  UpdateUndercoverGameApiV1GamesGameIdPatch422,
-  UpdateUndercoverGameApiV1GamesGameIdPatchMutationRequest,
-  UpdateUndercoverGameApiV1GamesGameIdPatchMutationResponse,
-  UpdateUndercoverGameApiV1GamesGameIdPatchMutation,
-} from "./UpdateUndercoverGameApiV1GamesGameIdPatch.ts";
 export type {
   UpdateUserApiV1UsersUserIdPatchPathParams,
   UpdateUserApiV1UsersUserIdPatch200,

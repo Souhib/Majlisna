@@ -22,7 +22,7 @@ from majlisna.api.schemas.room import (
     ShareLinkResponse,
     UpdateRoomSettingsResponse,
 )
-from majlisna.api.ws.notify import notify_room_changed, notify_user_kicked
+from majlisna.api.ws.notify import notify_room_changed, notify_room_invite, notify_user_kicked
 from majlisna.dependencies import get_current_user, get_room_controller
 
 router = APIRouter(
@@ -86,8 +86,7 @@ async def get_share_link(
     room_controller: RoomController = Depends(get_room_controller),
 ) -> ShareLinkResponse:
     """Get room share link data (public_id + password for URL construction)."""
-    data = await room_controller.get_share_link(room_id, current_user.id)
-    return ShareLinkResponse(**data)
+    return await room_controller.get_share_link(room_id, current_user.id)
 
 
 @router.patch("/join", response_model=RoomView)
@@ -170,7 +169,9 @@ async def invite_friend_to_room(
     room_controller: RoomController = Depends(get_room_controller),
 ) -> RoomInviteResponse:
     """Invite a friend to join the room."""
-    return await room_controller.invite_friend_to_room(room_id, current_user.id, body.friend_user_id)
+    result = await room_controller.invite_friend_to_room(room_id, current_user.id, body.friend_user_id)
+    await notify_room_invite(str(body.friend_user_id), str(room_id), current_user.username)
+    return result
 
 
 @router.delete("/{room_id}", status_code=HTTP_204_NO_CONTENT)

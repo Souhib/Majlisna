@@ -47,11 +47,11 @@ async def send_message(
 async def get_messages(
     *,
     room_id: UUID,
-    current_user: Annotated[User, Depends(get_current_user)],  # noqa: ARG001
+    current_user: Annotated[User, Depends(get_current_user)],
     chat_controller: Annotated[ChatController, Depends(get_chat_controller)],
     after_id: UUID | None = Query(default=None, description="Get messages after this ID"),
     limit: int = Query(default=50, ge=1, le=100),
 ) -> Sequence[ChatMessageView]:
     """Get chat messages for a room, supports incremental polling via after_id."""
-    messages = await chat_controller.get_messages(room_id, after_id=after_id, limit=limit)
+    messages = await chat_controller.get_messages(room_id, current_user.id, after_id=after_id, limit=limit)
     return [_to_view(m) for m in messages]

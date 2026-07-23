@@ -17,8 +17,8 @@ async def test_get_share_link_returns_data_for_member(room_controller: RoomContr
     result = await room_controller.get_share_link(room.id, owner.id)
 
     # Assert
-    assert result["public_id"] == room.public_id
-    assert result["password"] == room.password
+    assert result.public_id == room.public_id
+    assert result.password == room.password
 
 
 async def test_get_share_link_raises_for_non_member(room_controller: RoomController, create_user, create_room):

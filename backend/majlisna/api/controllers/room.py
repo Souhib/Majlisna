@@ -34,6 +34,7 @@ from majlisna.api.schemas.room import (
     RoomPlayerState,
     RoomSettings,
     RoomState,
+    ShareLinkResponse,
     UpdateRoomSettingsResponse,
 )
 
@@ -445,16 +446,21 @@ class RoomController:
             is_connected=link.connected,
         )
 
-    async def invite_friend_to_room(self, room_id: UUID, host_id: UUID, friend_user_id: UUID) -> RoomInviteResponse:
-        """Invite a friend to join the room. Validates friendship and room membership."""
-        room = await self.get_room_by_id(room_id)
+    async def invite_friend_to_room(self, room_id: UUID, inviter_id: UUID, friend_user_id: UUID) -> RoomInviteResponse:
+        """Invite a friend to join the room. Validates friendship and room membership.
+
+        The Socket.IO `room_invite` event is emitted by the route via
+        ``notify_room_invite`` after this validation passes — controllers do not
+        touch the Socket.IO server directly.
+        """
+        await self.get_room_by_id(room_id)
 
         # Verify the inviter is in the room
         inviter_link = (
             await self.session.exec(
                 select(RoomUserLink).where(
                     RoomUserLink.room_id == room_id,
-                    RoomUserLink.user_id == host_id,
+                    RoomUserLink.user_id == inviter_id,
                     RoomUserLink.connected == True,  # noqa: E712
                 )
             )
@@ -468,7 +474,7 @@ class RoomController:
 
         # Verify friendship exists
         friend_controller = FriendController(self.session)
-        friends = await friend_controller.get_friends(host_id)
+        friends = await friend_controller.get_friends(inviter_id)
         is_friend = any(str(f.user_id) == str(friend_user_id) for f in friends)
         if not is_friend:
             raise BaseError(
@@ -494,28 +500,13 @@ class RoomController:
                 status_code=400,
             )
 
-        # Emit Socket.IO invite event to the friend's personal room
-        from majlisna.api.ws.server import sio  # noqa: PLC0415
-
-        inviter = (await self.session.exec(select(User).where(User.id == host_id))).first()
-        await sio.emit(
-            "room_invite",
-            {
-                "room_id": str(room.id),
-                "public_id": room.public_id,
-                "password": room.password,
-                "invited_by": inviter.username if inviter else "Someone",
-            },
-            room=f"user:{friend_user_id}",
-        )
-
         return RoomInviteResponse(
             room_id=str(room_id),
             invited_user_id=str(friend_user_id),
             message="Invite sent",
         )
 
-    async def get_share_link(self, room_id: UUID, user_id: UUID) -> dict:
+    async def get_share_link(self, room_id: UUID, user_id: UUID) -> ShareLinkResponse:
         """Generate a share link for the room. Only room members can get the link."""
         room = await self.get_room_by_id(room_id)
         # Verify user is in the room
@@ -530,10 +521,7 @@ class RoomController:
         ).first()
         if not link:
             raise UserNotInRoomError(user_id=user_id, room_id=room_id)
-        return {
-            "public_id": room.public_id,
-            "password": room.password,
-        }
+        return ShareLinkResponse(public_id=room.public_id, password=room.password)
 
     async def create_room_activity(self, room_id: UUID, activity_create: EventCreate) -> Activity:
         """Create an activity."""

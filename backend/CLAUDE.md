@@ -73,7 +73,7 @@ api/
 │   ├── auth.py        # /api/v1/auth/*
 │   ├── user.py        # /api/v1/users/*
 │   ├── room.py        # /api/v1/rooms/* (notify_room_changed after mutations, share-link)
-│   ├── game.py        # /api/v1/games/*
+│   ├── game.py        # /api/v1/games/* — READ-ONLY + authenticated (history + summary only; no raw live_state, no CRUD)
 │   ├── undercover.py  # /api/v1/undercover/* (notify_game_changed after mutations, mr-white-guess)
 │   ├── codenames.py   # /api/v1/codenames/* (notify_game_changed after mutations)
 │   ├── wordquiz.py    # /api/v1/wordquiz/* (start, state, answer, timer, next-round)
@@ -101,6 +101,7 @@ Socket.IO is a **notification layer**, not a game engine. The flow is:
 
 **Key rules:**
 - **Route handlers MUST `await` notify functions** — never fire-and-forget. This eliminates the race condition where the client receives the REST response before the Socket.IO event is emitted. `fire_notify_*` variants exist ONLY for background tasks (disconnect checker loop, Socket.IO event handlers).
+- **Controllers MUST NOT import or call `sio` directly.** `ws.server` imports `ws.handlers` → controllers, so a controller emitting Socket.IO events needs an in-function `import sio` to avoid a circular import. Instead, add a `notify_*` coroutine in `ws/notify.py` and `await` it from the route after the controller validates (e.g. `notify_room_invite` for room invites). Keeps the emit in the notify layer and controllers pure.
 - **Game start routes call `await auto_join_game_room(game_id, room_id)`** before emitting notifications. This auto-joins all connected room members into `game:{game_id}` Socket.IO room, eliminating the race where `game_updated` fires before clients call `join_game`.
 - **`sio.enter_room()` MUST be awaited.** It is an async coroutine in python-socketio. Calling without `await` creates a dangling coroutine that silently never executes — the SID never joins the room and misses all broadcasts. This applies to all `sio.enter_room()` calls in handlers.
 - PostgreSQL is the ONLY source of truth. Redis is ONLY for Socket.IO adapter cross-worker pub/sub.

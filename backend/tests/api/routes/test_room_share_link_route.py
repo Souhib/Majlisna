@@ -8,6 +8,7 @@ from starlette.testclient import TestClient
 
 from majlisna.api.controllers.room import RoomController
 from majlisna.api.models.table import User
+from majlisna.api.schemas.room import ShareLinkResponse
 from majlisna.dependencies import get_current_user, get_room_controller
 
 BASE_URL = "/api/v1/rooms"
@@ -27,7 +28,7 @@ def test_share_link_endpoint_returns_200(test_app: FastAPI, client: TestClient) 
         password="securepassword",
     )
 
-    mock_controller.get_share_link = AsyncMock(return_value={"public_id": "ABC12", "password": "1234"})
+    mock_controller.get_share_link = AsyncMock(return_value=ShareLinkResponse(public_id="ABC12", password="1234"))
 
     test_app.dependency_overrides[get_current_user] = lambda: mock_user
     test_app.dependency_overrides[get_room_controller] = lambda: mock_controller

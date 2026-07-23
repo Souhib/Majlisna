@@ -146,7 +146,7 @@ def test_get_messages_success(test_app: FastAPI, client: TestClient) -> None:
         assert len(data) == 1
         assert data[0]["id"] == str(msg_id)
         assert data[0]["message"] == "Hello"
-        mock_controller.get_messages.assert_awaited_once_with(room_id, after_id=None, limit=50)
+        mock_controller.get_messages.assert_awaited_once_with(room_id, user.id, after_id=None, limit=50)
     finally:
         test_app.dependency_overrides.clear()
 
@@ -169,7 +169,7 @@ def test_get_messages_with_after_id(test_app: FastAPI, client: TestClient) -> No
         # Assert
         assert response.status_code == 200
         assert response.json() == []
-        mock_controller.get_messages.assert_awaited_once_with(room_id, after_id=after_id, limit=10)
+        mock_controller.get_messages.assert_awaited_once_with(room_id, user.id, after_id=after_id, limit=10)
     finally:
         test_app.dependency_overrides.clear()
 

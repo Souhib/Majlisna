@@ -1,4 +1,7 @@
+import pytest
+
 from majlisna.api.controllers.chat import ChatController
+from majlisna.api.schemas.error import UserNotInRoomError
 
 
 async def test_send_message(chat_controller: ChatController, create_user, create_room):
@@ -31,7 +34,7 @@ async def test_get_messages(chat_controller: ChatController, create_user, create
     await chat_controller.send_message(room_id=room.id, user_id=user.id, username=user.username, message="Third")
 
     # Act
-    messages = await chat_controller.get_messages(room_id=room.id)
+    messages = await chat_controller.get_messages(room_id=room.id, user_id=user.id)
 
     # Assert
     assert len(messages) == 3
@@ -54,7 +57,7 @@ async def test_get_messages_incremental(chat_controller: ChatController, create_
     )
 
     # Act
-    messages = await chat_controller.get_messages(room_id=room.id, after_id=msg1.id)
+    messages = await chat_controller.get_messages(room_id=room.id, user_id=user.id, after_id=msg1.id)
 
     # Assert
     assert len(messages) == 2
@@ -86,7 +89,36 @@ async def test_get_messages_empty_room(chat_controller: ChatController, create_u
     room = await create_room(owner=user)
 
     # Act
-    messages = await chat_controller.get_messages(room_id=room.id)
+    messages = await chat_controller.get_messages(room_id=room.id, user_id=user.id)
 
     # Assert
     assert len(messages) == 0
+
+
+async def test_send_message_rejects_non_member(chat_controller: ChatController, create_user, create_room):
+    """A user who is not a member of the room cannot post a chat message."""
+    # Arrange
+    owner = await create_user(username="roomowner", email="roomowner@test.com")
+    outsider = await create_user(username="outsider", email="outsider@test.com")
+    room = await create_room(owner=owner)
+
+    # Act / Assert
+    with pytest.raises(UserNotInRoomError):
+        await chat_controller.send_message(
+            room_id=room.id, user_id=outsider.id, username=outsider.username, message="let me in"
+        )
+
+
+async def test_get_messages_rejects_non_member(chat_controller: ChatController, create_user, create_room):
+    """A user who is not a member of the room cannot read its chat messages."""
+    # Arrange
+    owner = await create_user(username="owner2", email="owner2@test.com")
+    outsider = await create_user(username="outsider2", email="outsider2@test.com")
+    room = await create_room(owner=owner)
+    await chat_controller.send_message(
+        room_id=room.id, user_id=owner.id, username=owner.username, message="members only"
+    )
+
+    # Act / Assert
+    with pytest.raises(UserNotInRoomError):
+        await chat_controller.get_messages(room_id=room.id, user_id=outsider.id)

@@ -5,7 +5,7 @@ from loguru import logger
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from majlisna.api.models.table import Game
+from majlisna.api.models.table import Game, Room
 from majlisna.api.ws.server import sio
 from majlisna.api.ws.state import fetch_room_state
 from majlisna.database import get_engine
@@ -54,6 +54,33 @@ async def notify_user_kicked(user_id: str, room_id: str) -> None:
         await sio.emit("you_were_kicked", {"room_id": room_id}, to=f"user:{user_id}")
     except Exception:
         logger.opt(exception=True).error("Failed to notify kicked user={} room={}", user_id, room_id)
+
+
+async def notify_room_invite(friend_user_id: str, room_id: str, invited_by: str) -> None:
+    """Send a 'room_invite' event to the invited friend's personal Socket.IO room.
+
+    Looks up the room's public_id/password in a fresh session so the invite carries
+    everything the client needs to join. Awaited in the route handler after the
+    invite has been validated by the controller. Best-effort: logs on failure.
+    """
+    try:
+        engine = await get_engine()
+        async with AsyncSession(engine, expire_on_commit=False) as session:
+            room = (await session.exec(select(Room).where(Room.id == UUID(room_id)))).first()
+            if not room:
+                return
+            await sio.emit(
+                "room_invite",
+                {
+                    "room_id": str(room.id),
+                    "public_id": room.public_id,
+                    "password": room.password,
+                    "invited_by": invited_by,
+                },
+                to=f"user:{friend_user_id}",
+            )
+    except Exception:
+        logger.opt(exception=True).error("notify_room_invite FAILED for user={} room={}", friend_user_id, room_id)
 
 
 async def notify_room_changed(room_id: str) -> None:
