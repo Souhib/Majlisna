@@ -20,4 +20,6 @@ export type RoomSettingsRequest = {
   word_quiz_hint_interval?: number | null;
   mcq_quiz_turn_duration?: number | null;
   mcq_quiz_rounds?: number | null;
+  word_quiz_difficulty?: string | null;
+  mcq_quiz_difficulty?: string | null;
 };

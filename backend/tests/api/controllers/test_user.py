@@ -6,7 +6,9 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from majlisna.api.controllers.shared import get_password_hash, verify_password
 from majlisna.api.controllers.user import UserController
-from majlisna.api.models.table import User
+from majlisna.api.models.room import RoomType
+from majlisna.api.models.stats import UserStats
+from majlisna.api.models.table import Room, User
 from majlisna.api.models.user import UserCreate, UserUpdate
 from majlisna.api.schemas.error import InvalidCredentialsError, UserAlreadyExistsError, UserNotFoundError
 
@@ -28,7 +30,9 @@ async def test_create_user_success(user_controller: UserController):
     assert user.id is not None
     assert user.username == "newuser"
     assert user.email_address == "new@test.com"
-    assert user.password == "password123"
+    # Password must be hashed at rest, never stored in clear.
+    assert user.password != "password123"
+    assert verify_password("password123", user.password) is True
     assert user.country is None
 
 
@@ -104,7 +108,7 @@ async def test_get_user_by_id_success(user_controller: UserController):
     assert found_user.id == created_user.id
     assert found_user.username == "findme"
     assert found_user.email_address == "findme@test.com"
-    assert found_user.password == "password123"
+    assert verify_password("password123", found_user.password) is True
     assert found_user.country is None
 
 
@@ -128,7 +132,7 @@ async def test_update_user_success(user_controller: UserController):
         country=None,
     )
     created_user = await user_controller.create_user(user_create)
-    user_update = UserUpdate(username="after", email_address="update@test.com")
+    user_update = UserUpdate(username="after")
 
     # Act
     updated_user = await user_controller.update_user_by_id(created_user.id, user_update)
@@ -137,7 +141,7 @@ async def test_update_user_success(user_controller: UserController):
     assert updated_user.id == created_user.id
     assert updated_user.username == "after"
     assert updated_user.email_address == "update@test.com"
-    assert updated_user.password == "password123"
+    assert verify_password("password123", updated_user.password) is True
     assert updated_user.country is None
 
 
@@ -151,7 +155,7 @@ async def test_update_user_partial(user_controller: UserController):
         country=None,
     )
     created_user = await user_controller.create_user(user_create)
-    user_update = UserUpdate(username="changed", email_address="partial@test.com")
+    user_update = UserUpdate(username="changed")
 
     # Act
     updated_user = await user_controller.update_user_by_id(created_user.id, user_update)
@@ -160,7 +164,7 @@ async def test_update_user_partial(user_controller: UserController):
     assert updated_user.id == created_user.id
     assert updated_user.username == "changed"
     assert updated_user.email_address == "partial@test.com"
-    assert updated_user.password == "password123"
+    assert verify_password("password123", updated_user.password) is True
     assert updated_user.country is None
 
 
@@ -168,7 +172,7 @@ async def test_update_user_not_found(user_controller: UserController):
     """Updating a user with a non-existent ID raises UserNotFoundError."""
     # Arrange
     non_existent_id = uuid4()
-    user_update = UserUpdate(username="nobody", email_address="nobody@test.com")
+    user_update = UserUpdate(username="nobody")
 
     # Act & Assert
     with pytest.raises(UserNotFoundError):
@@ -217,7 +221,7 @@ async def test_update_user_password_success(user_controller: UserController):
     old_password = created_user.password
 
     # Act
-    updated_user = await user_controller.update_user_password(created_user.id, "newpassword456")
+    updated_user = await user_controller.update_user_password(created_user.id, "oldpassword123", "newpassword456")
 
     # Assert
     assert updated_user.id == created_user.id
@@ -235,7 +239,7 @@ async def test_update_user_password_not_found(user_controller: UserController):
 
     # Act & Assert
     with pytest.raises(UserNotFoundError):
-        await user_controller.update_user_password(non_existent_id, "newpassword456")
+        await user_controller.update_user_password(non_existent_id, "oldpassword123", "newpassword456")
 
 
 async def test_delete_user_account_success(user_controller: UserController, session: AsyncSession, create_user):
@@ -252,6 +256,31 @@ async def test_delete_user_account_success(user_controller: UserController, sess
     # Assert — user is deleted
     deleted_user = (await session.exec(select(User).where(User.id == user.id))).first()
     assert deleted_user is None
+
+
+async def test_delete_user_account_with_related_data(
+    user_controller: UserController, session: AsyncSession, create_user, create_room
+):
+    """Deleting an account that owns a room and has stats succeeds (no FK violation)."""
+    # Prepare — a user who owns a room (via create_room) and has a stats row
+    user = await create_user(username="richuser", email="rich@test.com", password="mypassword")
+    user.password = get_password_hash("mypassword")
+    session.add(user)
+    await session.commit()
+    room = await create_room(owner=user)
+    session.add(UserStats(user_id=user.id))
+    await session.commit()
+
+    # Act
+    await user_controller.delete_user_account(user.id, "mypassword")
+
+    # Assert — the user is gone; the owned room is orphaned + deactivated, not deleted
+    assert (await session.exec(select(User).where(User.id == user.id))).first() is None
+    refreshed_room = (await session.exec(select(Room).where(Room.id == room.id))).first()
+    assert refreshed_room is not None
+    assert refreshed_room.owner_id is None
+    assert refreshed_room.type == RoomType.INACTIVE
+    assert (await session.exec(select(UserStats).where(UserStats.user_id == user.id))).first() is None
 
 
 async def test_delete_user_account_wrong_password(user_controller: UserController, session: AsyncSession, create_user):
@@ -278,14 +307,25 @@ async def test_delete_user_account_not_found(user_controller: UserController):
 
 
 async def test_update_user_password_verifiable(user_controller: UserController):
-    """Updated password can be verified with verify_password."""
+    """Updated password can be verified; the current password is required."""
     # Prepare
     user_create = UserCreate(username="verifiable", email_address="verify@test.com", password="old", country=None)
     user = await user_controller.create_user(user_create)
 
     # Act
-    updated = await user_controller.update_user_password(user.id, "newsecurepass")
+    updated = await user_controller.update_user_password(user.id, "old", "newsecurepass")
 
     # Assert — the new password is verifiable
     assert verify_password("newsecurepass", updated.password) is True
     assert verify_password("old", updated.password) is False
+
+
+async def test_update_user_password_wrong_current_rejected(user_controller: UserController):
+    """Changing the password with the wrong current password raises InvalidCredentialsError."""
+    # Prepare
+    user_create = UserCreate(username="wrongcur", email_address="wrongcur@test.com", password="realpass", country=None)
+    user = await user_controller.create_user(user_create)
+
+    # Act & Assert
+    with pytest.raises(InvalidCredentialsError):
+        await user_controller.update_user_password(user.id, "notmypassword", "newpass")

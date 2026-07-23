@@ -33,9 +33,28 @@ class UserCreate(UserBase):
     password: str
 
 
-class UserUpdate(UserBase):
-    pass
+class UserUpdate(DBModel):
+    """Fields a user may edit on their own profile.
+
+    Deliberately does NOT inherit UserBase: that would let a client PATCH
+    security-sensitive fields (email_verified, email_address, auth_provider,
+    google_sub) via mass assignment. Only these safe fields are editable.
+    """
+
+    username: str | None = Field(default=None, min_length=3)
+    country: str | None = None
+    bio: str | None = Field(default=None, max_length=200)
+    profile_picture_url: str | None = None
+
+    @pydantic.field_validator("country")
+    @classmethod
+    def country_code(cls, v: str | None) -> str | None:
+        """Validate the country is a real 3-letter ISO code."""
+        if v and pycountry.countries.get(alpha_3=v.upper()) is None:
+            raise ValueError("Country must be a valid 3-letter country code")
+        return v
 
 
 class UserUpdatePassword(DBModel):
-    password: str
+    current_password: str
+    new_password: str

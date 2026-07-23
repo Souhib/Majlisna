@@ -24,6 +24,7 @@ function ProfilePage() {
   const [newUsername, setNewUsername] = useState(user?.username ?? "")
 
   const [showPasswordForm, setShowPasswordForm] = useState(false)
+  const [currentPassword, setCurrentPassword] = useState("")
   const [newPassword, setNewPassword] = useState("")
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -45,7 +46,7 @@ function ProfilePage() {
     try {
       const updated = await updateUserMutation.mutateAsync({
         user_id: user.id,
-        data: { username: newUsername.trim(), email_address: user.email },
+        data: { username: newUsername.trim() },
       }) as { id: string; username: string; email_address: string; is_active: boolean; is_admin: boolean }
       setUser({
         id: updated.id,
@@ -84,11 +85,15 @@ function ProfilePage() {
   }
 
   const handleChangePassword = async () => {
-    if (!user || newPassword.length < 5) return
+    if (!user || currentPassword.length < 1 || newPassword.length < 5) return
     try {
-      await changePasswordMutation.mutateAsync({ user_id: user.id, data: { password: newPassword } })
+      await changePasswordMutation.mutateAsync({
+        user_id: user.id,
+        data: { current_password: currentPassword, new_password: newPassword },
+      })
       toast.success(t("profile.passwordChanged"))
       setShowPasswordForm(false)
+      setCurrentPassword("")
       setNewPassword("")
     } catch (err) {
       toast.error(getApiErrorMessage(err))
@@ -163,7 +168,21 @@ function ProfilePage() {
         <div className="mt-6 pt-6 border-t border-border/30">
           {showPasswordForm ? (
             <div className="space-y-3 animate-scale-in">
-              <label className="text-sm font-medium">{t("profile.newPassword")}</label>
+              <label className="text-sm font-medium">{t("profile.changePassword")}</label>
+              <input
+                type="password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                placeholder={t("profile.currentPassword")}
+                className="w-full rounded-xl border border-border/30 bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition-all duration-200"
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    setShowPasswordForm(false)
+                    setCurrentPassword("")
+                    setNewPassword("")
+                  }
+                }}
+              />
               <div className="flex items-center gap-2">
                 <input
                   type="password"
@@ -176,6 +195,7 @@ function ProfilePage() {
                     if (e.key === "Enter") handleChangePassword()
                     if (e.key === "Escape") {
                       setShowPasswordForm(false)
+                      setCurrentPassword("")
                       setNewPassword("")
                     }
                   }}
@@ -183,7 +203,7 @@ function ProfilePage() {
                 <button
                   type="button"
                   onClick={handleChangePassword}
-                  disabled={isSavingPassword || newPassword.length < 5}
+                  disabled={isSavingPassword || currentPassword.length < 1 || newPassword.length < 5}
                   className="rounded-xl bg-gradient-to-r from-primary to-primary/90 px-5 py-2.5 text-sm font-medium text-primary-foreground shadow-md shadow-primary/20 hover:shadow-lg transition-all duration-200 disabled:opacity-50"
                 >
                   {t("common.save")}
@@ -192,6 +212,7 @@ function ProfilePage() {
                   type="button"
                   onClick={() => {
                     setShowPasswordForm(false)
+                    setCurrentPassword("")
                     setNewPassword("")
                   }}
                   className="rounded-xl px-5 py-2.5 text-sm font-medium text-muted-foreground hover:bg-muted transition-all duration-200"

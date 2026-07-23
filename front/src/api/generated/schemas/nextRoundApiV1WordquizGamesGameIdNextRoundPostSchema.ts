@@ -5,7 +5,7 @@
  * Do not edit manually.
  */
 
-import { gameStartResponseSchema } from "./gameStartResponseSchema.ts";
+import { advanceRoundResponseSchema } from "./advanceRoundResponseSchema.ts";
 import { HTTPValidationErrorSchema } from "./HTTPValidationErrorSchema.ts";
 import { z } from "zod/v4";
 
@@ -18,7 +18,7 @@ export const nextRoundApiV1WordquizGamesGameIdNextRoundPostPathParamsSchema =
  * @description Successful Response
  */
 export const nextRoundApiV1WordquizGamesGameIdNextRoundPost200Schema = z.lazy(
-  () => gameStartResponseSchema,
+  () => advanceRoundResponseSchema,
 );
 
 /**

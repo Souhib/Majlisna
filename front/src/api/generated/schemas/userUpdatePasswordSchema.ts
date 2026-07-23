@@ -8,5 +8,6 @@
 import { z } from "zod/v4";
 
 export const userUpdatePasswordSchema = z.object({
-  password: z.string(),
+  current_password: z.string(),
+  new_password: z.string(),
 });

@@ -25,6 +25,14 @@ export type UserView = {
    */
   email_verified?: boolean;
   bio?: string | null;
+  google_sub?: string | null;
+  /**
+   * @maxLength 20
+   * @default "email"
+   * @type string | undefined
+   */
+  auth_provider?: string;
+  profile_picture_url?: string | null;
   /**
    * @type string, uuid
    */

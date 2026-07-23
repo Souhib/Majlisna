@@ -13,5 +13,8 @@ export const userViewSchema = z.object({
   country: z.optional(z.union([z.string(), z.null()])),
   email_verified: z.optional(z.boolean().default(false)),
   bio: z.optional(z.union([z.string(), z.null()])),
+  google_sub: z.optional(z.union([z.string(), z.null()])),
+  auth_provider: z.optional(z.string().max(20).default("email")),
+  profile_picture_url: z.optional(z.union([z.string(), z.null()])),
   id: z.uuid(),
 });

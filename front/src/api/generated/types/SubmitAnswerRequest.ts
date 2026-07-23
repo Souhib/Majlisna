@@ -10,6 +10,8 @@
  */
 export type SubmitAnswerRequest = {
   /**
+   * @minLength 1
+   * @maxLength 100
    * @type string
    */
   answer: string;

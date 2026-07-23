@@ -10,11 +10,14 @@
  */
 export type GiveClueRequest = {
   /**
+   * @minLength 1
+   * @maxLength 50
    * @type string
    */
   clue_word: string;
   /**
    * @minLength 0
+   * @maxLength 25
    * @type integer
    */
   clue_number: number;

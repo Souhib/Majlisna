@@ -70,7 +70,13 @@ async def update_user_password(
 ) -> UserView:
     if current_user.id != user_id:
         raise ForbiddenError("You can only change your own password")
-    return UserView.model_validate(await user_controller.update_user_password(user_id, user_update_password.password))
+    return UserView.model_validate(
+        await user_controller.update_user_password(
+            user_id,
+            user_update_password.current_password,
+            user_update_password.new_password,
+        )
+    )
 
 
 @router.delete("/{user_id}", status_code=204)

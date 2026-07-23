@@ -258,7 +258,6 @@ def test_update_user_success(test_app: FastAPI, client: TestClient):
         f"/api/v1/users/{user_id}",
         json={
             "username": "UpdatedJohn",
-            "email_address": "updated.john@test.com",
             "country": "USA",
         },
     )
@@ -290,7 +289,6 @@ def test_update_user_forbidden(test_app: FastAPI, client: TestClient):
         f"/api/v1/users/{user_id}",
         json={
             "username": "Hacker",
-            "email_address": "hacker@test.com",
         },
     )
 
@@ -315,7 +313,6 @@ def test_update_user_not_found(test_app: FastAPI, client: TestClient):
         f"/api/v1/users/{user_id}",
         json={
             "username": "UpdatedJohn",
-            "email_address": "updated.john@test.com",
             "country": "USA",
         },
     )
@@ -346,7 +343,7 @@ def test_update_user_password_success(test_app: FastAPI, client: TestClient):
     # Act
     response = client.patch(
         f"/api/v1/users/{user_id}/password",
-        json={"password": "newsecurepassword"},
+        json={"current_password": "oldpassword", "new_password": "newsecurepassword"},
     )
 
     # Assert
@@ -374,7 +371,7 @@ def test_update_user_password_forbidden(test_app: FastAPI, client: TestClient):
     # Act
     response = client.patch(
         f"/api/v1/users/{user_id}/password",
-        json={"password": "newsecurepassword"},
+        json={"current_password": "oldpassword", "new_password": "newsecurepassword"},
     )
 
     # Assert
@@ -396,7 +393,7 @@ def test_update_user_password_not_found(test_app: FastAPI, client: TestClient):
     # Act
     response = client.patch(
         f"/api/v1/users/{user_id}/password",
-        json={"password": "newsecurepassword"},
+        json={"current_password": "oldpassword", "new_password": "newsecurepassword"},
     )
 
     # Assert

@@ -33,9 +33,11 @@ export const updateUserApiV1UsersUserIdPatch422Schema = z.lazy(
   () => HTTPValidationErrorSchema,
 );
 
-export const updateUserApiV1UsersUserIdPatchMutationRequestSchema = z.lazy(
-  () => userUpdateSchema,
-);
+export const updateUserApiV1UsersUserIdPatchMutationRequestSchema = z
+  .lazy(() => userUpdateSchema)
+  .describe(
+    "Fields a user may edit on their own profile.\n\nDeliberately does NOT inherit UserBase: that would let a client PATCH\nsecurity-sensitive fields (email_verified, email_address, auth_provider,\ngoogle_sub) via mass assignment. Only these safe fields are editable.",
+  );
 
 export const updateUserApiV1UsersUserIdPatchMutationResponseSchema = z.lazy(
   () => updateUserApiV1UsersUserIdPatch200Schema,

@@ -48,4 +48,5 @@ export const undercoverGameStateSchema = z.object({
   get word_explanations() {
     return z.union([wordExplanationsSchema, z.null()]).optional();
   },
+  mr_white_guesser: z.optional(z.union([z.string(), z.null()])),
 });

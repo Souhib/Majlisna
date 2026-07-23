@@ -18,6 +18,7 @@ export const mcqQuizGameStateSchema = z.object({
   total_rounds: z.int(),
   round_phase: z.string(),
   question: z.string(),
+  difficulty: z.optional(z.union([z.string(), z.null()])),
   choices: z.array(z.string()),
   correct_answer_index: z.optional(z.union([z.int(), z.null()])),
   explanation: z.optional(z.union([z.string(), z.null()])),
@@ -36,4 +37,7 @@ export const mcqQuizGameStateSchema = z.object({
     return z.array(mcqQuizPlayerStateSchema);
   },
   game_over: z.boolean(),
+  ready_players: z.optional(z.array(z.string())),
+  ready_count: z.optional(z.int().default(0)),
+  total_players: z.optional(z.int().default(0)),
 });

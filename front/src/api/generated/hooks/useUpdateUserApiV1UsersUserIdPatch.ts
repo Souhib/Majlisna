@@ -36,7 +36,7 @@ export async function updateUserApiV1UsersUserIdPatch(
   {
     user_id,
   }: { user_id: UpdateUserApiV1UsersUserIdPatchPathParams["user_id"] },
-  data: UpdateUserApiV1UsersUserIdPatchMutationRequest,
+  data?: UpdateUserApiV1UsersUserIdPatchMutationRequest,
   config: Partial<
     RequestConfig<UpdateUserApiV1UsersUserIdPatchMutationRequest>
   > & { client?: Client } = {},
@@ -75,7 +75,7 @@ export function updateUserApiV1UsersUserIdPatchMutationOptions<
     >,
     {
       user_id: UpdateUserApiV1UsersUserIdPatchPathParams["user_id"];
-      data: UpdateUserApiV1UsersUserIdPatchMutationRequest;
+      data?: UpdateUserApiV1UsersUserIdPatchMutationRequest;
     },
     TContext
   >({
@@ -99,7 +99,7 @@ export function useUpdateUserApiV1UsersUserIdPatch<TContext>(
       >,
       {
         user_id: UpdateUserApiV1UsersUserIdPatchPathParams["user_id"];
-        data: UpdateUserApiV1UsersUserIdPatchMutationRequest;
+        data?: UpdateUserApiV1UsersUserIdPatchMutationRequest;
       },
       TContext
     > & { client?: QueryClient };
@@ -122,7 +122,7 @@ export function useUpdateUserApiV1UsersUserIdPatch<TContext>(
     >,
     {
       user_id: UpdateUserApiV1UsersUserIdPatchPathParams["user_id"];
-      data: UpdateUserApiV1UsersUserIdPatchMutationRequest;
+      data?: UpdateUserApiV1UsersUserIdPatchMutationRequest;
     },
     TContext
   >;
@@ -134,7 +134,7 @@ export function useUpdateUserApiV1UsersUserIdPatch<TContext>(
     >,
     {
       user_id: UpdateUserApiV1UsersUserIdPatchPathParams["user_id"];
-      data: UpdateUserApiV1UsersUserIdPatchMutationRequest;
+      data?: UpdateUserApiV1UsersUserIdPatchMutationRequest;
     },
     TContext
   >(
@@ -151,7 +151,7 @@ export function useUpdateUserApiV1UsersUserIdPatch<TContext>(
     >,
     {
       user_id: UpdateUserApiV1UsersUserIdPatchPathParams["user_id"];
-      data: UpdateUserApiV1UsersUserIdPatchMutationRequest;
+      data?: UpdateUserApiV1UsersUserIdPatchMutationRequest;
     },
     TContext
   >;

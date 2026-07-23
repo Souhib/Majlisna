@@ -19,4 +19,6 @@ export const roomSettingsRequestSchema = z.object({
   word_quiz_hint_interval: z.optional(z.union([z.int(), z.null()])),
   mcq_quiz_turn_duration: z.optional(z.union([z.int(), z.null()])),
   mcq_quiz_rounds: z.optional(z.union([z.int(), z.null()])),
+  word_quiz_difficulty: z.optional(z.union([z.string(), z.null()])),
+  mcq_quiz_difficulty: z.optional(z.union([z.string(), z.null()])),
 });

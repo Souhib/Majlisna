@@ -8,6 +8,6 @@
 import { z } from "zod/v4";
 
 export const giveClueRequestSchema = z.object({
-  clue_word: z.string(),
-  clue_number: z.int().min(0),
+  clue_word: z.string().min(1).max(50),
+  clue_number: z.int().min(0).max(25),
 });

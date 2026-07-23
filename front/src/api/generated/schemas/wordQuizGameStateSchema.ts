@@ -20,6 +20,7 @@ export const wordQuizGameStateSchema = z.object({
   round_phase: z.string(),
   hints_revealed: z.int(),
   hints: z.array(z.string()),
+  difficulty: z.optional(z.union([z.string(), z.null()])),
   turn_duration_seconds: z.int(),
   hint_interval_seconds: z.int(),
   round_started_at: z.optional(z.union([z.string(), z.null()])),
@@ -41,4 +42,7 @@ export const wordQuizGameStateSchema = z.object({
   get timer_config() {
     return z.union([wordQuizTimerConfigSchema, z.null()]).optional();
   },
+  ready_players: z.optional(z.array(z.string())),
+  ready_count: z.optional(z.int().default(0)),
+  total_players: z.optional(z.int().default(0)),
 });

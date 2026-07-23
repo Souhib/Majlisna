@@ -7,22 +7,11 @@
 
 /**
  * UserUpdate
+ * @description Fields a user may edit on their own profile.\n\nDeliberately does NOT inherit UserBase: that would let a client PATCH\nsecurity-sensitive fields (email_verified, email_address, auth_provider,\ngoogle_sub) via mass assignment. Only these safe fields are editable.
  */
 export type UserUpdate = {
-  /**
-   * @minLength 3
-   * @type string | undefined
-   */
-  username?: string;
-  /**
-   * @type string, email
-   */
-  email_address: string;
+  username?: string | null;
   country?: string | null;
-  /**
-   * @default false
-   * @type boolean | undefined
-   */
-  email_verified?: boolean;
   bio?: string | null;
+  profile_picture_url?: string | null;
 };

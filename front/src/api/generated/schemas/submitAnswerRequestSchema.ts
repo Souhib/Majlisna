@@ -8,5 +8,5 @@
 import { z } from "zod/v4";
 
 export const submitAnswerRequestSchema = z.object({
-  answer: z.string(),
+  answer: z.string().min(1).max(100),
 });

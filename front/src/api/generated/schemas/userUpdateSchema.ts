@@ -7,10 +7,16 @@
 
 import { z } from "zod/v4";
 
-export const userUpdateSchema = z.object({
-  username: z.optional(z.string().min(3)),
-  email_address: z.email(),
-  country: z.optional(z.union([z.string(), z.null()])),
-  email_verified: z.optional(z.boolean().default(false)),
-  bio: z.optional(z.union([z.string(), z.null()])),
-});
+/**
+ * @description Fields a user may edit on their own profile.\n\nDeliberately does NOT inherit UserBase: that would let a client PATCH\nsecurity-sensitive fields (email_verified, email_address, auth_provider,\ngoogle_sub) via mass assignment. Only these safe fields are editable.
+ */
+export const userUpdateSchema = z
+  .object({
+    username: z.optional(z.union([z.string(), z.null()])),
+    country: z.optional(z.union([z.string(), z.null()])),
+    bio: z.optional(z.union([z.string(), z.null()])),
+    profile_picture_url: z.optional(z.union([z.string(), z.null()])),
+  })
+  .describe(
+    "Fields a user may edit on their own profile.\n\nDeliberately does NOT inherit UserBase: that would let a client PATCH\nsecurity-sensitive fields (email_verified, email_address, auth_provider,\ngoogle_sub) via mass assignment. Only these safe fields are editable.",
+  );

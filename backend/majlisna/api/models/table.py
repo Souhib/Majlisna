@@ -30,7 +30,10 @@ from majlisna.api.models.wordquiz import QuizWord  # noqa: F401
 class Room(RoomBase, table=True):
     id: UUID | None = Field(default_factory=uuid4, primary_key=True, unique=True)
     public_id: str = Field(min_length=5, max_length=5, unique=True, index=True)
-    owner_id: UUID | None = Field(default=None, foreign_key="user.id", nullable=False, index=True)
+    # Nullable so a room can be orphaned (owner set to NULL, marked inactive) when
+    # its owner deletes their account, instead of blocking the delete with an FK
+    # violation. A live room always has an owner set at creation.
+    owner_id: UUID | None = Field(default=None, foreign_key="user.id", index=True)
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(UTC),
         sa_type=TIMESTAMP(timezone=True),  # type: ignore[call-overload]

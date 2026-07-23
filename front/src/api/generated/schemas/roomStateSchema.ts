@@ -6,6 +6,7 @@
  */
 
 import { roomPlayerStateSchema } from "./roomPlayerStateSchema.ts";
+import { roomSettingsSchema } from "./roomSettingsSchema.ts";
 import { z } from "zod/v4";
 
 export const roomStateSchema = z.object({
@@ -19,5 +20,7 @@ export const roomStateSchema = z.object({
     return z.array(roomPlayerStateSchema);
   },
   type: z.string(),
-  settings: z.optional(z.union([z.object({}).catchall(z.any()), z.null()])),
+  get settings() {
+    return z.union([roomSettingsSchema, z.null()]).optional();
+  },
 });

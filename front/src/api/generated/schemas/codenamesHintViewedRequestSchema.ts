@@ -8,5 +8,5 @@
 import { z } from "zod/v4";
 
 export const codenamesHintViewedRequestSchema = z.object({
-  word: z.string(),
+  word: z.string().min(1).max(100),
 });

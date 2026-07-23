@@ -65,6 +65,8 @@ export type { GetRoomApiV1RoomsRoomIdGetQueryKey } from "./hooks/useGetRoomApiV1
 export type { GetRoomApiV1RoomsRoomIdGetSuspenseQueryKey } from "./hooks/useGetRoomApiV1RoomsRoomIdGetSuspense.ts";
 export type { GetRoomStateApiV1RoomsRoomIdStateGetQueryKey } from "./hooks/useGetRoomStateApiV1RoomsRoomIdStateGet.ts";
 export type { GetRoomStateApiV1RoomsRoomIdStateGetSuspenseQueryKey } from "./hooks/useGetRoomStateApiV1RoomsRoomIdStateGetSuspense.ts";
+export type { GetShareLinkApiV1RoomsRoomIdShareLinkGetQueryKey } from "./hooks/useGetShareLinkApiV1RoomsRoomIdShareLinkGet.ts";
+export type { GetShareLinkApiV1RoomsRoomIdShareLinkGetSuspenseQueryKey } from "./hooks/useGetShareLinkApiV1RoomsRoomIdShareLinkGetSuspense.ts";
 export type { GetTermPairByIdApiV1UndercoverTermpairTermPairIdGetQueryKey } from "./hooks/useGetTermPairByIdApiV1UndercoverTermpairTermPairIdGet.ts";
 export type { GetTermPairByIdApiV1UndercoverTermpairTermPairIdGetSuspenseQueryKey } from "./hooks/useGetTermPairByIdApiV1UndercoverTermpairTermPairIdGetSuspense.ts";
 export type { GetUndercoverGameApiV1GamesGameIdGetQueryKey } from "./hooks/useGetUndercoverGameApiV1GamesGameIdGet.ts";
@@ -100,6 +102,7 @@ export type { KickPlayerApiV1RoomsRoomIdKickPatchMutationKey } from "./hooks/use
 export type { LeaveRoomApiV1RoomsLeavePatchMutationKey } from "./hooks/useLeaveRoomApiV1RoomsLeavePatch.ts";
 export type { LoginApiV1AuthLoginPostMutationKey } from "./hooks/useLoginApiV1AuthLoginPost.ts";
 export type { LogoutApiV1AuthLogoutPostMutationKey } from "./hooks/useLogoutApiV1AuthLogoutPost.ts";
+export type { MrWhiteGuessApiV1UndercoverGamesGameIdMrWhiteGuessPostMutationKey } from "./hooks/useMrWhiteGuessApiV1UndercoverGamesGameIdMrWhiteGuessPost.ts";
 export type { NextRoundApiV1McqquizGamesGameIdNextRoundPostMutationKey } from "./hooks/useNextRoundApiV1McqquizGamesGameIdNextRoundPost.ts";
 export type { NextRoundApiV1WordquizGamesGameIdNextRoundPostMutationKey } from "./hooks/useNextRoundApiV1WordquizGamesGameIdNextRoundPost.ts";
 export type { RecordHintViewedApiV1CodenamesGamesGameIdHintViewedPostMutationKey } from "./hooks/useRecordHintViewedApiV1CodenamesGamesGameIdHintViewedPost.ts";
@@ -115,6 +118,7 @@ export type { ResetPasswordApiV1AuthResetPasswordPostMutationKey } from "./hooks
 export type { SeedChallengesApiV1ChallengesSeedPostMutationKey } from "./hooks/useSeedChallengesApiV1ChallengesSeedPost.ts";
 export type { SendFriendRequestApiV1FriendsRequestPostMutationKey } from "./hooks/useSendFriendRequestApiV1FriendsRequestPost.ts";
 export type { SendMessageApiV1RoomsRoomIdMessagesPostMutationKey } from "./hooks/useSendMessageApiV1RoomsRoomIdMessagesPost.ts";
+export type { SocialLoginApiV1AuthSocialLoginPostMutationKey } from "./hooks/useSocialLoginApiV1AuthSocialLoginPost.ts";
 export type { StartCodenamesGameApiV1CodenamesGamesRoomIdStartPostMutationKey } from "./hooks/useStartCodenamesGameApiV1CodenamesGamesRoomIdStartPost.ts";
 export type { StartMcqquizGameApiV1McqquizGamesRoomIdStartPostMutationKey } from "./hooks/useStartMcqquizGameApiV1McqquizGamesRoomIdStartPost.ts";
 export type { StartNextRoundApiV1UndercoverGamesGameIdNextRoundPostMutationKey } from "./hooks/useStartNextRoundApiV1UndercoverGamesGameIdNextRoundPost.ts";
@@ -154,6 +158,7 @@ export type {
   AddWordToPackApiV1CodenamesWordPacksPackIdWordsPostMutationResponse,
   AddWordToPackApiV1CodenamesWordPacksPackIdWordsPostMutation,
 } from "./types/AddWordToPackApiV1CodenamesWordPacksPackIdWordsPost.ts";
+export type { AdvanceRoundResponse } from "./types/AdvanceRoundResponse.ts";
 export type { ChatMessageView } from "./types/ChatMessageView.ts";
 export type { ClueGuess } from "./types/ClueGuess.ts";
 export type { ClueHistoryEntry } from "./types/ClueHistoryEntry.ts";
@@ -505,6 +510,14 @@ export type {
   GetRoomStateApiV1RoomsRoomIdStateGetQuery,
 } from "./types/GetRoomStateApiV1RoomsRoomIdStateGet.ts";
 export type {
+  GetShareLinkApiV1RoomsRoomIdShareLinkGetPathParams,
+  GetShareLinkApiV1RoomsRoomIdShareLinkGet200,
+  GetShareLinkApiV1RoomsRoomIdShareLinkGet404,
+  GetShareLinkApiV1RoomsRoomIdShareLinkGet422,
+  GetShareLinkApiV1RoomsRoomIdShareLinkGetQueryResponse,
+  GetShareLinkApiV1RoomsRoomIdShareLinkGetQuery,
+} from "./types/GetShareLinkApiV1RoomsRoomIdShareLinkGet.ts";
+export type {
   GetTermPairByIdApiV1UndercoverTermpairTermPairIdGetPathParams,
   GetTermPairByIdApiV1UndercoverTermpairTermPairIdGet200,
   GetTermPairByIdApiV1UndercoverTermpairTermPairIdGet404,
@@ -697,6 +710,17 @@ export type { McqQuizRoundResult } from "./types/McqQuizRoundResult.ts";
 export type { McqSubmitAnswerRequest } from "./types/McqSubmitAnswerRequest.ts";
 export type { McqSubmitAnswerResponse } from "./types/McqSubmitAnswerResponse.ts";
 export type {
+  MrWhiteGuessApiV1UndercoverGamesGameIdMrWhiteGuessPostPathParams,
+  MrWhiteGuessApiV1UndercoverGamesGameIdMrWhiteGuessPost200,
+  MrWhiteGuessApiV1UndercoverGamesGameIdMrWhiteGuessPost404,
+  MrWhiteGuessApiV1UndercoverGamesGameIdMrWhiteGuessPost422,
+  MrWhiteGuessApiV1UndercoverGamesGameIdMrWhiteGuessPostMutationRequest,
+  MrWhiteGuessApiV1UndercoverGamesGameIdMrWhiteGuessPostMutationResponse,
+  MrWhiteGuessApiV1UndercoverGamesGameIdMrWhiteGuessPostMutation,
+} from "./types/MrWhiteGuessApiV1UndercoverGamesGameIdMrWhiteGuessPost.ts";
+export type { MrWhiteGuessRequest } from "./types/MrWhiteGuessRequest.ts";
+export type { MrWhiteGuessResponse } from "./types/MrWhiteGuessResponse.ts";
+export type {
   NextRoundApiV1McqquizGamesGameIdNextRoundPostPathParams,
   NextRoundApiV1McqquizGamesGameIdNextRoundPost200,
   NextRoundApiV1McqquizGamesGameIdNextRoundPost404,
@@ -801,6 +825,7 @@ export type { RoomInviteResponse } from "./types/RoomInviteResponse.ts";
 export type { RoomJoin } from "./types/RoomJoin.ts";
 export type { RoomLeave } from "./types/RoomLeave.ts";
 export type { RoomPlayerState } from "./types/RoomPlayerState.ts";
+export type { RoomSettings } from "./types/RoomSettings.ts";
 export type { RoomSettingsRequest } from "./types/RoomSettingsRequest.ts";
 export type { RoomState } from "./types/RoomState.ts";
 export type { RoomStatusEnumKey, RoomStatus } from "./types/RoomStatus.ts";
@@ -830,6 +855,17 @@ export type {
   SendMessageApiV1RoomsRoomIdMessagesPostMutation,
 } from "./types/SendMessageApiV1RoomsRoomIdMessagesPost.ts";
 export type { SendMessageRequest } from "./types/SendMessageRequest.ts";
+export type { ShareLinkResponse } from "./types/ShareLinkResponse.ts";
+export type {
+  SocialLoginApiV1AuthSocialLoginPost200,
+  SocialLoginApiV1AuthSocialLoginPost422,
+  SocialLoginApiV1AuthSocialLoginPostMutationRequest,
+  SocialLoginApiV1AuthSocialLoginPostMutationResponse,
+  SocialLoginApiV1AuthSocialLoginPostMutation,
+} from "./types/SocialLoginApiV1AuthSocialLoginPost.ts";
+export type { SocialLoginRequest } from "./types/SocialLoginRequest.ts";
+export type { SocialLoginResponse } from "./types/SocialLoginResponse.ts";
+export type { SocialLoginUserData } from "./types/SocialLoginUserData.ts";
 export type {
   StartCodenamesGameApiV1CodenamesGamesRoomIdStartPostPathParams,
   StartCodenamesGameApiV1CodenamesGamesRoomIdStartPost201,
@@ -1297,6 +1333,14 @@ export { getRoomStateApiV1RoomsRoomIdStateGetSuspenseQueryKey } from "./hooks/us
 export { getRoomStateApiV1RoomsRoomIdStateGetSuspense } from "./hooks/useGetRoomStateApiV1RoomsRoomIdStateGetSuspense.ts";
 export { getRoomStateApiV1RoomsRoomIdStateGetSuspenseQueryOptions } from "./hooks/useGetRoomStateApiV1RoomsRoomIdStateGetSuspense.ts";
 export { useGetRoomStateApiV1RoomsRoomIdStateGetSuspense } from "./hooks/useGetRoomStateApiV1RoomsRoomIdStateGetSuspense.ts";
+export { getShareLinkApiV1RoomsRoomIdShareLinkGetQueryKey } from "./hooks/useGetShareLinkApiV1RoomsRoomIdShareLinkGet.ts";
+export { getShareLinkApiV1RoomsRoomIdShareLinkGet } from "./hooks/useGetShareLinkApiV1RoomsRoomIdShareLinkGet.ts";
+export { getShareLinkApiV1RoomsRoomIdShareLinkGetQueryOptions } from "./hooks/useGetShareLinkApiV1RoomsRoomIdShareLinkGet.ts";
+export { useGetShareLinkApiV1RoomsRoomIdShareLinkGet } from "./hooks/useGetShareLinkApiV1RoomsRoomIdShareLinkGet.ts";
+export { getShareLinkApiV1RoomsRoomIdShareLinkGetSuspenseQueryKey } from "./hooks/useGetShareLinkApiV1RoomsRoomIdShareLinkGetSuspense.ts";
+export { getShareLinkApiV1RoomsRoomIdShareLinkGetSuspense } from "./hooks/useGetShareLinkApiV1RoomsRoomIdShareLinkGetSuspense.ts";
+export { getShareLinkApiV1RoomsRoomIdShareLinkGetSuspenseQueryOptions } from "./hooks/useGetShareLinkApiV1RoomsRoomIdShareLinkGetSuspense.ts";
+export { useGetShareLinkApiV1RoomsRoomIdShareLinkGetSuspense } from "./hooks/useGetShareLinkApiV1RoomsRoomIdShareLinkGetSuspense.ts";
 export { getTermPairByIdApiV1UndercoverTermpairTermPairIdGetQueryKey } from "./hooks/useGetTermPairByIdApiV1UndercoverTermpairTermPairIdGet.ts";
 export { getTermPairByIdApiV1UndercoverTermpairTermPairIdGet } from "./hooks/useGetTermPairByIdApiV1UndercoverTermpairTermPairIdGet.ts";
 export { getTermPairByIdApiV1UndercoverTermpairTermPairIdGetQueryOptions } from "./hooks/useGetTermPairByIdApiV1UndercoverTermpairTermPairIdGet.ts";
@@ -1437,6 +1481,10 @@ export { logoutApiV1AuthLogoutPostMutationKey } from "./hooks/useLogoutApiV1Auth
 export { logoutApiV1AuthLogoutPost } from "./hooks/useLogoutApiV1AuthLogoutPost.ts";
 export { logoutApiV1AuthLogoutPostMutationOptions } from "./hooks/useLogoutApiV1AuthLogoutPost.ts";
 export { useLogoutApiV1AuthLogoutPost } from "./hooks/useLogoutApiV1AuthLogoutPost.ts";
+export { mrWhiteGuessApiV1UndercoverGamesGameIdMrWhiteGuessPostMutationKey } from "./hooks/useMrWhiteGuessApiV1UndercoverGamesGameIdMrWhiteGuessPost.ts";
+export { mrWhiteGuessApiV1UndercoverGamesGameIdMrWhiteGuessPost } from "./hooks/useMrWhiteGuessApiV1UndercoverGamesGameIdMrWhiteGuessPost.ts";
+export { mrWhiteGuessApiV1UndercoverGamesGameIdMrWhiteGuessPostMutationOptions } from "./hooks/useMrWhiteGuessApiV1UndercoverGamesGameIdMrWhiteGuessPost.ts";
+export { useMrWhiteGuessApiV1UndercoverGamesGameIdMrWhiteGuessPost } from "./hooks/useMrWhiteGuessApiV1UndercoverGamesGameIdMrWhiteGuessPost.ts";
 export { nextRoundApiV1McqquizGamesGameIdNextRoundPostMutationKey } from "./hooks/useNextRoundApiV1McqquizGamesGameIdNextRoundPost.ts";
 export { nextRoundApiV1McqquizGamesGameIdNextRoundPost } from "./hooks/useNextRoundApiV1McqquizGamesGameIdNextRoundPost.ts";
 export { nextRoundApiV1McqquizGamesGameIdNextRoundPostMutationOptions } from "./hooks/useNextRoundApiV1McqquizGamesGameIdNextRoundPost.ts";
@@ -1497,6 +1545,10 @@ export { sendMessageApiV1RoomsRoomIdMessagesPostMutationKey } from "./hooks/useS
 export { sendMessageApiV1RoomsRoomIdMessagesPost } from "./hooks/useSendMessageApiV1RoomsRoomIdMessagesPost.ts";
 export { sendMessageApiV1RoomsRoomIdMessagesPostMutationOptions } from "./hooks/useSendMessageApiV1RoomsRoomIdMessagesPost.ts";
 export { useSendMessageApiV1RoomsRoomIdMessagesPost } from "./hooks/useSendMessageApiV1RoomsRoomIdMessagesPost.ts";
+export { socialLoginApiV1AuthSocialLoginPostMutationKey } from "./hooks/useSocialLoginApiV1AuthSocialLoginPost.ts";
+export { socialLoginApiV1AuthSocialLoginPost } from "./hooks/useSocialLoginApiV1AuthSocialLoginPost.ts";
+export { socialLoginApiV1AuthSocialLoginPostMutationOptions } from "./hooks/useSocialLoginApiV1AuthSocialLoginPost.ts";
+export { useSocialLoginApiV1AuthSocialLoginPost } from "./hooks/useSocialLoginApiV1AuthSocialLoginPost.ts";
 export { startCodenamesGameApiV1CodenamesGamesRoomIdStartPostMutationKey } from "./hooks/useStartCodenamesGameApiV1CodenamesGamesRoomIdStartPost.ts";
 export { startCodenamesGameApiV1CodenamesGamesRoomIdStartPost } from "./hooks/useStartCodenamesGameApiV1CodenamesGamesRoomIdStartPost.ts";
 export { startCodenamesGameApiV1CodenamesGamesRoomIdStartPostMutationOptions } from "./hooks/useStartCodenamesGameApiV1CodenamesGamesRoomIdStartPost.ts";
@@ -1591,6 +1643,7 @@ export {
   addWordToPackApiV1CodenamesWordPacksPackIdWordsPostMutationRequestSchema,
   addWordToPackApiV1CodenamesWordPacksPackIdWordsPostMutationResponseSchema,
 } from "./schemas/addWordToPackApiV1CodenamesWordPacksPackIdWordsPostSchema.ts";
+export { advanceRoundResponseSchema } from "./schemas/advanceRoundResponseSchema.ts";
 export { chatMessageViewSchema } from "./schemas/chatMessageViewSchema.ts";
 export { clueGuessSchema } from "./schemas/clueGuessSchema.ts";
 export { clueHistoryEntrySchema } from "./schemas/clueHistoryEntrySchema.ts";
@@ -1898,6 +1951,13 @@ export {
   getRoomStateApiV1RoomsRoomIdStateGetQueryResponseSchema,
 } from "./schemas/getRoomStateApiV1RoomsRoomIdStateGetSchema.ts";
 export {
+  getShareLinkApiV1RoomsRoomIdShareLinkGetPathParamsSchema,
+  getShareLinkApiV1RoomsRoomIdShareLinkGet200Schema,
+  getShareLinkApiV1RoomsRoomIdShareLinkGet404Schema,
+  getShareLinkApiV1RoomsRoomIdShareLinkGet422Schema,
+  getShareLinkApiV1RoomsRoomIdShareLinkGetQueryResponseSchema,
+} from "./schemas/getShareLinkApiV1RoomsRoomIdShareLinkGetSchema.ts";
+export {
   getTermPairByIdApiV1UndercoverTermpairTermPairIdGetPathParamsSchema,
   getTermPairByIdApiV1UndercoverTermpairTermPairIdGet200Schema,
   getTermPairByIdApiV1UndercoverTermpairTermPairIdGet404Schema,
@@ -2068,6 +2128,16 @@ export { mcqQuizRoundResultSchema } from "./schemas/mcqQuizRoundResultSchema.ts"
 export { mcqSubmitAnswerRequestSchema } from "./schemas/mcqSubmitAnswerRequestSchema.ts";
 export { mcqSubmitAnswerResponseSchema } from "./schemas/mcqSubmitAnswerResponseSchema.ts";
 export {
+  mrWhiteGuessApiV1UndercoverGamesGameIdMrWhiteGuessPostPathParamsSchema,
+  mrWhiteGuessApiV1UndercoverGamesGameIdMrWhiteGuessPost200Schema,
+  mrWhiteGuessApiV1UndercoverGamesGameIdMrWhiteGuessPost404Schema,
+  mrWhiteGuessApiV1UndercoverGamesGameIdMrWhiteGuessPost422Schema,
+  mrWhiteGuessApiV1UndercoverGamesGameIdMrWhiteGuessPostMutationRequestSchema,
+  mrWhiteGuessApiV1UndercoverGamesGameIdMrWhiteGuessPostMutationResponseSchema,
+} from "./schemas/mrWhiteGuessApiV1UndercoverGamesGameIdMrWhiteGuessPostSchema.ts";
+export { mrWhiteGuessRequestSchema } from "./schemas/mrWhiteGuessRequestSchema.ts";
+export { mrWhiteGuessResponseSchema } from "./schemas/mrWhiteGuessResponseSchema.ts";
+export {
   nextRoundApiV1McqquizGamesGameIdNextRoundPostPathParamsSchema,
   nextRoundApiV1McqquizGamesGameIdNextRoundPost200Schema,
   nextRoundApiV1McqquizGamesGameIdNextRoundPost404Schema,
@@ -2161,6 +2231,7 @@ export { roomJoinSchema } from "./schemas/roomJoinSchema.ts";
 export { roomLeaveSchema } from "./schemas/roomLeaveSchema.ts";
 export { roomPlayerStateSchema } from "./schemas/roomPlayerStateSchema.ts";
 export { roomSettingsRequestSchema } from "./schemas/roomSettingsRequestSchema.ts";
+export { roomSettingsSchema } from "./schemas/roomSettingsSchema.ts";
 export { roomStateSchema } from "./schemas/roomStateSchema.ts";
 export { roomStatusSchema } from "./schemas/roomStatusSchema.ts";
 export { roomTypeSchema } from "./schemas/roomTypeSchema.ts";
@@ -2186,6 +2257,16 @@ export {
   sendMessageApiV1RoomsRoomIdMessagesPostMutationResponseSchema,
 } from "./schemas/sendMessageApiV1RoomsRoomIdMessagesPostSchema.ts";
 export { sendMessageRequestSchema } from "./schemas/sendMessageRequestSchema.ts";
+export { shareLinkResponseSchema } from "./schemas/shareLinkResponseSchema.ts";
+export {
+  socialLoginApiV1AuthSocialLoginPost200Schema,
+  socialLoginApiV1AuthSocialLoginPost422Schema,
+  socialLoginApiV1AuthSocialLoginPostMutationRequestSchema,
+  socialLoginApiV1AuthSocialLoginPostMutationResponseSchema,
+} from "./schemas/socialLoginApiV1AuthSocialLoginPostSchema.ts";
+export { socialLoginRequestSchema } from "./schemas/socialLoginRequestSchema.ts";
+export { socialLoginResponseSchema } from "./schemas/socialLoginResponseSchema.ts";
+export { socialLoginUserDataSchema } from "./schemas/socialLoginUserDataSchema.ts";
 export {
   startCodenamesGameApiV1CodenamesGamesRoomIdStartPostPathParamsSchema,
   startCodenamesGameApiV1CodenamesGamesRoomIdStartPost201Schema,

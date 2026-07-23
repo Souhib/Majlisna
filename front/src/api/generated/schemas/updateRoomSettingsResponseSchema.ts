@@ -5,9 +5,12 @@
  * Do not edit manually.
  */
 
+import { roomSettingsSchema } from "./roomSettingsSchema.ts";
 import { z } from "zod/v4";
 
 export const updateRoomSettingsResponseSchema = z.object({
   room_id: z.string(),
-  settings: z.object({}).catchall(z.any()),
+  get settings() {
+    return roomSettingsSchema;
+  },
 });

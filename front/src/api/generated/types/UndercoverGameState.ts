@@ -94,4 +94,5 @@ export type UndercoverGameState = {
     [key: string]: any;
   };
   word_explanations?: WordExplanations | null;
+  mr_white_guesser?: string | null;
 };

@@ -5,6 +5,8 @@
  * Do not edit manually.
  */
 
+import type { RoomSettings } from "./RoomSettings.ts";
+
 /**
  * UpdateRoomSettingsResponse
  */
@@ -16,7 +18,5 @@ export type UpdateRoomSettingsResponse = {
   /**
    * @type object
    */
-  settings: {
-    [key: string]: any;
-  };
+  settings: RoomSettings;
 };

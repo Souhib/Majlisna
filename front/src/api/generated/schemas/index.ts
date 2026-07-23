@@ -16,6 +16,7 @@ export {
   addWordToPackApiV1CodenamesWordPacksPackIdWordsPostMutationRequestSchema,
   addWordToPackApiV1CodenamesWordPacksPackIdWordsPostMutationResponseSchema,
 } from "./addWordToPackApiV1CodenamesWordPacksPackIdWordsPostSchema.ts";
+export { advanceRoundResponseSchema } from "./advanceRoundResponseSchema.ts";
 export { chatMessageViewSchema } from "./chatMessageViewSchema.ts";
 export { clueGuessSchema } from "./clueGuessSchema.ts";
 export { clueHistoryEntrySchema } from "./clueHistoryEntrySchema.ts";
@@ -323,6 +324,13 @@ export {
   getRoomStateApiV1RoomsRoomIdStateGetQueryResponseSchema,
 } from "./getRoomStateApiV1RoomsRoomIdStateGetSchema.ts";
 export {
+  getShareLinkApiV1RoomsRoomIdShareLinkGetPathParamsSchema,
+  getShareLinkApiV1RoomsRoomIdShareLinkGet200Schema,
+  getShareLinkApiV1RoomsRoomIdShareLinkGet404Schema,
+  getShareLinkApiV1RoomsRoomIdShareLinkGet422Schema,
+  getShareLinkApiV1RoomsRoomIdShareLinkGetQueryResponseSchema,
+} from "./getShareLinkApiV1RoomsRoomIdShareLinkGetSchema.ts";
+export {
   getTermPairByIdApiV1UndercoverTermpairTermPairIdGetPathParamsSchema,
   getTermPairByIdApiV1UndercoverTermpairTermPairIdGet200Schema,
   getTermPairByIdApiV1UndercoverTermpairTermPairIdGet404Schema,
@@ -493,6 +501,16 @@ export { mcqQuizRoundResultSchema } from "./mcqQuizRoundResultSchema.ts";
 export { mcqSubmitAnswerRequestSchema } from "./mcqSubmitAnswerRequestSchema.ts";
 export { mcqSubmitAnswerResponseSchema } from "./mcqSubmitAnswerResponseSchema.ts";
 export {
+  mrWhiteGuessApiV1UndercoverGamesGameIdMrWhiteGuessPostPathParamsSchema,
+  mrWhiteGuessApiV1UndercoverGamesGameIdMrWhiteGuessPost200Schema,
+  mrWhiteGuessApiV1UndercoverGamesGameIdMrWhiteGuessPost404Schema,
+  mrWhiteGuessApiV1UndercoverGamesGameIdMrWhiteGuessPost422Schema,
+  mrWhiteGuessApiV1UndercoverGamesGameIdMrWhiteGuessPostMutationRequestSchema,
+  mrWhiteGuessApiV1UndercoverGamesGameIdMrWhiteGuessPostMutationResponseSchema,
+} from "./mrWhiteGuessApiV1UndercoverGamesGameIdMrWhiteGuessPostSchema.ts";
+export { mrWhiteGuessRequestSchema } from "./mrWhiteGuessRequestSchema.ts";
+export { mrWhiteGuessResponseSchema } from "./mrWhiteGuessResponseSchema.ts";
+export {
   nextRoundApiV1McqquizGamesGameIdNextRoundPostPathParamsSchema,
   nextRoundApiV1McqquizGamesGameIdNextRoundPost200Schema,
   nextRoundApiV1McqquizGamesGameIdNextRoundPost404Schema,
@@ -586,6 +604,7 @@ export { roomJoinSchema } from "./roomJoinSchema.ts";
 export { roomLeaveSchema } from "./roomLeaveSchema.ts";
 export { roomPlayerStateSchema } from "./roomPlayerStateSchema.ts";
 export { roomSettingsRequestSchema } from "./roomSettingsRequestSchema.ts";
+export { roomSettingsSchema } from "./roomSettingsSchema.ts";
 export { roomStateSchema } from "./roomStateSchema.ts";
 export { roomStatusSchema } from "./roomStatusSchema.ts";
 export { roomTypeSchema } from "./roomTypeSchema.ts";
@@ -611,6 +630,16 @@ export {
   sendMessageApiV1RoomsRoomIdMessagesPostMutationResponseSchema,
 } from "./sendMessageApiV1RoomsRoomIdMessagesPostSchema.ts";
 export { sendMessageRequestSchema } from "./sendMessageRequestSchema.ts";
+export { shareLinkResponseSchema } from "./shareLinkResponseSchema.ts";
+export {
+  socialLoginApiV1AuthSocialLoginPost200Schema,
+  socialLoginApiV1AuthSocialLoginPost422Schema,
+  socialLoginApiV1AuthSocialLoginPostMutationRequestSchema,
+  socialLoginApiV1AuthSocialLoginPostMutationResponseSchema,
+} from "./socialLoginApiV1AuthSocialLoginPostSchema.ts";
+export { socialLoginRequestSchema } from "./socialLoginRequestSchema.ts";
+export { socialLoginResponseSchema } from "./socialLoginResponseSchema.ts";
+export { socialLoginUserDataSchema } from "./socialLoginUserDataSchema.ts";
 export {
   startCodenamesGameApiV1CodenamesGamesRoomIdStartPostPathParamsSchema,
   startCodenamesGameApiV1CodenamesGamesRoomIdStartPost201Schema,

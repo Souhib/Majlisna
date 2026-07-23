@@ -6,6 +6,7 @@
  */
 
 import type { RoomPlayerState } from "./RoomPlayerState.ts";
+import type { RoomSettings } from "./RoomSettings.ts";
 
 /**
  * RoomState
@@ -37,7 +38,5 @@ export type RoomState = {
    * @type string
    */
   type: string;
-  settings?: {
-    [key: string]: any;
-  } | null;
+  settings?: RoomSettings | null;
 };

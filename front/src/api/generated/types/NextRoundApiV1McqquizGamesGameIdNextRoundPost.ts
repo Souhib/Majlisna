@@ -5,7 +5,7 @@
  * Do not edit manually.
  */
 
-import type { GameStartResponse } from "./GameStartResponse.ts";
+import type { AdvanceRoundResponse } from "./AdvanceRoundResponse.ts";
 import type { HTTPValidationError } from "./HTTPValidationError.ts";
 
 export type NextRoundApiV1McqquizGamesGameIdNextRoundPostPathParams = {
@@ -16,11 +16,11 @@ export type NextRoundApiV1McqquizGamesGameIdNextRoundPostPathParams = {
 };
 
 /**
- * GameStartResponse
+ * AdvanceRoundResponse
  * @description Successful Response
  */
 export type NextRoundApiV1McqquizGamesGameIdNextRoundPost200 =
-  GameStartResponse;
+  AdvanceRoundResponse;
 
 /**
  * @description Not found

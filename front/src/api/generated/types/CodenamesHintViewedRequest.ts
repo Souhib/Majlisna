@@ -10,6 +10,8 @@
  */
 export type CodenamesHintViewedRequest = {
   /**
+   * @minLength 1
+   * @maxLength 100
    * @type string
    */
   word: string;

@@ -45,6 +45,7 @@ export type McqQuizGameState = {
    * @type string
    */
   question: string;
+  difficulty?: string | null;
   /**
    * @type array
    */
@@ -81,4 +82,18 @@ export type McqQuizGameState = {
    * @type boolean
    */
   game_over: boolean;
+  /**
+   * @type array | undefined
+   */
+  ready_players?: string[];
+  /**
+   * @default 0
+   * @type integer | undefined
+   */
+  ready_count?: number;
+  /**
+   * @default 0
+   * @type integer | undefined
+   */
+  total_players?: number;
 };

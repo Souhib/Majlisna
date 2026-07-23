@@ -50,6 +50,7 @@ export type WordQuizGameState = {
    * @type array
    */
   hints: string[];
+  difficulty?: string | null;
   /**
    * @type integer
    */
@@ -87,4 +88,18 @@ export type WordQuizGameState = {
    */
   game_over: boolean;
   timer_config?: WordQuizTimerConfig | null;
+  /**
+   * @type array | undefined
+   */
+  ready_players?: string[];
+  /**
+   * @default 0
+   * @type integer | undefined
+   */
+  ready_count?: number;
+  /**
+   * @default 0
+   * @type integer | undefined
+   */
+  total_players?: number;
 };
