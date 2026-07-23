@@ -1004,16 +1004,19 @@ async def test_timer_expired_no_timer_configured(undercover_game_controller, set
 
 
 @pytest.mark.asyncio
-async def test_timer_expired_non_host_rejected(undercover_game_controller, setup_undercover_game, session):  # noqa: ARG001
-    """Non-host player calling handle_timer_expired should be rejected."""
+async def test_timer_expired_non_host_allowed_gated_by_elapsed(undercover_game_controller, setup_undercover_game):
+    """A non-host may call handle_timer_expired; the server gates on the timer, not on host."""
     # Prepare
     setup = await setup_undercover_game(3)
     result = await _start_game(undercover_game_controller, setup["room"].id, setup["users"][0].id)
     non_host = setup["users"][1]
 
-    # Act / Assert
-    with pytest.raises(BaseError, match="Only the host"):
-        await undercover_game_controller.handle_timer_expired(UUID(result.game_id), non_host.id)
+    # Act — non-host triggers before the timer has actually elapsed
+    timer_result = await undercover_game_controller.handle_timer_expired(UUID(result.game_id), non_host.id)
+
+    # Assert — not rejected for being non-host; the server declines only because
+    # the timer has not elapsed yet
+    assert timer_result.action == "timer_not_expired"
 
 
 # ========== Vote Tie and Elimination ==========

@@ -268,11 +268,18 @@ class MyController:
 
 - Use `def` for pure functions, `async def` for asynchronous operations
 - Python 3.10+ type hints for all function signatures
+- **CRITICAL: Prefer Pydantic models over raw `dict` for structured data.** Controller/service inputs and outputs, request/response bodies, and nested structures should be typed models (`BaseModel`/`BaseTable`), never bare `dict`/`list[dict]`. The few legitimate exceptions: an in-process lookup map (e.g. `{achievement_id: count}`), a generic JSON helper, or an inherently-unstructured third-party API response (e.g. Google's `userinfo` JSON). Note the deliberate exception of `Game.live_state`, which is a JSON dict by design — but everything crossing an API boundary must still be typed.
 - **CRITICAL: Always use the project's base classes from `majlisna.api.schemas.shared`**, never `pydantic.BaseModel` or `sqlmodel.SQLModel` directly
 - **No nested function definitions.** Do not define functions inside other functions. Extract inner logic into separate methods on the class or standalone module-level functions.
+- **Check library docs via Context7 before implementing against an external library/SDK** (Stripe, Resend, google APIs, python-socketio, etc.). Use `resolve-library-id` then `get-library-docs` rather than guessing API signatures — SDKs change and guesses cause silent breakage.
 - Use descriptive variable names with auxiliary verbs (e.g., `is_active`, `has_permission`)
 - Use lowercase with underscores for directories and files
 - Store all magic values in `majlisna/api/constants.py`
+
+#### Performance & the event loop
+
+- **Never block the event loop with synchronous I/O.** All DB and external calls must be `await`ed async. If a dependency only exposes a blocking call (e.g. the Resend SDK's `Emails.send`), wrap it in `await asyncio.to_thread(...)` — a blocking call in an `async def` stalls every other request on that worker.
+- **Avoid N+1 queries.** Never issue one query per item in a loop; use a single `GROUP BY`/aggregate or `selectinload()` across the set. (e.g. achievement rarity is one grouped `COUNT`, not one `COUNT` per definition.)
 
 #### Route → Controller → Model
 
@@ -364,6 +371,12 @@ await session.commit()
 **Never use `BaseHTTPMiddleware`.** Use pure ASGI middleware for zero-overhead request processing.
 
 **Always use timezone-aware timestamps for values sent to the frontend.** Use `datetime.now(UTC).isoformat()` (produces `+00:00` suffix) instead of `datetime.now().isoformat()` (naive). JavaScript's `new Date()` interprets naive ISO strings as local time, causing clock skew between Docker containers (UTC) and browsers (local timezone).
+
+**DELIBERATE EXCEPTION — `RoomUserLink` timestamps (`joined_at`, `last_seen_at`, `disconnected_at`) are intentionally NAIVE. Do not "fix" them to UTC-aware.** The disconnect/heartbeat logic does Python-side datetime arithmetic on these (`datetime.now() - link.last_seen_at` in `base_game._update_heartbeat_throttled`, grace thresholds in `disconnect.py`). SQLite (dev + tests) reads `TIMESTAMP WITH TIME ZONE` columns back as **naive**, so making these columns aware would leave `datetime.now(UTC) - <naive from DB>` raising `TypeError` in every dev/SQLite run. The subsystem is kept uniformly naive on purpose; keep any new comparison in it naive too. (Values that leave the API — `Game.start_time`/`end_time`, `created_at` — stay UTC-aware as above.)
+
+**Timer expiration is triggerable by ANY player, in all four games.** `handle_timer_expired` must not require the host — it only acts when `_is_timer_actually_expired()` is true. Gating on host would stall a game whenever the host is AFK/disconnected. (`is_host` may be returned in the response for the UI, but never used to reject the call.)
+
+**Verify the OAuth token audience, never trust `userinfo` alone.** `SocialAuthService.verify_google_access_token` calls Google's `tokeninfo` and checks `aud`/`azp == GOOGLE_CLIENT_ID_WEB` before accepting a token. `userinfo` returns data for *any* valid Google token regardless of which app it was minted for, so skipping the audience check allows account takeover with a token issued to a different application.
 
 **Never use Pydantic v1 `class Config: json_encoders` in models.** Pydantic v2 serializes UUIDs to strings by default. The v1 `json_encoders = {UUID: str}` pattern creates `FieldInfoMetadata` objects that are unhashable, crashing FastAPI's OpenAPI schema generation with `TypeError: unhashable type: 'FieldInfoMetadata'`.
 

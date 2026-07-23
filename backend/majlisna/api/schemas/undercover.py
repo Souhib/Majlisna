@@ -1,10 +1,12 @@
 from uuid import UUID
 
+from pydantic import Field
+
 from majlisna.api.schemas.shared import BaseModel
 
 
 class DescriptionRequest(BaseModel):
-    word: str
+    word: str = Field(min_length=1, max_length=100)
 
 
 class VoteRequest(BaseModel):
@@ -16,7 +18,7 @@ class NextRoundRequest(BaseModel):
 
 
 class UndercoverHintViewedRequest(BaseModel):
-    word: str
+    word: str = Field(min_length=1, max_length=100)
 
 
 class DescriptionOrderEntry(BaseModel):
@@ -80,7 +82,7 @@ class WordExplanations(BaseModel):
 
 
 class MrWhiteGuessRequest(BaseModel):
-    guess_word: str
+    guess_word: str = Field(min_length=1, max_length=100)
 
 
 class MrWhiteGuessResponse(BaseModel):

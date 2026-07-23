@@ -1,3 +1,5 @@
+import asyncio
+
 import resend
 from loguru import logger
 
@@ -154,13 +156,17 @@ class EmailService:
             logger.warning("Email service not configured (no RESEND_API_KEY). Skipping email to {to}", to=to_email)
             return False
         try:
-            resend.Emails.send(
+            # The Resend SDK call is synchronous/blocking; run it off the event
+            # loop so a slow email round-trip doesn't stall other requests on
+            # hot auth paths (register, password reset).
+            await asyncio.to_thread(
+                resend.Emails.send,
                 {
                     "from": self.settings.from_email,
                     "to": [to_email],
                     "subject": subject,
                     "html": html,
-                }
+                },
             )
             logger.debug("Email sent to {to}: {subject}", to=to_email, subject=subject)
             return True

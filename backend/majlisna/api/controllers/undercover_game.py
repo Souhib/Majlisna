@@ -500,15 +500,9 @@ class UndercoverGameController(BaseGameController):
             game = await self._get_game(game_id)
             state = game.live_state
 
-            # Verify caller is host
-            is_host = await self._check_is_host(game.room_id, user_id)
-            if not is_host:
-                raise BaseError(
-                    message="Only the host can trigger timer expiration.",
-                    frontend_message="Only the host can trigger timer expiration.",
-                    status_code=403,
-                )
-
+            # Any player may trigger timer expiration (consistent with the other
+            # games); the server only acts if the timer has actually elapsed, so
+            # a game can still advance when the host is absent.
             if not self._is_timer_actually_expired(state):
                 return TimerExpiredResponse(game_id=str(game_id), action="timer_not_expired")
 

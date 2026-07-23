@@ -73,6 +73,12 @@ class Settings(BaseSettings):
     # CORS
     cors_origins: str = ""
 
+    # Auth flags
+    # When True, email/password users must verify their email before they can log
+    # in. Off by default so enabling it is a deliberate choice (requires working
+    # SMTP and a tested verification flow, and would lock out unverified accounts).
+    require_email_verification: bool = False
+
     @model_validator(mode="after")
     def validate_production_secrets(self) -> "Settings":
         """Reject the default dev JWT secret in production.

@@ -553,15 +553,16 @@ class AchievementController:
         total_users_result = await self.session.exec(select(func.count()).select_from(User))
         total_users = total_users_result.one() or 1
 
-        unlock_counts: dict[UUID, int] = {}
-        for defn in all_definitions:
-            count_result = await self.session.exec(
-                select(func.count()).where(
-                    UserAchievement.achievement_id == defn.id,
-                    UserAchievement.unlocked_at.is_not(None),  # type: ignore[union-attr]
-                )
+        # Single grouped query for unlock counts per achievement, instead of one
+        # COUNT per definition (was an N+1 across all achievement definitions).
+        unlock_rows = (
+            await self.session.exec(
+                select(UserAchievement.achievement_id, func.count())
+                .where(UserAchievement.unlocked_at.is_not(None))  # type: ignore[union-attr]
+                .group_by(UserAchievement.achievement_id)  # type: ignore[arg-type]
             )
-            unlock_counts[defn.id] = count_result.one() or 0  # type: ignore[assignment]
+        ).all()
+        unlock_counts: dict[UUID, int] = {row[0]: row[1] for row in unlock_rows}
 
         entries: list[AchievementWithProgress] = []
         for defn in all_definitions:

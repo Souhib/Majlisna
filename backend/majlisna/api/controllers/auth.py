@@ -1,6 +1,7 @@
 import re
 import secrets
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 from jose import JWTError, jwt
 from loguru import logger
@@ -24,6 +25,7 @@ from majlisna.api.models.token import EmailVerificationToken, PasswordResetToken
 from majlisna.api.models.user import UserCreate
 from majlisna.api.schemas.auth import LoginResult, LoginUserData, TokenPairResponse, TokenPayload
 from majlisna.api.schemas.error import (
+    EmailNotVerifiedError,
     InvalidCredentialsError,
     InvalidOrExpiredTokenError,
     InvalidTokenError,
@@ -166,6 +168,11 @@ class AuthController:
         if not await async_verify_password(password, user.password):
             raise InvalidCredentialsError(email=email)
 
+        # Checked only after the password is correct, so it can't be used to probe
+        # which accounts exist. Off by default (see Settings.require_email_verification).
+        if self.settings.require_email_verification and not user.email_verified:
+            raise EmailNotVerifiedError()
+
         tokens = self.create_token_pair(str(user.id), user.email_address)
         return LoginResult(
             access_token=tokens.access_token,
@@ -201,6 +208,26 @@ class AuthController:
         result = await self.session.exec(select(User).where(User.email_address == email))
         return result.first()
 
+    async def _purge_password_reset_tokens(self, user_id: UUID | None) -> None:
+        """Delete every password-reset token for a user (single-use; keeps the table bounded)."""
+        if user_id is None:
+            return
+        tokens = (
+            await self.session.exec(select(PasswordResetToken).where(PasswordResetToken.user_id == user_id))
+        ).all()
+        for reset_token in tokens:
+            await self.session.delete(reset_token)
+
+    async def _purge_email_verification_tokens(self, user_id: UUID | None) -> None:
+        """Delete every email-verification token for a user (single-use; keeps the table bounded)."""
+        if user_id is None:
+            return
+        tokens = (
+            await self.session.exec(select(EmailVerificationToken).where(EmailVerificationToken.user_id == user_id))
+        ).all()
+        for verify_token in tokens:
+            await self.session.delete(verify_token)
+
     async def request_password_reset(self, email: str, email_service: EmailService) -> bool:
         """Generate a password reset token and send email."""
         user = await self.get_user_by_email(email)
@@ -209,6 +236,8 @@ class AuthController:
             logger.debug("Password reset requested for unknown email")
             return True
 
+        # Only one active reset token per user; drops any prior/stale ones.
+        await self._purge_password_reset_tokens(user.id)
         token = secrets.token_urlsafe(32)
         expires_at = datetime.now(UTC) + timedelta(hours=PASSWORD_RESET_TOKEN_EXPIRE_HOURS)
         reset_token = PasswordResetToken(user_id=user.id, token=token, expires_at=expires_at)
@@ -233,14 +262,16 @@ class AuthController:
             raise UserNotFoundError(user_id=reset_token.user_id)
 
         user.password = await async_get_password_hash(new_password)
-        reset_token.used = True
         self.session.add(user)
-        self.session.add(reset_token)
+        # Single-use: consume this token and drop any others for the user.
+        await self._purge_password_reset_tokens(reset_token.user_id)
         await self.session.commit()
         return True
 
     async def send_verification_email(self, user: User, email_service: EmailService) -> bool:
         """Generate verification token and send email."""
+        # Only one active verification token per user; drops any prior/stale ones.
+        await self._purge_email_verification_tokens(user.id)
         token = secrets.token_urlsafe(32)
         expires_at = datetime.now(UTC) + timedelta(hours=EMAIL_VERIFICATION_TOKEN_EXPIRE_HOURS)
         verify_token = EmailVerificationToken(user_id=user.id, token=token, expires_at=expires_at)
@@ -267,9 +298,9 @@ class AuthController:
             raise UserNotFoundError(user_id=verify_token.user_id)
 
         user.email_verified = True
-        verify_token.used = True
         self.session.add(user)
-        self.session.add(verify_token)
+        # Single-use: consume this token and drop any others for the user.
+        await self._purge_email_verification_tokens(verify_token.user_id)
         await self.session.commit()
         return True
 

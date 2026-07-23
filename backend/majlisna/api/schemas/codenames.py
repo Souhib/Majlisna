@@ -10,8 +10,8 @@ class StartCodenamesRequest(BaseModel):
 
 
 class GiveClueRequest(BaseModel):
-    clue_word: str
-    clue_number: int = Field(ge=0)
+    clue_word: str = Field(min_length=1, max_length=50)
+    clue_number: int = Field(ge=0, le=25)
 
 
 class GuessCardRequest(BaseModel):
@@ -19,7 +19,7 @@ class GuessCardRequest(BaseModel):
 
 
 class CodenamesHintViewedRequest(BaseModel):
-    word: str
+    word: str = Field(min_length=1, max_length=100)
 
 
 class GiveClueResponse(BaseModel):

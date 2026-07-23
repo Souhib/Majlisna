@@ -1,3 +1,5 @@
+from pydantic import Field
+
 from majlisna.api.schemas.shared import BaseModel
 
 
@@ -28,7 +30,7 @@ class QuizWordCreate(BaseModel):
 
 
 class SubmitAnswerRequest(BaseModel):
-    answer: str
+    answer: str = Field(min_length=1, max_length=100)
 
 
 class SubmitAnswerResponse(BaseModel):

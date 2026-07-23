@@ -93,6 +93,17 @@ class InvalidCredentialsError(BaseError):
         )
 
 
+class EmailNotVerifiedError(BaseError):
+    """Login blocked because the account's email has not been verified."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            message="Email address not verified",
+            frontend_message="Please verify your email address before logging in.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
+
+
 class UnauthorizedError(BaseError):
     """User is not authenticated."""
 
