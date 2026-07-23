@@ -192,20 +192,24 @@ async def test_concurrent_descriptions_only_current_describer_succeeds(
     ]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    # Assert — exactly one success (the current describer), others raise BaseError
+    # Assert — a player can only describe on their turn; the lock serializes the
+    # concurrent submissions, so the successful describers are always a PREFIX of
+    # the description order. (If the tasks happen to serialize in order, all five
+    # succeed — a valid outcome — so we do NOT require a failure, which would be a
+    # timing-dependent, flaky assertion.)
     successes = []
-    errors = []
     for uid, r in zip(all_player_ids, results, strict=False):
         if isinstance(r, BaseError):
-            errors.append(uid)
-        elif isinstance(r, Exception):
+            continue  # out-of-turn submission, correctly rejected
+        if isinstance(r, Exception):
             pytest.fail(f"Unexpected exception type from {uid}: {type(r).__name__}: {r}")
-        else:
-            successes.append(uid)
+        successes.append(uid)
 
     assert current_describer in successes, "Current describer should have succeeded"
     assert len(successes) >= 1, f"Expected at least 1 success but got {len(successes)}"
-    assert len(errors) >= 1, "At least one non-describer should have failed"
+    assert set(successes) == set(order[: len(successes)]), (
+        f"Successful describers {successes} are not a valid prefix of the description order {order}"
+    )
     # Every success must be a player in the description order (sequentially valid)
     for s in successes:
         assert s in order, f"Successful describer {s} not in description order"
