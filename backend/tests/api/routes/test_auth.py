@@ -284,7 +284,7 @@ def test_refresh_token_success(test_app: FastAPI, client: TestClient):
     assert data["refresh_token"] == "new.refresh.token"
     assert data["token_type"] == "bearer"
 
-    mock_controller.decode_token.assert_called_once_with("old.refresh.token")
+    mock_controller.decode_token.assert_called_once_with("old.refresh.token", expected_type="refresh")
     mock_controller.create_token_pair.assert_called_once_with("user-123", "test@example.com")
 
     test_app.dependency_overrides.clear()

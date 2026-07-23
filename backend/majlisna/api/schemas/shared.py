@@ -38,5 +38,8 @@ class BaseTable(BaseModel):
     updated_at: datetime = Field(
         default_factory=lambda: datetime.now(UTC),
         sa_type=TIMESTAMP(timezone=True),  # type: ignore[invalid-argument-type]
+        # onupdate makes SQLAlchemy refresh this on every UPDATE; without it the
+        # column stays frozen at the created_at value forever.
+        sa_column_kwargs={"onupdate": lambda: datetime.now(UTC)},
         description="Timestamp when the record was last updated (UTC)",
     )

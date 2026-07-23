@@ -109,7 +109,9 @@ class McqQuizGameController(BaseGameController):
                         "turn_duration": turn_duration,
                         "difficulty": difficulty,
                     },
-                )
+                ),
+                # One transaction: hold the room lock until active_game_id commits.
+                commit=False,
             )
 
             db_game.live_state = live_state

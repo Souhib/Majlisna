@@ -4,6 +4,7 @@ import asyncio
 from uuid import UUID
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -18,13 +19,31 @@ from majlisna.api.schemas.error import AlreadyAnsweredError, BaseError, NotYourT
 # ─── Helpers ──────────────────────────────────────────────────
 
 
+async def _mutate(engine: AsyncEngine, controller_cls, method: str, *args):
+    """Run ONE mutating controller call in its own fresh session.
+
+    A single AsyncSession (and its underlying asyncpg connection) must not be
+    driven by several asyncio tasks at once — doing so raises errors like
+    "this transaction is closed". Production gives every request its own session
+    via the get_session dependency, so the game's advisory lock serializes the
+    mutations across *distinct* connections. Concurrency tests must replicate
+    that (a session per task) instead of sharing one session across gather().
+    """
+    async with AsyncSession(engine, expire_on_commit=False) as concurrent_session:
+        controller = controller_cls(concurrent_session)
+        return await getattr(controller, method)(*args)
+
+
 async def _start_game(controller, room_id, user_id):
     """Start a game and return the result."""
     return await controller.create_and_start(room_id, user_id)
 
 
 async def _get_game(session: AsyncSession, game_id_str: str) -> Game:
-    """Fetch a game by its string ID."""
+    """Fetch a game by its string ID (expires the session first to avoid a stale snapshot)."""
+    # After concurrent tasks committed on other connections, the passed-in
+    # session may still hold their pre-mutation snapshot / cached instances.
+    await session.rollback()
     game = (await session.exec(select(Game).where(Game.id == UUID(game_id_str)))).first()
     return game
 
@@ -68,6 +87,7 @@ async def test_concurrent_votes_all_recorded(
     undercover_game_controller: UndercoverGameController,
     setup_undercover_game,
     session: AsyncSession,
+    engine: AsyncEngine,
 ):
     """All 4 non-target players vote for the same target simultaneously — all votes recorded."""
     # Prepare
@@ -81,9 +101,10 @@ async def test_concurrent_votes_all_recorded(
     voters = [p for p in alive if p["user_id"] != target["user_id"]]
     game_uuid = UUID(result.game_id)
 
-    # Act — all 4 voters vote simultaneously
+    # Act — all 4 voters vote simultaneously, each in its own session
     tasks = [
-        undercover_game_controller.submit_vote(game_uuid, UUID(v["user_id"]), UUID(target["user_id"])) for v in voters
+        _mutate(engine, UndercoverGameController, "submit_vote", game_uuid, UUID(v["user_id"]), UUID(target["user_id"]))
+        for v in voters
     ]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -104,6 +125,7 @@ async def test_concurrent_votes_trigger_elimination_exactly_once(
     undercover_game_controller: UndercoverGameController,
     setup_undercover_game,
     session: AsyncSession,
+    engine: AsyncEngine,
 ):
     """All vote for same target simultaneously — target eliminated exactly once."""
     # Prepare
@@ -121,8 +143,13 @@ async def test_concurrent_votes_trigger_elimination_exactly_once(
     # Target votes for a random other player first
     other = next(p for p in alive if p["user_id"] != target["user_id"])
     tasks = [
-        undercover_game_controller.submit_vote(game_uuid, UUID(target["user_id"]), UUID(other["user_id"])),
-    ] + [undercover_game_controller.submit_vote(game_uuid, UUID(v["user_id"]), UUID(target["user_id"])) for v in voters]
+        _mutate(
+            engine, UndercoverGameController, "submit_vote", game_uuid, UUID(target["user_id"]), UUID(other["user_id"])
+        ),
+    ] + [
+        _mutate(engine, UndercoverGameController, "submit_vote", game_uuid, UUID(v["user_id"]), UUID(target["user_id"]))
+        for v in voters
+    ]
     await asyncio.gather(*tasks, return_exceptions=True)
 
     # Assert — target eliminated exactly once
@@ -144,6 +171,7 @@ async def test_concurrent_descriptions_only_current_describer_succeeds(
     undercover_game_controller: UndercoverGameController,
     setup_undercover_game,
     session: AsyncSession,
+    engine: AsyncEngine,
 ):
     """All 5 players submit description simultaneously — only the current describer succeeds."""
     # Prepare
@@ -156,9 +184,12 @@ async def test_concurrent_descriptions_only_current_describer_succeeds(
     current_describer = order[0]
     game_uuid = UUID(result.game_id)
 
-    # Act — all 5 players try to describe simultaneously
+    # Act — all 5 players try to describe simultaneously, each in its own session
     all_player_ids = [p["user_id"] for p in state["players"]]
-    tasks = [undercover_game_controller.submit_description(game_uuid, UUID(uid), "testword") for uid in all_player_ids]
+    tasks = [
+        _mutate(engine, UndercoverGameController, "submit_description", game_uuid, UUID(uid), "testword")
+        for uid in all_player_ids
+    ]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     # Assert — exactly one success (the current describer), others raise BaseError
@@ -188,6 +219,7 @@ async def test_concurrent_quiz_answers_all_recorded(
     wordquiz_game_controller: WordQuizGameController,
     setup_wordquiz_game,
     session: AsyncSession,
+    engine: AsyncEngine,
 ):
     """3 players submit the correct answer simultaneously — all answers stored, scores correct."""
     # Prepare
@@ -200,8 +232,11 @@ async def test_concurrent_quiz_answers_all_recorded(
     game_uuid = UUID(result.game_id)
     player_ids = [p["user_id"] for p in state["players"]]
 
-    # Act — all 3 players submit correct answer simultaneously
-    tasks = [wordquiz_game_controller.submit_answer(game_uuid, UUID(uid), correct_answer) for uid in player_ids]
+    # Act — all 3 players submit correct answer simultaneously, each in its own session
+    tasks = [
+        _mutate(engine, WordQuizGameController, "submit_answer", game_uuid, UUID(uid), correct_answer)
+        for uid in player_ids
+    ]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     # Assert — no unexpected exceptions
@@ -225,6 +260,7 @@ async def test_concurrent_mcq_answers_one_per_player(
     mcqquiz_game_controller: McqQuizGameController,
     setup_mcqquiz_game,
     session: AsyncSession,
+    engine: AsyncEngine,
 ):
     """One player submits the same MCQ answer twice simultaneously — only first counts."""
     # Prepare
@@ -237,10 +273,10 @@ async def test_concurrent_mcq_answers_one_per_player(
     game_uuid = UUID(result.game_id)
     double_submitter = state["players"][0]["user_id"]
 
-    # Act — same player submits twice simultaneously
+    # Act — same player submits twice simultaneously, each in its own session
     tasks = [
-        mcqquiz_game_controller.submit_answer(game_uuid, UUID(double_submitter), correct_index),
-        mcqquiz_game_controller.submit_answer(game_uuid, UUID(double_submitter), correct_index),
+        _mutate(engine, McqQuizGameController, "submit_answer", game_uuid, UUID(double_submitter), correct_index),
+        _mutate(engine, McqQuizGameController, "submit_answer", game_uuid, UUID(double_submitter), correct_index),
     ]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -268,6 +304,7 @@ async def test_concurrent_codenames_guesses(
     codenames_game_controller: CodenamesGameController,
     setup_codenames_game,
     session: AsyncSession,
+    engine: AsyncEngine,
 ):
     """After a clue, the non-current-team operative is rejected while the current team operative succeeds."""
     # Prepare
@@ -293,10 +330,19 @@ async def test_concurrent_codenames_guesses(
     board = game.live_state["board"]
     unrevealed_index = next(i for i, card in enumerate(board) if not card["revealed"])
 
-    # Act — both operatives try to guess simultaneously
+    # Act — both operatives try to guess simultaneously, each in its own session
     tasks = [
-        codenames_game_controller.guess_card(game_uuid, UUID(current_operative["user_id"]), unrevealed_index),
-        codenames_game_controller.guess_card(game_uuid, UUID(other_operative["user_id"]), unrevealed_index),
+        _mutate(
+            engine,
+            CodenamesGameController,
+            "guess_card",
+            game_uuid,
+            UUID(current_operative["user_id"]),
+            unrevealed_index,
+        ),
+        _mutate(
+            engine, CodenamesGameController, "guess_card", game_uuid, UUID(other_operative["user_id"]), unrevealed_index
+        ),
     ]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -316,6 +362,7 @@ async def test_lock_contention_no_deadlock(
     undercover_game_controller: UndercoverGameController,
     setup_undercover_game,
     session: AsyncSession,
+    engine: AsyncEngine,
 ):
     """Submit all 5 votes simultaneously with asyncio.wait_for — completes within timeout (no deadlock)."""
     # Prepare — single game, all concurrent votes on the same lock
@@ -327,12 +374,14 @@ async def test_lock_contention_no_deadlock(
     target = alive[0]
     game_uuid = UUID(result.game_id)
 
-    # Build vote tasks — target votes for someone else, rest vote for target
+    # Build vote tasks — target votes for someone else, rest vote for target — each in its own session
     other = next(p for p in alive if p["user_id"] != target["user_id"])
     tasks = [
-        undercover_game_controller.submit_vote(game_uuid, UUID(target["user_id"]), UUID(other["user_id"])),
+        _mutate(
+            engine, UndercoverGameController, "submit_vote", game_uuid, UUID(target["user_id"]), UUID(other["user_id"])
+        ),
     ] + [
-        undercover_game_controller.submit_vote(game_uuid, UUID(p["user_id"]), UUID(target["user_id"]))
+        _mutate(engine, UndercoverGameController, "submit_vote", game_uuid, UUID(p["user_id"]), UUID(target["user_id"]))
         for p in alive
         if p["user_id"] != target["user_id"]
     ]

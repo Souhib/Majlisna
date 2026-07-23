@@ -82,6 +82,10 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://majlisna:${DB_PASSWORD}@pgbouncer:6432/majlisna
       REDIS_URL: redis://redis:6379/0
+      # Shared rate-limit counters across uvicorn workers (db 1, isolated from the
+      # Socket.IO pub/sub on db 0). Without this, slowapi keeps per-worker counters
+      # and the real limit becomes workers× the configured value.
+      RATE_LIMIT_STORAGE_URI: ${RATE_LIMIT_STORAGE_URI:-redis://redis:6379/1}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY}
       JWT_ENCRYPTION_ALGORITHM: HS256
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-15}

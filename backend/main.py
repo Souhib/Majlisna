@@ -5,7 +5,7 @@ import uvicorn
 from fastapi import FastAPI
 
 from majlisna.app import create_app
-from majlisna.database import create_app_engine, create_db_and_tables
+from majlisna.database import create_app_engine, create_db_and_tables, dispose_engine
 from majlisna.logger_config import configure_logger
 from majlisna.settings import Settings
 
@@ -40,7 +40,7 @@ async def lifespan(app: FastAPI):
         await checker_task
     except asyncio.CancelledError:
         pass
-    await engine.dispose()
+    await dispose_engine()
 
 
 app = create_app(lifespan=lifespan)

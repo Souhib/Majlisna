@@ -45,7 +45,20 @@ class BaseGameController:
         """
         db_room = await self._room_controller.get_room_by_id(room_id)
 
-        if db_room.active_game_id:
+        # Authoritative active-game check. The caller holds the room advisory
+        # lock, which serializes execution, but under READ COMMITTED a second
+        # concurrent starter can still read a stale active_game_id from an older
+        # MVCC snapshot (a plain SELECT returned None even after the first game
+        # had committed). SELECT ... FOR UPDATE takes a row lock and returns the
+        # latest committed row version, closing that window. SQLite ignores
+        # FOR UPDATE, so fall back to the value already loaded above.
+        active_game_id = db_room.active_game_id
+        if self.session.bind is not None and self.session.bind.dialect.name == "postgresql":
+            active_game_id = (
+                await self.session.execute(select(Room.active_game_id).where(Room.id == room_id).with_for_update())
+            ).scalar_one()
+
+        if active_game_id:
             raise BaseError(
                 message=f"Room {room_id} already has an active game",
                 frontend_message="A game is already in progress.",

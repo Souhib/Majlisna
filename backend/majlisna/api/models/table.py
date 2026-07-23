@@ -1,8 +1,8 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import JSON, Column, ForeignKey
+from sqlalchemy import JSON, TIMESTAMP, Column, ForeignKey
 from sqlmodel import Field, Relationship
 
 from majlisna.api.models.challenge import ChallengeDefinition, UserChallenge  # noqa: F401
@@ -31,7 +31,10 @@ class Room(RoomBase, table=True):
     id: UUID | None = Field(default_factory=uuid4, primary_key=True, unique=True)
     public_id: str = Field(min_length=5, max_length=5, unique=True, index=True)
     owner_id: UUID | None = Field(default=None, foreign_key="user.id", nullable=False, index=True)
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC),
+        sa_type=TIMESTAMP(timezone=True),  # type: ignore[call-overload]
+    )
     type: RoomType = RoomType.ACTIVE
     settings: dict | None = Field(default=None, sa_column=Column(JSON))
     active_game_id: UUID | None = Field(
@@ -69,7 +72,10 @@ class Event(DBModel, table=True):
     data: dict[str, Any] = Field(sa_column=Column(JSON))
     turn_id: UUID | None = Field(foreign_key="turn.id")
     user_id: UUID | None = Field(foreign_key="user.id")
-    timestamp: datetime = Field(default_factory=datetime.now)
+    timestamp: datetime = Field(
+        default_factory=lambda: datetime.now(UTC),
+        sa_type=TIMESTAMP(timezone=True),  # type: ignore[call-overload]
+    )
     turn: "Turn" = Relationship(back_populates="events", link_model=TurnEventLink)
 
 
@@ -79,7 +85,10 @@ class Activity(DBModel, table=True):
     user_id: UUID | None = Field(foreign_key="user.id")
     name: str
     data: dict[str, Any] = Field(sa_column=Column(JSON))
-    timestamp: datetime = Field(default_factory=datetime.now)
+    timestamp: datetime = Field(
+        default_factory=lambda: datetime.now(UTC),
+        sa_type=TIMESTAMP(timezone=True),  # type: ignore[call-overload]
+    )
     room: "Room" = Relationship(back_populates="activities", link_model=RoomActivityLink)
 
 

@@ -2,11 +2,18 @@ from majlisna.api.schemas.shared import BaseModel
 
 
 class TokenPayload(BaseModel):
-    """JWT token payload."""
+    """JWT token payload.
+
+    `type` distinguishes access tokens from refresh tokens. It is optional so
+    that legacy tokens (issued before token typing) still decode, but the
+    consumers that care (get_current_user, /refresh, Socket.IO) pass an
+    `expected_type` to `decode_token` and reject a mismatch.
+    """
 
     sub: str  # user_id
     email: str
     exp: int
+    type: str | None = None
 
 
 class TokenPairResponse(BaseModel):

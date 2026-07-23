@@ -198,6 +198,41 @@ async def test_decode_token_valid(auth_controller: AuthController):
     assert payload.exp > 0
 
 
+async def test_access_and_refresh_tokens_carry_type_claim(auth_controller: AuthController, test_settings: Settings):
+    """Access and refresh tokens embed distinct `type` claims."""
+    # Arrange / Act
+    access = auth_controller.create_access_token("u1", "u1@test.com")
+    refresh = auth_controller.create_refresh_token("u1", "u1@test.com")
+
+    # Assert
+    access_payload = jwt.decode(
+        access, test_settings.jwt_secret_key, algorithms=[test_settings.jwt_encryption_algorithm]
+    )
+    refresh_payload = jwt.decode(
+        refresh, test_settings.jwt_secret_key, algorithms=[test_settings.jwt_encryption_algorithm]
+    )
+    assert access_payload["type"] == "access"
+    assert refresh_payload["type"] == "refresh"
+
+
+async def test_decode_token_rejects_wrong_type(auth_controller: AuthController):
+    """A refresh token is rejected when an access token is expected, and vice versa."""
+    # Arrange
+    access = auth_controller.create_access_token("u1", "u1@test.com")
+    refresh = auth_controller.create_refresh_token("u1", "u1@test.com")
+
+    # Act & Assert — refresh token cannot authenticate API calls
+    with pytest.raises(InvalidTokenError):
+        auth_controller.decode_token(refresh, expected_type="access")
+    # Access token cannot mint a new token pair at /refresh
+    with pytest.raises(InvalidTokenError):
+        auth_controller.decode_token(access, expected_type="refresh")
+
+    # Sanity: matching types decode fine
+    assert auth_controller.decode_token(access, expected_type="access").type == "access"
+    assert auth_controller.decode_token(refresh, expected_type="refresh").type == "refresh"
+
+
 async def test_decode_token_expired(auth_controller: AuthController, test_settings: Settings):
     """Decoding an expired token raises TokenExpiredError."""
     # Arrange

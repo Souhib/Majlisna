@@ -1,4 +1,3 @@
-from datetime import datetime
 from uuid import UUID, uuid4
 
 from sqlmodel import Field
@@ -12,4 +11,4 @@ class ChatMessage(BaseTable, table=True):
     user_id: UUID = Field(foreign_key="user.id")
     username: str
     message: str = Field(max_length=500)
-    created_at: datetime = Field(default_factory=datetime.now)
+    # created_at / updated_at (UTC-aware) are inherited from BaseTable.

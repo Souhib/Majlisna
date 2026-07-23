@@ -4,7 +4,7 @@ from loguru import logger
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from majlisna.api.controllers.auth import AuthController
+from majlisna.api.controllers.auth import TOKEN_TYPE_ACCESS, AuthController
 from majlisna.api.controllers.disconnect import mark_user_disconnected, update_heartbeat
 from majlisna.api.models.relationship import RoomUserLink
 from majlisna.api.models.table import Game
@@ -32,7 +32,7 @@ async def connect(sid, environ, auth):  # noqa: ARG001
         engine = await get_engine()
         async with AsyncSession(engine) as session:
             auth_controller = AuthController(session, Settings())  # type: ignore
-            payload = auth_controller.decode_token(token)
+            payload = auth_controller.decode_token(token, expected_type=TOKEN_TYPE_ACCESS)
             user = await auth_controller.get_user_by_email(payload.email)
             if user is None:
                 raise ConnectionRefusedError("User not found")

@@ -98,7 +98,9 @@ class CodenamesGameController(BaseGameController):
                         "word_pack_ids": [str(pid) for pid in word_pack_ids] if word_pack_ids else [],
                         "board_words": word_strings,
                     },
-                )
+                ),
+                # One transaction: hold the room lock until active_game_id commits.
+                commit=False,
             )
 
             live_state = {

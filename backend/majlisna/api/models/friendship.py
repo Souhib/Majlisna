@@ -1,4 +1,3 @@
-from datetime import datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
 
@@ -20,5 +19,4 @@ class Friendship(BaseTable, table=True):
     requester_id: UUID = Field(foreign_key="user.id", index=True)
     addressee_id: UUID = Field(foreign_key="user.id", index=True)
     status: FriendshipStatus = FriendshipStatus.PENDING
-    created_at: datetime = Field(default_factory=datetime.now)
-    updated_at: datetime = Field(default_factory=datetime.now)
+    # created_at / updated_at (UTC-aware, with onupdate) are inherited from BaseTable.

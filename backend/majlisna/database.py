@@ -9,12 +9,22 @@ _engine: AsyncEngine | None = None
 
 
 async def create_app_engine(settings: Settings) -> AsyncEngine:
-    """Create an async database engine with connection pooling."""
+    """Create (once) the async database engine with connection pooling.
+
+    Stores the result in the module-level singleton so that the app lifespan
+    and the request dependencies share a SINGLE engine/pool. Previously the
+    lifespan created its own engine while `get_engine()` created a second one,
+    doubling the connection pool and leaking the second on shutdown.
+    """
+    global _engine  # noqa: PLW0603
+    if _engine is not None:
+        return _engine
+
     connect_args = {}
     if "postgresql" in settings.database_url:
         connect_args["prepared_statement_cache_size"] = 0  # Required for PgBouncer transaction pooling
 
-    engine = create_async_engine(
+    _engine = create_async_engine(
         settings.database_url,
         poolclass=AsyncAdaptedQueuePool,
         pool_size=10,
@@ -25,16 +35,23 @@ async def create_app_engine(settings: Settings) -> AsyncEngine:
         echo=False,
         connect_args=connect_args,
     )
-    return engine
+    return _engine
 
 
 async def get_engine() -> AsyncEngine:
-    """Get or create the database engine singleton."""
-    global _engine  # noqa: PLW0603
+    """Get or create the shared database engine singleton."""
     if _engine is None:
         settings = Settings()  # type: ignore
-        _engine = await create_app_engine(settings)
+        return await create_app_engine(settings)
     return _engine
+
+
+async def dispose_engine() -> None:
+    """Dispose the shared engine and reset the singleton (used on app shutdown)."""
+    global _engine  # noqa: PLW0603
+    if _engine is not None:
+        await _engine.dispose()
+        _engine = None
 
 
 async def create_db_and_tables(engine: AsyncEngine, drop_all: bool = False) -> None:

@@ -30,11 +30,24 @@ class GameController:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def create_game(self, game_create: GameCreate) -> Game:
+    async def _persist(self, *, commit: bool) -> None:
+        """Commit when running standalone, or only flush when part of a caller's transaction.
+
+        Passing commit=False lets a caller (e.g. create_and_start, which holds a room
+        advisory lock) keep everything in ONE transaction so the lock and the
+        active_game_id write are atomic. Committing mid-way would release the lock early.
+        """
+        if commit:
+            await self.session.commit()
+        else:
+            await self.session.flush()
+
+    async def create_game(self, game_create: GameCreate, *, commit: bool = True) -> Game:
         """
         Create a game. If the room is not active, raise an RoomIsNotActiveError exception.
 
         :param game_create: The game to create.
+        :param commit: Commit when True (default); flush only when the caller owns the transaction.
         :return: The created game.
         """
         new_game = Game(**game_create.model_dump())
@@ -44,14 +57,14 @@ class GameController:
         if room.type != RoomType.ACTIVE:
             raise RoomIsNotActiveError(room_id=room.id)  # type: ignore
         self.session.add(new_game)
-        await self.session.commit()
+        await self.session.flush()
         await self.session.refresh(new_game)
         room_game_link = RoomGameLink(room_id=new_game.room_id, game_id=new_game.id)
         for user in room.users:
             user_game_link = UserGameLink(user_id=user.id, game_id=new_game.id)
             self.session.add(user_game_link)
         self.session.add(room_game_link)
-        await self.session.commit()
+        await self._persist(commit=commit)
         return new_game
 
     async def get_games(self) -> Sequence[Game]:
@@ -267,11 +280,12 @@ class GameController:
             word_explanations=word_explanations,
         )
 
-    async def create_turn(self, game_id: UUID) -> Turn:
+    async def create_turn(self, game_id: UUID, *, commit: bool = True) -> Turn:
         """
         Create a turn. If the game does not exist, raise a NoResultFound exception.
 
         :param game_id: The id of the game to create a turn for.
+        :param commit: Commit when True (default); flush only when the caller owns the transaction.
         :return: None
         """
         try:
@@ -280,21 +294,22 @@ class GameController:
                 game_id=db_game.id,
             )
             self.session.add(turn)
-            await self.session.commit()
+            await self.session.flush()
             await self.session.refresh(turn)
             turn_game_link = GameTurnLink(game_id=db_game.id, turn_id=turn.id)
             self.session.add(turn_game_link)
-            await self.session.commit()
+            await self._persist(commit=commit)
             return turn
         except NoResultFound:
             raise GameNotFoundError(game_id=game_id) from None
 
-    async def create_turn_event(self, game_id: UUID, event_create: EventCreate) -> Event:
+    async def create_turn_event(self, game_id: UUID, event_create: EventCreate, *, commit: bool = True) -> Event:
         """
         Create an event. If the game does not exist, raise a NoResultFound exception.
 
         :param game_id: The id of the game to create an event for.
         :param event_create: The event to create.
+        :param commit: Commit when True (default); flush only when the caller owns the transaction.
         :return: Event (TurnEvent or RoomEvent)
         """
         try:
@@ -313,11 +328,11 @@ class GameController:
                 user_id=event_create.user_id,
             )
             self.session.add(event)
-            await self.session.commit()
+            await self.session.flush()
             await self.session.refresh(event)
             turn_event_link = TurnEventLink(turn_id=latest_turn.id, event_id=event.id)
             self.session.add(turn_event_link)
-            await self.session.commit()
+            await self._persist(commit=commit)
             return event
         except NoResultFound:
             raise GameNotFoundError(game_id=game_id) from None

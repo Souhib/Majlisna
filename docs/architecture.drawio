@@ -100,25 +100,25 @@
         <mxCell id="umami" value="📊 Umami" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#8E44AD;fontColor=#ffffff;strokeColor=none;fontStyle=1;fontSize=11;arcSize=15;shadow=1;" vertex="1" parent="1">
           <mxGeometry x="960" y="540" width="110" height="35" as="geometry"/>
         </mxCell>
-        <mxCell id="umami_sub" value="Web Analytics&#xa;analytics.majlisna.app&#xa;Own PostgreSQL DB" style="text;html=1;align=center;verticalAlign=top;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=9;fontColor=#7D3C98;" vertex="1" parent="1">
+        <mxCell id="umami_sub" value="Web Analytics&#xa;SSO-protected&#xa;Own PostgreSQL DB" style="text;html=1;align=center;verticalAlign=top;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=9;fontColor=#7D3C98;" vertex="1" parent="1">
           <mxGeometry x="955" y="580" width="120" height="50" as="geometry"/>
         </mxCell>
         <mxCell id="glitchtip" value="🐛 GlitchTip" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#A569BD;fontColor=#ffffff;strokeColor=none;fontStyle=1;fontSize=11;arcSize=15;shadow=1;" vertex="1" parent="1">
           <mxGeometry x="1100" y="540" width="110" height="35" as="geometry"/>
         </mxCell>
-        <mxCell id="glitchtip_sub" value="Error Tracking&#xa;glitchtip.majlisna.app&#xa;PG + Redis + Worker" style="text;html=1;align=center;verticalAlign=top;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=9;fontColor=#7D3C98;" vertex="1" parent="1">
+        <mxCell id="glitchtip_sub" value="Error Tracking&#xa;SSO-protected&#xa;PG + Redis + Worker" style="text;html=1;align=center;verticalAlign=top;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=9;fontColor=#7D3C98;" vertex="1" parent="1">
           <mxGeometry x="1095" y="580" width="120" height="50" as="geometry"/>
         </mxCell>
         <mxCell id="dozzle" value="📋 Dozzle" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#7D3C98;fontColor=#ffffff;strokeColor=none;fontStyle=1;fontSize=11;arcSize=15;shadow=1;" vertex="1" parent="1">
           <mxGeometry x="1240" y="540" width="110" height="35" as="geometry"/>
         </mxCell>
-        <mxCell id="dozzle_sub" value="Docker Logs&#xa;dozzle.majlisna.app" style="text;html=1;align=center;verticalAlign=top;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=9;fontColor=#7D3C98;" vertex="1" parent="1">
+        <mxCell id="dozzle_sub" value="Docker Logs&#xa;SSO-protected" style="text;html=1;align=center;verticalAlign=top;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=9;fontColor=#7D3C98;" vertex="1" parent="1">
           <mxGeometry x="1245" y="580" width="110" height="30" as="geometry"/>
         </mxCell>
         <mxCell id="kuma" value="💓 Uptime Kuma" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#6C3483;fontColor=#ffffff;strokeColor=none;fontStyle=1;fontSize=11;arcSize=15;shadow=1;" vertex="1" parent="1">
           <mxGeometry x="1380" y="540" width="120" height="35" as="geometry"/>
         </mxCell>
-        <mxCell id="kuma_sub" value="Uptime Monitoring&#xa;kuma.majlisna.app&#xa;HTTP health checks" style="text;html=1;align=center;verticalAlign=top;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=9;fontColor=#7D3C98;" vertex="1" parent="1">
+        <mxCell id="kuma_sub" value="Uptime Monitoring&#xa;SSO-protected&#xa;HTTP health checks" style="text;html=1;align=center;verticalAlign=top;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=9;fontColor=#7D3C98;" vertex="1" parent="1">
           <mxGeometry x="1380" y="580" width="120" height="50" as="geometry"/>
         </mxCell>
 

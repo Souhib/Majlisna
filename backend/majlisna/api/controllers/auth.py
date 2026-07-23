@@ -35,6 +35,17 @@ from majlisna.api.services.email import EmailService
 from majlisna.api.services.social_auth import SocialAuthService
 from majlisna.settings import Settings
 
+# JWT `type` claim values, used to keep access and refresh tokens from being
+# used interchangeably (a refresh token must not authenticate API calls, and an
+# access token must not mint a new token pair at /refresh).
+TOKEN_TYPE_ACCESS = "access"
+TOKEN_TYPE_REFRESH = "refresh"
+
+# Precomputed bcrypt hash used only to equalize login response time when the
+# email is unknown, so an attacker can't enumerate accounts by timing. Never
+# matches any real password.
+_DUMMY_PASSWORD_HASH = "$2b$12$crI5y/d5tqE1WJc6OVnBvOpy.Qj7TL6eITLs6R0pNjaB5mAoLRBFq"
+
 
 class AuthController:
     """Controller for authentication operations."""
@@ -76,6 +87,7 @@ class AuthController:
             "sub": user_id,
             "email": email,
             "exp": expire,
+            "type": TOKEN_TYPE_ACCESS,
         }
         return jwt.encode(payload, self.settings.jwt_secret_key, algorithm=self.settings.jwt_encryption_algorithm)
 
@@ -91,6 +103,7 @@ class AuthController:
             "sub": user_id,
             "email": email,
             "exp": expire,
+            "type": TOKEN_TYPE_REFRESH,
         }
         return jwt.encode(payload, self.settings.jwt_secret_key, algorithm=self.settings.jwt_encryption_algorithm)
 
@@ -106,12 +119,16 @@ class AuthController:
             refresh_token=self.create_refresh_token(user_id, email),
         )
 
-    def decode_token(self, token: str) -> TokenPayload:
+    def decode_token(self, token: str, expected_type: str | None = None) -> TokenPayload:
         """Decode and validate a JWT token.
 
         :param token: The JWT token string to decode.
+        :param expected_type: If given ("access" or "refresh"), reject a token
+            whose `type` claim does not match. Callers that don't care (e.g.
+            unit tests) omit it and no type check is performed.
         :return: TokenPayload with the decoded claims.
-        :raises InvalidTokenError: If the token is malformed or invalid.
+        :raises InvalidTokenError: If the token is malformed, invalid, or of the
+            wrong type.
         :raises TokenExpiredError: If the token has expired.
         """
         try:
@@ -120,11 +137,15 @@ class AuthController:
                 self.settings.jwt_secret_key,
                 algorithms=[self.settings.jwt_encryption_algorithm],
             )
-            return TokenPayload(**payload)
+            token_payload = TokenPayload(**payload)
         except JWTError as e:
             if "expired" in str(e).lower():
                 raise TokenExpiredError() from e
             raise InvalidTokenError() from e
+
+        if expected_type is not None and token_payload.type != expected_type:
+            raise InvalidTokenError()
+        return token_payload
 
     async def login(self, email: str, password: str) -> LoginResult:
         """Authenticate a user and return tokens with user data.
@@ -135,10 +156,11 @@ class AuthController:
         :raises InvalidCredentialsError: If the email or password is incorrect.
         """
         user = await self.get_user_by_email(email)
-        if user is None:
-            raise InvalidCredentialsError(email=email)
-
-        if user.auth_provider != AUTH_PROVIDER_EMAIL:
+        if user is None or user.auth_provider != AUTH_PROVIDER_EMAIL:
+            # Run a bcrypt verify against a dummy hash so the response time for
+            # an unknown / non-password account matches the wrong-password path,
+            # preventing account enumeration by timing.
+            await async_verify_password(password, _DUMMY_PASSWORD_HASH)
             raise InvalidCredentialsError(email=email)
 
         if not await async_verify_password(password, user.password):

@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Request, Response
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
-from majlisna.api.controllers.auth import AuthController
+from majlisna.api.controllers.auth import TOKEN_TYPE_REFRESH, AuthController
 from majlisna.api.models.table import User
 from majlisna.api.models.user import UserCreate
 from majlisna.api.models.view import UserView
@@ -35,6 +35,11 @@ from majlisna.settings import Settings
 limiter = Limiter(
     key_func=get_remote_address,
     enabled=os.getenv("RATE_LIMIT_ENABLED", "true").lower() != "false",
+    # In-memory storage keeps a separate counter per uvicorn worker, so with
+    # N workers the real limit becomes N× the configured value. Point this at
+    # Redis in production (RATE_LIMIT_STORAGE_URI=redis://...) so the limit is
+    # shared across workers. Defaults to in-memory for tests/single-process dev.
+    storage_uri=os.getenv("RATE_LIMIT_STORAGE_URI", "memory://"),
 )
 
 router = APIRouter(
@@ -122,7 +127,7 @@ async def refresh_token(
     if not effective_token:
         raise InvalidTokenError("No refresh token provided")
 
-    payload = auth_controller.decode_token(effective_token)
+    payload = auth_controller.decode_token(effective_token, expected_type=TOKEN_TYPE_REFRESH)
     tokens = auth_controller.create_token_pair(payload.sub, payload.email)
     _set_auth_cookies(response, tokens.access_token, tokens.refresh_token, settings)
     return tokens

@@ -132,7 +132,7 @@ docker compose -f docker-compose.dokploy.yml up -d
 | Frontend | React 19, TanStack Router/Query, Tailwind v4, shadcn/ui |
 | Real-time | Socket.IO (python-socketio + socket.io-client) — notification layer over REST |
 | Infra | PgBouncer (connection pooling), Redis (Socket.IO pub/sub only) |
-| Monitoring | Umami (`analytics.majlisna.app`), GlitchTip (`glitchtip.majlisna.app`), Uptime Kuma (`kuma.majlisna.app`), Dozzle (`dozzle.majlisna.app`) |
+| Monitoring | Umami (analytics), GlitchTip (errors), Uptime Kuma (uptime), Dozzle (logs) — self-hosted behind SSO, hostnames in Claude Code memory |
 | Security | Trivy (CI vulnerability scanning) |
 | API Codegen | Kubb (OpenAPI -> React Query hooks) |
 | i18n | i18next (English + Arabic + French) |
@@ -335,6 +335,12 @@ When a test fails, the goal is NEVER to make the test pass — it's to have a wo
 
 **All game state mutations use `get_game_lock(game_id, session)`.** This uses PostgreSQL **transaction-level** advisory locks (`pg_try_advisory_xact_lock`) in production — they auto-release on commit/rollback, preventing lock leaks. Falls back to in-process `asyncio.Lock` for SQLite (tests). Vote submission, description submission, and disconnect handling ALL acquire the same lock. If you add a new game mutation endpoint, wrap it in `get_game_lock(str(game_id), self.session)`. **Never use session-level advisory locks** (`pg_advisory_lock`) — they leak when connections are recycled by the pool.
 
+**Concurrency tests MUST give each `asyncio.gather` task its own `AsyncSession`.** A single SQLAlchemy async session (and its asyncpg connection) cannot be driven by multiple tasks at once — sharing one across concurrent tasks raises `ResourceClosedError: This transaction is closed`. Production gives every request its own session via the `get_session` dependency, so the game advisory lock serializes mutations across *distinct* connections. Tests replicate that with a per-task session helper (`_mutate` in `test_concurrent_mutations.py`), never a shared controller. These postgres-marked tests only run under `pytest --use-postgres` (now enforced in CI).
+
+**Game creation must be ONE transaction — never commit mid-`create_and_start`.** `GameController.create_game` / `create_turn` / `create_turn_event` take a `commit: bool = True` flag; the four `create_and_start` methods call them with `commit=False` and commit once at the end. Previously these helpers committed internally, which released the room advisory lock (it is transaction-scoped) *before* `active_game_id` was set — so two truly-concurrent starts for the same room both slipped through and created two games. `_prepare_game_start` also reads `active_game_id` with `SELECT ... FOR UPDATE` on postgres (a plain read returned a stale `None` from an older MVCC snapshot). Together these make concurrent same-room starts safe (see `test_concurrent_game_starts_same_room`).
+
+**Access and refresh JWTs carry a `type` claim (`access`/`refresh`).** `decode_token(token, expected_type=...)` rejects a mismatch. `get_current_user` requires `access`, `/auth/refresh` requires `refresh`, Socket.IO `connect` requires `access`. Without this a long-lived refresh token could authenticate ordinary API calls. `TokenPayload.type` is optional so legacy tokens still decode, but the callers above enforce it.
+
 **Role distribution must guarantee at least 1 civilian.** 3-player games: `num_mr_white=0, num_undercover=1, num_civilians=2`. The Mr. White role doesn't work with only 3 players.
 
 **Win condition must be role-aware.** Only check Mr. White elimination in games that HAVE Mr. White:
@@ -419,6 +425,25 @@ Cloudflare handles DNS (proxied/orange cloud) and SSL termination (Flexible mode
 **Production server**: Oracle VPS. Dokploy compose project connected to `Souhib/Majlisna` GitHub repo, branch `main`, compose path `./docker-compose.dokploy.yml`. See Claude Code memory for connection details.
 
 **Redis is ephemeral and non-critical.** Redis is only used for Socket.IO cross-worker pub/sub. If Redis is down, the app works but Socket.IO won't broadcast across workers. The CI pipeline treats Redis health as a non-blocking warning. If Redis crash-loops due to corrupt `dump.rdb`, delete the RDB file from the Docker volume and recreate the container.
+
+**All admin tools sit behind Pangolin SSO.** Pangolin (`fosrl/pangolin`) runs as its own compose stack in `/home/ubuntu/pangolin/` with a dedicated Traefik (`pangolin-traefik`) carrying the Badger auth plugin. It is deliberately **not** installed into the Dokploy-managed Traefik: Traefik downloads plugins at boot and a failed download is a hard start failure, which would take down all five production projects. Instead:
+
+```
+Cloudflare -> dokploy-traefik :443 (Let's Encrypt)
+                -> pangolin-traefik (badger auth, HTTPS w/ self-signed cert, no host port)
+                     -> monitoring-* containers
+```
+
+- Routing lives in `/etc/dokploy/traefik/dynamic/monitoring-sso.yml`. The monitoring compose has `traefik.enable=false` and **no host port bindings** — direct `IP:31xxx` access used to bypass authentication entirely.
+- Telemetry ingest paths stay public via higher-priority routers: Umami `/script.js` + `/api/send`, GlitchTip `/api/<projectId>/(envelope|store|security)/`, Bugsink `/api/`. GlitchTip's carve-out is a regex on purpose — a blanket `PathPrefix(/api/)` would expose its admin API, which lives at `/api/0/...`.
+- Pangolin runs without Gerbil (no tunneling); every target is a "Local" site on `dokploy-network`.
+- Pangolin stamps a `tls` block on each generated router and always emits an HTTP→HTTPS redirect router. The redirect routers are parked on a dead-end `webredirect` entrypoint to avoid an infinite redirect loop, and the internal hop is HTTPS so the `tls` routers match.
+
+**CrowdSec detects AND blocks.** It parses host `auth.log`/`syslog` (SSH bruteforce) plus the Traefik access logs, and `crowdsec-firewall-bouncer-nftables` on the host enforces decisions. Its `nftables_hooks` must include **both `input` and `forward`** — Docker-published ports are DNAT'd and traverse FORWARD, so an input-only hook would silently fail to protect them. Acquisition config is `/home/ubuntu/monitoring/crowdsec/acquis.yaml`; the stock one pointed at paths that don't exist inside the container, so CrowdSec parsed zero lines for months.
+
+**Uptime Kuma must probe services internally, not through their public hostname.** Now that the tools sit behind SSO, a check against `https://<tool>.majlisna.app` follows the 302 to the Pangolin login page and gets a cheerful `200 - OK` — the monitor goes green whether or not the tool is alive. Kuma monitors therefore target container endpoints directly (`http://monitoring-glitchtip:8000/_health/`, `http://monitoring-umami:3000/api/heartbeat`, `http://monitoring-dozzle:8080/healthcheck`, `http://monitoring-beszel:8090/`). A separate `Pangolin SSO Gateway` monitor covers the auth layer, which is now a single point of failure for every admin tool.
+
+**Every network a container needs must be declared in the compose file.** `monitoring-uptime-kuma` reaches `majlisna-db` / `majlisna-redis` by container name, and those live only on the Majlisna stack's internal network. That attachment had been made with a manual `docker network connect`, which silently vanished the next time the container was recreated — both database monitors went blind. It is now declared as the external network `majlisna-internal` in the monitoring compose. Never rely on a manual `docker network connect`.
 
 **Monitoring tools** are deployed alongside the app (see Claude Code memory for URLs and ports):
 - **Umami**: Privacy-focused web analytics. Own PostgreSQL database.

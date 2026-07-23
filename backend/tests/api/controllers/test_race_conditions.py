@@ -4,6 +4,7 @@ import asyncio
 from uuid import UUID
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy.orm.attributes import flag_modified
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -29,6 +30,16 @@ from majlisna.api.schemas.error import (
 async def _start_game(controller, room_id, user_id):
     """Start a game and return the result dict."""
     return await controller.create_and_start(room_id, user_id)
+
+
+async def _start_game_own_session(engine: AsyncEngine, room_id, user_id):
+    """create_and_start in a fresh session — for concurrent gather() (see _mutate rationale).
+
+    Concurrent tasks must not share one AsyncSession; production gives each
+    request its own, and the room's advisory lock serializes across connections.
+    """
+    async with AsyncSession(engine, expire_on_commit=False) as concurrent_session:
+        return await UndercoverGameController(concurrent_session).create_and_start(room_id, user_id)
 
 
 async def _get_game(session: AsyncSession, game_id_str: str) -> Game:
@@ -180,9 +191,8 @@ async def test_description_after_phase_changed_to_voting(
 
 @pytest.mark.asyncio
 async def test_concurrent_game_starts_same_room(
-    undercover_game_controller: UndercoverGameController,
     setup_undercover_game,
-    session: AsyncSession,  # noqa: ARG001
+    engine: AsyncEngine,
 ):
     """Starting two games simultaneously in the same room — exactly one succeeds."""
     # Prepare
@@ -190,10 +200,10 @@ async def test_concurrent_game_starts_same_room(
     room_id = setup["room"].id
     host_id = setup["users"][0].id
 
-    # Act — fire two concurrent create_and_start calls
+    # Act — fire two concurrent create_and_start calls, each in its own session
     results = await asyncio.gather(
-        _start_game(undercover_game_controller, room_id, host_id),
-        _start_game(undercover_game_controller, room_id, host_id),
+        _start_game_own_session(engine, room_id, host_id),
+        _start_game_own_session(engine, room_id, host_id),
         return_exceptions=True,
     )
 

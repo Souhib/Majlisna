@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError
@@ -59,7 +59,7 @@ class FriendController:
                 # If they sent us a request, auto-accept
                 if existing.requester_id == addressee_id:
                     existing.status = FriendshipStatus.ACCEPTED
-                    existing.updated_at = datetime.now()
+                    existing.updated_at = datetime.now(UTC)
                     self.session.add(existing)
                     await self.session.commit()
                     await self.session.refresh(existing)
@@ -99,7 +99,7 @@ class FriendController:
                 status_code=400,
             )
         friendship.status = FriendshipStatus.ACCEPTED
-        friendship.updated_at = datetime.now()
+        friendship.updated_at = datetime.now(UTC)
         self.session.add(friendship)
         await self.session.commit()
         await self.session.refresh(friendship)

@@ -187,7 +187,9 @@ class WordQuizGameController(BaseGameController):
                         "hint_interval": hint_interval,
                         "difficulty": difficulty,
                     },
-                )
+                ),
+                # One transaction: hold the room lock until active_game_id commits.
+                commit=False,
             )
 
             db_game.live_state = live_state

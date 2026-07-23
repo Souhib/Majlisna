@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from majlisna.api.controllers.achievement import AchievementController
-from majlisna.api.controllers.auth import AuthController
+from majlisna.api.controllers.auth import TOKEN_TYPE_ACCESS, AuthController
 from majlisna.api.controllers.challenge import ChallengeController
 from majlisna.api.controllers.chat import ChatController
 from majlisna.api.controllers.codenames import CodenamesController
@@ -131,7 +131,7 @@ async def get_current_user(
     if not effective_token:
         raise InvalidTokenError("No authentication token provided")
 
-    payload = auth_controller.decode_token(effective_token)
+    payload = auth_controller.decode_token(effective_token, expected_type=TOKEN_TYPE_ACCESS)
     user = await auth_controller.get_user_by_email(payload.email)
     if user is None:
         raise InvalidTokenError("User not found for token")

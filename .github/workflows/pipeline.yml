@@ -28,27 +28,27 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
 
+      # dorny/paths-filter compares against the PR base (for pull_request) or
+      # the pushed commit range (for push) — NOT just HEAD~1. A previous
+      # single-commit `git diff HEAD~1 HEAD` silently skipped a whole suite when
+      # a multi-commit push ended on a commit that didn't touch that component.
       - name: Detect changes
         id: filter
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "backend=true" >> $GITHUB_OUTPUT
-            echo "frontend=true" >> $GITHUB_OUTPUT
-          else
-            DIFF=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || git diff --name-only HEAD)
-            echo "$DIFF" | grep -q '^backend/' && echo "backend=true" >> $GITHUB_OUTPUT || echo "backend=false" >> $GITHUB_OUTPUT
-            echo "$DIFF" | grep -q '^front/' && echo "frontend=true" >> $GITHUB_OUTPUT || echo "frontend=false" >> $GITHUB_OUTPUT
-          fi
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+            frontend:
+              - 'front/**'
 
   # ── Security Scan (Trivy) ───────────────────────────────────
 
   security-scan:
     runs-on: ubuntu-latest
     needs: changes
-    if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true') && github.event_name == 'pull_request'
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true' || github.event_name == 'workflow_dispatch'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -67,7 +67,7 @@ jobs:
   backend:
     runs-on: ubuntu-latest
     needs: changes
-    if: needs.changes.outputs.backend == 'true'
+    if: needs.changes.outputs.backend == 'true' || github.event_name == 'workflow_dispatch'
     defaults:
       run:
         working-directory: backend
@@ -93,15 +93,18 @@ jobs:
       - name: Format check (ruff format)
         run: uv run ruff format --check majlisna/ tests/
 
-      - name: Test (pytest)
-        run: uv run pytest --tb=short -q --no-cov
+      # --use-postgres spins up a PostgreSQL testcontainer (Docker is available
+      # on ubuntu-latest) so the advisory-lock / concurrency tests actually run
+      # in CI. Without it those tests are silently skipped.
+      - name: Test (pytest, PostgreSQL)
+        run: uv run pytest --tb=short -q --no-cov --use-postgres
 
   # ── Frontend CI ─────────────────────────────────────────────
 
   frontend:
     runs-on: ubuntu-latest
     needs: changes
-    if: needs.changes.outputs.frontend == 'true'
+    if: needs.changes.outputs.frontend == 'true' || github.event_name == 'workflow_dispatch'
     defaults:
       run:
         working-directory: front

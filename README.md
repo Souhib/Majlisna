@@ -107,7 +107,7 @@ Majlisna/
 
 | Environment | Infrastructure | Backend | Frontend |
 |-------------|---------------|---------|----------|
-| **Production** | Oracle Cloud VPS + Docker + Dokploy | `:33648` | `:30819` |
+| **Production** | Oracle Cloud VPS + Docker + Dokploy | behind Traefik | behind Traefik |
 | **E2E Testing** | Docker Compose (isolated stack) | `localhost:5049` | `localhost:3049` |
 | **Local Dev** | Docker Compose or bare metal | `localhost:5111` | `localhost:3000` |
 
@@ -211,11 +211,9 @@ PYTHONPATH=. uv run python scripts/generate_fake_data.py --delete
 
 ### Test Accounts
 
-| Role | Email | Password |
-|------|-------|----------|
-| Admin | `admin@test.com` | `admin123` |
-| User | `user@test.com` | `user1234` |
-| Player | `player@test.com` | `player123` |
+The seed script creates a handful of local test users. Their credentials are
+defined in `backend/scripts/generate_fake_data.py` — they are intended for local
+development only and must never be seeded against a deployed environment.
 
 ## Development
 
@@ -295,10 +293,12 @@ The backend uses `MAJLISNA_ENV` to select which `.env.{env}` file to load:
 - **Backend API**: https://majlisna.app/api/v1/
 - **Health check**: https://majlisna.app/health
 - **API docs**: https://majlisna.app/scalar
-- **Analytics**: https://analytics.majlisna.app
-- **Error tracking**: https://glitchtip.majlisna.app
-- **Logs**: https://dozzle.majlisna.app
-- **Uptime**: https://kuma.majlisna.app
+
+### Internal Tooling
+
+Analytics, error tracking, log streaming and uptime monitoring are self-hosted
+alongside the application. They sit behind SSO on private hostnames and are not
+publicly listed.
 
 ## Git Conventions
 

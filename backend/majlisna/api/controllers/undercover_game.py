@@ -148,7 +148,11 @@ class UndercoverGameController(BaseGameController):
                         "civilian_word_id": str(civilian_word.id),
                         "undercover_word_id": str(undercover_word.id),
                     },
-                )
+                ),
+                # Keep the whole start in one transaction so the room advisory lock
+                # is held until active_game_id is committed (prevents concurrent
+                # double-start). The final commit below persists everything.
+                commit=False,
             )
 
             # Build initial live_state
@@ -191,8 +195,8 @@ class UndercoverGameController(BaseGameController):
             db_room.active_game_id = db_game.id
             self.session.add(db_room)
 
-            # Create turn record
-            turn = await self._game_controller.create_turn(game_id=db_game.id)
+            # Create turn record (commit=False — the single commit below is atomic with the lock)
+            turn = await self._game_controller.create_turn(game_id=db_game.id, commit=False)
             await self._game_controller.create_turn_event(
                 game_id=db_game.id,
                 event_create=EventCreate(
@@ -200,6 +204,7 @@ class UndercoverGameController(BaseGameController):
                     data={"game_id": str(db_game.id), "turn_id": str(turn.id), "message": "Turn started."},
                     user_id=db_room.owner_id,
                 ),
+                commit=False,
             )
 
             await self.session.commit()

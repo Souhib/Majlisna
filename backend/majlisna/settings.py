@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 
 from dotenv import dotenv_values, load_dotenv
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -29,7 +29,10 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=_get_env_file(), env_file_encoding="utf-8")
 
-    # Environment Selector
+    # Legacy selector variable. Not read by the app (the selector logic uses
+    # MAJLISNA_ENV), but the `.env` files still carry an `IPG_ENV=...` line from
+    # before the rename. Because BaseSettings forbids extra inputs, this field
+    # must exist to absorb that line — removing it makes Settings() fail to load.
     ipg_env: str = "development"
 
     # Database
@@ -70,15 +73,19 @@ class Settings(BaseSettings):
     # CORS
     cors_origins: str = ""
 
-    @field_validator("jwt_secret_key")
-    @classmethod
-    def validate_jwt_secret(cls, v: str, info) -> str:
-        """Reject the default dev secret in production."""
-        env = info.data.get("environment", "development")
-        if env == "production" and v == "dev-secret-key-change-in-production":
+    @model_validator(mode="after")
+    def validate_production_secrets(self) -> "Settings":
+        """Reject the default dev JWT secret in production.
+
+        Must be a model-level (mode="after") validator: a field_validator on
+        jwt_secret_key cannot see `environment` because that field is declared
+        later, so `info.data` would not yet contain it and the guard would
+        silently never trigger.
+        """
+        if self.environment == "production" and self.jwt_secret_key == "dev-secret-key-change-in-production":
             msg = "JWT_SECRET_KEY must be changed from the default value in production"
             raise ValueError(msg)
-        return v
+        return self
 
     @field_validator("cors_origins")
     @classmethod
