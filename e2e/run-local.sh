@@ -50,6 +50,20 @@ done
 step() { printf '\n\033[1;36m▶ %s\033[0m\n' "$1"; }
 fail() { printf '\n\033[1;31m✖ %s\033[0m\n' "$1" >&2; exit 1; }
 
+# Launch playwright through bunx, with npx only as a fallback.
+#
+# bunx first because the self-hosted CI runner has Bun (via setup-bun) but NO
+# Node — hardcoding npx made the job die with "npx: command not found" *after*
+# bringing the stack up and seeding. Preferring bunx also means CI and local
+# invoke the suite identically, which is the whole point of sharing this script.
+if command -v bunx >/dev/null 2>&1; then
+  PW=(bunx playwright)
+elif command -v npx >/dev/null 2>&1; then
+  PW=(npx playwright)
+else
+  fail "neither bunx nor npx is available — install Bun (https://bun.sh) to run the suite"
+fi
+
 # ── Stack ────────────────────────────────────────────────────────────────────
 
 step "Bringing up the isolated e2e stack"
@@ -96,7 +110,7 @@ for run in $(seq 1 "$RUNS"); do
 
   step "Playwright run $run/$RUNS"
   out=$(mktemp)
-  if npx playwright test "${PW_ARGS[@]+"${PW_ARGS[@]}"}" 2>&1 | tee "$out"; then
+  if "${PW[@]}" test "${PW_ARGS[@]+"${PW_ARGS[@]}"}" 2>&1 | tee "$out"; then
     :
   fi
   # Trust playwright's exit code via PIPESTATUS, not the tee.
@@ -127,6 +141,6 @@ fi
 
 printf '\n'
 if [ ${#failed_runs[@]} -ne 0 ]; then
-  fail "E2E gate FAILED — runs ${failed_runs[*]} of $RUNS were not clean. Report: npx playwright show-report"
+  fail "E2E gate FAILED — runs ${failed_runs[*]} of $RUNS were not clean. Report: ${PW[*]} show-report"
 fi
 printf '\033[1;32m✔ E2E gate passed — %s/%s consecutive clean run(s)\033[0m\n' "$RUNS" "$RUNS"
