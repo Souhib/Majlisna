@@ -207,3 +207,45 @@ exists because `ky` defaults to `credentials: "same-origin"`, so a cross-origin
 and because `useSocket` needs a readable token. Dropping localStorage means setting
 `credentials: "include"` on the ky instance and passing the token to Socket.IO some
 other way. Until then, do not "clean up" one half of this.
+
+### `PhaseTimer` fires `onExpired` once per timer window, not per render
+
+The effect keys on `timerStartedAt` + `durationSeconds` and refuses to fire twice
+for the same pair (with a 15s re-arm as a liveness valve, since only the host
+triggers expiry and a failed call would otherwise stall the round).
+
+It used to depend on `[remaining, onExpired]`. `onExpired` is a `useCallback` whose
+deps include the React Query mutation object — a **fresh object on every render** —
+so any parent re-render re-armed the effect. And the handler calls
+`invalidateQueries`, which re-renders the parent: a self-sustaining loop firing a
+POST and a server broadcast per cycle, for as long as the phase kept the timer
+expired. In Undercover that phase is the whole gap between a round resolving and
+the host starting the next one, and each call used to eliminate another player.
+
+The server-side guard (`round_already_resolved`) is the real safety net — see
+backend/CLAUDE.md, "An Undercover round resolves exactly ONCE". Both halves stay.
+
+### AuthProvider shares the in-flight refresh promise
+
+`refreshAccessToken` returns the pending promise to a concurrent caller. It used to
+return `false`, which `scheduleTokenRefresh` reads as *failure* and answers by
+clearing auth and logging the player out — while the other refresh was about to
+succeed. Overlapping callers are the normal case on mobile: the throttled
+`setTimeout` fires at the same moment `visibilitychange` does.
+
+### `UserData` carries only what the API returns
+
+`is_active` and `is_admin` were declared `boolean` here and fabricated at every call
+site (`is_admin: false` at login, `updated.is_admin` from a PATCH whose response is
+a `UserView`). The backend has never exposed either, so both were permanently
+`undefined` behind a `boolean` type. Do not re-add a client-side admin flag:
+authorization is decided server-side by `get_current_admin_user`.
+
+### The lobby warns about stale state instead of blanking
+
+`queryError && !roomData && failureCount > 2` still gates the full-page error, but
+`!roomData` is never true again after the first successful load — so a room that
+stopped refreshing (kicked, room closed, backend down) left the player on a frozen
+lobby with no signal. A banner (`room.staleState`) now says so when there is already a
+roster on screen. Deliberately a banner and not a redirect: replacing a live lobby
+over one bad poll would be worse than showing stale data.

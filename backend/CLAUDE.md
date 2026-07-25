@@ -431,3 +431,183 @@ million questions, and a negative timer made the expiry check pass immediately.
 while `room.active_game_id` is set. Their entry stays in `live_state["players"]`
 regardless, so the flag only desynchronises the two views — and nothing, not even
 the host, can flip it back.
+
+### An Undercover round resolves exactly ONCE
+
+`_eliminate_player_based_on_votes` sets `turn["resolved"] = True`, and
+`handle_timer_expired` returns `round_already_resolved` when it sees that flag on a
+`"voting"` turn. Both halves are load-bearing:
+
+Once every alive player has voted, the turn *stays* in phase `"voting"` until the
+host calls `next-round`, and `timer_started_at` still points at the voting
+deadline — so the timer reads as expired for that entire gap. Without the flag,
+every timer-expired call re-ran the tally over the SAME votes: another player died
+and `eliminated_players` grew a duplicate entry, which desynchronises both
+`_build_vote_history` and `GameSummary` (they align `eliminated_players[i]` with
+`turns[i]` positionally). The client's timer callback kept it going, one DB write
+and one Socket.IO broadcast per cycle.
+
+Related: elimination candidates come from **alive** players only. Seeding the tally
+with the whole roster meant a dead player could win it and be "eliminated" twice —
+reachable with one player left, where `_auto_fill_missing_votes` cannot record a
+vote (nobody to vote for) so every count is 0 and the tie-break picks at random
+from everyone, corpses included.
+
+And any phase a timeout lands in must be one the game can *leave*: the Mr. White
+guess timeout used to drop `mr_white_guesser` while leaving the phase on
+`"mr_white_guessing"`, so guessing 403'd, voting and describing rejected the phase,
+and only the host could rescue the game. It now lands on `"voting"` (what a wrong
+guess does) or `"game_over"`.
+
+### Every game controller must pass its own `min_players`
+
+`_prepare_game_start(room_id)` defaults to **1**. Undercover relied on that default
+while `MIN_PLAYERS_FOR_GAME = 3` sat unused, so a lone host could start a game that
+`_compute_roles` filled with one undercover and ZERO civilians — won on paper,
+unplayable in fact (the only player may not vote for themselves, which is rejected).
+Two players is just the first tie-break coin flip. Codenames passes `min_players=4`;
+Undercover passes `MIN_PLAYERS_FOR_GAME`; the quizzes genuinely allow 1.
+
+`NotEnoughPlayersError` takes `required` — it used to hardcode "4 players for
+Codenames" in both the log line and the user-facing message, which became wrong for
+the wrong game the moment a second caller could reach it.
+
+### Compare room PINs on bytes, not str
+
+`secrets.compare_digest` raises `TypeError` as soon as either **str** argument holds
+a non-ASCII character, and nothing constrains the PIN a client sends
+(`RoomJoin.password` only coerces to str; the spectator request takes a bare str).
+A PIN like `é123` therefore escaped as an unhandled exception — a 500 — instead of
+`WrongRoomPasswordError`. `_passwords_match` in `controllers/room.py` compares the
+UTF-8 bytes: same constant-time guarantee, never raises.
+
+### Game content endpoints are admin-only, reads included
+
+`routes/undercover.py` (words, term pairs) and `routes/codenames.py` (word packs,
+words) sit behind `get_current_admin_user`, which checks membership in
+`ADMIN_EMAILS`.
+
+Both directions were holes. The GETs took no authentication at all, and
+`GET /undercover/termpair` lists every (civilian word, undercover word) pair — next
+to the word a player's own role hands them, that reveals the opposing word, so an
+undercover could blend in perfectly. Requiring a login does **not** fix that; every
+player has one. And the POST/DELETE routes took only *a* login, so any player could
+delete every word in the database and break Undercover globally.
+
+There is no `is_admin` column and no migration mechanism, so admin membership is
+configuration, not data. It **fails closed**: `ADMIN_EMAILS` unset means nobody is
+an admin, which costs nothing because content is loaded by
+`scripts/generate_fake_data.py` and no client calls these routes. Tests use the
+autouse `_admin_auth` fixture in the two route test modules.
+
+### Chat returns the NEWEST window
+
+`get_messages` orders **descending**, applies `limit`, then reverses for display.
+Ordering ascending before the limit returned the OLDEST `limit` rows, so a room past
+50 messages opened the chat panel on the very first messages of the session and
+never showed the recent ones — the panel only appends what arrives afterwards over
+Socket.IO, so the gap was permanent.
+
+### Host transfer prefers a player over a spectator
+
+`_handle_permanent_disconnect` picks the first non-spectator in `remaining` and only
+falls back to a spectator when nobody else is left. `remaining` includes spectators,
+and the host is who starts games, changes settings and kicks — while
+`_prepare_game_start` excludes spectators from the roster entirely.
+
+### The end-of-game flow lives in `game_end_stats.py`, and the disconnect path uses it
+
+`controllers/game_end_stats.py` holds `record_game_end` plus the per-game winner
+resolvers. All four game controllers' `_process_game_end_stats` delegate to it, and so
+do `_handle_undercover_disconnect` / `_handle_codenames_disconnect`.
+
+It is a separate module for an import reason, not for tidiness: `base_game` imports
+`RoomController`, which imports `disconnect`, so a controller import from `disconnect`
+closes the cycle. `game_end_stats` reaches only `stats`, `achievement` and the models.
+
+Why the disconnect path matters: it used to record **nothing**. The handlers flipped
+the game to FINISHED and wrote the winner but never ran the stat/achievement flow, so
+a game decided by someone closing their tab — a common ending — counted for no one.
+
+Two invariants carried over: **no commit inside** (every caller holds
+`get_game_lock`, transaction-scoped on PostgreSQL) and **no swallowing
+SQLAlchemyError** (the session needs a rollback after a failed statement, so
+catch-and-continue turned into `PendingRollbackError` for the whole write).
+
+The quizzes also went through this: they updated stats but never checked
+achievements, so a quiz-only player's counters rose while no badge ever unlocked.
+
+### Game draws come from `api/utils/rng.py`, never `random.*`
+
+`rng = random.SystemRandom()`. The default Mersenne Twister is reproducible — its
+state is recoverable from a run of observed outputs, after which every future draw is
+predictable. In a social-deduction game the draw *is* the secret: who is undercover,
+which side gets which word, where the assassin sits. Import the shared instance so
+there is one place to look (and one patch target in tests — patch `module.rng.choice`,
+not `module.random.choice`).
+
+### `TTLCache` is per-worker: never cache what must not go stale, never cache ORM rows
+
+Production runs `UVICORN_WORKERS=4`, so `cache.invalidate()` reaches one worker out of
+four. A TTL is the real freshness bound; invalidation is a bonus.
+
+`get_user_stats` is therefore **not** cached — it was, for 5 minutes, and a player
+watched their own win appear or not depending on which worker answered. It also cached
+the `UserStats` ORM instance, i.e. a detached row shared across sessions. It is a
+single indexed lookup; there was nothing to buy.
+
+The cache is bounded (`MAX_ENTRIES`) and evicts on write. Entries used to be dropped
+only when someone read them back, so a key written once and never read again stayed
+resident for the life of the worker.
+
+Same reason `AchievementController` memoises the definitions **on the instance**, not
+in this cache: they are session-bound ORM rows, and one controller already serves
+every player of a single game end (`check_achievements` runs once per player, and used
+to re-read the whole table each time, inside the game lock).
+
+### `_fallback_locks` is a `WeakValueDictionary`
+
+An entry vanishes as soon as no task holds the lock — the `async with` is the only
+strong reference, which is why the code keeps a local `lock` variable instead of
+looking the key up twice. It was a plain dict growing one entry per game forever;
+`cleanup_game_lock` existed to purge it and had no caller anywhere, which made the
+leak look handled.
+
+### Each elimination carries the round that produced it
+
+`eliminated_players[i]` used to be paired with `turns[i]` **by position** in both
+`_build_vote_history` and `GameSummary`. Every entry now carries `round`; a drop-out
+carries `round: 0` (it is not a round's outcome) and readers skip it. Rows written
+before the field fall back to the index. Positional coupling is what turned the
+duplicate-elimination bug into a silently wrong history.
+
+### Player counts are bounded on both ends
+
+`MIN_PLAYERS_FOR_GAME` / `MAX_PLAYERS_UNDERCOVER` (12) and 4 / `MAX_PLAYERS_CODENAMES`
+(10), passed to `_prepare_game_start`. Only the minimums were checked; role
+distribution scales past the maximum without erroring, so a 20-player room produced a
+game nobody had played or tested.
+
+### Removed on purpose: `GET /users` and `DELETE /users/{user_id}`
+
+- `GET /users` returned the whole user table, unpaginated, to any authenticated
+  caller — a full table scan per call and a directory of the player base. Add a
+  paginated search if one is ever needed, not a list-everything route.
+- `DELETE /users/{user_id}` destroyed the caller's own account irreversibly on nothing
+  but a valid session, while `DELETE /users/me/account` does the same thing and
+  requires the password. A stolen token was enough.
+
+Neither had a client. `UserController.get_users` / `delete_user` remain as internal
+primitives — do not re-expose them.
+
+### A game-state schema must declare every field the client reads
+
+`newly_unlocked_achievements` was written into `live_state` by all four controllers and
+declared by **none** of the state schemas. `BaseModel` is `extra="forbid"`, so it never
+left the server: the achievement toast (`useAchievementNotifications` +
+`AchievementToast`) had been wired on the client the whole time with nothing to show.
+
+It is now typed as `list[PlayerUnlockedAchievements] | None` (see `schemas/common.py`)
+on `UndercoverGameState`, `CodenamesBoardState`, `WordQuizGameState` and
+`McqQuizGameState`, and passed through from `state.get(...)` in each `get_state` /
+`get_board`. Writing to `live_state` is not the same as returning it — check both ends.

@@ -136,7 +136,7 @@ docker compose -f docker-compose.dokploy.yml up -d
 | Security | Trivy (CI vulnerability scanning) |
 | API Codegen | Kubb (OpenAPI -> React Query hooks) |
 | i18n | i18next (English + Arabic + French) |
-| Testing | pytest (backend, 791+ tests), Vitest (frontend, 248 tests), Playwright (E2E, 145 tests) |
+| Testing | pytest (backend, 800+ tests), Vitest (frontend, 256 tests), Playwright (E2E, 145 tests) |
 | CI/CD | GitHub Actions |
 | Deployment | Docker + Dokploy (Oracle VPS) |
 | Domain | `majlisna.app` (Cloudflare DNS + proxy) |
@@ -409,6 +409,24 @@ When a test fails, the goal is NEVER to make the test pass — it's to have a wo
 **Concurrency tests must assert an INVARIANT, not a timing-dependent outcome.** Once the advisory lock actually serializes concurrent submissions, the interleaving order is nondeterministic. For turn-based actions (e.g. undercover descriptions) the successful actors are always a *prefix* of the turn order — and if the tasks happen to serialize in order, *all* of them succeed, which is valid. Assert the prefix invariant (`set(successes) == set(order[:len(successes)])`), never "at least one must fail" — that passes locally and flakes in CI.
 
 **Concurrency tests MUST give each `asyncio.gather` task its own `AsyncSession`.** A single SQLAlchemy async session (and its asyncpg connection) cannot be driven by multiple tasks at once — sharing one across concurrent tasks raises `ResourceClosedError: This transaction is closed`. Production gives every request its own session via the `get_session` dependency, so the game advisory lock serializes mutations across *distinct* connections. Tests replicate that with a per-task session helper (`_mutate` in `test_concurrent_mutations.py`), never a shared controller. These postgres-marked tests only run under `pytest --use-postgres` (now enforced in CI).
+
+**One commit per locked block applies to EVERY mutation, not just game creation.** `start_next_round` called `create_turn`/`create_turn_event` with their default `commit=True` inside `get_game_lock`, so the first commit released the transaction-scoped advisory lock and the rest of the block ran unprotected — two concurrent next-round calls could each append a turn. Any helper called inside a lock must be passed `commit=False`.
+
+**A round resolves exactly once, and every timeout must land in a phase the game can leave.** An Undercover turn stays in phase `voting` after its elimination (until the host starts the next round) while `timer_started_at` still points at the voting deadline — so the timer reads as expired for that whole gap. `_eliminate_player_based_on_votes` therefore sets `turn["resolved"]` and `handle_timer_expired` answers `round_already_resolved`; without it every timer call re-ran the same votes, killed another player, and the client's timer callback kept the cycle going. Same class of bug: the Mr. White guess timeout used to leave the phase on `mr_white_guessing` with no guesser, which no action could exit. Details in `backend/CLAUDE.md`.
+
+**Every game controller passes its own `min_players`.** `_prepare_game_start` defaults to 1. Undercover relied on that while `MIN_PLAYERS_FOR_GAME = 3` sat unused, so a solo host could start a game with one undercover and zero civilians.
+
+**The end-of-game stat/achievement flow lives in `controllers/game_end_stats.py`, and the disconnect handlers call it too.** Ending by disconnect used to record nothing at all — the handlers set FINISHED and wrote the winner but never ran the flow, so a game decided by someone closing their tab counted for no one. It is a separate module because `base_game` → `room` → `disconnect` would otherwise be a cycle. Same invariants as before: no commit inside, no swallowing SQLAlchemy errors.
+
+**Game draws come from `api/utils/rng.py` (`SystemRandom`), never `random.*`.** The default Mersenne Twister is reproducible from observed outputs, and in a social-deduction game the draw *is* the secret.
+
+**`TTLCache` is per-uvicorn-worker.** A TTL is the real freshness bound; `invalidate()` reaches one worker in four. User stats are therefore not cached (they were, and players saw their own win appear or not depending on the worker), and nothing caches ORM rows. See `backend/CLAUDE.md`.
+
+**Player counts are bounded on both ends** — `MAX_PLAYERS_UNDERCOVER` (12), `MAX_PLAYERS_CODENAMES` (10). Only the minimums used to be checked.
+
+**`GET /users` and `DELETE /users/{user_id}` were removed.** The first returned the entire unpaginated user table to any caller; the second deleted an account on nothing but a valid session, while `/users/me/account` does the same and requires the password.
+
+**Game content endpoints (undercover words/term pairs, codenames word packs) are admin-only — reads included.** `ADMIN_EMAILS` + `get_current_admin_user`, fail-closed. The GETs took no auth at all and `GET /undercover/termpair` reveals the opposing word to any player; the writes took only *a* login, so any player could delete all game content. There is no `is_admin` column (no migrations), so admin membership is configuration.
 
 **Game creation must be ONE transaction — never commit mid-`create_and_start`.** `GameController.create_game` / `create_turn` / `create_turn_event` take a `commit: bool = True` flag; the four `create_and_start` methods call them with `commit=False` and commit once at the end. Previously these helpers committed internally, which released the room advisory lock (it is transaction-scoped) *before* `active_game_id` was set — so two truly-concurrent starts for the same room both slipped through and created two games. `_prepare_game_start` also reads `active_game_id` with `SELECT ... FOR UPDATE` on postgres (a plain read returned a stale `None` from an older MVCC snapshot). Together these make concurrent same-room starts safe (see `test_concurrent_game_starts_same_room`).
 
