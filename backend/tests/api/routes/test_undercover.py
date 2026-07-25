@@ -7,9 +7,10 @@ from fastapi import FastAPI
 from starlette.testclient import TestClient
 
 from majlisna.api.controllers.undercover import UndercoverController
+from majlisna.api.models.table import User
 from majlisna.api.models.undercover import TermPair, Word
 from majlisna.api.schemas.error import TermPairNotFoundError, WordNotFoundByIdError, WordNotFoundByNameError
-from majlisna.dependencies import get_undercover_controller
+from majlisna.dependencies import get_current_user, get_undercover_controller
 
 # ──────────────────────────────────────────────────────────────
 # Words (/api/v1/undercover/words)
@@ -20,6 +21,8 @@ def test_word_create_word_success(test_app: FastAPI, client: TestClient):
     """Creating a word with valid data returns 201 and all Word fields."""
     # Arrange
     word_id = uuid.uuid4()
+    mock_user = User(id=uuid.uuid4(), username="testuser", email="test@example.com")
+    test_app.dependency_overrides[get_current_user] = lambda: mock_user
     mock_controller = Mock(spec=UndercoverController)
     mock_controller.create_word = AsyncMock(
         return_value=Word(
@@ -59,6 +62,8 @@ def test_word_create_word_validation_error(test_app: FastAPI, client: TestClient
     """Creating a word with missing required fields returns 422."""
     # Arrange
     mock_controller = Mock(spec=UndercoverController)
+    mock_user = User(id=uuid.uuid4(), username="testuser", email="test@example.com")
+    test_app.dependency_overrides[get_current_user] = lambda: mock_user
     test_app.dependency_overrides[get_undercover_controller] = lambda: mock_controller
 
     # Act
@@ -242,6 +247,8 @@ def test_word_delete_word_success(test_app: FastAPI, client: TestClient):
     """Deleting an existing word returns 204 with no content."""
     # Arrange
     word_id = uuid.uuid4()
+    mock_user = User(id=uuid.uuid4(), username="testuser", email="test@example.com")
+    test_app.dependency_overrides[get_current_user] = lambda: mock_user
     mock_controller = Mock(spec=UndercoverController)
     mock_controller.delete_word = AsyncMock(return_value=None)
     test_app.dependency_overrides[get_undercover_controller] = lambda: mock_controller
@@ -260,6 +267,8 @@ def test_word_delete_word_not_found(test_app: FastAPI, client: TestClient):
     """Deleting a non-existent word returns 404."""
     # Arrange
     word_id = uuid.uuid4()
+    mock_user = User(id=uuid.uuid4(), username="testuser", email="test@example.com")
+    test_app.dependency_overrides[get_current_user] = lambda: mock_user
     mock_controller = Mock(spec=UndercoverController)
     mock_controller.delete_word = AsyncMock(side_effect=WordNotFoundByIdError(word_id=word_id))
     test_app.dependency_overrides[get_undercover_controller] = lambda: mock_controller
@@ -287,6 +296,8 @@ def test_term_pair_create_term_pair_success(test_app: FastAPI, client: TestClien
     term_pair_id = uuid.uuid4()
     word1_id = uuid.uuid4()
     word2_id = uuid.uuid4()
+    mock_user = User(id=uuid.uuid4(), username="testuser", email="test@example.com")
+    test_app.dependency_overrides[get_current_user] = lambda: mock_user
     mock_controller = Mock(spec=UndercoverController)
     mock_controller.create_term_pair = AsyncMock(
         return_value=TermPair(
@@ -459,6 +470,8 @@ def test_term_pair_delete_term_pair_success(test_app: FastAPI, client: TestClien
     """Deleting an existing term pair returns 204 with no content."""
     # Arrange
     term_pair_id = uuid.uuid4()
+    mock_user = User(id=uuid.uuid4(), username="testuser", email="test@example.com")
+    test_app.dependency_overrides[get_current_user] = lambda: mock_user
     mock_controller = Mock(spec=UndercoverController)
     mock_controller.delete_term_pair = AsyncMock(return_value=None)
     test_app.dependency_overrides[get_undercover_controller] = lambda: mock_controller

@@ -68,9 +68,10 @@ class CodenamesGameController(BaseGameController):
         user_id: UUID,
         word_pack_ids: list[UUID] | None = None,
     ) -> GameStartResponse:
-        """Start a new Codenames game in the given room."""
+        """Start a new Codenames game in the given room. Host only."""
         async with get_game_lock(f"room:{room_id}", self.session):
             db_room, player_users = await self._prepare_game_start(room_id, min_players=4)
+            self._require_room_host(db_room, user_id)
 
             room_user_dicts = [{"user_id": str(u.id), "username": u.username} for u in player_users]
 
@@ -354,7 +355,7 @@ class CodenamesGameController(BaseGameController):
         is_spectator = False
         try:
             player = get_player_from_game(state["players"], str(user_id))
-        except Exception:
+        except BaseError:
             # Check if user is a spectator
             link = (
                 await self.session.exec(
@@ -558,6 +559,10 @@ class CodenamesGameController(BaseGameController):
         """Record that a player viewed a hint for a word (deduplicated)."""
         async with get_game_lock(str(game_id), self.session):
             game = await self._get_game(game_id)
+            # Hint views feed achievements ("won without hints"), so they must not
+            # be accepted after the game has ended — the end-of-game stats have
+            # already been computed from hint_usage.
+            self._check_game_in_progress(game)
             state = game.live_state
 
             hint_usage = state.setdefault("hint_usage", {})
@@ -576,42 +581,42 @@ class CodenamesGameController(BaseGameController):
     async def _process_game_end_stats(self, state: dict, winner: str) -> list[dict]:
         """Update stats and check achievements for all players after game ends.
 
+        Writes are staged only — the caller's single ``commit()`` persists them.
+        See ``UndercoverGameController._process_game_end_stats`` for why this must
+        neither commit (it runs inside a transaction-scoped advisory lock) nor
+        swallow SQLAlchemy errors (it would poison the session).
+
         Returns a list of {user_id, achievements: [{code, name, icon, tier}]} for newly unlocked.
         """
         hint_usage = state.get("hint_usage", {})
         newly_unlocked_all: list[dict] = []
-        for player in state.get("players", []):
+        for player in await self._scorable_players(state):
             user_id = UUID(player["user_id"])
             role = player.get("role", "operative")
             won = player.get("team") == winner
-            try:
-                stats = await self._stats_controller.update_stats_after_game(
-                    user_id=user_id, game_type="codenames", won=won, role=role
-                )
-                # Update hint-related stats
-                user_hints = hint_usage.get(str(user_id), [])
-                hints_viewed_count = len(user_hints)
-                if hints_viewed_count > 0:
-                    stats.total_hints_viewed += hints_viewed_count
-                if won and hints_viewed_count == 0:
-                    stats.games_without_hints += 1
-                self.session.add(stats)
-                await self.session.commit()
-                await self.session.refresh(stats)
+            stats = await self._stats_controller.update_stats_after_game(
+                user_id=user_id, game_type="codenames", won=won, role=role, commit=False
+            )
+            # Update hint-related stats
+            user_hints = hint_usage.get(str(user_id), [])
+            hints_viewed_count = len(user_hints)
+            if hints_viewed_count > 0:
+                stats.total_hints_viewed += hints_viewed_count
+            if won and hints_viewed_count == 0:
+                stats.games_without_hints += 1
+            self.session.add(stats)
 
-                unlocked = await self._achievement_controller.check_achievements(user_id, stats)
-                if unlocked:
-                    newly_unlocked_all.append(
-                        {
-                            "user_id": str(user_id),
-                            "achievements": [
-                                {"code": a.code, "name": a.name, "icon": a.icon, "tier": a.tier} for a in unlocked
-                            ],
-                        }
-                    )
-                logger.info("Stats updated: game=codenames user={}", user_id)
-            except Exception:
-                logger.exception("Failed to update stats/achievements for user {user_id}", user_id=user_id)
+            unlocked = await self._achievement_controller.check_achievements(user_id, stats, commit=False)
+            if unlocked:
+                newly_unlocked_all.append(
+                    {
+                        "user_id": str(user_id),
+                        "achievements": [
+                            {"code": a.code, "name": a.name, "icon": a.icon, "tier": a.tier} for a in unlocked
+                        ],
+                    }
+                )
+            logger.info("Stats updated: game=codenames user={}", user_id)
         return newly_unlocked_all
 
     def _decrement_remaining(self, state: dict, team: str) -> int:

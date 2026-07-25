@@ -13,9 +13,11 @@ import { z } from "zod/v4";
 /**
  * @description Successful Response
  */
-export const registerApiV1AuthRegisterPost201Schema = z.lazy(
-  () => userViewSchema,
-);
+export const registerApiV1AuthRegisterPost201Schema = z
+  .lazy(() => userViewSchema)
+  .describe(
+    "Full user representation — only ever returned to the user themselves\n(register, /me, own profile updates). Never use for other users.",
+  );
 
 /**
  * @description Validation Error
@@ -24,9 +26,11 @@ export const registerApiV1AuthRegisterPost422Schema = z.lazy(
   () => HTTPValidationErrorSchema,
 );
 
-export const registerApiV1AuthRegisterPostMutationRequestSchema = z.lazy(
-  () => userCreateSchema,
-);
+export const registerApiV1AuthRegisterPostMutationRequestSchema = z
+  .lazy(() => userCreateSchema)
+  .describe(
+    "Fields a client may provide at registration.\n\nDeliberately does NOT inherit UserBase: that would let a client set\nsecurity-sensitive fields (email_verified, auth_provider, google_sub) via\nmass assignment — e.g. self-verify their email or pre-empt an OAuth link.",
+  );
 
 export const registerApiV1AuthRegisterPostMutationResponseSchema = z.lazy(
   () => registerApiV1AuthRegisterPost201Schema,

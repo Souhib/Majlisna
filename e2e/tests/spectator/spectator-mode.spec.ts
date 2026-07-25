@@ -27,8 +27,13 @@ test.describe("Spectator Mode", () => {
     const room = await apiCreateRoom(playerLogin.access_token);
     const roomDetails = await apiGetRoom(room.id, playerLogin.access_token);
 
-    // Spectator joins via API
-    await apiJoinRoomAsSpectator(room.id, spectatorLogin.access_token);
+    // Spectator joins via API. The PIN comes from the host (as a real spectator
+    // would get it from a share link) — join-spectator requires it.
+    await apiJoinRoomAsSpectator(
+      room.id,
+      spectatorLogin.access_token,
+      roomDetails.password,
+    );
 
     // Open browser pages for both
     const playerPage = await createPlayerPage(browser, accounts[0].email, accounts[0].password);
@@ -62,9 +67,14 @@ test.describe("Spectator Mode", () => {
     const spectatorLogin = await apiLogin(accounts[1].email, accounts[1].password);
 
     const room = await apiCreateRoom(playerLogin.access_token);
+    const roomDetails = await apiGetRoom(room.id, playerLogin.access_token);
 
-    // Spectator joins via API
-    await apiJoinRoomAsSpectator(room.id, spectatorLogin.access_token);
+    // Spectator joins via API (join-spectator requires the room PIN)
+    await apiJoinRoomAsSpectator(
+      room.id,
+      spectatorLogin.access_token,
+      roomDetails.password,
+    );
 
     // Open spectator browser page
     const spectatorPage = await createPlayerPage(browser, accounts[1].email, accounts[1].password);
@@ -107,8 +117,12 @@ test.describe("Spectator Mode", () => {
       );
     }
 
-    // Spectator joins
-    await apiJoinRoomAsSpectator(room.id, spectatorLogin.access_token);
+    // Spectator joins (join-spectator requires the room PIN)
+    await apiJoinRoomAsSpectator(
+      room.id,
+      spectatorLogin.access_token,
+      roomDetails.password,
+    );
 
     // Start undercover game via API
     const gameResult = await (

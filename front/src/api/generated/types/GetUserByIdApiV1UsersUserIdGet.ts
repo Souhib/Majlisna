@@ -6,7 +6,7 @@
  */
 
 import type { HTTPValidationError } from "./HTTPValidationError.ts";
-import type { UserView } from "./UserView.ts";
+import type { PublicUserView } from "./PublicUserView.ts";
 
 export type GetUserByIdApiV1UsersUserIdGetPathParams = {
   /**
@@ -16,10 +16,10 @@ export type GetUserByIdApiV1UsersUserIdGetPathParams = {
 };
 
 /**
- * UserView
+ * PublicUserView
  * @description Successful Response
  */
-export type GetUserByIdApiV1UsersUserIdGet200 = UserView;
+export type GetUserByIdApiV1UsersUserIdGet200 = PublicUserView;
 
 /**
  * @description Not found

@@ -5,28 +5,32 @@
  * Do not edit manually.
  */
 
-import { gameSchema } from "./gameSchema.ts";
-import { roomStatusSchema } from "./roomStatusSchema.ts";
+import { publicUserViewSchema } from "./publicUserViewSchema.ts";
 import { roomTypeSchema } from "./roomTypeSchema.ts";
-import { userViewSchema } from "./userViewSchema.ts";
 import { z } from "zod/v4";
 
-export const roomViewSchema = z.object({
-  get status() {
-    return roomStatusSchema;
-  },
-  password: z.string(),
-  id: z.uuid(),
-  public_id: z.string(),
-  owner_id: z.uuid(),
-  created_at: z.iso.datetime(),
-  get type() {
-    return roomTypeSchema;
-  },
-  get users() {
-    return z.array(userViewSchema).optional();
-  },
-  get games() {
-    return z.array(gameSchema).optional();
-  },
-});
+/**
+ * @description Public room representation.\n\nIntentionally does NOT inherit RoomBase: the room PIN (`password`) and\n`games` (whose `live_state` leaks in-progress roles/words) must never\nleave this boundary. Members-only data (PIN, full state) is served by the\nauthenticated `/rooms/{id}/state` endpoint instead.
+ */
+export const roomViewSchema = z
+  .object({
+    id: z.uuid(),
+    public_id: z.string(),
+    owner_id: z.uuid(),
+    created_at: z.iso.datetime(),
+    get type() {
+      return roomTypeSchema;
+    },
+    get users() {
+      return z
+        .array(
+          publicUserViewSchema.describe(
+            "User representation safe to expose to OTHER users.\n\nDeclares only non-sensitive public-profile fields — email_address,\ngoogle_sub, auth_provider and email_verified are never read nor serialized.",
+          ),
+        )
+        .optional();
+    },
+  })
+  .describe(
+    "Public room representation.\n\nIntentionally does NOT inherit RoomBase: the room PIN (`password`) and\n`games` (whose `live_state` leaks in-progress roles/words) must never\nleave this boundary. Members-only data (PIN, full state) is served by the\nauthenticated `/rooms/{id}/state` endpoint instead.",
+  );

@@ -33,6 +33,7 @@ export type GetRoomApiV1RoomsRoomIdGetQueryKey = ReturnType<
 >;
 
 /**
+ * @description Get a room. Members only — the response never leaks the PIN or game state.
  * @summary Get Room
  * {@link /api/v1/rooms/:room_id}
  */
@@ -75,6 +76,7 @@ export function getRoomApiV1RoomsRoomIdGetQueryOptions(
 }
 
 /**
+ * @description Get a room. Members only — the response never leaks the PIN or game state.
  * @summary Get Room
  * {@link /api/v1/rooms/:room_id}
  */

@@ -13,4 +13,8 @@ export type JoinSpectatorRequest = {
    * @type string, uuid
    */
   room_id: string;
+  /**
+   * @type string
+   */
+  password: string;
 };

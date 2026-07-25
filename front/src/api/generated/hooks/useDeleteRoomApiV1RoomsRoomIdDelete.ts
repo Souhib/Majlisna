@@ -28,6 +28,7 @@ export type DeleteRoomApiV1RoomsRoomIdDeleteMutationKey = ReturnType<
 >;
 
 /**
+ * @description Delete (deactivate) a room. Owner only.
  * @summary Delete Room
  * {@link /api/v1/rooms/:room_id}
  */
@@ -69,6 +70,7 @@ export function deleteRoomApiV1RoomsRoomIdDeleteMutationOptions<
 }
 
 /**
+ * @description Delete (deactivate) a room. Owner only.
  * @summary Delete Room
  * {@link /api/v1/rooms/:room_id}
  */

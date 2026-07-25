@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError, NoResultFound
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from majlisna.api.constants import CACHE_TTL_GAME_CONTENT_SECONDS
 from majlisna.api.models.error import (
     TermPairAlreadyExistsError,
     TermPairNotFoundError,
@@ -18,7 +19,6 @@ from majlisna.api.utils.cache import cache
 
 WORDS_CACHE_KEY = "undercover:words"
 TERM_PAIRS_CACHE_KEY = "undercover:term_pairs"
-CACHE_TTL_SECONDS = 3600
 
 
 class UndercoverController:
@@ -41,7 +41,7 @@ class UndercoverController:
         if cached is not None:
             return cached  # type: ignore[return-value]
         words = (await self.session.exec(select(Word))).all()
-        cache.set(WORDS_CACHE_KEY, words, CACHE_TTL_SECONDS)
+        cache.set(WORDS_CACHE_KEY, words, CACHE_TTL_GAME_CONTENT_SECONDS)
         return words
 
     async def get_word_by_id(self, word_id: UUID) -> Word:
@@ -101,7 +101,7 @@ class UndercoverController:
         if cached is not None:
             return cached  # type: ignore[return-value]
         pairs = (await self.session.exec(select(TermPair))).all()
-        cache.set(TERM_PAIRS_CACHE_KEY, pairs, CACHE_TTL_SECONDS)
+        cache.set(TERM_PAIRS_CACHE_KEY, pairs, CACHE_TTL_GAME_CONTENT_SECONDS)
         return pairs
 
     async def get_term_pair_by_id(self, term_pair_id: UUID) -> TermPair:

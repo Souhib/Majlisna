@@ -54,12 +54,3 @@ def create_random_public_id() -> str:
     :return: A random public id of 4 characters.
     """
     return "".join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(5))
-
-
-def generate_password() -> str:
-    """
-    It generates a random hashed password.
-
-    :return: A hashed string of 16 characters, including letters, numbers, and punctuation.
-    """
-    return get_password_hash(create_random_string())

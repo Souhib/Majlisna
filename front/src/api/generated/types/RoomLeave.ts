@@ -7,14 +7,11 @@
 
 /**
  * RoomLeave
+ * @description Leave request body. The user identity comes from the JWT — never from the body.
  */
 export type RoomLeave = {
   /**
    * @type string, uuid
    */
   room_id: string;
-  /**
-   * @type string, uuid
-   */
-  user_id: string;
 };

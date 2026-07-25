@@ -5,12 +5,9 @@
  * Do not edit manually.
  */
 
+import type { BodyRefreshTokenApiV1AuthRefreshPost } from "./BodyRefreshTokenApiV1AuthRefreshPost.ts";
 import type { HTTPValidationError } from "./HTTPValidationError.ts";
 import type { TokenPairResponse } from "./TokenPairResponse.ts";
-
-export type RefreshTokenApiV1AuthRefreshPostQueryParams = {
-  refresh_token?: string | null;
-};
 
 /**
  * TokenPairResponse
@@ -24,11 +21,17 @@ export type RefreshTokenApiV1AuthRefreshPost200 = TokenPairResponse;
  */
 export type RefreshTokenApiV1AuthRefreshPost422 = HTTPValidationError;
 
+/**
+ * Body_refresh_token_api_v1_auth_refresh_post
+ */
+export type RefreshTokenApiV1AuthRefreshPostMutationRequest =
+  BodyRefreshTokenApiV1AuthRefreshPost;
+
 export type RefreshTokenApiV1AuthRefreshPostMutationResponse =
   RefreshTokenApiV1AuthRefreshPost200;
 
 export type RefreshTokenApiV1AuthRefreshPostMutation = {
   Response: RefreshTokenApiV1AuthRefreshPost200;
-  QueryParams: RefreshTokenApiV1AuthRefreshPostQueryParams;
+  Request: RefreshTokenApiV1AuthRefreshPostMutationRequest;
   Errors: RefreshTokenApiV1AuthRefreshPost422;
 };

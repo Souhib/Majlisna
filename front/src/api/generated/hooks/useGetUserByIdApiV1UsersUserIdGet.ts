@@ -33,6 +33,7 @@ export type GetUserByIdApiV1UsersUserIdGetQueryKey = ReturnType<
 >;
 
 /**
+ * @description Get a user by id. Returns the public representation only (no email).
  * @summary Get User By Id
  * {@link /api/v1/users/:user_id}
  */
@@ -75,6 +76,7 @@ export function getUserByIdApiV1UsersUserIdGetQueryOptions(
 }
 
 /**
+ * @description Get a user by id. Returns the public representation only (no email).
  * @summary Get User By Id
  * {@link /api/v1/users/:user_id}
  */

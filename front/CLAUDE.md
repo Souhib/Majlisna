@@ -173,3 +173,37 @@ VITE_API_URL=http://localhost:5111    # Backend API URL
 ```
 
 Vite dev server proxies `/api` to the backend.
+
+## Hard-Won Rules
+
+### AuthProvider must schedule a token refresh on the cookie path too
+
+`initAuth` tries cookie auth via `GET /me` first. That branch used to set a
+`"cookie-auth"` sentinel and `return` — scheduling **no** refresh at all. So any
+reloaded tab ran on whatever access token happened to be in localStorage, and once
+that expired (15 min in production) the next request 401'd and `client.ts`'s
+`afterResponse` hard-redirected the player to `/auth/login` **mid-game**.
+
+The cookie branch now calls `refreshAccessToken()` immediately and schedules from
+the returned `expires_in`. Two consequences to preserve:
+
+- **`useSocket` authenticates the Socket.IO handshake with the localStorage
+  token** (`getStoredToken()`), and the backend `connect` handler rejects an
+  expired one. A stale token there doesn't just break auth — it silently drops
+  real-time and leaves every player on the 2s REST polling fallback.
+- `refreshAccessToken` retries **cookie-only** when the body token is rejected.
+  The backend prefers `refresh_token` from the JSON body over the httpOnly cookie,
+  so a stale localStorage value otherwise shadows a perfectly good refresh cookie.
+
+There is also a `visibilitychange` refresh: `setTimeout` is throttled or frozen in
+a backgrounded tab, which is where a party game spends most of its time on mobile.
+
+### localStorage and httpOnly cookies are both live — on purpose, for now
+
+Tokens are written to localStorage *and* set as httpOnly cookies. The cookies are
+the real mechanism in production (same-origin via `majlisna.app/api`); localStorage
+exists because `ky` defaults to `credentials: "same-origin"`, so a cross-origin
+`VITE_API_URL` (local dev on `:5111`, or `api.majlisna.app`) never sends cookies —
+and because `useSocket` needs a readable token. Dropping localStorage means setting
+`credentials: "include"` on the ky instance and passing the token to Socket.IO some
+other way. Until then, do not "clean up" one half of this.

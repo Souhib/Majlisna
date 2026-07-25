@@ -20,8 +20,10 @@ test.describe("Room Join Errors", () => {
     const res = await rawPatch(
       "/api/v1/rooms/join",
       {
+        // No user_id: the joining identity comes from the JWT, and RoomJoin is
+        // declared with extra="forbid", so sending it is a 422 instead of the
+        // wrong-PIN 403 this test is about.
         public_room_id: roomDetails.public_id,
-        user_id: login2.user.id,
         password: "0000",
       },
       login2.access_token,
@@ -38,7 +40,6 @@ test.describe("Room Join Errors", () => {
       "/api/v1/rooms/join",
       {
         public_room_id: "ZZZZZ",
-        user_id: login.user.id,
         password: "1234",
       },
       login.access_token,

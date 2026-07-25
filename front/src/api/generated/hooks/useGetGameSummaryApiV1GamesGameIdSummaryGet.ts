@@ -36,6 +36,8 @@ export type GetGameSummaryApiV1GamesGameIdSummaryGetQueryKey = ReturnType<
 
 /**
  * @description Get a detailed game summary with players, roles, and history.
+ * Participants only, and only once the game is over — the payload contains
+ * every role and the secret words (see ``GameController.get_game_summary``).
  * @summary Get Game Summary
  * {@link /api/v1/games/:game_id/summary}
  */
@@ -91,6 +93,8 @@ export function getGameSummaryApiV1GamesGameIdSummaryGetQueryOptions(
 
 /**
  * @description Get a detailed game summary with players, roles, and history.
+ * Participants only, and only once the game is over — the payload contains
+ * every role and the secret words (see ``GameController.get_game_summary``).
  * @summary Get Game Summary
  * {@link /api/v1/games/:game_id/summary}
  */

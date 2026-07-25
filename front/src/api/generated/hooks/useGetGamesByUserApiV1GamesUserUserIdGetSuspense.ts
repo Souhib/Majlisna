@@ -39,6 +39,9 @@ export type GetGamesByUserApiV1GamesUserUserIdGetSuspenseQueryKey = ReturnType<
 
 /**
  * @description Get a user's game history, most recent first.
+ * Games still in progress are only included when a user reads their OWN
+ * history — each entry exposes the subject's role, which is a secret while the
+ * game runs.
  * @summary Get Games By User
  * {@link /api/v1/games/user/:user_id}
  */
@@ -102,6 +105,9 @@ export function getGamesByUserApiV1GamesUserUserIdGetSuspenseQueryOptions(
 
 /**
  * @description Get a user's game history, most recent first.
+ * Games still in progress are only included when a user reads their OWN
+ * history — each entry exposes the subject's role, which is a secret while the
+ * game runs.
  * @summary Get Games By User
  * {@link /api/v1/games/user/:user_id}
  */

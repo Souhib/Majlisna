@@ -76,6 +76,41 @@ describe("AuthProvider", () => {
     expect(result.current.user?.username).toBe("Bob")
   })
 
+  it("mints a fresh token pair after cookie auth so the session can outlive the access token", async () => {
+    // Regression guard: the cookie path used to set a "cookie-auth" sentinel and
+    // return without scheduling any refresh. Every reloaded tab then ran on
+    // whatever access token happened to be in localStorage, and once that expired
+    // the next request 401'd and bounced the player to /auth/login mid-game. It
+    // also left a stale token behind, which is what useSocket authenticates the
+    // Socket.IO handshake with — so real-time silently fell back to polling.
+    const userData = { id: "u3", username: "Cookie", email: "c@b.com", is_active: true, is_admin: false }
+    mockApiClient.mockResolvedValueOnce({ data: userData }) // GET /me
+    mockApiClient.mockResolvedValueOnce({
+      data: { access_token: "fresh-access", refresh_token: "fresh-refresh", expires_in: 900 },
+    }) // POST /auth/refresh
+
+    const { result } = renderHook(() => useAuth(), { wrapper })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    expect(result.current.isAuthenticated).toBe(true)
+    expect(result.current.user?.username).toBe("Cookie")
+    // A real token, not the sentinel — otherwise useSocket can't authenticate.
+    expect(result.current.token).toBe("fresh-access")
+    expect(mockStoreAuthData).toHaveBeenCalledWith("fresh-access", "fresh-refresh", 900)
+  })
+
+  it("falls back to the cookie-auth sentinel when the refresh call fails", async () => {
+    const userData = { id: "u4", username: "Dana", email: "d@b.com", is_active: true, is_admin: false }
+    mockApiClient.mockResolvedValueOnce({ data: userData }) // GET /me
+    // Every later call rejects (default mock) → both refresh attempts fail.
+
+    const { result } = renderHook(() => useAuth(), { wrapper })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    expect(result.current.isAuthenticated).toBe(true)
+    expect(result.current.token).toBe("cookie-auth")
+  })
+
   it("login stores auth data and sets state", async () => {
     const { result } = renderHook(() => useAuth(), { wrapper })
     await waitFor(() => expect(result.current.isLoading).toBe(false))

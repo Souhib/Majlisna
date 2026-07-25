@@ -273,7 +273,7 @@ function RoomLobbyPage() {
       return
     }
     try {
-      await leaveMutation.mutateAsync({ data: { user_id: user.id, room_id: roomData.id } })
+      await leaveMutation.mutateAsync({ data: { room_id: roomData.id } })
     } catch {
       // Ignore errors — navigate anyway
     }

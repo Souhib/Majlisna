@@ -73,6 +73,10 @@ services:
       - "5049:5000"
     environment:
       DATABASE_URL: postgresql+asyncpg://majlisna:majlisna@pgbouncer:6432/majlisna
+      # Bypasses PgBouncer for scripts/generate_fake_data.py, which runs DDL. See
+      # the note in docker-compose.dokploy.yml — without it the E2E seed step dies
+      # at "[3/12] Creating rooms" with an asyncpg type-resolution error.
+      DIRECT_DATABASE_URL: postgresql+asyncpg://majlisna:majlisna@db:5432/majlisna
       REDIS_URL: redis://redis:6379/0
       ENVIRONMENT: development
       MAJLISNA_ENV: development

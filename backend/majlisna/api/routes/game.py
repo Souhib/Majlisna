@@ -29,19 +29,28 @@ async def get_games_by_user(
     *,
     user_id: UUID,
     limit: int = Query(default=20, ge=1, le=100, description="Number of results"),
-    current_user: Annotated[User, Depends(get_current_user)],  # noqa: ARG001
+    current_user: Annotated[User, Depends(get_current_user)],
     game_controller: Annotated[GameController, Depends(get_game_controller)],
 ) -> list[GameHistoryEntry]:
-    """Get a user's game history, most recent first."""
-    return list(await game_controller.get_games_by_user(user_id, limit=limit))
+    """Get a user's game history, most recent first.
+
+    Games still in progress are only included when a user reads their OWN
+    history — each entry exposes the subject's role, which is a secret while the
+    game runs.
+    """
+    return list(await game_controller.get_games_by_user(user_id, limit=limit, requester_id=current_user.id))
 
 
 @router.get("/{game_id}/summary", response_model=GameSummary)
 async def get_game_summary(
     *,
     game_id: UUID,
-    current_user: Annotated[User, Depends(get_current_user)],  # noqa: ARG001
+    current_user: Annotated[User, Depends(get_current_user)],
     game_controller: Annotated[GameController, Depends(get_game_controller)],
 ) -> GameSummary:
-    """Get a detailed game summary with players, roles, and history."""
-    return await game_controller.get_game_summary(game_id)
+    """Get a detailed game summary with players, roles, and history.
+
+    Participants only, and only once the game is over — the payload contains
+    every role and the secret words (see ``GameController.get_game_summary``).
+    """
+    return await game_controller.get_game_summary(game_id, current_user.id)

@@ -6,7 +6,7 @@
  */
 
 import { HTTPValidationErrorSchema } from "./HTTPValidationErrorSchema.ts";
-import { userViewSchema } from "./userViewSchema.ts";
+import { publicUserViewSchema } from "./publicUserViewSchema.ts";
 import { z } from "zod/v4";
 
 export const getUserByIdApiV1UsersUserIdGetPathParamsSchema = z.object({
@@ -16,9 +16,11 @@ export const getUserByIdApiV1UsersUserIdGetPathParamsSchema = z.object({
 /**
  * @description Successful Response
  */
-export const getUserByIdApiV1UsersUserIdGet200Schema = z.lazy(
-  () => userViewSchema,
-);
+export const getUserByIdApiV1UsersUserIdGet200Schema = z
+  .lazy(() => publicUserViewSchema)
+  .describe(
+    "User representation safe to expose to OTHER users.\n\nDeclares only non-sensitive public-profile fields — email_address,\ngoogle_sub, auth_provider and email_verified are never read nor serialized.",
+  );
 
 /**
  * @description Not found

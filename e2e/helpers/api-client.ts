@@ -92,20 +92,21 @@ export async function apiRegister(
   });
 }
 
+/**
+ * Refresh a token pair.
+ *
+ * The token goes in the JSON body. It used to be passed as a query parameter,
+ * which the endpoint no longer accepts — and a refresh token in a query string
+ * lands in access logs and browser history.
+ */
 export async function apiRefreshToken(
   refreshToken: string,
-): Promise<{ access_token: string; refresh_token: string }> {
-  const res = await fetch(
-    `${API_URL}/api/v1/auth/refresh?refresh_token=${encodeURIComponent(refreshToken)}`,
-    { method: "POST" },
-  );
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Token refresh failed (${res.status}): ${text}`);
-  }
-
-  return res.json();
+): Promise<{ access_token: string; refresh_token: string; expires_in: number }> {
+  return postJSON<{
+    access_token: string;
+    refresh_token: string;
+    expires_in: number;
+  }>("/api/v1/auth/refresh", { refresh_token: refreshToken });
 }
 
 // ─── Room API ───────────────────────────────────────────────
@@ -121,22 +122,41 @@ export async function apiCreateRoom(
   );
 }
 
+/**
+ * Fetch a room, with its PIN filled in from the members-only share-link endpoint.
+ *
+ * `GET /rooms/{id}` deliberately no longer returns `password`: the room view is a
+ * public-ish representation and leaking the PIN there would defeat the point of
+ * having one. The PIN is served by `GET /rooms/{id}/share-link`, which requires
+ * membership. Tests still need `roomDetails.password` to have other players join,
+ * so this helper merges the two calls.
+ */
 export async function apiGetRoom(
   roomId: string,
   token: string,
 ): Promise<RoomResponse> {
-  return getJSON<RoomResponse>(`/api/v1/rooms/${roomId}`, token);
+  const room = await getJSON<RoomResponse>(`/api/v1/rooms/${roomId}`, token);
+  const { password } = await apiGetShareLink(roomId, token);
+  return { ...room, password };
 }
 
+/**
+ * Join a room by code + PIN.
+ *
+ * `userId` is accepted for readability at the call sites but is NOT sent: the
+ * server takes the joining identity from the JWT, and RoomJoin is declared with
+ * `extra="forbid"`, so an extra `user_id` in the body is a hard 422.
+ */
 export async function apiJoinRoom(
   publicRoomId: string,
   userId: string,
   password: string,
   token: string,
 ): Promise<RoomResponse> {
+  void userId;
   return patchJSON<RoomResponse>(
     "/api/v1/rooms/join",
-    { public_room_id: publicRoomId, user_id: userId, password },
+    { public_room_id: publicRoomId, password },
     token,
   );
 }
@@ -169,16 +189,16 @@ async function patchJSON<T>(
   return res.json();
 }
 
+/**
+ * Leave a room. `userId` is accepted but not sent — see apiJoinRoom.
+ */
 export async function apiLeaveRoom(
   roomId: string,
   userId: string,
   token: string,
 ): Promise<void> {
-  await patchJSON(
-    "/api/v1/rooms/leave",
-    { room_id: roomId, user_id: userId },
-    token,
-  );
+  void userId;
+  await patchJSON("/api/v1/rooms/leave", { room_id: roomId }, token);
 }
 
 /**
@@ -189,16 +209,20 @@ export async function apiLeaveAllRooms(
   userId: string,
   token: string,
 ): Promise<void> {
-  for (let attempt = 0; attempt < 2; attempt++) {
+  // Uses GET /rooms/active, which returns THIS user's active room. It used to
+  // list every room via GET /rooms and filter client-side; that endpoint was
+  // removed (it leaked the full room directory), and because the failure was
+  // swallowed by the catch below this helper would have silently become a no-op.
+  for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      const rooms = await getJSON<RoomResponse[]>("/api/v1/rooms", token);
-      const myRooms = rooms.filter((r) => r.users?.some((u) => u.id === userId));
-      if (myRooms.length === 0) return; // Clean
-      for (const room of myRooms) {
-        await apiLeaveRoom(room.id, userId, token).catch(() => {});
-      }
+      const active = await getJSON<{ room_id: string } | null>(
+        "/api/v1/rooms/active",
+        token,
+      );
+      if (!active?.room_id) return; // Clean
+      await apiLeaveRoom(active.room_id, userId, token);
     } catch {
-      // Token might be expired, rooms endpoint might fail
+      // Token might be expired, or the room vanished — nothing left to clean.
       return;
     }
   }
@@ -663,13 +687,21 @@ export async function apiUpdateRoomSettings(
 
 // ─── Spectator API ─────────────────────────────────────────
 
+/**
+ * Join a room as a spectator.
+ *
+ * The room PIN is required — spectating is not a way around the password. The
+ * spectator cannot look it up themselves (`/share-link` is members-only), so it
+ * has to be passed in, exactly like a real user receiving a share link.
+ */
 export async function apiJoinRoomAsSpectator(
   roomId: string,
   token: string,
+  password: string,
 ): Promise<RoomResponse> {
   return patchJSON<RoomResponse>(
     "/api/v1/rooms/join-spectator",
-    { room_id: roomId },
+    { room_id: roomId, password },
     token,
   );
 }

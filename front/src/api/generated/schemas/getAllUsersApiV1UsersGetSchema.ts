@@ -5,14 +5,18 @@
  * Do not edit manually.
  */
 
-import { userViewSchema } from "./userViewSchema.ts";
+import { publicUserViewSchema } from "./publicUserViewSchema.ts";
 import { z } from "zod/v4";
 
 /**
  * @description Successful Response
  */
 export const getAllUsersApiV1UsersGet200Schema = z.array(
-  z.lazy(() => userViewSchema),
+  z
+    .lazy(() => publicUserViewSchema)
+    .describe(
+      "User representation safe to expose to OTHER users.\n\nDeclares only non-sensitive public-profile fields — email_address,\ngoogle_sub, auth_provider and email_verified are never read nor serialized.",
+    ),
 );
 
 /**

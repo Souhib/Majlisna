@@ -5,23 +5,14 @@
  * Do not edit manually.
  */
 
-import type { Game } from "./Game.ts";
-import type { RoomStatus } from "./RoomStatus.ts";
+import type { PublicUserView } from "./PublicUserView.ts";
 import type { RoomType } from "./RoomType.ts";
-import type { UserView } from "./UserView.ts";
 
 /**
  * RoomView
+ * @description Public room representation.\n\nIntentionally does NOT inherit RoomBase: the room PIN (`password`) and\n`games` (whose `live_state` leaks in-progress roles/words) must never\nleave this boundary. Members-only data (PIN, full state) is served by the\nauthenticated `/rooms/{id}/state` endpoint instead.
  */
 export type RoomView = {
-  /**
-   * @type string
-   */
-  status: RoomStatus;
-  /**
-   * @type string
-   */
-  password: string;
   /**
    * @type string, uuid
    */
@@ -45,9 +36,5 @@ export type RoomView = {
   /**
    * @type array | undefined
    */
-  users?: UserView[];
-  /**
-   * @type array | undefined
-   */
-  games?: Game[];
+  users?: PublicUserView[];
 };

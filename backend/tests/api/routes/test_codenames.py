@@ -13,7 +13,8 @@ from majlisna.api.controllers.codenames import (
     CodenamesWordPackNotFoundError,
 )
 from majlisna.api.models.codenames import CodenamesWord, CodenamesWordPack
-from majlisna.dependencies import get_codenames_controller
+from majlisna.api.models.table import User
+from majlisna.dependencies import get_codenames_controller, get_current_user
 
 # ──────────────────────────────────────────────────────────────
 # Word Packs (/api/v1/codenames/word-packs)
@@ -37,6 +38,8 @@ def test_word_pack_create_word_pack_success(test_app: FastAPI, client: TestClien
         )
     )
     test_app.dependency_overrides[get_codenames_controller] = lambda: mock_controller
+    mock_user = User(id=uuid.uuid4(), username="testuser", email="test@example.com")
+    test_app.dependency_overrides[get_current_user] = lambda: mock_user
 
     # Act
     response = client.post(
@@ -65,6 +68,8 @@ def test_word_pack_create_word_pack_validation_error(test_app: FastAPI, client: 
     # Arrange
     mock_controller = Mock(spec=CodenamesController)
     test_app.dependency_overrides[get_codenames_controller] = lambda: mock_controller
+    mock_user = User(id=uuid.uuid4(), username="testuser", email="test@example.com")
+    test_app.dependency_overrides[get_current_user] = lambda: mock_user
 
     # Act
     response = client.post(
@@ -202,6 +207,8 @@ def test_word_pack_delete_word_pack_success(test_app: FastAPI, client: TestClien
     mock_controller = Mock(spec=CodenamesController)
     mock_controller.delete_word_pack = AsyncMock(return_value=None)
     test_app.dependency_overrides[get_codenames_controller] = lambda: mock_controller
+    mock_user = User(id=uuid.uuid4(), username="testuser", email="test@example.com")
+    test_app.dependency_overrides[get_current_user] = lambda: mock_user
 
     # Act
     response = client.delete(f"/api/v1/codenames/word-packs/{pack_id}")
@@ -220,6 +227,8 @@ def test_word_pack_delete_word_pack_not_found(test_app: FastAPI, client: TestCli
     mock_controller = Mock(spec=CodenamesController)
     mock_controller.delete_word_pack = AsyncMock(side_effect=CodenamesWordPackNotFoundError(pack_id=pack_id))
     test_app.dependency_overrides[get_codenames_controller] = lambda: mock_controller
+    mock_user = User(id=uuid.uuid4(), username="testuser", email="test@example.com")
+    test_app.dependency_overrides[get_current_user] = lambda: mock_user
 
     # Act & Assert
     with pytest.raises(CodenamesWordPackNotFoundError) as exc_info:
@@ -252,6 +261,8 @@ def test_word_add_word_to_pack_success(test_app: FastAPI, client: TestClient):
         )
     )
     test_app.dependency_overrides[get_codenames_controller] = lambda: mock_controller
+    mock_user = User(id=uuid.uuid4(), username="testuser", email="test@example.com")
+    test_app.dependency_overrides[get_current_user] = lambda: mock_user
 
     # Act
     response = client.post(
@@ -340,6 +351,8 @@ def test_word_delete_word_success(test_app: FastAPI, client: TestClient):
     mock_controller = Mock(spec=CodenamesController)
     mock_controller.delete_word = AsyncMock(return_value=None)
     test_app.dependency_overrides[get_codenames_controller] = lambda: mock_controller
+    mock_user = User(id=uuid.uuid4(), username="testuser", email="test@example.com")
+    test_app.dependency_overrides[get_current_user] = lambda: mock_user
 
     # Act
     response = client.delete(f"/api/v1/codenames/words/{word_id}")

@@ -1,5 +1,6 @@
 from uuid import UUID
 
+from loguru import logger
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -52,4 +53,5 @@ async def fetch_game_state(game_id: str, user_id: str) -> dict:
                 result = await controller.get_board(UUID(game_id), UUID(user_id), update_heartbeat=False)
                 return result.model_dump(mode="json")
         except Exception:
+            logger.exception("Failed to fetch game state for game={}", game_id)
             return {}

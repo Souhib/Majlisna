@@ -4,11 +4,11 @@ from collections.abc import Sequence
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from majlisna.api.constants import CACHE_TTL_GAME_CONTENT_SECONDS
 from majlisna.api.models.mcqquiz import McqQuestion
 from majlisna.api.utils.cache import cache
 
 MCQ_QUESTIONS_CACHE_KEY = "mcqquiz:questions"
-CACHE_TTL_SECONDS = 3600
 
 
 class McqQuizController:
@@ -20,7 +20,7 @@ class McqQuizController:
         if cached is not None:
             return cached  # type: ignore[return-value]
         questions = (await self.session.exec(select(McqQuestion))).all()
-        cache.set(MCQ_QUESTIONS_CACHE_KEY, questions, CACHE_TTL_SECONDS)
+        cache.set(MCQ_QUESTIONS_CACHE_KEY, questions, CACHE_TTL_GAME_CONTENT_SECONDS)
         return questions
 
     async def get_random_questions(

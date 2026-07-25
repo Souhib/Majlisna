@@ -37,8 +37,11 @@ RUN bun run build
 # Stage 2: Production with Nginx
 FROM nginx:alpine AS production
 
-# Copy custom nginx configuration
+# Copy custom nginx configuration. security-headers.conf is included from every
+# location block in nginx.conf (see the comment there for why it can't live in
+# the server block alone).
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY security-headers.conf /etc/nginx/security-headers.conf
 
 # Copy built assets from build stage
 COPY --from=build /app/dist /usr/share/nginx/html

@@ -274,3 +274,138 @@ Settings use `MAJLISNA_ENV` selector:
 - Scalar UI: `http://localhost:5111/scalar`
 - OpenAPI JSON: `http://localhost:5111/openapi.json`
 - Health check: `http://localhost:5111/health`
+
+## Hard-Won Rules
+
+### `GET /games/{id}/summary` is participants-only AND finished-games-only
+
+The summary payload contains every player's role plus the secret Undercover words
+and the whole Codenames clue history. It is gated twice in
+`GameController.get_game_summary(game_id, requester_id)`:
+
+1. `game_status == IN_PROGRESS` → `GameStillInProgressError` (403). Without this
+   the endpoint is a straight cheat vector: a player mid-game reads it and learns
+   who the undercover is and what the civilian word is, bypassing the sanitised
+   per-role `get_state`. This is the same leak that got the raw `GET /games/{id}`
+   endpoint deleted — it simply survived through a second door.
+2. No `UserGameLink` for the caller → `NotAGameParticipantError` (403).
+
+`GET /games/user/{user_id}` takes `requester_id` for the same reason: each entry
+carries the subject's `user_role`, so games still IN_PROGRESS are excluded unless
+a user is reading their own history.
+
+**Any new game read endpoint must answer both questions: is the game over, and
+did this caller take part?**
+
+### There is no room directory
+
+`GET /rooms` was removed. It returned every ACTIVE room's `public_id`, owner and
+member list to any authenticated user, which combined with a 4-digit PIN and a
+per-IP-only rate limit made "enumerate rooms, then brute-force 10 000 PINs"
+practical. Rooms are joined by a code shared out-of-band. Do not re-add a
+list-all-rooms endpoint.
+
+### `_process_game_end_stats` must not commit, and must not swallow SQLAlchemy errors
+
+All four game controllers stage stat/achievement writes and let the calling
+mutation's single `commit()` persist them.
+
+- **No commit inside it.** It runs inside `get_game_lock`, which on PostgreSQL is
+  `pg_try_advisory_xact_lock` — a *transaction-scoped* lock. Committing there
+  releases the game lock in the middle of the end-of-game critical section.
+- **No `except SQLAlchemyError: continue`.** After a failed statement the session
+  requires a rollback, so catching-and-continuing made every later query in the
+  loop and the caller's `commit()` raise `PendingRollbackError`, losing the whole
+  game-end write. Letting it propagate rolls the request back cleanly; the game
+  is still IN_PROGRESS so the client's retry re-runs the flow.
+
+More generally: **one commit per locked block.** Two commits inside a
+`get_game_lock` body means the second half runs unprotected on PostgreSQL.
+
+### The winner must be written into `live_state`, not recomputed
+
+`_finish_game` sets `state["winner"]`. Undercover used to leave it unset, so
+`GameHistoryEntry.winner` / `GameSummary.winner` (which both read
+`state.get("winner")`) were `None` for **every** undercover game and `user_won`
+was always null — the history UI showed neither Won nor Lost. Recomputing from
+alive counts also can't express "Mr. White guessed the civilian word", where
+undercovers win while civilians are still alive and ahead. `_get_winner_label`
+prefers the persisted value and only falls back to the derived one for old rows.
+The disconnect handler (`_handle_undercover_disconnect`) writes it too — ending
+by disconnect is a very common path.
+
+### Columns must match the awareness of what the controller writes
+
+`UserStats.last_played_at` and `UserAchievement.unlocked_at` are
+`TIMESTAMP(timezone=True)`. As plain `TIMESTAMP` they rejected every write on
+PostgreSQL (`asyncpg`: *can't subtract offset-naive and offset-aware datetimes*),
+so `update_stats_after_game` failed for every player at the end of every game —
+silently, because the caller swallowed the exception. SQLite never caught it,
+which is why the whole test suite passed while production recorded no stats.
+**When changing a `datetime.now()` to `datetime.now(UTC)`, change the column with
+it, and verify with `pytest --use-postgres`.**
+
+### There are no migrations
+
+`create_all` only CREATEs missing tables — it never ALTERs an existing one. A
+change to a column or index on a table that already exists on a server is applied
+by dropping and reseeding:
+
+```bash
+docker exec -w /app majlisna-backend env PYTHONPATH=/app python scripts/generate_fake_data.py --delete
+docker exec -w /app majlisna-backend env PYTHONPATH=/app python scripts/generate_fake_data.py --create-db
+```
+
+Do not add Alembic-style migration DDL to `database.py`.
+
+### Expected 4xx log at INFO, not WARNING
+
+`BaseError` picks `INFO` for < 500 and `ERROR` for >= 500. `app.py` attaches a
+Sentry/GlitchTip sink at WARNING+, so logging routine 4xx as warnings turned every
+"You have already voted this round" and every wrong room PIN into a tracked issue,
+burying real errors and burning the error-tracker quota.
+
+### `get_room_by_id` is the expensive one
+
+It eager-loads `Room.users` **and** `Room.games` — i.e. the full `live_state` JSON
+of every game ever played in that room. Only callers that serialize the Room
+through `RoomView` need it (a lazy relationship load on an async session raises
+`MissingGreenlet`). Everything that just reads scalar columns — `get_room_state`
+(every heartbeat and every Socket.IO broadcast), `kick_player`,
+`update_room_settings`, `rematch`, `get_share_link`, `_prepare_game_start` — uses
+`get_room_without_relations`.
+
+### Room membership is one row per (room, user)
+
+`RoomUserLink` carries `UniqueConstraint("room_id", "user_id")`. The table has a
+surrogate int PK, so without it two concurrent `PATCH /rooms/join` calls from the
+same user (double-tap, client retry) both saw "no existing link" and both
+inserted — the player appeared twice in the lobby, the count was inflated, and
+`.one()` lookups raised `MultipleResultsFound` (a 500).
+
+Also: `join_room` filters on `Room.type == ACTIVE`. `public_id` is globally unique
+and rooms are only soft-deleted, so a stale code otherwise re-attached a user to a
+closed room.
+
+### SQLite foreign keys are per-connection
+
+`create_app_engine` installs a pool `connect` listener that issues
+`PRAGMA foreign_keys=ON` for every connection. A single PRAGMA on the
+table-creating connection does **not** carry over to the rest of the pool, which
+left dev running with foreign keys effectively off. `tests/conftest.py` installs
+the same listener on its test engine.
+
+### Host-supplied settings are bounded
+
+`RoomSettingsRequest` bounds every numeric field (see `constants.py`:
+`MAX_TIMER_SECONDS`, `MAX_QUIZ_ROUNDS`, …) and uses a `DifficultyLevel` enum.
+These values are copied verbatim into `Room.settings` and then into a game's
+`live_state`, so `word_quiz_rounds=10_000_000` made game creation try to draw ten
+million questions, and a negative timer made the expiry check pass immediately.
+
+### A player cannot become a spectator mid-game
+
+`join_room_as_spectator` rejects (409) flipping an existing non-spectator link
+while `room.active_game_id` is set. Their entry stays in `live_state["players"]`
+regardless, so the flag only desynchronises the two views — and nothing, not even
+the host, can flip it back.

@@ -3,10 +3,12 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
+from starlette.requests import Request
 
 from majlisna.api.controllers.chat import ChatController
 from majlisna.api.models.chat import ChatMessage
 from majlisna.api.models.table import User
+from majlisna.api.rate_limit import limiter
 from majlisna.api.schemas.chat import ChatMessageView, SendMessageRequest
 from majlisna.api.ws.notify import notify_chat_message
 from majlisna.dependencies import get_chat_controller, get_current_user
@@ -29,7 +31,9 @@ def _to_view(msg: ChatMessage) -> ChatMessageView:
 
 
 @router.post("/rooms/{room_id}/messages", response_model=ChatMessageView, status_code=201)
+@limiter.limit("30/minute")
 async def send_message(
+    request: Request,  # noqa: ARG001 — required by limiter
     *,
     room_id: UUID,
     body: SendMessageRequest,

@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError, NoResultFound
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from majlisna.api.constants import CACHE_TTL_GAME_CONTENT_SECONDS
 from majlisna.api.models.codenames import (
     CodenamesWord,
     CodenamesWordCreate,
@@ -15,7 +16,6 @@ from majlisna.api.models.codenames import (
 from majlisna.api.utils.cache import cache
 
 WORD_PACKS_CACHE_KEY = "codenames:word_packs"
-CACHE_TTL_SECONDS = 3600
 
 
 class CodenamesWordPackNotFoundError(Exception):
@@ -87,7 +87,7 @@ class CodenamesController:
         if cached is not None:
             return cached  # type: ignore[return-value]
         packs = (await self.session.exec(select(CodenamesWordPack))).all()
-        cache.set(WORD_PACKS_CACHE_KEY, packs, CACHE_TTL_SECONDS)
+        cache.set(WORD_PACKS_CACHE_KEY, packs, CACHE_TTL_GAME_CONTENT_SECONDS)
         return packs
 
     async def get_word_pack(self, pack_id: UUID) -> CodenamesWordPack:

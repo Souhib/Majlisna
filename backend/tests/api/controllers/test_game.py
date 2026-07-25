@@ -9,10 +9,16 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from majlisna.api.controllers.game import GameController
 from majlisna.api.models.event import EventCreate
-from majlisna.api.models.game import GameCreate, GameType, GameUpdate
+from majlisna.api.models.game import GameCreate, GameStatus, GameType, GameUpdate
 from majlisna.api.models.room import RoomType
-from majlisna.api.models.table import Room
-from majlisna.api.schemas.error import GameNotFoundError, NoTurnInsideGameError, RoomIsNotActiveError
+from majlisna.api.models.table import Room, User
+from majlisna.api.schemas.error import (
+    GameNotFoundError,
+    GameStillInProgressError,
+    NotAGameParticipantError,
+    NoTurnInsideGameError,
+    RoomIsNotActiveError,
+)
 
 
 async def test_create_game_success(sample_room: Room, game_controller: GameController):
@@ -226,3 +232,98 @@ async def test_get_latest_turn_no_turns(sample_game, game_controller: GameContro
     # Act & Assert
     with pytest.raises(NoTurnInsideGameError):
         await game_controller.get_latest_turn(game_id)
+
+
+# ========== get_game_summary authorization ==========
+#
+# The summary payload contains every player's role plus the secret Undercover
+# words, so it is gated on (a) the game being over and (b) the caller having
+# taken part. Without those gates any authenticated user could read it mid-game
+# and learn who the undercover is — the same leak that got the raw
+# GET /games/{id} endpoint removed.
+
+
+async def test_get_game_summary_rejects_in_progress_game(
+    sample_owner: User, sample_game, game_controller: GameController, session: AsyncSession
+):
+    """A summary for a game that is still IN_PROGRESS is refused, even to a participant."""
+    # Arrange
+    sample_game.game_status = GameStatus.IN_PROGRESS
+    sample_game.live_state = {
+        "players": [{"user_id": str(sample_owner.id), "username": "owner", "role": "undercover"}],
+        "civilian_word": "mosque",
+        "undercover_word": "church",
+    }
+    session.add(sample_game)
+    await session.commit()
+
+    # Act & Assert
+    with pytest.raises(GameStillInProgressError):
+        await game_controller.get_game_summary(sample_game.id, sample_owner.id)
+
+
+async def test_get_game_summary_rejects_non_participant(
+    sample_owner: User, sample_game, create_user, game_controller: GameController, session: AsyncSession
+):
+    """A user who never played the game cannot read its summary."""
+    # Arrange
+    outsider = await create_user(username="outsider", email="outsider@test.com")
+    sample_game.game_status = GameStatus.FINISHED
+    sample_game.live_state = {
+        "players": [{"user_id": str(sample_owner.id), "username": "owner", "role": "undercover"}],
+        "civilian_word": "mosque",
+        "undercover_word": "church",
+    }
+    session.add(sample_game)
+    await session.commit()
+
+    # Act & Assert
+    with pytest.raises(NotAGameParticipantError):
+        await game_controller.get_game_summary(sample_game.id, outsider.id)
+
+
+async def test_get_game_summary_allows_participant_after_game_ends(
+    sample_owner: User, sample_game, game_controller: GameController, session: AsyncSession
+):
+    """A participant reading a finished game gets the full summary."""
+    # Arrange
+    sample_game.game_status = GameStatus.FINISHED
+    sample_game.live_state = {
+        "players": [{"user_id": str(sample_owner.id), "username": "owner", "role": "undercover"}],
+        "civilian_word": "mosque",
+        "undercover_word": "church",
+        "winner": "undercovers",
+    }
+    session.add(sample_game)
+    await session.commit()
+
+    # Act
+    summary = await game_controller.get_game_summary(sample_game.id, sample_owner.id)
+
+    # Assert
+    assert summary.winner == "undercovers"
+    assert summary.word_explanations is not None
+    assert summary.word_explanations.civilian_word == "mosque"
+
+
+async def test_get_games_by_user_hides_in_progress_games_from_others(
+    sample_owner: User, sample_game, create_user, game_controller: GameController, session: AsyncSession
+):
+    """Another user's history omits live games — each entry carries the subject's secret role."""
+    # Arrange
+    spy = await create_user(username="spy", email="spy@test.com")
+    sample_game.game_status = GameStatus.IN_PROGRESS
+    sample_game.live_state = {
+        "players": [{"user_id": str(sample_owner.id), "username": "owner", "role": "undercover"}],
+    }
+    session.add(sample_game)
+    await session.commit()
+
+    # Act
+    as_other = await game_controller.get_games_by_user(sample_owner.id, requester_id=spy.id)
+    as_self = await game_controller.get_games_by_user(sample_owner.id, requester_id=sample_owner.id)
+
+    # Assert
+    assert as_other == []
+    assert len(as_self) == 1
+    assert as_self[0].user_role == "undercover"

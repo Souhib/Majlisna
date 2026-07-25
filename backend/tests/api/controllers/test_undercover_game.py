@@ -1332,21 +1332,18 @@ async def test_record_hint_view_wrong_word(undercover_game_controller, setup_und
 
 
 @pytest.mark.asyncio
-async def test_start_next_round_non_host_succeeds(undercover_game_controller, setup_undercover_game, session):
-    """Non-host calling start_next_round is not rejected (no host check in this method)."""
+async def test_start_next_round_non_host_rejected(undercover_game_controller, setup_undercover_game):
+    """Non-host calling start_next_round is rejected with 403."""
     # Prepare
     setup = await setup_undercover_game(3)
     result = await _start_game(undercover_game_controller, setup["room"].id, setup["users"][0].id)
     game_uuid = UUID(result.game_id)
     non_host = setup["users"][1]
 
-    # Act — non-host starts next round (no host validation exists)
-    round_result = await undercover_game_controller.start_next_round(game_uuid, setup["room"].id, non_host.id)
-
-    # Assert — succeeds without error
-    assert round_result.turn_number == 2
-    game = await _get_game(session, result.game_id)
-    assert len(game.live_state["turns"]) == 2
+    # Act / Assert — non-host is rejected
+    with pytest.raises(BaseError) as exc_info:
+        await undercover_game_controller.start_next_round(game_uuid, setup["room"].id, non_host.id)
+    assert exc_info.value.status_code == 403
 
 
 # ========== Description validation ==========
@@ -1430,6 +1427,21 @@ async def test_mr_white_guess_correct_undercovers_win(undercover_game_controller
     assert guess_result.winner == "undercovers"
     game = await _get_game(session, result.game_id)
     assert game.game_status == GameStatus.FINISHED
+
+    # The winner must also be persisted in live_state and surface through
+    # get_state. Regression guard: the winner used to be recomputed from alive
+    # counts, which cannot express this outcome — undercovers win while civilians
+    # are still alive and outnumber them. get_state therefore reported
+    # winner=None, the frontend's deriveUndercoverPhase never reached
+    # "game_over", word_explanations stayed hidden, and because the backend had
+    # already set game_status=FINISHED every further action 400'd: the game
+    # soft-locked on the voting screen.
+    assert game.live_state["winner"] == "undercovers"
+    civilian = next(p for p in game.live_state["players"] if p["role"] == "civilian")
+    player_state = await undercover_game_controller.get_state(game_uuid, UUID(civilian["user_id"]))
+    assert player_state.winner == "undercovers"
+    assert player_state.word_explanations is not None
+    assert player_state.word_explanations.civilian_word == civilian_word
 
 
 @pytest.mark.asyncio

@@ -11,7 +11,11 @@ import { z } from "zod/v4";
 /**
  * @description Successful Response
  */
-export const getMeApiV1AuthMeGet200Schema = z.lazy(() => userViewSchema);
+export const getMeApiV1AuthMeGet200Schema = z
+  .lazy(() => userViewSchema)
+  .describe(
+    "Full user representation — only ever returned to the user themselves\n(register, /me, own profile updates). Never use for other users.",
+  );
 
 export const getMeApiV1AuthMeGetQueryResponseSchema = z.lazy(
   () => getMeApiV1AuthMeGet200Schema,

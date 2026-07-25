@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import func
@@ -585,7 +585,9 @@ class AchievementController:
             )
         return entries
 
-    async def check_achievements(self, user_id: UUID, stats: UserStats) -> list[AchievementDefinition]:
+    async def check_achievements(
+        self, user_id: UUID, stats: UserStats, *, commit: bool = True
+    ) -> list[AchievementDefinition]:
         """Check which achievements the user has newly unlocked based on their stats.
 
         For each AchievementDefinition that has a stat_field mapping, this compares
@@ -621,12 +623,12 @@ class AchievementController:
 
             current_value = getattr(stats, stat_field, 0)
             if current_value >= defn.threshold:
-                await self.unlock_achievement(user_id, defn.id)  # type: ignore[arg-type]
+                await self.unlock_achievement(user_id, defn.id, commit=commit)  # type: ignore[arg-type]
                 newly_unlocked.append(defn)
 
         return newly_unlocked
 
-    async def unlock_achievement(self, user_id: UUID, achievement_id: UUID) -> UserAchievement:
+    async def unlock_achievement(self, user_id: UUID, achievement_id: UUID, *, commit: bool = True) -> UserAchievement:
         """Unlock an achievement for a user. Creates or updates the UserAchievement record.
 
         :param user_id: The id of the user.
@@ -643,15 +645,16 @@ class AchievementController:
             )
         ).first()
 
-        now = datetime.now()
+        now = datetime.now(UTC)
 
         if existing is not None:
             if existing.unlocked_at is None:
                 existing.unlocked_at = now
                 existing.updated_at = now
                 self.session.add(existing)
-                await self.session.commit()
-                await self.session.refresh(existing)
+                if commit:
+                    await self.session.commit()
+                    await self.session.refresh(existing)
             return existing
 
         user_achievement = UserAchievement(
@@ -661,8 +664,9 @@ class AchievementController:
             unlocked_at=now,
         )
         self.session.add(user_achievement)
-        await self.session.commit()
-        await self.session.refresh(user_achievement)
+        if commit:
+            await self.session.commit()
+            await self.session.refresh(user_achievement)
         return user_achievement
 
     async def seed_achievements(self) -> None:

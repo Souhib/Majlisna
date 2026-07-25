@@ -2,7 +2,6 @@ export type { AcceptFriendRequestApiV1FriendsFriendshipIdAcceptPostMutationKey }
 export type { AddWordToPackApiV1CodenamesWordPacksPackIdWordsPostMutationKey } from "./useAddWordToPackApiV1CodenamesWordPacksPackIdWordsPost.ts";
 export type { CreateRoomApiV1RoomsPostMutationKey } from "./useCreateRoomApiV1RoomsPost.ts";
 export type { CreateTermPairApiV1UndercoverTermpairPostMutationKey } from "./useCreateTermPairApiV1UndercoverTermpairPost.ts";
-export type { CreateUserApiV1UsersPostMutationKey } from "./useCreateUserApiV1UsersPost.ts";
 export type { CreateWordApiV1UndercoverWordsPostMutationKey } from "./useCreateWordApiV1UndercoverWordsPost.ts";
 export type { CreateWordPackApiV1CodenamesWordPacksPostMutationKey } from "./useCreateWordPackApiV1CodenamesWordPacksPost.ts";
 export type { DeleteAccountApiV1UsersMeAccountDeleteMutationKey } from "./useDeleteAccountApiV1UsersMeAccountDelete.ts";
@@ -18,8 +17,6 @@ export type { GetActiveChallengesApiV1ChallengesActiveGetQueryKey } from "./useG
 export type { GetActiveChallengesApiV1ChallengesActiveGetSuspenseQueryKey } from "./useGetActiveChallengesApiV1ChallengesActiveGetSuspense.ts";
 export type { GetActiveRoomApiV1RoomsActiveGetQueryKey } from "./useGetActiveRoomApiV1RoomsActiveGet.ts";
 export type { GetActiveRoomApiV1RoomsActiveGetSuspenseQueryKey } from "./useGetActiveRoomApiV1RoomsActiveGetSuspense.ts";
-export type { GetAllRoomsApiV1RoomsGetQueryKey } from "./useGetAllRoomsApiV1RoomsGet.ts";
-export type { GetAllRoomsApiV1RoomsGetSuspenseQueryKey } from "./useGetAllRoomsApiV1RoomsGetSuspense.ts";
 export type { GetAllTermPairsApiV1UndercoverTermpairGetQueryKey } from "./useGetAllTermPairsApiV1UndercoverTermpairGet.ts";
 export type { GetAllTermPairsApiV1UndercoverTermpairGetSuspenseQueryKey } from "./useGetAllTermPairsApiV1UndercoverTermpairGetSuspense.ts";
 export type { GetAllUsersApiV1UsersGetQueryKey } from "./useGetAllUsersApiV1UsersGet.ts";
@@ -146,10 +143,6 @@ export { createTermPairApiV1UndercoverTermpairPostMutationKey } from "./useCreat
 export { createTermPairApiV1UndercoverTermpairPost } from "./useCreateTermPairApiV1UndercoverTermpairPost.ts";
 export { createTermPairApiV1UndercoverTermpairPostMutationOptions } from "./useCreateTermPairApiV1UndercoverTermpairPost.ts";
 export { useCreateTermPairApiV1UndercoverTermpairPost } from "./useCreateTermPairApiV1UndercoverTermpairPost.ts";
-export { createUserApiV1UsersPostMutationKey } from "./useCreateUserApiV1UsersPost.ts";
-export { createUserApiV1UsersPost } from "./useCreateUserApiV1UsersPost.ts";
-export { createUserApiV1UsersPostMutationOptions } from "./useCreateUserApiV1UsersPost.ts";
-export { useCreateUserApiV1UsersPost } from "./useCreateUserApiV1UsersPost.ts";
 export { createWordApiV1UndercoverWordsPostMutationKey } from "./useCreateWordApiV1UndercoverWordsPost.ts";
 export { createWordApiV1UndercoverWordsPost } from "./useCreateWordApiV1UndercoverWordsPost.ts";
 export { createWordApiV1UndercoverWordsPostMutationOptions } from "./useCreateWordApiV1UndercoverWordsPost.ts";
@@ -210,14 +203,6 @@ export { getActiveRoomApiV1RoomsActiveGetSuspenseQueryKey } from "./useGetActive
 export { getActiveRoomApiV1RoomsActiveGetSuspense } from "./useGetActiveRoomApiV1RoomsActiveGetSuspense.ts";
 export { getActiveRoomApiV1RoomsActiveGetSuspenseQueryOptions } from "./useGetActiveRoomApiV1RoomsActiveGetSuspense.ts";
 export { useGetActiveRoomApiV1RoomsActiveGetSuspense } from "./useGetActiveRoomApiV1RoomsActiveGetSuspense.ts";
-export { getAllRoomsApiV1RoomsGetQueryKey } from "./useGetAllRoomsApiV1RoomsGet.ts";
-export { getAllRoomsApiV1RoomsGet } from "./useGetAllRoomsApiV1RoomsGet.ts";
-export { getAllRoomsApiV1RoomsGetQueryOptions } from "./useGetAllRoomsApiV1RoomsGet.ts";
-export { useGetAllRoomsApiV1RoomsGet } from "./useGetAllRoomsApiV1RoomsGet.ts";
-export { getAllRoomsApiV1RoomsGetSuspenseQueryKey } from "./useGetAllRoomsApiV1RoomsGetSuspense.ts";
-export { getAllRoomsApiV1RoomsGetSuspense } from "./useGetAllRoomsApiV1RoomsGetSuspense.ts";
-export { getAllRoomsApiV1RoomsGetSuspenseQueryOptions } from "./useGetAllRoomsApiV1RoomsGetSuspense.ts";
-export { useGetAllRoomsApiV1RoomsGetSuspense } from "./useGetAllRoomsApiV1RoomsGetSuspense.ts";
 export { getAllTermPairsApiV1UndercoverTermpairGetQueryKey } from "./useGetAllTermPairsApiV1UndercoverTermpairGet.ts";
 export { getAllTermPairsApiV1UndercoverTermpairGet } from "./useGetAllTermPairsApiV1UndercoverTermpairGet.ts";
 export { getAllTermPairsApiV1UndercoverTermpairGetQueryOptions } from "./useGetAllTermPairsApiV1UndercoverTermpairGet.ts";

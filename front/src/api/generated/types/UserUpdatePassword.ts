@@ -14,6 +14,8 @@ export type UserUpdatePassword = {
    */
   current_password: string;
   /**
+   * @minLength 8
+   * @maxLength 72
    * @type string
    */
   new_password: string;

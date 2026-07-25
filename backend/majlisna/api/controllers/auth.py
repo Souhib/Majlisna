@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from jose import JWTError, jwt
+from jose.exceptions import ExpiredSignatureError
 from loguru import logger
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -13,6 +14,8 @@ from majlisna.api.constants import (
     AUTH_PROVIDER_GOOGLE,
     EMAIL_VERIFICATION_TOKEN_EXPIRE_HOURS,
     PASSWORD_RESET_TOKEN_EXPIRE_HOURS,
+    USERNAME_MAX_LENGTH,
+    USERNAME_MIN_LENGTH,
 )
 from majlisna.api.controllers.shared import (
     async_get_password_hash,
@@ -114,11 +117,12 @@ class AuthController:
 
         :param user_id: The user's unique identifier.
         :param email: The user's email address.
-        :return: TokenPairResponse with both tokens.
+        :return: TokenPairResponse with both tokens and the access token lifetime.
         """
         return TokenPairResponse(
             access_token=self.create_access_token(user_id, email),
             refresh_token=self.create_refresh_token(user_id, email),
+            expires_in=self.settings.access_token_expire_minutes * 60,
         )
 
     def decode_token(self, token: str, expected_type: str | None = None) -> TokenPayload:
@@ -140,9 +144,9 @@ class AuthController:
                 algorithms=[self.settings.jwt_encryption_algorithm],
             )
             token_payload = TokenPayload(**payload)
+        except ExpiredSignatureError as e:
+            raise TokenExpiredError() from e
         except JWTError as e:
-            if "expired" in str(e).lower():
-                raise TokenExpiredError() from e
             raise InvalidTokenError() from e
 
         if expected_type is not None and token_payload.type != expected_type:
@@ -177,6 +181,7 @@ class AuthController:
         return LoginResult(
             access_token=tokens.access_token,
             refresh_token=tokens.refresh_token,
+            expires_in=tokens.expires_in,
             user=LoginUserData(
                 id=str(user.id),
                 username=user.username,
@@ -187,13 +192,21 @@ class AuthController:
     async def register(self, user_create: UserCreate) -> User:
         """Register a new user with a hashed password.
 
+        Only the safe, client-editable fields from UserCreate are copied —
+        security-sensitive columns (email_verified, auth_provider, google_sub)
+        always get their server-side defaults.
+
         :param user_create: The user creation data.
         :return: The newly created User.
         """
         hashed_password = await async_get_password_hash(user_create.password)
-        user_data = user_create.model_dump()
-        user_data["password"] = hashed_password
-        new_user = User(**user_data)
+        new_user = User(
+            username=user_create.username,
+            email_address=user_create.email_address,
+            password=hashed_password,
+            country=user_create.country,
+            bio=user_create.bio,
+        )
         self.session.add(new_user)
         await self.session.commit()
         await self.session.refresh(new_user)
@@ -367,10 +380,13 @@ class AuthController:
         Password is a random sentinel that never matches real input.
         """
         username = self._generate_username(token_payload)
-        # Ensure uniqueness
-        existing = await self.session.exec(select(User).where(User.username == username))
-        if existing.one_or_none():
-            username = f"{username}_{secrets.token_hex(2)}"
+        # Ensure uniqueness. `.first()`, not `.one_or_none()`: `User.username` is
+        # indexed but NOT unique, so two accounts can already share a name and
+        # one_or_none() would raise MultipleResultsFound (a 500 on Google login).
+        existing = (await self.session.exec(select(User).where(User.username == username))).first()
+        if existing is not None:
+            suffix = f"_{secrets.token_hex(2)}"
+            username = f"{username[: USERNAME_MAX_LENGTH - len(suffix)]}{suffix}"
 
         random_password = secrets.token_urlsafe(48)[:72]
         password_hash = await async_get_password_hash(random_password)
@@ -393,13 +409,26 @@ class AuthController:
 
     @staticmethod
     def _generate_username(token_payload: SocialTokenPayload) -> str:
-        """Generate a username from Google name or email prefix."""
+        """Generate a username from Google name or email prefix.
+
+        The result is clamped to [USERNAME_MIN_LENGTH, USERNAME_MAX_LENGTH].
+        SQLModel does not validate `table=True` models, so an out-of-range name
+        inserted fine and then blew up at response time, when the User row was
+        serialised through UserView (which does enforce the bounds) — a 500 on an
+        otherwise successful Google sign-up. Real triggers: a two-letter Google
+        first name, or a long "firstname_lastname" pair.
+        """
         first = token_payload.first_name or ""
         last = token_payload.last_name or ""
         raw = f"{first}_{last}".strip("_") if (first or last) else token_payload.email.split("@")[0]
         # Lowercase, replace spaces with underscores, strip non-alphanumeric (except underscores)
         username = re.sub(r"[^a-z0-9_]", "", raw.lower().replace(" ", "_"))
-        return username or "user"
+        username = username[:USERNAME_MAX_LENGTH]
+        if len(username) < USERNAME_MIN_LENGTH:
+            # Pad with random hex rather than a fixed string so two short names
+            # don't collide on every attempt.
+            username = f"{username or 'user'}_{secrets.token_hex(2)}"[:USERNAME_MAX_LENGTH]
+        return username
 
     async def _complete_social_login(self, user: User, is_new_user: bool) -> SocialLoginResponse:
         """Complete social login: generate tokens and return response."""

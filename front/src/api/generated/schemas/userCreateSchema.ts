@@ -7,14 +7,21 @@
 
 import { z } from "zod/v4";
 
-export const userCreateSchema = z.object({
-  username: z.optional(z.string().min(3)),
-  email_address: z.email(),
-  country: z.optional(z.union([z.string(), z.null()])),
-  email_verified: z.optional(z.boolean().default(false)),
-  bio: z.optional(z.union([z.string(), z.null()])),
-  google_sub: z.optional(z.union([z.string(), z.null()])),
-  auth_provider: z.optional(z.string().max(20).default("email")),
-  profile_picture_url: z.optional(z.union([z.string(), z.null()])),
-  password: z.string(),
-});
+/**
+ * @description Fields a client may provide at registration.\n\nDeliberately does NOT inherit UserBase: that would let a client set\nsecurity-sensitive fields (email_verified, auth_provider, google_sub) via\nmass assignment — e.g. self-verify their email or pre-empt an OAuth link.
+ */
+export const userCreateSchema = z
+  .object({
+    username: z
+      .string()
+      .min(3)
+      .max(30)
+      .regex(/^[^\s<>/\\@]+$/),
+    email_address: z.email(),
+    password: z.string().min(8).max(72),
+    country: z.optional(z.union([z.string(), z.null()])),
+    bio: z.optional(z.union([z.string(), z.null()])),
+  })
+  .describe(
+    "Fields a client may provide at registration.\n\nDeliberately does NOT inherit UserBase: that would let a client set\nsecurity-sensitive fields (email_verified, auth_provider, google_sub) via\nmass assignment — e.g. self-verify their email or pre-empt an OAuth link.",
+  );

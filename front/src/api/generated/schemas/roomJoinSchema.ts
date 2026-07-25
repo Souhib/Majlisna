@@ -7,8 +7,14 @@
 
 import { z } from "zod/v4";
 
-export const roomJoinSchema = z.object({
-  user_id: z.uuid(),
-  public_room_id: z.string(),
-  password: z.string(),
-});
+/**
+ * @description Join request body. The user identity comes from the JWT — never from the body.
+ */
+export const roomJoinSchema = z
+  .object({
+    public_room_id: z.string(),
+    password: z.string(),
+  })
+  .describe(
+    "Join request body. The user identity comes from the JWT — never from the body.",
+  );

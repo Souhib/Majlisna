@@ -28,6 +28,7 @@ export type LeaveRoomApiV1RoomsLeavePatchMutationKey = ReturnType<
 >;
 
 /**
+ * @description Leave a room. Identity comes from the JWT — users can only remove themselves.
  * @summary Leave Room
  * {@link /api/v1/rooms/leave}
  */
@@ -80,6 +81,7 @@ export function leaveRoomApiV1RoomsLeavePatchMutationOptions<
 }
 
 /**
+ * @description Leave a room. Identity comes from the JWT — users can only remove themselves.
  * @summary Leave Room
  * {@link /api/v1/rooms/leave}
  */

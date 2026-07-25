@@ -97,7 +97,6 @@ function RoomsPage() {
 
       joinMutation.mutate({
         data: {
-          user_id: user.id,
           public_room_id: roomCode,
           password: pin,
         },
@@ -155,7 +154,7 @@ function RoomsPage() {
           </div>
           <button
             type="button"
-            onClick={() => user && leaveMutation.mutate({ data: { user_id: user.id, room_id: activeRoom.room_id } })}
+            onClick={() => user && leaveMutation.mutate({ data: { room_id: activeRoom.room_id } })}
             disabled={leaveMutation.isPending}
             className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-destructive transition-colors duration-200"
           >

@@ -28,6 +28,7 @@ export type JoinRoomApiV1RoomsJoinPatchMutationKey = ReturnType<
 >;
 
 /**
+ * @description Join a room with public id + PIN. Identity comes from the JWT (rate-limited against PIN brute-force).
  * @summary Join Room
  * {@link /api/v1/rooms/join}
  */
@@ -78,6 +79,7 @@ export function joinRoomApiV1RoomsJoinPatchMutationOptions<TContext = unknown>(
 }
 
 /**
+ * @description Join a room with public id + PIN. Identity comes from the JWT (rate-limited against PIN brute-force).
  * @summary Join Room
  * {@link /api/v1/rooms/join}
  */

@@ -49,8 +49,11 @@ test.describe("Room Rematch", () => {
     while (!state.winner && rounds < 10) {
       // Submit descriptions
       if (state.turn_phase === "describing" && state.description_order) {
-        for (let idx = 0; idx < state.description_order.length; idx++) {
-          const describer = state.description_order[idx];
+        // Snapshot the order: `state` is reassigned inside the loop, which drops
+        // TypeScript's narrowing of state.description_order on the next iteration.
+        const describeOrder = state.description_order;
+        for (let idx = 0; idx < describeOrder.length; idx++) {
+          const describer = describeOrder[idx];
           const login = logins.find((l) => l.user.id === describer.user_id);
           if (login) {
             await apiSubmitDescription(game.game_id, `word${idx}`, login.access_token).catch(() => {});

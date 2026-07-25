@@ -9,5 +9,5 @@ import { z } from "zod/v4";
 
 export const resetPasswordRequestSchema = z.object({
   token: z.string(),
-  new_password: z.string(),
+  new_password: z.string().min(8).max(72),
 });

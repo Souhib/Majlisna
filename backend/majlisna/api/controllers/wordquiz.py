@@ -5,11 +5,11 @@ from uuid import UUID
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from majlisna.api.constants import CACHE_TTL_GAME_CONTENT_SECONDS
 from majlisna.api.models.wordquiz import QuizWord
 from majlisna.api.utils.cache import cache
 
 QUIZ_WORDS_CACHE_KEY = "wordquiz:words"
-CACHE_TTL_SECONDS = 3600
 
 
 class WordQuizController:
@@ -21,7 +21,7 @@ class WordQuizController:
         if cached is not None:
             return cached  # type: ignore[return-value]
         words = (await self.session.exec(select(QuizWord))).all()
-        cache.set(QUIZ_WORDS_CACHE_KEY, words, CACHE_TTL_SECONDS)
+        cache.set(QUIZ_WORDS_CACHE_KEY, words, CACHE_TTL_GAME_CONTENT_SECONDS)
         return words
 
     async def create(self, quiz_word: QuizWord) -> QuizWord:

@@ -48,9 +48,10 @@ class McqQuizGameController(BaseGameController):
         self._mcqquiz_controller = McqQuizController(session)
 
     async def create_and_start(self, room_id: UUID, user_id: UUID) -> GameStartResponse:
-        """Start a new MCQ Quiz game in the given room."""
+        """Start a new MCQ Quiz game in the given room. Host only."""
         async with get_game_lock(f"room:{room_id}", self.session):
             db_room, player_users = await self._prepare_game_start(room_id)
+            self._require_room_host(db_room, user_id)
 
             num_players = len(player_users)
 
@@ -260,6 +261,7 @@ class McqQuizGameController(BaseGameController):
         """Handle timer expiration — transition to results phase."""
         async with get_game_lock(str(game_id), self.session):
             game = await self._get_game(game_id)
+            self._check_game_in_progress(game)
             state = game.live_state
 
             if state["round_phase"] != "playing":
@@ -286,6 +288,7 @@ class McqQuizGameController(BaseGameController):
         """
         async with get_game_lock(str(game_id), self.session):
             game = await self._get_game(game_id)
+            self._check_game_in_progress(game)
             state = game.live_state
 
             if state["round_phase"] != "results":
@@ -295,7 +298,16 @@ class McqQuizGameController(BaseGameController):
                     status_code=400,
                 )
 
+            # Non-host must be a player in this game
             is_host = await self._check_is_host(game.room_id, user_id)
+            if not is_host:
+                player = next((p for p in state["players"] if p["user_id"] == str(user_id)), None)
+                if not player:
+                    raise BaseError(
+                        message=f"User {user_id} is not a player in this game.",
+                        frontend_message="You are not a player in this game.",
+                        status_code=403,
+                    )
             total_players = len(state["players"])
 
             # Non-host: mark as ready
@@ -502,17 +514,20 @@ class McqQuizGameController(BaseGameController):
         return elapsed >= turn_duration - TIMER_EXPIRATION_TOLERANCE_SECONDS
 
     async def _process_game_end_stats(self, state: dict) -> None:
-        """Update stats for all players after game ends."""
+        """Update stats for all players after game ends.
+
+        Writes are staged only — the caller's single ``commit()`` persists them.
+        See ``UndercoverGameController._process_game_end_stats`` for why this must
+        neither commit (it runs inside a transaction-scoped advisory lock) nor
+        swallow SQLAlchemy errors (it would poison the session).
+        """
         sorted_players = sorted(state["players"], key=lambda p: p["total_score"], reverse=True)
         winner_id = sorted_players[0]["user_id"] if sorted_players else None
 
-        for player in state["players"]:
+        for player in await self._scorable_players(state):
             user_id = UUID(player["user_id"])
             won = player["user_id"] == winner_id
-            try:
-                await self._stats_controller.update_stats_after_game(
-                    user_id=user_id, game_type="mcq_quiz", won=won, role="player"
-                )
-                logger.info("Stats updated: game=mcq_quiz user={}", user_id)
-            except Exception:
-                logger.exception("Failed to update stats for user {user_id}", user_id=user_id)
+            await self._stats_controller.update_stats_after_game(
+                user_id=user_id, game_type="mcq_quiz", won=won, role="player", commit=False
+            )
+            logger.info("Stats updated: game=mcq_quiz user={}", user_id)

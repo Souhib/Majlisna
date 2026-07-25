@@ -12,6 +12,12 @@ from majlisna.api.constants import (
     DEFAULT_DESCRIPTION_TIMER_SECONDS,
     DEFAULT_VOTING_TIMER_SECONDS,
     TIMER_EXPIRATION_TOLERANCE_SECONDS,
+    UNDERCOVER_MR_WHITE_COUNT_LARGE,
+    UNDERCOVER_MR_WHITE_COUNT_MEDIUM,
+    UNDERCOVER_MR_WHITE_COUNT_SMALL,
+    UNDERCOVER_MR_WHITE_THRESHOLD_MEDIUM,
+    UNDERCOVER_MR_WHITE_THRESHOLD_SMALL,
+    UNDERCOVER_WORD_MAX_LENGTH,
 )
 from majlisna.api.controllers.base_game import BaseGameController
 from majlisna.api.controllers.game_lock import get_game_lock
@@ -62,7 +68,12 @@ class UndercoverGameController(BaseGameController):
             num_undercover = max(1, num_players // 4)
             num_civilians = num_players - num_undercover
         else:
-            num_mr_white = 1 if num_players < 10 else (2 if num_players <= 15 else 3)
+            if num_players < UNDERCOVER_MR_WHITE_THRESHOLD_SMALL:
+                num_mr_white = UNDERCOVER_MR_WHITE_COUNT_SMALL
+            elif num_players <= UNDERCOVER_MR_WHITE_THRESHOLD_MEDIUM:
+                num_mr_white = UNDERCOVER_MR_WHITE_COUNT_MEDIUM
+            else:
+                num_mr_white = UNDERCOVER_MR_WHITE_COUNT_LARGE
             num_undercover = max(2, num_players // 4)
             num_civilians = num_players - num_mr_white - num_undercover
             while num_civilians < 1 and num_undercover > 1:
@@ -112,9 +123,10 @@ class UndercoverGameController(BaseGameController):
         return alive_ids
 
     async def create_and_start(self, room_id: UUID, user_id: UUID) -> GameStartResponse:
-        """Start a new Undercover game in the given room."""
+        """Start a new Undercover game in the given room. Host only."""
         async with get_game_lock(f"room:{room_id}", self.session):
             db_room, player_users = await self._prepare_game_start(room_id)
+            self._require_room_host(db_room, user_id)
 
             num_players = len(player_users)
             room_settings = getattr(db_room, "settings", None) or {}
@@ -215,9 +227,19 @@ class UndercoverGameController(BaseGameController):
             )
 
     async def start_next_round(self, game_id: UUID, room_id: UUID, user_id: UUID) -> StartNextRoundResponse:
-        """Start a new round (turn) in an existing game."""
+        """Start a new round (turn) in an existing game. Host only, game must be in progress."""
         async with get_game_lock(str(game_id), self.session):
             game = await self._get_game(game_id)
+            self._check_game_in_progress(game)
+            if game.room_id != room_id:
+                raise BaseError(
+                    message=f"Game {game_id} does not belong to room {room_id}",
+                    frontend_message="This game does not belong to this room.",
+                    status_code=400,
+                )
+            room = (await self.session.exec(select(Room).where(Room.id == room_id))).first()
+            if room:
+                self._require_room_host(room, user_id)
             state = game.live_state
 
             description_order = self._generate_description_order(state["players"])
@@ -264,6 +286,7 @@ class UndercoverGameController(BaseGameController):
         logger.info("Undercover description: game={} user={}", game_id, user_id)
         async with get_game_lock(str(game_id), self.session):
             game = await self._get_game(game_id)
+            self._check_game_in_progress(game)
             state = game.live_state
             current_turn = state["turns"][-1]
 
@@ -289,10 +312,10 @@ class UndercoverGameController(BaseGameController):
                 )
 
             word = word.strip()
-            if not word or " " in word or len(word) > 50:
+            if not word or " " in word or len(word) > UNDERCOVER_WORD_MAX_LENGTH:
                 raise BaseError(
-                    message="Word must be a single word (no spaces), max 50 characters.",
-                    frontend_message="Word must be a single word (no spaces), max 50 characters.",
+                    message=f"Word must be a single word (no spaces), max {UNDERCOVER_WORD_MAX_LENGTH} characters.",
+                    frontend_message=f"Word must be a single word (no spaces), max {UNDERCOVER_WORD_MAX_LENGTH} characters.",
                     status_code=400,
                 )
 
@@ -320,6 +343,7 @@ class UndercoverGameController(BaseGameController):
         logger.info("Undercover vote: game={} user={} target={}", game_id, user_id, voted_for)
         async with get_game_lock(str(game_id), self.session):
             game = await self._get_game(game_id)
+            self._check_game_in_progress(game)
             state = game.live_state
 
             if state["turns"] and state["turns"][-1]["phase"] != "voting":
@@ -389,10 +413,18 @@ class UndercoverGameController(BaseGameController):
         return result
 
     async def _finish_game(self, game, state: dict, winner: str) -> None:
-        """Finish the game: set status, clear active_game_id, process stats."""
+        """Finish the game: set status, record the winner, clear active_game_id, process stats."""
         winner_label = "civilians" if winner == UndercoverRole.CIVILIAN.value else "undercovers"
         game.game_status = GameStatus.FINISHED
         game.end_time = datetime.now(UTC)
+        # Persist the decided winner. Undercover used to leave live_state["winner"]
+        # unset, so game history and the post-game summary — which both read
+        # state["winner"] — showed no winner and left `user_won` null for EVERY
+        # undercover game. It is also the only correct source once the game is
+        # over: recomputing from alive counts (see _get_winner_label) can't
+        # express "Mr. White guessed the civilian word", where undercovers win
+        # even though civilians still outnumber them.
+        state["winner"] = winner_label
         room = (await self.session.exec(select(Room).where(Room.id == game.room_id))).first()
         if room:
             room.active_game_id = None
@@ -413,6 +445,7 @@ class UndercoverGameController(BaseGameController):
         logger.info("Mr. White guess: game={} user={}", game_id, user_id)
         async with get_game_lock(str(game_id), self.session):
             game = await self._get_game(game_id)
+            self._check_game_in_progress(game)
             state = game.live_state
             current_turn = state["turns"][-1]
 
@@ -498,6 +531,7 @@ class UndercoverGameController(BaseGameController):
         """Handle timer expiration — auto-skip description, auto-random-vote, or mr_white guess timeout."""
         async with get_game_lock(str(game_id), self.session):
             game = await self._get_game(game_id)
+            self._check_game_in_progress(game)
             state = game.live_state
 
             # Any player may trigger timer expiration (consistent with the other
@@ -698,6 +732,10 @@ class UndercoverGameController(BaseGameController):
         """Record that a player viewed a hint for a word (deduplicated)."""
         async with get_game_lock(str(game_id), self.session):
             game = await self._get_game(game_id)
+            # Hint views feed achievements ("won without hints"), so they must not
+            # be accepted after the game has ended — the end-of-game stats have
+            # already been computed from hint_usage.
+            self._check_game_in_progress(game)
             state = game.live_state
 
             hint_usage = state.setdefault("hint_usage", {})
@@ -743,48 +781,66 @@ class UndercoverGameController(BaseGameController):
     async def _process_game_end_stats(self, state: dict, winner_label: str) -> list[dict]:
         """Update stats and check achievements for all players after game ends.
 
+        Writes are staged only — the caller's single ``commit()`` persists them.
+        This must NOT commit: it runs inside ``get_game_lock``, which on
+        PostgreSQL is a *transaction-scoped* advisory lock, so committing here
+        would release the game lock in the middle of the end-of-game critical
+        section and let a concurrent mutation in.
+
+        A SQLAlchemy failure is deliberately NOT swallowed either. Once a
+        statement errors the session needs a rollback, so catching-and-continuing
+        made every later query in the loop (and the caller's commit) raise
+        PendingRollbackError, losing the whole game-end write. Letting it
+        propagate rolls the request back cleanly; the client retries and the
+        game state is still IN_PROGRESS, so the retry re-runs the flow.
+
         Returns a list of {user_id, achievements: [{code, name, icon, tier}]} for newly unlocked.
         """
         hint_usage = state.get("hint_usage", {})
         newly_unlocked_all: list[dict] = []
-        for player in state["players"]:
+        for player in await self._scorable_players(state):
             user_id = UUID(player["user_id"])
             role = player.get("role", "civilian")
             won = (winner_label == "civilians" and role == "civilian") or (
                 winner_label == "undercovers" and role in ("undercover", "mr_white")
             )
-            try:
-                stats = await self._stats_controller.update_stats_after_game(
-                    user_id=user_id, game_type="undercover", won=won, role=role
-                )
-                # Update hint-related stats
-                user_hints = hint_usage.get(str(user_id), [])
-                hints_viewed_count = len(user_hints)
-                if hints_viewed_count > 0:
-                    stats.total_hints_viewed += hints_viewed_count
-                if won and hints_viewed_count == 0:
-                    stats.games_without_hints += 1
-                self.session.add(stats)
-                await self.session.commit()
-                await self.session.refresh(stats)
+            stats = await self._stats_controller.update_stats_after_game(
+                user_id=user_id, game_type="undercover", won=won, role=role, commit=False
+            )
+            # Update hint-related stats
+            user_hints = hint_usage.get(str(user_id), [])
+            hints_viewed_count = len(user_hints)
+            if hints_viewed_count > 0:
+                stats.total_hints_viewed += hints_viewed_count
+            if won and hints_viewed_count == 0:
+                stats.games_without_hints += 1
+            self.session.add(stats)
 
-                unlocked = await self._achievement_controller.check_achievements(user_id, stats)
-                if unlocked:
-                    newly_unlocked_all.append(
-                        {
-                            "user_id": str(user_id),
-                            "achievements": [
-                                {"code": a.code, "name": a.name, "icon": a.icon, "tier": a.tier} for a in unlocked
-                            ],
-                        }
-                    )
-                logger.info("Stats updated: game=undercover user={}", user_id)
-            except Exception:
-                logger.exception("Failed to update stats/achievements for user {user_id}", user_id=user_id)
+            unlocked = await self._achievement_controller.check_achievements(user_id, stats, commit=False)
+            if unlocked:
+                newly_unlocked_all.append(
+                    {
+                        "user_id": str(user_id),
+                        "achievements": [
+                            {"code": a.code, "name": a.name, "icon": a.icon, "tier": a.tier} for a in unlocked
+                        ],
+                    }
+                )
+            logger.info("Stats updated: game=undercover user={}", user_id)
         return newly_unlocked_all
 
     def _get_winner_label(self, state: dict) -> str | None:
-        """Get the winner label string, or None if game is still in progress."""
+        """Get the winner label string, or None if game is still in progress.
+
+        Prefers the winner recorded by ``_finish_game``. Falling back to
+        recomputing from alive counts is only for games that predate that write:
+        the derived value is wrong after a correct Mr. White guess (undercovers
+        win while civilians are still alive and ahead), which made the game-over
+        screen report no winner and hide the word explanations.
+        """
+        recorded = state.get("winner")
+        if recorded:
+            return recorded
         winner = self._get_winning_team(state)
         if winner == UndercoverRole.CIVILIAN.value:
             return "civilians"

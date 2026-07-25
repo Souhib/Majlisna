@@ -23,4 +23,8 @@ export type TokenPairResponse = {
    * @type string | undefined
    */
   token_type?: string;
+  /**
+   * @type integer
+   */
+  expires_in: number;
 };

@@ -145,6 +145,7 @@ def test_login_success(test_app: FastAPI, client: TestClient):
         return_value=LoginResult(
             access_token="access.jwt.token",
             refresh_token="refresh.jwt.token",
+            expires_in=3600,
             user=LoginUserData(
                 id=str(user_id),
                 username="testuser",
@@ -263,10 +264,14 @@ def test_refresh_token_success(test_app: FastAPI, client: TestClient):
             exp=9999999999,
         )
     )
+    mock_user = Mock()
+    mock_user.id = "user-123"
+    mock_controller.get_user_by_email = AsyncMock(return_value=mock_user)
     mock_controller.create_token_pair = Mock(
         return_value=TokenPairResponse(
             access_token="new.access.token",
             refresh_token="new.refresh.token",
+            expires_in=3600,
         )
     )
     test_app.dependency_overrides[get_auth_controller] = lambda: mock_controller
@@ -274,7 +279,7 @@ def test_refresh_token_success(test_app: FastAPI, client: TestClient):
     # Act
     response = client.post(
         "/api/v1/auth/refresh",
-        params={"refresh_token": "old.refresh.token"},
+        json={"refresh_token": "old.refresh.token"},
     )
 
     # Assert
@@ -282,7 +287,6 @@ def test_refresh_token_success(test_app: FastAPI, client: TestClient):
     data = response.json()
     assert data["access_token"] == "new.access.token"
     assert data["refresh_token"] == "new.refresh.token"
-    assert data["token_type"] == "bearer"
 
     mock_controller.decode_token.assert_called_once_with("old.refresh.token", expected_type="refresh")
     mock_controller.create_token_pair.assert_called_once_with("user-123", "test@example.com")
@@ -300,7 +304,7 @@ def test_refresh_token_invalid(test_app: FastAPI, client: TestClient):
     # Act
     response = client.post(
         "/api/v1/auth/refresh",
-        params={"refresh_token": "invalid.token.here"},
+        json={"refresh_token": "invalid.token.here"},
     )
 
     # Assert

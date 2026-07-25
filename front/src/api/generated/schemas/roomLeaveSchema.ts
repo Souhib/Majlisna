@@ -7,7 +7,13 @@
 
 import { z } from "zod/v4";
 
-export const roomLeaveSchema = z.object({
-  room_id: z.uuid(),
-  user_id: z.uuid(),
-});
+/**
+ * @description Leave request body. The user identity comes from the JWT — never from the body.
+ */
+export const roomLeaveSchema = z
+  .object({
+    room_id: z.uuid(),
+  })
+  .describe(
+    "Leave request body. The user identity comes from the JWT — never from the body.",
+  );

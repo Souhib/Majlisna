@@ -2,7 +2,7 @@ from datetime import datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
 
-from sqlalchemy import UniqueConstraint
+from sqlalchemy import TIMESTAMP, UniqueConstraint
 from sqlmodel import Field
 
 from majlisna.api.schemas.shared import BaseTable
@@ -59,7 +59,16 @@ class UserStats(BaseTable, table=True):
     longest_win_streak: int = 0
     current_play_streak_days: int = 0
     longest_play_streak_days: int = 0
-    last_played_at: datetime | None = None
+    # TIMESTAMP WITH TIME ZONE, matching the UTC-aware value the controller
+    # writes. As a plain TIMESTAMP this column rejected every write on
+    # PostgreSQL — asyncpg raised "can't subtract offset-naive and offset-aware
+    # datetimes", so update_stats_after_game failed for EVERY player at the end
+    # of EVERY game in production (silently, because the caller swallowed it).
+    # Only `.date()` arithmetic is done on this value, so awareness is safe here.
+    last_played_at: datetime | None = Field(
+        default=None,
+        sa_type=TIMESTAMP(timezone=True),  # type: ignore[call-overload]
+    )
 
     # Mr. White special
     mr_white_correct_guesses: int = 0
@@ -100,4 +109,10 @@ class UserAchievement(BaseTable, table=True):
     user_id: UUID = Field(foreign_key="user.id", index=True)
     achievement_id: UUID = Field(foreign_key="achievementdefinition.id", index=True)
     progress: int = 0
-    unlocked_at: datetime | None = None
+    # UTC-aware, like last_played_at above: the controller writes datetime.now(UTC)
+    # and this value is serialised to the frontend, where a naive timestamp would
+    # be read as browser-local time.
+    unlocked_at: datetime | None = Field(
+        default=None,
+        sa_type=TIMESTAMP(timezone=True),  # type: ignore[call-overload]
+    )

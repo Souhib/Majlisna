@@ -190,7 +190,9 @@ function ProfilePage() {
                   onChange={(e) => setNewPassword(e.target.value)}
                   placeholder={t("profile.newPassword")}
                   className="rounded-xl border border-border/30 bg-background px-4 py-2.5 text-sm flex-1 focus:outline-none focus:ring-2 focus:ring-primary transition-all duration-200"
-                  minLength={5}
+                  // Must match the backend's PASSWORD_MIN_LENGTH (8). At 5 the
+                  // form accepted a password the API then rejected with a 422.
+                  minLength={8}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") handleChangePassword()
                     if (e.key === "Escape") {

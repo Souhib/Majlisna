@@ -1,9 +1,11 @@
 from datetime import datetime
 from uuid import UUID
 
+from loguru import logger
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from majlisna.api.constants import HEARTBEAT_THROTTLE_SECONDS
 from majlisna.api.controllers.achievement import AchievementController
 from majlisna.api.controllers.game import GameController
 from majlisna.api.controllers.room import RoomController
@@ -14,6 +16,7 @@ from majlisna.api.models.error import (
     PlayerRemovedFromGameError,
     RoomNotFoundError,
 )
+from majlisna.api.models.game import GameStatus
 from majlisna.api.models.relationship import RoomUserLink
 from majlisna.api.models.table import Game, Room, User
 from majlisna.api.schemas.error import BaseError
@@ -43,7 +46,9 @@ class BaseGameController:
             RoomNotFoundError: if no players found.
             NotEnoughPlayersError: if fewer than min_players.
         """
-        db_room = await self._room_controller.get_room_by_id(room_id)
+        # Scalar columns only — this path never serializes the Room, and the
+        # eager-loading variant would pull every past game's live_state JSON.
+        db_room = await self._room_controller.get_room_without_relations(room_id)
 
         # Authoritative active-game check. The caller holds the room advisory
         # lock, which serializes execution, but under READ COMMITTED a second
@@ -110,8 +115,33 @@ class BaseGameController:
             return room.owner_id == user_id
         return False
 
+    @staticmethod
+    def _require_room_host(room: Room, user_id: UUID) -> None:
+        """Raise 403 unless the user is the host (owner) of the room."""
+        if room.owner_id != user_id:
+            raise BaseError(
+                message=f"User {user_id} is not the host of room {room.id}",
+                frontend_message="Only the host can do this.",
+                status_code=403,
+            )
+
+    @staticmethod
+    def _check_game_in_progress(game: Game) -> None:
+        """Raise 400 if the game is not currently in progress.
+
+        Mutations on a finished/cancelled game must be rejected — otherwise a
+        late request (e.g. timer-expired arriving after the game ended) can
+        re-run the end-of-game flow and double-count stats.
+        """
+        if game.game_status != GameStatus.IN_PROGRESS:
+            raise BaseError(
+                message=f"Game {game.id} is not in progress (status={game.game_status})",
+                frontend_message="This game is already over.",
+                status_code=400,
+            )
+
     async def _update_heartbeat_throttled(self, room_id: UUID, user_id: UUID) -> None:
-        """Update heartbeat only if last_seen_at is stale (>10s)."""
+        """Update heartbeat only if last_seen_at is stale (>HEARTBEAT_THROTTLE_SECONDS)."""
         link = (
             await self.session.exec(
                 select(RoomUserLink).where(RoomUserLink.room_id == room_id).where(RoomUserLink.user_id == user_id)
@@ -123,7 +153,7 @@ class BaseGameController:
             link.disconnected_at is not None
             or not link.connected
             or not link.last_seen_at
-            or (datetime.now() - link.last_seen_at).total_seconds() > 10
+            or (datetime.now() - link.last_seen_at).total_seconds() > HEARTBEAT_THROTTLE_SECONDS
         )
         if needs_update:
             link.last_seen_at = datetime.now()
@@ -148,6 +178,34 @@ class BaseGameController:
         if not link:
             raise PlayerRemovedFromGameError(user_id=str(user_id), game_id=str(game.id))
         return True
+
+    async def _scorable_players(self, state: dict) -> list[dict]:
+        """The players from live_state whose User row still exists.
+
+        End-of-game stat writes must skip deleted accounts. `live_state["players"]`
+        is a frozen snapshot taken at game start, so a player who deletes their
+        account mid-game stays in it — and `UserStats(user_id=<gone>)` then fails
+        the foreign key, which (now that the stats loop no longer swallows
+        SQLAlchemy errors) would make the game impossible to ever finish.
+
+        One query for the whole set, not one per player.
+        """
+        players = state.get("players", [])
+        if not players:
+            return []
+        player_ids = [UUID(p["user_id"]) for p in players]
+        existing = set(
+            (
+                await self.session.exec(
+                    select(User.id).where(User.id.in_(player_ids))  # type: ignore[union-attr]
+                )
+            ).all()
+        )
+        scorable = [p for p in players if UUID(p["user_id"]) in existing]
+        if len(scorable) != len(players):
+            missing = [p["user_id"] for p in players if UUID(p["user_id"]) not in existing]
+            logger.warning("Skipping stats for deleted users {}", missing)
+        return scorable
 
     @staticmethod
     def _resolve_multilingual(data: dict | None, lang: str) -> str | None:

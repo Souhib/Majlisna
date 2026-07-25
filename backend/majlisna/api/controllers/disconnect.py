@@ -268,6 +268,13 @@ async def _handle_undercover_disconnect(session: AsyncSession, game: Game, user_
         if game_over:
             game.game_status = GameStatus.FINISHED
             game.end_time = datetime.now(UTC)
+            # Record the winner like the normal end-of-game path does, otherwise
+            # a game that ends because someone dropped shows no winner in history
+            # and in the post-game summary.
+            if num_alive_undercover == 0 and num_alive_mr_white == 0:
+                state["winner"] = "civilians"
+            else:
+                state["winner"] = "undercovers"
             room.active_game_id = None
             session.add(room)
         else:

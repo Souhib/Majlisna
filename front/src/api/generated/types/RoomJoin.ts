@@ -7,12 +7,9 @@
 
 /**
  * RoomJoin
+ * @description Join request body. The user identity comes from the JWT — never from the body.
  */
 export type RoomJoin = {
-  /**
-   * @type string, uuid
-   */
-  user_id: string;
   /**
    * @type string
    */

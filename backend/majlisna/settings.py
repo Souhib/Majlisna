@@ -38,6 +38,19 @@ class Settings(BaseSettings):
     # Database
     database_url: str
 
+    # Direct PostgreSQL URL that BYPASSES PgBouncer, for admin scripts that run
+    # DDL (scripts/generate_fake_data.py).
+    #
+    # asyncpg caches type introspection per connection. Under PgBouncer's
+    # transaction pooling, a DROP/CREATE of every table invalidates those types
+    # while pooled server connections keep the stale cache, and the next bulk
+    # INSERT dies with "could not resolve query result and/or argument types in
+    # N attempts". Reproducible 3/3 through PgBouncer, 3/3 fine when direct.
+    #
+    # Empty means "use database_url" — correct for SQLite dev, where there is no
+    # PgBouncer in the path.
+    direct_database_url: str = ""
+
     # Redis (Socket.IO cross-worker pub/sub)
     redis_url: str = "redis://redis:6379/0"
 

@@ -236,7 +236,7 @@ function McqQuizGamePage() {
       return
     }
     try {
-      await leaveMutation.mutateAsync({ data: { user_id: user.id, room_id: roomIdRef.current } })
+      await leaveMutation.mutateAsync({ data: { room_id: roomIdRef.current } })
     } catch {
       // Ignore
     }

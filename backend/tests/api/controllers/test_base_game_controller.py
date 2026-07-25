@@ -244,3 +244,40 @@ def test_resolve_multilingual_returns_none_for_empty():
     # Act / Assert
     assert BaseGameController._resolve_multilingual(None, "en") is None
     assert BaseGameController._resolve_multilingual({}, "en") is None
+
+
+# ── _scorable_players ────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_scorable_players_skips_deleted_accounts(base_controller: BaseGameController, create_user):
+    """Players whose User row is gone are excluded from end-of-game stat writes.
+
+    live_state["players"] is a snapshot taken at game start, so a player who
+    deletes their account mid-game stays in it. Writing UserStats for that id
+    fails the foreign key, and since the stats loop no longer swallows SQLAlchemy
+    errors that would make the game impossible to ever finish.
+    """
+    # Prepare
+    alive = await create_user(username="stillhere", email="alive@test.com")
+    ghost_id = uuid4()
+    state = {
+        "players": [
+            {"user_id": str(alive.id), "username": "stillhere", "role": "civilian"},
+            {"user_id": str(ghost_id), "username": "deleted", "role": "undercover"},
+        ]
+    }
+
+    # Act
+    scorable = await base_controller._scorable_players(state)
+
+    # Assert
+    assert [p["user_id"] for p in scorable] == [str(alive.id)]
+
+
+@pytest.mark.asyncio
+async def test_scorable_players_empty_state(base_controller: BaseGameController):
+    """A state with no players yields an empty list rather than querying."""
+    # Act / Assert
+    assert await base_controller._scorable_players({}) == []
+    assert await base_controller._scorable_players({"players": []}) == []

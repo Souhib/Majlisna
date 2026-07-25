@@ -34,7 +34,7 @@ def mock_sio():
 def mock_connect_dependencies(mock_sio):  # noqa: ARG001
     """Mock all connect handler dependencies."""
     mock_user = MagicMock()
-    mock_user.id = "user-123"
+    mock_user.id = "00000000-0000-0000-0000-000000000123"
     mock_user.email = "test@test.com"
 
     mock_auth_controller = MagicMock()
@@ -59,6 +59,10 @@ def mock_connect_dependencies(mock_sio):  # noqa: ARG001
     # Make AsyncSession work as async context manager
     mock_session.__aenter__ = AsyncMock(return_value=mock_session)
     mock_session.__aexit__ = AsyncMock(return_value=False)
+
+    # Mock session.exec to return a result with .first() returning a mock link
+    mock_link = MagicMock()
+    mock_session.exec = AsyncMock(return_value=MagicMock(first=MagicMock(return_value=mock_link)))
 
     yield {"user": mock_user, "auth_controller": mock_auth_controller, **started}
 
@@ -112,30 +116,34 @@ async def test_auto_join_safe_dict_iteration(mock_sio):
 # ========== connect ==========
 
 
+TEST_ROOM_ID = "00000000-0000-0000-0000-000000000001"
+TEST_USER_ID = "00000000-0000-0000-0000-000000000123"
+
+
 async def test_connect_awaits_enter_room(mock_sio, mock_connect_dependencies):  # noqa: ARG001
     """connect must await both enter_room calls."""
-    await connect("sid1", {}, {"token": "valid", "room_id": "room1"})
+    await connect("sid1", {}, {"token": "valid", "room_id": TEST_ROOM_ID})
 
     assert mock_sio.enter_room.await_count == 2
-    mock_sio.enter_room.assert_any_await("sid1", "room:room1")
-    mock_sio.enter_room.assert_any_await("sid1", "user:user-123")
+    mock_sio.enter_room.assert_any_await("sid1", f"room:{TEST_ROOM_ID}")
+    mock_sio.enter_room.assert_any_await("sid1", f"user:{TEST_USER_ID}")
 
 
 async def test_connect_stores_sid_in_user_sids(mock_sio, mock_connect_dependencies):  # noqa: ARG001
     """connect stores the SID in _user_sids."""
-    await connect("sid1", {}, {"token": "valid", "room_id": "room1"})
+    await connect("sid1", {}, {"token": "valid", "room_id": TEST_ROOM_ID})
 
-    assert _user_sids["user-123:room1"] == "sid1"
+    assert _user_sids[f"{TEST_USER_ID}:{TEST_ROOM_ID}"] == "sid1"
 
 
 async def test_connect_deduplicates_tabs(mock_sio, mock_connect_dependencies):  # noqa: ARG001
     """When user reconnects, old SID is disconnected."""
-    _user_sids["user-123:room1"] = "old_sid"
+    _user_sids[f"{TEST_USER_ID}:{TEST_ROOM_ID}"] = "old_sid"
 
-    await connect("new_sid", {}, {"token": "valid", "room_id": "room1"})
+    await connect("new_sid", {}, {"token": "valid", "room_id": TEST_ROOM_ID})
 
     mock_sio.disconnect.assert_awaited_with("old_sid")
-    assert _user_sids["user-123:room1"] == "new_sid"
+    assert _user_sids[f"{TEST_USER_ID}:{TEST_ROOM_ID}"] == "new_sid"
 
 
 # ========== join_game ==========

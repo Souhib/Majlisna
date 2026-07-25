@@ -58,7 +58,15 @@ class BaseError(Exception):
         self.timestamp = datetime.now(UTC)
 
         if log_level is None:
-            log_level = LogLevel.ERROR if status_code >= status.HTTP_500_INTERNAL_SERVER_ERROR else LogLevel.WARNING
+            # 4xx are expected outcomes of normal play — a wrong room PIN, voting
+            # twice, acting out of turn — so they log at INFO, not WARNING.
+            #
+            # This matters beyond log noise: app.py attaches a Sentry/GlitchTip
+            # sink at WARNING+, so logging routine 4xx as warnings turned every
+            # "You have already voted this round" into a tracked issue. Real
+            # errors drowned in it and the error-tracker quota went with them.
+            # Genuine server faults (5xx) still log at ERROR and still page.
+            log_level = LogLevel.ERROR if status_code >= status.HTTP_500_INTERNAL_SERVER_ERROR else LogLevel.INFO
 
         log_function = {
             LogLevel.DEBUG: logger.debug,
@@ -101,17 +109,6 @@ class EmailNotVerifiedError(BaseError):
             message="Email address not verified",
             frontend_message="Please verify your email address before logging in.",
             status_code=status.HTTP_403_FORBIDDEN,
-        )
-
-
-class UnauthorizedError(BaseError):
-    """User is not authenticated."""
-
-    def __init__(self, message: str = "Authentication required"):
-        super().__init__(
-            message=message,
-            frontend_message="Please log in to continue.",
-            status_code=status.HTTP_401_UNAUTHORIZED,
         )
 
 
@@ -214,18 +211,6 @@ class RoomNotFoundError(BaseError):
         )
 
 
-class RoomAlreadyExistsError(BaseError):
-    """Room already exists."""
-
-    def __init__(self, room_id: UUID | str):
-        super().__init__(
-            message=f"Room with id {room_id} already exists",
-            frontend_message="This room already exists.",
-            status_code=status.HTTP_409_CONFLICT,
-            details={"room_id": str(room_id)},
-        )
-
-
 class WrongRoomPasswordError(BaseError):
     """Incorrect room password."""
 
@@ -262,6 +247,30 @@ class GameNotFoundError(BaseError):
             frontend_message="Game not found.",
             status_code=status.HTTP_404_NOT_FOUND,
             details={"game_id": str(game_id)},
+        )
+
+
+class GameStillInProgressError(BaseError):
+    """A post-game-only resource was requested while the game is still running."""
+
+    def __init__(self, game_id: UUID | str):
+        super().__init__(
+            message=f"Game {game_id} is still in progress; its summary is only available once it ends",
+            frontend_message="This game is still in progress.",
+            status_code=status.HTTP_403_FORBIDDEN,
+            details={"game_id": str(game_id)},
+        )
+
+
+class NotAGameParticipantError(BaseError):
+    """The caller did not take part in the requested game."""
+
+    def __init__(self, game_id: UUID | str, user_id: UUID | str):
+        super().__init__(
+            message=f"User {user_id} did not take part in game {game_id}",
+            frontend_message="You didn't take part in this game.",
+            status_code=status.HTTP_403_FORBIDDEN,
+            details={"game_id": str(game_id), "user_id": str(user_id)},
         )
 
 
@@ -515,18 +524,6 @@ class ClueWordIsOnBoardError(BaseError):
 # ========== Word Quiz Errors ==========
 
 
-class QuizWordNotFoundError(BaseError):
-    """Raised when a quiz word is not found."""
-
-    def __init__(self, word_id: UUID):
-        super().__init__(
-            message=f"Quiz word {word_id} not found",
-            frontend_message="Quiz word not found.",
-            status_code=status.HTTP_404_NOT_FOUND,
-            details={"word_id": str(word_id)},
-        )
-
-
 class NoQuizWordsAvailableError(BaseError):
     """Raised when no quiz words are available for a game."""
 
@@ -581,18 +578,6 @@ class EmptyAnswerError(BaseError):
             message="Answer cannot be empty",
             frontend_message="Answer cannot be empty.",
             status_code=status.HTTP_400_BAD_REQUEST,
-        )
-
-
-class NotHostError(BaseError):
-    """Raised when a non-host tries to perform a host-only action."""
-
-    def __init__(self, user_id: UUID):
-        super().__init__(
-            message=f"User {user_id} is not the host",
-            frontend_message="Only the host can perform this action.",
-            status_code=status.HTTP_403_FORBIDDEN,
-            details={"user_id": str(user_id)},
         )
 
 

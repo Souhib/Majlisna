@@ -541,3 +541,31 @@ Use Conventional Commits with emojis:
 | Admin | admin@test.com | admin123 |
 | User | user@test.com | user1234 |
 | Player | player@test.com | player123 |
+
+## Infrastructure Gotchas
+
+### nginx `add_header` is not inherited into a location that has its own
+
+`front/nginx.conf` keeps the security headers in `front/security-headers.conf` and
+`include`s that file in **every** `location` block. nginx inherits `add_header`
+from the parent level *only if the current level declares none of its own* — and
+both `location /` (which serves index.html) and the static-asset location set
+their own `Cache-Control` via `add_header`. A single server-level block therefore
+shipped index.html and every JS/CSS asset with **no** X-Frame-Options, no nosniff
+and no HSTS. If you add a `location`, include the file in it.
+
+The CSP there is deliberately `Content-Security-Policy-Report-Only`: the Umami and
+Sentry hosts are baked in at build time from `VITE_UMAMI_URL` / `VITE_SENTRY_DSN`
+and aren't known to nginx, so an enforcing policy would silently break analytics
+and error reporting. Add those hosts, watch for violations, then switch the header
+name to enforce.
+
+### Published container ports are bound to loopback
+
+`docker-compose.dokploy.yml` publishes backend and frontend on `127.0.0.1:` only.
+A `0.0.0.0` publish let anyone reach the API directly at `SERVER_IP:33648`,
+bypassing Cloudflare (WAF) and Traefik — and because uvicorn runs with
+`--forwarded-allow-ips '*'`, a direct caller can spoof `X-Forwarded-For` and defeat
+every slowapi rate limit. Traefik reaches the containers over `dokploy-network`, so
+no public host port is needed. This is the same class of hole already documented
+for the monitoring stack ("direct IP:31xxx access bypassed authentication").

@@ -2,7 +2,6 @@ export type { AcceptFriendRequestApiV1FriendsFriendshipIdAcceptPostMutationKey }
 export type { AddWordToPackApiV1CodenamesWordPacksPackIdWordsPostMutationKey } from "./hooks/useAddWordToPackApiV1CodenamesWordPacksPackIdWordsPost.ts";
 export type { CreateRoomApiV1RoomsPostMutationKey } from "./hooks/useCreateRoomApiV1RoomsPost.ts";
 export type { CreateTermPairApiV1UndercoverTermpairPostMutationKey } from "./hooks/useCreateTermPairApiV1UndercoverTermpairPost.ts";
-export type { CreateUserApiV1UsersPostMutationKey } from "./hooks/useCreateUserApiV1UsersPost.ts";
 export type { CreateWordApiV1UndercoverWordsPostMutationKey } from "./hooks/useCreateWordApiV1UndercoverWordsPost.ts";
 export type { CreateWordPackApiV1CodenamesWordPacksPostMutationKey } from "./hooks/useCreateWordPackApiV1CodenamesWordPacksPost.ts";
 export type { DeleteAccountApiV1UsersMeAccountDeleteMutationKey } from "./hooks/useDeleteAccountApiV1UsersMeAccountDelete.ts";
@@ -18,8 +17,6 @@ export type { GetActiveChallengesApiV1ChallengesActiveGetQueryKey } from "./hook
 export type { GetActiveChallengesApiV1ChallengesActiveGetSuspenseQueryKey } from "./hooks/useGetActiveChallengesApiV1ChallengesActiveGetSuspense.ts";
 export type { GetActiveRoomApiV1RoomsActiveGetQueryKey } from "./hooks/useGetActiveRoomApiV1RoomsActiveGet.ts";
 export type { GetActiveRoomApiV1RoomsActiveGetSuspenseQueryKey } from "./hooks/useGetActiveRoomApiV1RoomsActiveGetSuspense.ts";
-export type { GetAllRoomsApiV1RoomsGetQueryKey } from "./hooks/useGetAllRoomsApiV1RoomsGet.ts";
-export type { GetAllRoomsApiV1RoomsGetSuspenseQueryKey } from "./hooks/useGetAllRoomsApiV1RoomsGetSuspense.ts";
 export type { GetAllTermPairsApiV1UndercoverTermpairGetQueryKey } from "./hooks/useGetAllTermPairsApiV1UndercoverTermpairGet.ts";
 export type { GetAllTermPairsApiV1UndercoverTermpairGetSuspenseQueryKey } from "./hooks/useGetAllTermPairsApiV1UndercoverTermpairGetSuspense.ts";
 export type { GetAllUsersApiV1UsersGetQueryKey } from "./hooks/useGetAllUsersApiV1UsersGet.ts";
@@ -151,6 +148,7 @@ export type {
   AddWordToPackApiV1CodenamesWordPacksPackIdWordsPostMutation,
 } from "./types/AddWordToPackApiV1CodenamesWordPacksPackIdWordsPost.ts";
 export type { AdvanceRoundResponse } from "./types/AdvanceRoundResponse.ts";
+export type { BodyRefreshTokenApiV1AuthRefreshPost } from "./types/BodyRefreshTokenApiV1AuthRefreshPost.ts";
 export type { ChatMessageView } from "./types/ChatMessageView.ts";
 export type { ClueGuess } from "./types/ClueGuess.ts";
 export type { ClueHistoryEntry } from "./types/ClueHistoryEntry.ts";
@@ -182,14 +180,6 @@ export type {
   CreateTermPairApiV1UndercoverTermpairPostMutationResponse,
   CreateTermPairApiV1UndercoverTermpairPostMutation,
 } from "./types/CreateTermPairApiV1UndercoverTermpairPost.ts";
-export type {
-  CreateUserApiV1UsersPost201,
-  CreateUserApiV1UsersPost404,
-  CreateUserApiV1UsersPost422,
-  CreateUserApiV1UsersPostMutationRequest,
-  CreateUserApiV1UsersPostMutationResponse,
-  CreateUserApiV1UsersPostMutation,
-} from "./types/CreateUserApiV1UsersPost.ts";
 export type {
   CreateWordApiV1UndercoverWordsPost201,
   CreateWordApiV1UndercoverWordsPost404,
@@ -266,6 +256,10 @@ export type {
 } from "./types/DeleteWordPackApiV1CodenamesWordPacksPackIdDelete.ts";
 export type { DescriptionOrderEntry } from "./types/DescriptionOrderEntry.ts";
 export type { DescriptionRequest } from "./types/DescriptionRequest.ts";
+export type {
+  DifficultyLevelEnumKey,
+  DifficultyLevel,
+} from "./types/DifficultyLevel.ts";
 export type { EliminatedInfo } from "./types/EliminatedInfo.ts";
 export type { EliminatedPlayer } from "./types/EliminatedPlayer.ts";
 export type {
@@ -293,11 +287,9 @@ export type {
   FriendshipStatusEnum,
 } from "./types/FriendshipStatusEnum.ts";
 export type { FriendshipStatusResponse } from "./types/FriendshipStatusResponse.ts";
-export type { Game } from "./types/Game.ts";
 export type { GameDurationStats } from "./types/GameDurationStats.ts";
 export type { GameHistoryEntry } from "./types/GameHistoryEntry.ts";
 export type { GameStartResponse } from "./types/GameStartResponse.ts";
-export type { GameStatusEnumKey, GameStatus } from "./types/GameStatus.ts";
 export type { GameSummary } from "./types/GameSummary.ts";
 export type { GameSummaryPlayer } from "./types/GameSummaryPlayer.ts";
 export type { GameTypeEnumKey, GameType } from "./types/GameType.ts";
@@ -313,12 +305,6 @@ export type {
   GetActiveRoomApiV1RoomsActiveGetQueryResponse,
   GetActiveRoomApiV1RoomsActiveGetQuery,
 } from "./types/GetActiveRoomApiV1RoomsActiveGet.ts";
-export type {
-  GetAllRoomsApiV1RoomsGet200,
-  GetAllRoomsApiV1RoomsGet404,
-  GetAllRoomsApiV1RoomsGetQueryResponse,
-  GetAllRoomsApiV1RoomsGetQuery,
-} from "./types/GetAllRoomsApiV1RoomsGet.ts";
 export type {
   GetAllTermPairsApiV1UndercoverTermpairGet200,
   GetAllTermPairsApiV1UndercoverTermpairGet404,
@@ -690,6 +676,7 @@ export type {
 } from "./types/NextRoundApiV1WordquizGamesGameIdNextRoundPost.ts";
 export type { NextRoundRequest } from "./types/NextRoundRequest.ts";
 export type { PublicProfile } from "./types/PublicProfile.ts";
+export type { PublicUserView } from "./types/PublicUserView.ts";
 export type {
   RecordHintViewedApiV1CodenamesGamesGameIdHintViewedPostPathParams,
   RecordHintViewedApiV1CodenamesGamesGameIdHintViewedPost200,
@@ -717,9 +704,9 @@ export type {
   RecordHintViewedApiV1WordquizGamesGameIdHintViewedPostMutation,
 } from "./types/RecordHintViewedApiV1WordquizGamesGameIdHintViewedPost.ts";
 export type {
-  RefreshTokenApiV1AuthRefreshPostQueryParams,
   RefreshTokenApiV1AuthRefreshPost200,
   RefreshTokenApiV1AuthRefreshPost422,
+  RefreshTokenApiV1AuthRefreshPostMutationRequest,
   RefreshTokenApiV1AuthRefreshPostMutationResponse,
   RefreshTokenApiV1AuthRefreshPostMutation,
 } from "./types/RefreshTokenApiV1AuthRefreshPost.ts";
@@ -780,7 +767,6 @@ export type { RoomPlayerState } from "./types/RoomPlayerState.ts";
 export type { RoomSettings } from "./types/RoomSettings.ts";
 export type { RoomSettingsRequest } from "./types/RoomSettingsRequest.ts";
 export type { RoomState } from "./types/RoomState.ts";
-export type { RoomStatusEnumKey, RoomStatus } from "./types/RoomStatus.ts";
 export type { RoomTypeEnumKey, RoomType } from "./types/RoomType.ts";
 export type { RoomView } from "./types/RoomView.ts";
 export type {
@@ -1024,10 +1010,6 @@ export { createTermPairApiV1UndercoverTermpairPostMutationKey } from "./hooks/us
 export { createTermPairApiV1UndercoverTermpairPost } from "./hooks/useCreateTermPairApiV1UndercoverTermpairPost.ts";
 export { createTermPairApiV1UndercoverTermpairPostMutationOptions } from "./hooks/useCreateTermPairApiV1UndercoverTermpairPost.ts";
 export { useCreateTermPairApiV1UndercoverTermpairPost } from "./hooks/useCreateTermPairApiV1UndercoverTermpairPost.ts";
-export { createUserApiV1UsersPostMutationKey } from "./hooks/useCreateUserApiV1UsersPost.ts";
-export { createUserApiV1UsersPost } from "./hooks/useCreateUserApiV1UsersPost.ts";
-export { createUserApiV1UsersPostMutationOptions } from "./hooks/useCreateUserApiV1UsersPost.ts";
-export { useCreateUserApiV1UsersPost } from "./hooks/useCreateUserApiV1UsersPost.ts";
 export { createWordApiV1UndercoverWordsPostMutationKey } from "./hooks/useCreateWordApiV1UndercoverWordsPost.ts";
 export { createWordApiV1UndercoverWordsPost } from "./hooks/useCreateWordApiV1UndercoverWordsPost.ts";
 export { createWordApiV1UndercoverWordsPostMutationOptions } from "./hooks/useCreateWordApiV1UndercoverWordsPost.ts";
@@ -1088,14 +1070,6 @@ export { getActiveRoomApiV1RoomsActiveGetSuspenseQueryKey } from "./hooks/useGet
 export { getActiveRoomApiV1RoomsActiveGetSuspense } from "./hooks/useGetActiveRoomApiV1RoomsActiveGetSuspense.ts";
 export { getActiveRoomApiV1RoomsActiveGetSuspenseQueryOptions } from "./hooks/useGetActiveRoomApiV1RoomsActiveGetSuspense.ts";
 export { useGetActiveRoomApiV1RoomsActiveGetSuspense } from "./hooks/useGetActiveRoomApiV1RoomsActiveGetSuspense.ts";
-export { getAllRoomsApiV1RoomsGetQueryKey } from "./hooks/useGetAllRoomsApiV1RoomsGet.ts";
-export { getAllRoomsApiV1RoomsGet } from "./hooks/useGetAllRoomsApiV1RoomsGet.ts";
-export { getAllRoomsApiV1RoomsGetQueryOptions } from "./hooks/useGetAllRoomsApiV1RoomsGet.ts";
-export { useGetAllRoomsApiV1RoomsGet } from "./hooks/useGetAllRoomsApiV1RoomsGet.ts";
-export { getAllRoomsApiV1RoomsGetSuspenseQueryKey } from "./hooks/useGetAllRoomsApiV1RoomsGetSuspense.ts";
-export { getAllRoomsApiV1RoomsGetSuspense } from "./hooks/useGetAllRoomsApiV1RoomsGetSuspense.ts";
-export { getAllRoomsApiV1RoomsGetSuspenseQueryOptions } from "./hooks/useGetAllRoomsApiV1RoomsGetSuspense.ts";
-export { useGetAllRoomsApiV1RoomsGetSuspense } from "./hooks/useGetAllRoomsApiV1RoomsGetSuspense.ts";
 export { getAllTermPairsApiV1UndercoverTermpairGetQueryKey } from "./hooks/useGetAllTermPairsApiV1UndercoverTermpairGet.ts";
 export { getAllTermPairsApiV1UndercoverTermpairGet } from "./hooks/useGetAllTermPairsApiV1UndercoverTermpairGet.ts";
 export { getAllTermPairsApiV1UndercoverTermpairGetQueryOptions } from "./hooks/useGetAllTermPairsApiV1UndercoverTermpairGet.ts";
@@ -1555,6 +1529,7 @@ export {
   addWordToPackApiV1CodenamesWordPacksPackIdWordsPostMutationResponseSchema,
 } from "./schemas/addWordToPackApiV1CodenamesWordPacksPackIdWordsPostSchema.ts";
 export { advanceRoundResponseSchema } from "./schemas/advanceRoundResponseSchema.ts";
+export { bodyRefreshTokenApiV1AuthRefreshPostSchema } from "./schemas/bodyRefreshTokenApiV1AuthRefreshPostSchema.ts";
 export { chatMessageViewSchema } from "./schemas/chatMessageViewSchema.ts";
 export { clueGuessSchema } from "./schemas/clueGuessSchema.ts";
 export { clueHistoryEntrySchema } from "./schemas/clueHistoryEntrySchema.ts";
@@ -1584,13 +1559,6 @@ export {
   createTermPairApiV1UndercoverTermpairPostMutationRequestSchema,
   createTermPairApiV1UndercoverTermpairPostMutationResponseSchema,
 } from "./schemas/createTermPairApiV1UndercoverTermpairPostSchema.ts";
-export {
-  createUserApiV1UsersPost201Schema,
-  createUserApiV1UsersPost404Schema,
-  createUserApiV1UsersPost422Schema,
-  createUserApiV1UsersPostMutationRequestSchema,
-  createUserApiV1UsersPostMutationResponseSchema,
-} from "./schemas/createUserApiV1UsersPostSchema.ts";
 export {
   createWordApiV1UndercoverWordsPost201Schema,
   createWordApiV1UndercoverWordsPost404Schema,
@@ -1658,6 +1626,7 @@ export {
 } from "./schemas/deleteWordPackApiV1CodenamesWordPacksPackIdDeleteSchema.ts";
 export { descriptionOrderEntrySchema } from "./schemas/descriptionOrderEntrySchema.ts";
 export { descriptionRequestSchema } from "./schemas/descriptionRequestSchema.ts";
+export { difficultyLevelSchema } from "./schemas/difficultyLevelSchema.ts";
 export { eliminatedInfoSchema } from "./schemas/eliminatedInfoSchema.ts";
 export { eliminatedPlayerSchema } from "./schemas/eliminatedPlayerSchema.ts";
 export {
@@ -1682,9 +1651,7 @@ export { friendshipStatusEnumSchema } from "./schemas/friendshipStatusEnumSchema
 export { friendshipStatusResponseSchema } from "./schemas/friendshipStatusResponseSchema.ts";
 export { gameDurationStatsSchema } from "./schemas/gameDurationStatsSchema.ts";
 export { gameHistoryEntrySchema } from "./schemas/gameHistoryEntrySchema.ts";
-export { gameSchema } from "./schemas/gameSchema.ts";
 export { gameStartResponseSchema } from "./schemas/gameStartResponseSchema.ts";
-export { gameStatusSchema } from "./schemas/gameStatusSchema.ts";
 export { gameSummaryPlayerSchema } from "./schemas/gameSummaryPlayerSchema.ts";
 export { gameSummarySchema } from "./schemas/gameSummarySchema.ts";
 export { gameTypeSchema } from "./schemas/gameTypeSchema.ts";
@@ -1698,11 +1665,6 @@ export {
   getActiveRoomApiV1RoomsActiveGet404Schema,
   getActiveRoomApiV1RoomsActiveGetQueryResponseSchema,
 } from "./schemas/getActiveRoomApiV1RoomsActiveGetSchema.ts";
-export {
-  getAllRoomsApiV1RoomsGet200Schema,
-  getAllRoomsApiV1RoomsGet404Schema,
-  getAllRoomsApiV1RoomsGetQueryResponseSchema,
-} from "./schemas/getAllRoomsApiV1RoomsGetSchema.ts";
 export {
   getAllTermPairsApiV1UndercoverTermpairGet200Schema,
   getAllTermPairsApiV1UndercoverTermpairGet404Schema,
@@ -2029,6 +1991,7 @@ export {
 } from "./schemas/nextRoundApiV1WordquizGamesGameIdNextRoundPostSchema.ts";
 export { nextRoundRequestSchema } from "./schemas/nextRoundRequestSchema.ts";
 export { publicProfileSchema } from "./schemas/publicProfileSchema.ts";
+export { publicUserViewSchema } from "./schemas/publicUserViewSchema.ts";
 export {
   recordHintViewedApiV1CodenamesGamesGameIdHintViewedPostPathParamsSchema,
   recordHintViewedApiV1CodenamesGamesGameIdHintViewedPost200Schema,
@@ -2053,9 +2016,9 @@ export {
   recordHintViewedApiV1WordquizGamesGameIdHintViewedPostMutationResponseSchema,
 } from "./schemas/recordHintViewedApiV1WordquizGamesGameIdHintViewedPostSchema.ts";
 export {
-  refreshTokenApiV1AuthRefreshPostQueryParamsSchema,
   refreshTokenApiV1AuthRefreshPost200Schema,
   refreshTokenApiV1AuthRefreshPost422Schema,
+  refreshTokenApiV1AuthRefreshPostMutationRequestSchema,
   refreshTokenApiV1AuthRefreshPostMutationResponseSchema,
 } from "./schemas/refreshTokenApiV1AuthRefreshPostSchema.ts";
 export {
@@ -2109,7 +2072,6 @@ export { roomPlayerStateSchema } from "./schemas/roomPlayerStateSchema.ts";
 export { roomSettingsRequestSchema } from "./schemas/roomSettingsRequestSchema.ts";
 export { roomSettingsSchema } from "./schemas/roomSettingsSchema.ts";
 export { roomStateSchema } from "./schemas/roomStateSchema.ts";
-export { roomStatusSchema } from "./schemas/roomStatusSchema.ts";
 export { roomTypeSchema } from "./schemas/roomTypeSchema.ts";
 export { roomViewSchema } from "./schemas/roomViewSchema.ts";
 export {
@@ -2315,8 +2277,7 @@ export { wordQuizPlayerStateSchema } from "./schemas/wordQuizPlayerStateSchema.t
 export { wordQuizRoundResultSchema } from "./schemas/wordQuizRoundResultSchema.ts";
 export { wordQuizTimerConfigSchema } from "./schemas/wordQuizTimerConfigSchema.ts";
 export { wordSchema } from "./schemas/wordSchema.ts";
+export { difficultyLevelEnum } from "./types/DifficultyLevel.ts";
 export { friendshipStatusEnumEnum } from "./types/FriendshipStatusEnum.ts";
-export { gameStatusEnum } from "./types/GameStatus.ts";
 export { gameTypeEnum } from "./types/GameType.ts";
-export { roomStatusEnum } from "./types/RoomStatus.ts";
 export { roomTypeEnum } from "./types/RoomType.ts";

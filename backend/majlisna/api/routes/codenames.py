@@ -128,6 +128,7 @@ async def end_turn(
 async def create_word_pack(
     *,
     word_pack_create: CodenamesWordPackCreate,
+    current_user: Annotated[User, Depends(get_current_user)],  # noqa: ARG001 — auth required
     codenames_controller: CodenamesController = Depends(get_codenames_controller),
 ) -> CodenamesWordPack:
     """Create a new Codenames word pack."""
@@ -157,6 +158,7 @@ async def get_word_pack(
 async def delete_word_pack(
     *,
     pack_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],  # noqa: ARG001 — auth required
     codenames_controller: CodenamesController = Depends(get_codenames_controller),
 ) -> None:
     """Delete a Codenames word pack by ID."""
@@ -171,6 +173,7 @@ async def add_word_to_pack(
     *,
     pack_id: UUID,
     word_create: CodenamesWordCreate,
+    current_user: Annotated[User, Depends(get_current_user)],  # noqa: ARG001 — auth required
     codenames_controller: CodenamesController = Depends(get_codenames_controller),
 ) -> CodenamesWord:
     """Add a word to a Codenames word pack."""
@@ -191,6 +194,7 @@ async def get_words_by_pack(
 async def delete_word(
     *,
     word_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],  # noqa: ARG001 — auth required
     codenames_controller: CodenamesController = Depends(get_codenames_controller),
 ) -> None:
     """Delete a Codenames word by ID."""

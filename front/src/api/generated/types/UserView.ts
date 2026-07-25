@@ -7,10 +7,12 @@
 
 /**
  * UserView
+ * @description Full user representation — only ever returned to the user themselves\n(register, /me, own profile updates). Never use for other users.
  */
 export type UserView = {
   /**
    * @minLength 3
+   * @maxLength 30
    * @type string | undefined
    */
   username?: string;

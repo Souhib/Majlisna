@@ -8,7 +8,7 @@ from starlette.testclient import TestClient
 
 from majlisna.api.controllers.user import UserController
 from majlisna.api.models.table import User
-from majlisna.api.schemas.error import UserAlreadyExistsError, UserNotFoundError
+from majlisna.api.schemas.error import UserNotFoundError
 from majlisna.dependencies import get_current_user, get_user_controller
 
 
@@ -29,92 +29,6 @@ def _override_auth(test_app: FastAPI, user: User):
 
 
 # ========== POST /api/v1/users ==========
-
-
-def test_create_user_success(test_app: FastAPI, client: TestClient):
-    """POST /users with valid data returns 201 and the created UserView."""
-    # Arrange
-    user_id = uuid4()
-    mock_controller = Mock(spec=UserController)
-    mock_controller.create_user = AsyncMock(return_value=_make_user(user_id))
-    test_app.dependency_overrides[get_user_controller] = lambda: mock_controller
-
-    # Act
-    response = client.post(
-        "/api/v1/users",
-        json={
-            "username": "JohnDoe",
-            "email_address": "john.doe@test.com",
-            "country": "FRA",
-            "password": "securepassword",
-        },
-    )
-
-    # Assert
-    assert response.status_code == 201
-    body = response.json()
-    assert body["id"] == str(user_id)
-    assert body["username"] == "JohnDoe"
-    assert body["email_address"] == "john.doe@test.com"
-    assert body["country"] == "FRA"
-    assert "password" not in body
-
-    test_app.dependency_overrides.clear()
-
-
-def test_create_user_duplicate_email(test_app: FastAPI, client: TestClient):
-    """POST /users with an already-existing email returns 409."""
-    # Arrange
-    mock_controller = Mock(spec=UserController)
-    mock_controller.create_user = AsyncMock(side_effect=UserAlreadyExistsError(email_address="john.doe@test.com"))
-    test_app.dependency_overrides[get_user_controller] = lambda: mock_controller
-
-    # Act
-    response = client.post(
-        "/api/v1/users",
-        json={
-            "username": "JohnDoe",
-            "email_address": "john.doe@test.com",
-            "country": "FRA",
-            "password": "securepassword",
-        },
-    )
-
-    # Assert
-    assert response.status_code == 409
-    body = response.json()
-    assert body["error"] == "UserAlreadyExistsError"
-    assert body["error_key"] == "errors.api.userAlreadyExists"
-    assert body["message"] == "An account with this email already exists."
-    assert body["details"]["email_address"] == "john.doe@test.com"
-
-    test_app.dependency_overrides.clear()
-
-
-def test_create_user_validation_error(test_app: FastAPI, client: TestClient):
-    """POST /users with an invalid email returns 422 validation error."""
-    # Arrange
-    mock_controller = Mock(spec=UserController)
-    test_app.dependency_overrides[get_user_controller] = lambda: mock_controller
-
-    # Act
-    response = client.post(
-        "/api/v1/users",
-        json={
-            "username": "JohnDoe",
-            "email_address": "not-an-email",
-            "country": "FRA",
-            "password": "securepassword",
-        },
-    )
-
-    # Assert
-    assert response.status_code == 422
-    body = response.json()
-    assert body["error"] == "ValidationError"
-    assert body["error_key"] == "errors.api.validation"
-
-    test_app.dependency_overrides.clear()
 
 
 # ========== GET /api/v1/users ==========
@@ -145,12 +59,12 @@ def test_get_all_users_success(test_app: FastAPI, client: TestClient):
     assert len(body) == 2
     assert body[0]["id"] == str(user_id_1)
     assert body[0]["username"] == "JohnDoe"
-    assert body[0]["email_address"] == "john.doe@test.com"
+    assert "email_address" not in body[0]
     assert body[0]["country"] == "FRA"
     assert "password" not in body[0]
     assert body[1]["id"] == str(user_id_2)
     assert body[1]["username"] == "JaneDoe"
-    assert body[1]["email_address"] == "jane.doe@test.com"
+    assert "email_address" not in body[1]
     assert body[1]["country"] == "USA"
     assert "password" not in body[1]
 
@@ -208,7 +122,7 @@ def test_get_user_by_id_success(test_app: FastAPI, client: TestClient):
     body = response.json()
     assert body["id"] == str(user_id)
     assert body["username"] == "JohnDoe"
-    assert body["email_address"] == "john.doe@test.com"
+    assert "email_address" not in body
     assert body["country"] == "FRA"
     assert "password" not in body
 

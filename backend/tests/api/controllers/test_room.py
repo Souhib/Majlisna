@@ -4,10 +4,9 @@ import pytest
 from sqlmodel import select
 
 from majlisna.api.controllers.room import RoomController
-from majlisna.api.models.event import EventCreate
 from majlisna.api.models.game import GameType
 from majlisna.api.models.relationship import RoomUserLink
-from majlisna.api.models.room import RoomJoin, RoomLeave, RoomType
+from majlisna.api.models.room import RoomJoin, RoomType
 from majlisna.api.models.table import Room, User
 from majlisna.api.schemas.error import (
     BaseError,
@@ -52,34 +51,6 @@ async def test_create_room_owner_already_in_room(create_user, create_room):
         await create_room(owner=owner)
 
 
-async def test_get_rooms_empty(room_controller: RoomController):
-    """Getting rooms when none exist returns an empty list."""
-
-    # Arrange — no rooms created
-
-    # Act
-    rooms = await room_controller.get_rooms()
-
-    # Assert
-    assert len(rooms) == 0
-
-
-async def test_get_rooms_multiple(create_user, create_room, room_controller: RoomController):
-    """Getting rooms after creating two returns a list of length 2."""
-
-    # Arrange
-    owner1 = await create_user(username="owner1", email="o1@test.com")
-    owner2 = await create_user(username="owner2", email="o2@test.com")
-    await create_room(owner=owner1)
-    await create_room(owner=owner2)
-
-    # Act
-    rooms = await room_controller.get_rooms()
-
-    # Assert
-    assert len(rooms) == 2
-
-
 async def test_get_room_by_id_success(sample_owner: User, sample_room: Room, room_controller: RoomController):
     """Getting a room by its ID returns the correct room with matching id and owner_id."""
 
@@ -114,7 +85,7 @@ async def test_join_room_success(create_user, create_room, room_controller: Room
 
     # Act
     updated = await room_controller.join_room(
-        RoomJoin(user_id=joiner.id, public_room_id=room.public_id, password=room.password)
+        RoomJoin(public_room_id=room.public_id, password=room.password), joiner.id
     )
 
     # Assert — verify via RoomUserLink table directly (identity map may cache stale relationships)
@@ -137,9 +108,7 @@ async def test_join_room_wrong_password(create_user, create_room, room_controlle
     # Act / Assert
     wrong_password = "0000" if room.password != "0000" else "1111"
     with pytest.raises(WrongRoomPasswordError):
-        await room_controller.join_room(
-            RoomJoin(user_id=joiner.id, public_room_id=room.public_id, password=wrong_password)
-        )
+        await room_controller.join_room(RoomJoin(public_room_id=room.public_id, password=wrong_password), joiner.id)
 
 
 async def test_join_room_not_found(create_user, room_controller: RoomController):
@@ -150,7 +119,7 @@ async def test_join_room_not_found(create_user, room_controller: RoomController)
 
     # Act / Assert
     with pytest.raises(RoomNotFoundError):
-        await room_controller.join_room(RoomJoin(user_id=joiner.id, public_room_id="ZZZZZ", password="1234"))
+        await room_controller.join_room(RoomJoin(public_room_id="ZZZZZ", password="1234"), joiner.id)
 
 
 async def test_join_room_user_not_found(sample_owner: User, sample_room: Room, room_controller: RoomController):  # noqa: ARG001
@@ -162,7 +131,7 @@ async def test_join_room_user_not_found(sample_owner: User, sample_room: Room, r
     # Act / Assert
     with pytest.raises(UserNotFoundError):
         await room_controller.join_room(
-            RoomJoin(user_id=fake_user_id, public_room_id=sample_room.public_id, password=sample_room.password)
+            RoomJoin(public_room_id=sample_room.public_id, password=sample_room.password), fake_user_id
         )
 
 
@@ -173,11 +142,11 @@ async def test_join_room_already_in_room_rejoins(create_user, create_room, room_
     owner = await create_user(username="owner", email="owner@test.com")
     joiner = await create_user(username="joiner", email="joiner@test.com")
     room = await create_room(owner=owner)
-    await room_controller.join_room(RoomJoin(user_id=joiner.id, public_room_id=room.public_id, password=room.password))
+    await room_controller.join_room(RoomJoin(public_room_id=room.public_id, password=room.password), joiner.id)
 
     # Act — join again (should succeed as a re-join)
     updated = await room_controller.join_room(
-        RoomJoin(user_id=joiner.id, public_room_id=room.public_id, password=room.password)
+        RoomJoin(public_room_id=room.public_id, password=room.password), joiner.id
     )
 
     # Assert — still only 2 links (no duplicate)
@@ -193,13 +162,13 @@ async def test_leave_room_success(create_user, create_room, room_controller: Roo
     owner = await create_user(username="owner", email="owner@test.com")
     joiner = await create_user(username="joiner", email="joiner@test.com")
     room = await create_room(owner=owner)
-    await room_controller.join_room(RoomJoin(user_id=joiner.id, public_room_id=room.public_id, password=room.password))
+    await room_controller.join_room(RoomJoin(public_room_id=room.public_id, password=room.password), joiner.id)
     room_id = room.id
     joiner_id = joiner.id
     room_controller.session.expire_all()
 
     # Act
-    updated = await room_controller.leave_room(RoomLeave(room_id=room_id, user_id=joiner_id))
+    updated = await room_controller.leave_room(room_id, joiner_id)
 
     # Assert — link is deleted, room stays active
     assert updated.type == RoomType.ACTIVE
@@ -217,7 +186,7 @@ async def test_leave_room_owner_deactivates(sample_owner: User, sample_room: Roo
     # Arrange — provided by sample_owner and sample_room fixtures
 
     # Act
-    updated = await room_controller.leave_room(RoomLeave(room_id=sample_room.id, user_id=sample_owner.id))
+    updated = await room_controller.leave_room(sample_room.id, sample_owner.id)
 
     # Assert
     assert updated.type == RoomType.INACTIVE
@@ -232,14 +201,14 @@ async def test_leave_room_owner_transfers_to_remaining_player(
     owner = await create_user(username="owner", email="owner@test.com")
     player2 = await create_user(username="player2", email="player2@test.com")
     room = await create_room(owner=owner)
-    await room_controller.join_room(RoomJoin(user_id=player2.id, public_room_id=room.public_id, password=room.password))
+    await room_controller.join_room(RoomJoin(public_room_id=room.public_id, password=room.password), player2.id)
     room_id = room.id
     owner_id = owner.id
     player2_id = player2.id
     room_controller.session.expire_all()
 
     # Act
-    updated = await room_controller.leave_room(RoomLeave(room_id=room_id, user_id=owner_id))
+    updated = await room_controller.leave_room(room_id, owner_id)
 
     # Assert — room stays ACTIVE and ownership transferred to player2
     assert updated.type == RoomType.ACTIVE
@@ -255,7 +224,7 @@ async def test_leave_room_not_found(room_controller: RoomController, create_user
 
     # Act / Assert
     with pytest.raises(RoomNotFoundError):
-        await room_controller.leave_room(RoomLeave(room_id=fake_room_id, user_id=user.id))
+        await room_controller.leave_room(fake_room_id, user.id)
 
 
 async def test_leave_room_user_not_in_room(
@@ -271,7 +240,7 @@ async def test_leave_room_user_not_in_room(
 
     # Act / Assert
     with pytest.raises(UserNotInRoomError):
-        await room_controller.leave_room(RoomLeave(room_id=sample_room.id, user_id=other.id))
+        await room_controller.leave_room(sample_room.id, other.id)
 
 
 async def test_leave_room_already_left(create_user, create_room, room_controller: RoomController):
@@ -281,28 +250,29 @@ async def test_leave_room_already_left(create_user, create_room, room_controller
     owner = await create_user(username="owner", email="owner@test.com")
     joiner = await create_user(username="joiner", email="joiner@test.com")
     room = await create_room(owner=owner)
-    await room_controller.join_room(RoomJoin(user_id=joiner.id, public_room_id=room.public_id, password=room.password))
+    await room_controller.join_room(RoomJoin(public_room_id=room.public_id, password=room.password), joiner.id)
     room_id = room.id
     joiner_id = joiner.id
     room_controller.session.expire_all()  # Clear identity map so leave_room re-fetches Room.users
-    await room_controller.leave_room(RoomLeave(room_id=room_id, user_id=joiner_id))
+    await room_controller.leave_room(room_id, joiner_id)
 
     # Act / Assert
     with pytest.raises(UserNotInRoomError):
-        await room_controller.leave_room(RoomLeave(room_id=room_id, user_id=joiner_id))
+        await room_controller.leave_room(room_id, joiner_id)
 
 
-async def test_delete_room_success(sample_owner: User, sample_room: Room, room_controller: RoomController):  # noqa: ARG001
-    """Deleting a room makes it unretrievable by get_room_by_id."""
+async def test_delete_room_success(sample_owner: User, sample_room: Room, room_controller: RoomController):
+    """Deleting a room soft-deactivates it and removes all member links."""
 
     # Arrange — provided by sample_owner and sample_room fixtures
 
     # Act
-    await room_controller.delete_room(sample_room.id)
+    await room_controller.delete_room(sample_room.id, sample_owner.id)
 
-    # Assert
-    with pytest.raises(RoomNotFoundError):
-        await room_controller.get_room_by_id(sample_room.id)
+    # Assert — room is soft-deleted (INACTIVE), not hard-deleted
+    room = await room_controller.get_room_by_id(sample_room.id)
+    assert room.type == RoomType.INACTIVE
+    assert room.active_game_id is None
 
 
 async def test_delete_room_not_found(room_controller: RoomController):
@@ -313,7 +283,7 @@ async def test_delete_room_not_found(room_controller: RoomController):
 
     # Act / Assert
     with pytest.raises(RoomNotFoundError):
-        await room_controller.delete_room(fake_id)
+        await room_controller.delete_room(fake_id, uuid4())
 
 
 async def test_get_active_room_by_public_id_success(
@@ -341,40 +311,6 @@ async def test_get_active_room_by_public_id_not_found(room_controller: RoomContr
     # Act / Assert
     with pytest.raises(RoomNotFoundError):
         await room_controller.get_active_room_by_public_id(fake_public_id)
-
-
-async def test_create_room_activity_success(sample_owner: User, sample_room: Room, room_controller: RoomController):
-    """Creating a room activity returns an Activity with correct name, data, room_id, and user_id."""
-
-    # Arrange
-    event_data = {"key": "value"}
-
-    # Act
-    activity = await room_controller.create_room_activity(
-        sample_room.id,
-        EventCreate(name="test_event", data=event_data, user_id=sample_owner.id),
-    )
-
-    # Assert
-    assert activity.name == "test_event"
-    assert activity.data == {"key": "value"}
-    assert activity.room_id == sample_room.id
-    assert activity.user_id == sample_owner.id
-
-
-async def test_create_room_activity_room_not_found(room_controller: RoomController):
-    """Creating an activity for a non-existent room raises RoomNotFoundError."""
-
-    # Arrange
-    fake_room_id = uuid4()
-    fake_user_id = uuid4()
-
-    # Act / Assert
-    with pytest.raises(RoomNotFoundError):
-        await room_controller.create_room_activity(
-            fake_room_id,
-            EventCreate(name="event", data={}, user_id=fake_user_id),
-        )
 
 
 async def test_check_if_user_is_in_room_true(sample_owner: User, sample_room: Room, room_controller: RoomController):
@@ -416,7 +352,7 @@ async def test_join_room_as_spectator_success(create_user, create_room, room_con
     room = await create_room(owner=owner)
 
     # Act
-    updated = await room_controller.join_room_as_spectator(room.id, spectator.id)
+    updated = await room_controller.join_room_as_spectator(room.id, spectator.id, room.password)
 
     # Assert
     assert updated.id == room.id
@@ -441,7 +377,7 @@ async def test_join_room_as_spectator_user_not_found(
 
     # Act / Assert
     with pytest.raises(UserNotFoundError):
-        await room_controller.join_room_as_spectator(sample_room.id, fake_user_id)
+        await room_controller.join_room_as_spectator(sample_room.id, fake_user_id, sample_room.password)
 
 
 async def test_join_room_as_spectator_room_not_found(create_user, room_controller: RoomController):
@@ -453,7 +389,7 @@ async def test_join_room_as_spectator_room_not_found(create_user, room_controlle
 
     # Act / Assert
     with pytest.raises(RoomNotFoundError):
-        await room_controller.join_room_as_spectator(fake_room_id, user.id)
+        await room_controller.join_room_as_spectator(fake_room_id, user.id, "1234")
 
 
 async def test_update_room_settings_success(
@@ -530,13 +466,13 @@ async def test_voluntary_leave_no_active_room(create_user, create_room, room_con
     owner = await create_user(username="owner", email="owner@test.com")
     joiner = await create_user(username="joiner", email="joiner@test.com")
     room = await create_room(owner=owner)
-    await room_controller.join_room(RoomJoin(user_id=joiner.id, public_room_id=room.public_id, password=room.password))
+    await room_controller.join_room(RoomJoin(public_room_id=room.public_id, password=room.password), joiner.id)
     room_id = room.id
     joiner_id = joiner.id
     room_controller.session.expire_all()
 
     # Act
-    await room_controller.leave_room(RoomLeave(room_id=room_id, user_id=joiner_id))
+    await room_controller.leave_room(room_id, joiner_id)
 
     # Assert — no active room, player is free
     active = await room_controller.get_active_room_for_user(joiner_id)
@@ -552,9 +488,7 @@ async def test_voluntary_leave_can_join_new_room(create_user, create_room, room_
     joiner = await create_user(username="joiner", email="joiner@test.com")
     room1 = await create_room(owner=owner1)
     room2 = await create_room(owner=owner2)
-    await room_controller.join_room(
-        RoomJoin(user_id=joiner.id, public_room_id=room1.public_id, password=room1.password)
-    )
+    await room_controller.join_room(RoomJoin(public_room_id=room1.public_id, password=room1.password), joiner.id)
     room1_id = room1.id
     room2_id = room2.id
     room2_public_id = room2.public_id
@@ -563,10 +497,8 @@ async def test_voluntary_leave_can_join_new_room(create_user, create_room, room_
     room_controller.session.expire_all()
 
     # Act — leave room1, join room2
-    await room_controller.leave_room(RoomLeave(room_id=room1_id, user_id=joiner_id))
-    await room_controller.join_room(
-        RoomJoin(user_id=joiner_id, public_room_id=room2_public_id, password=room2_password)
-    )
+    await room_controller.leave_room(room1_id, joiner_id)
+    await room_controller.join_room(RoomJoin(public_room_id=room2_public_id, password=room2_password), joiner_id)
 
     # Assert — active room is room2
     active = await room_controller.get_active_room_for_user(joiner_id)
@@ -582,13 +514,13 @@ async def test_voluntary_leave_can_create_new_room(create_user, create_room, roo
     owner = await create_user(username="owner", email="owner@test.com")
     player = await create_user(username="player", email="player@test.com")
     room = await create_room(owner=owner)
-    await room_controller.join_room(RoomJoin(user_id=player.id, public_room_id=room.public_id, password=room.password))
+    await room_controller.join_room(RoomJoin(public_room_id=room.public_id, password=room.password), player.id)
     room_id = room.id
     player_id = player.id
     room_controller.session.expire_all()
 
     # Act — leave, then create own room
-    await room_controller.leave_room(RoomLeave(room_id=room_id, user_id=player_id))
+    await room_controller.leave_room(room_id, player_id)
     new_room = await room_controller.create_room(owner_id=player_id, game_type=GameType.UNDERCOVER)
 
     # Assert
@@ -605,7 +537,7 @@ async def test_disconnect_shows_active_room(create_user, create_room, room_contr
     owner = await create_user(username="owner", email="owner@test.com")
     joiner = await create_user(username="joiner", email="joiner@test.com")
     room = await create_room(owner=owner)
-    await room_controller.join_room(RoomJoin(user_id=joiner.id, public_room_id=room.public_id, password=room.password))
+    await room_controller.join_room(RoomJoin(public_room_id=room.public_id, password=room.password), joiner.id)
     joiner_id = joiner.id
 
     # Simulate disconnect (heartbeat staleness sets connected=False, NOT a voluntary leave)
@@ -632,7 +564,7 @@ async def test_disconnect_then_rejoin(create_user, create_room, room_controller:
     owner = await create_user(username="owner", email="owner@test.com")
     joiner = await create_user(username="joiner", email="joiner@test.com")
     room = await create_room(owner=owner)
-    await room_controller.join_room(RoomJoin(user_id=joiner.id, public_room_id=room.public_id, password=room.password))
+    await room_controller.join_room(RoomJoin(public_room_id=room.public_id, password=room.password), joiner.id)
     joiner_id = joiner.id
     public_id = room.public_id
     room_pw = room.password
@@ -648,7 +580,7 @@ async def test_disconnect_then_rejoin(create_user, create_room, room_controller:
     await room_controller.session.commit()
 
     # Act — rejoin
-    await room_controller.join_room(RoomJoin(user_id=joiner_id, public_room_id=public_id, password=room_pw))
+    await room_controller.join_room(RoomJoin(public_room_id=public_id, password=room_pw), joiner_id)
 
     # Assert — connected again
     active = await room_controller.get_active_room_for_user(joiner_id)
@@ -663,7 +595,7 @@ async def test_disconnect_leave_via_banner_frees_player(create_user, create_room
     owner = await create_user(username="owner", email="owner@test.com")
     joiner = await create_user(username="joiner", email="joiner@test.com")
     room = await create_room(owner=owner)
-    await room_controller.join_room(RoomJoin(user_id=joiner.id, public_room_id=room.public_id, password=room.password))
+    await room_controller.join_room(RoomJoin(public_room_id=room.public_id, password=room.password), joiner.id)
     room_id = room.id
     joiner_id = joiner.id
 
@@ -679,7 +611,7 @@ async def test_disconnect_leave_via_banner_frees_player(create_user, create_room
     room_controller.session.expire_all()
 
     # Act — player clicks "Leave" on the rejoin banner
-    await room_controller.leave_room(RoomLeave(room_id=room_id, user_id=joiner_id))
+    await room_controller.leave_room(room_id, joiner_id)
 
     # Assert — fully freed, no active room
     active = await room_controller.get_active_room_for_user(joiner_id)
@@ -697,7 +629,7 @@ async def test_voluntary_leave_can_rejoin_via_code(create_user, create_room, roo
     owner = await create_user(username="owner", email="owner@test.com")
     joiner = await create_user(username="joiner", email="joiner@test.com")
     room = await create_room(owner=owner)
-    await room_controller.join_room(RoomJoin(user_id=joiner.id, public_room_id=room.public_id, password=room.password))
+    await room_controller.join_room(RoomJoin(public_room_id=room.public_id, password=room.password), joiner.id)
     room_id = room.id
     joiner_id = joiner.id
     public_id = room.public_id
@@ -705,8 +637,8 @@ async def test_voluntary_leave_can_rejoin_via_code(create_user, create_room, roo
     room_controller.session.expire_all()
 
     # Act — leave, then rejoin with room code
-    await room_controller.leave_room(RoomLeave(room_id=room_id, user_id=joiner_id))
-    await room_controller.join_room(RoomJoin(user_id=joiner_id, public_room_id=public_id, password=room_pw))
+    await room_controller.leave_room(room_id, joiner_id)
+    await room_controller.join_room(RoomJoin(public_room_id=public_id, password=room_pw), joiner_id)
 
     # Assert — back in the room
     active = await room_controller.get_active_room_for_user(joiner_id)
@@ -722,16 +654,16 @@ async def test_no_ghost_room_after_all_leave(create_user, create_room, room_cont
     owner = await create_user(username="owner", email="owner@test.com")
     player2 = await create_user(username="player2", email="player2@test.com")
     room = await create_room(owner=owner)
-    await room_controller.join_room(RoomJoin(user_id=player2.id, public_room_id=room.public_id, password=room.password))
+    await room_controller.join_room(RoomJoin(public_room_id=room.public_id, password=room.password), player2.id)
     room_id = room.id
     owner_id = owner.id
     player2_id = player2.id
     room_controller.session.expire_all()
 
     # Act — both leave
-    await room_controller.leave_room(RoomLeave(room_id=room_id, user_id=player2_id))
+    await room_controller.leave_room(room_id, player2_id)
     room_controller.session.expire_all()
-    await room_controller.leave_room(RoomLeave(room_id=room_id, user_id=owner_id))
+    await room_controller.leave_room(room_id, owner_id)
 
     # Assert — room is INACTIVE, no active room for either
     db_room = (await room_controller.session.exec(select(Room).where(Room.id == room_id))).one()

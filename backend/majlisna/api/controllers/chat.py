@@ -4,6 +4,7 @@ from uuid import UUID
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from majlisna.api.constants import CHAT_MESSAGE_MAX_LENGTH
 from majlisna.api.models.chat import ChatMessage
 from majlisna.api.models.relationship import RoomUserLink
 from majlisna.api.schemas.error import UserNotInRoomError
@@ -35,7 +36,9 @@ class ChatController:
     async def send_message(self, room_id: UUID, user_id: UUID, username: str, message: str) -> ChatMessage:
         """Send a chat message to a room. Only room members may post."""
         await self._ensure_member(room_id, user_id)
-        msg = ChatMessage(room_id=room_id, user_id=user_id, username=username, message=message[:500])
+        msg = ChatMessage(
+            room_id=room_id, user_id=user_id, username=username, message=message[:CHAT_MESSAGE_MAX_LENGTH]
+        )
         self.session.add(msg)
         await self.session.commit()
         await self.session.refresh(msg)

@@ -1,14 +1,12 @@
-import os
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request, Response
-from slowapi import Limiter
-from slowapi.util import get_remote_address
+from fastapi import APIRouter, Body, Depends, Request, Response
 
 from majlisna.api.controllers.auth import TOKEN_TYPE_REFRESH, AuthController
 from majlisna.api.models.table import User
 from majlisna.api.models.user import UserCreate
 from majlisna.api.models.view import UserView
+from majlisna.api.rate_limit import limiter
 from majlisna.api.schemas.auth import (
     ForgotPasswordRequest,
     LoginRequest,
@@ -31,16 +29,6 @@ from majlisna.dependencies import (
     get_social_auth_service,
 )
 from majlisna.settings import Settings
-
-limiter = Limiter(
-    key_func=get_remote_address,
-    enabled=os.getenv("RATE_LIMIT_ENABLED", "true").lower() != "false",
-    # In-memory storage keeps a separate counter per uvicorn worker, so with
-    # N workers the real limit becomes N× the configured value. Point this at
-    # Redis in production (RATE_LIMIT_STORAGE_URI=redis://...) so the limit is
-    # shared across workers. Defaults to in-memory for tests/single-process dev.
-    storage_uri=os.getenv("RATE_LIMIT_STORAGE_URI", "memory://"),
-)
 
 router = APIRouter(
     prefix="/auth",
@@ -108,6 +96,7 @@ async def login(
     return LoginResponse(
         access_token=result.access_token,
         refresh_token=result.refresh_token,
+        expires_in=result.expires_in,
         user=result.user,
     )
 
@@ -118,16 +107,24 @@ async def refresh_token(
     request: Request,
     response: Response,
     *,
-    refresh_token: str | None = None,
     auth_controller: Annotated[AuthController, Depends(get_auth_controller)],
     settings: Annotated[Settings, Depends(get_settings)],
+    refresh_token: Annotated[str | None, Body(embed=True)] = None,
 ) -> TokenPairResponse:
-    """Refresh access token using refresh token (from param or cookie)."""
+    """Refresh access token using refresh token (from request body or httpOnly cookie).
+
+    The token is accepted in the JSON body only — never as a query parameter,
+    so it cannot leak into access logs / browser history.
+    """
     effective_token = refresh_token or request.cookies.get("majlisna-refresh-token")
     if not effective_token:
         raise InvalidTokenError("No refresh token provided")
 
     payload = auth_controller.decode_token(effective_token, expected_type=TOKEN_TYPE_REFRESH)
+    # The user must still exist — otherwise we'd mint tokens for deleted accounts.
+    user = await auth_controller.get_user_by_email(payload.email)
+    if user is None or str(user.id) != payload.sub:
+        raise InvalidTokenError("User not found for token")
     tokens = auth_controller.create_token_pair(payload.sub, payload.email)
     _set_auth_cookies(response, tokens.access_token, tokens.refresh_token, settings)
     return tokens

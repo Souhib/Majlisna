@@ -37,6 +37,19 @@ async def connect(sid, environ, auth):  # noqa: ARG001
             if user is None:
                 raise ConnectionRefusedError("User not found")
             user_id = str(user.id)
+
+            # Authorization: the user must actually be a member of this room —
+            # otherwise any authenticated user could listen to any room's state
+            # (which carries the room PIN) and chat.
+            link = (
+                await session.exec(
+                    select(RoomUserLink)
+                    .where(RoomUserLink.room_id == UUID(room_id))
+                    .where(RoomUserLink.user_id == user.id)
+                )
+            ).first()
+            if not link:
+                raise ConnectionRefusedError("Not a member of this room")
     except (InvalidTokenError, TokenExpiredError) as e:
         logger.debug("Socket.IO auth failed for sid={}: {}", sid, e)
         raise ConnectionRefusedError("Invalid or expired token") from e
@@ -157,6 +170,25 @@ async def auto_join_game_room(game_id: str, room_id: str) -> int:
     if joined:
         logger.debug("Auto-joined {} SIDs into game:{} from room:{}", joined, game_id, room_id)
     return joined
+
+
+async def remove_user_from_room_socket(user_id: str, room_id: str) -> None:
+    """Detach a user's SID from a room's Socket.IO room (kick/leave).
+
+    Stops the client from receiving further room broadcasts (which carry the
+    room PIN) after they are no longer a member. Best-effort: the `_user_sids`
+    map is per-process, so with multiple workers only SIDs on this worker are
+    detached — kicked users are also disconnected client-side via
+    ``you_were_kicked``.
+    """
+    sid = _user_sids.pop(f"{user_id}:{room_id}", None)
+    if not sid:
+        return
+    try:
+        await sio.leave_room(sid, f"room:{room_id}")
+        logger.debug("Detached sid={} from room:{} (user={})", sid, room_id, user_id)
+    except Exception:
+        logger.opt(exception=True).debug("Failed to detach sid={} from room:{}", sid, room_id)
 
 
 @sio.event

@@ -27,6 +27,7 @@ export type GetAllUsersApiV1UsersGetQueryKey = ReturnType<
 >;
 
 /**
+ * @description List users. Returns the public representation only (no emails).
  * @summary Get All Users
  * {@link /api/v1/users}
  */
@@ -62,6 +63,7 @@ export function getAllUsersApiV1UsersGetQueryOptions(
 }
 
 /**
+ * @description List users. Returns the public representation only (no emails).
  * @summary Get All Users
  * {@link /api/v1/users}
  */

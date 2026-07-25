@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy.exc import NoResultFound
@@ -9,10 +9,11 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from majlisna.api.models.error import GameNotFoundError, NoTurnInsideGameError, RoomIsNotActiveError
 from majlisna.api.models.event import EventCreate
-from majlisna.api.models.game import GameCreate, GameType, GameUpdate
+from majlisna.api.models.game import GameCreate, GameStatus, GameType, GameUpdate
 from majlisna.api.models.relationship import GameTurnLink, RoomGameLink, TurnEventLink, UserGameLink
 from majlisna.api.models.room import RoomType
 from majlisna.api.models.table import Event, Game, Room, Turn
+from majlisna.api.schemas.error import GameStillInProgressError, NotAGameParticipantError
 from majlisna.api.schemas.game import (
     ClueGuess,
     ClueHistoryEntry,
@@ -112,7 +113,7 @@ class GameController:
         :return: The ended game.
         """
         db_game = (await self.session.exec(select(Game).where(Game.id == game_id))).one()
-        db_game.end_time = datetime.now()
+        db_game.end_time = datetime.now(UTC)
         self.session.add(db_game)
         await self.session.commit()
         await self.session.refresh(db_game)
@@ -129,20 +130,26 @@ class GameController:
         await self.session.delete(db_game)
         await self.session.commit()
 
-    async def get_games_by_user(self, user_id: UUID, limit: int = 20) -> Sequence[GameHistoryEntry]:
+    async def get_games_by_user(
+        self, user_id: UUID, limit: int = 20, *, requester_id: UUID | None = None
+    ) -> Sequence[GameHistoryEntry]:
         """Get a user's game history with enriched data, most recent first.
 
-        :param user_id: The id of the user.
+        :param user_id: The id of the user whose history is requested.
         :param limit: Maximum number of results to return.
+        :param requester_id: The authenticated caller. When it differs from
+            ``user_id``, games that are still IN_PROGRESS are excluded: each entry
+            carries ``user_role``, which for a live game is the subject's secret
+            Undercover role. Without this filter an opponent could read
+            ``/games/user/{victim_id}`` mid-game and learn who the undercover is.
         :return: A list of enriched GameHistoryEntry records.
         """
-        results = await self.session.exec(
-            select(Game)
-            .join(UserGameLink, Game.id == UserGameLink.game_id)
-            .where(UserGameLink.user_id == user_id)
-            .order_by(desc(Game.start_time))
-            .limit(limit)
+        statement = (
+            select(Game).join(UserGameLink, Game.id == UserGameLink.game_id).where(UserGameLink.user_id == user_id)
         )
+        if requester_id is not None and requester_id != user_id:
+            statement = statement.where(Game.game_status != GameStatus.IN_PROGRESS)
+        results = await self.session.exec(statement.order_by(desc(Game.start_time)).limit(limit))
         games = results.all()
         str_uid = str(user_id)
         entries: list[GameHistoryEntry] = []
@@ -187,15 +194,38 @@ class GameController:
             )
         return entries
 
-    async def get_game_summary(self, game_id: UUID) -> GameSummary:
-        """Get a detailed game summary for the detail modal.
+    async def get_game_summary(self, game_id: UUID, requester_id: UUID) -> GameSummary:
+        """Get a detailed game summary for the post-game detail modal.
+
+        This response deliberately contains every player's role plus the secret
+        Undercover words and the full Codenames clue history, so it is gated
+        twice:
+
+        * the game must be OVER — while it is IN_PROGRESS this endpoint would be
+          a straight cheat vector (read the summary, learn who the undercover is
+          and what the civilian word is), bypassing the sanitised per-role
+          ``get_state``;
+        * the caller must have taken part in the game (``UserGameLink``), so one
+          player cannot read the roles of a game they were never in.
 
         :param game_id: The id of the game.
+        :param requester_id: The authenticated caller.
         :return: A GameSummary with full player list and history.
         """
         game = (await self.session.exec(select(Game).where(Game.id == game_id))).first()
         if not game:
             raise GameNotFoundError(game_id=game_id)
+
+        if game.game_status == GameStatus.IN_PROGRESS:
+            raise GameStillInProgressError(game_id=game_id)
+
+        participant = (
+            await self.session.exec(
+                select(UserGameLink).where(UserGameLink.game_id == game_id).where(UserGameLink.user_id == requester_id)
+            )
+        ).first()
+        if participant is None:
+            raise NotAGameParticipantError(game_id=game_id, user_id=requester_id)
 
         state = game.live_state or {}
         players_data = state.get("players", [])

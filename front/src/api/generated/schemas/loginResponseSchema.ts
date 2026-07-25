@@ -16,6 +16,7 @@ export const loginResponseSchema = z
     access_token: z.string(),
     refresh_token: z.string(),
     token_type: z.optional(z.string().default("bearer")),
+    expires_in: z.int(),
     get user() {
       return loginUserDataSchema.describe(
         "User data included in login response.",

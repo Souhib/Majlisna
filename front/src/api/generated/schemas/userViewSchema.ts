@@ -7,14 +7,21 @@
 
 import { z } from "zod/v4";
 
-export const userViewSchema = z.object({
-  username: z.optional(z.string().min(3)),
-  email_address: z.email(),
-  country: z.optional(z.union([z.string(), z.null()])),
-  email_verified: z.optional(z.boolean().default(false)),
-  bio: z.optional(z.union([z.string(), z.null()])),
-  google_sub: z.optional(z.union([z.string(), z.null()])),
-  auth_provider: z.optional(z.string().max(20).default("email")),
-  profile_picture_url: z.optional(z.union([z.string(), z.null()])),
-  id: z.uuid(),
-});
+/**
+ * @description Full user representation — only ever returned to the user themselves\n(register, /me, own profile updates). Never use for other users.
+ */
+export const userViewSchema = z
+  .object({
+    username: z.optional(z.string().min(3).max(30)),
+    email_address: z.email(),
+    country: z.optional(z.union([z.string(), z.null()])),
+    email_verified: z.optional(z.boolean().default(false)),
+    bio: z.optional(z.union([z.string(), z.null()])),
+    google_sub: z.optional(z.union([z.string(), z.null()])),
+    auth_provider: z.optional(z.string().max(20).default("email")),
+    profile_picture_url: z.optional(z.union([z.string(), z.null()])),
+    id: z.uuid(),
+  })
+  .describe(
+    "Full user representation — only ever returned to the user themselves\n(register, /me, own profile updates). Never use for other users.",
+  );

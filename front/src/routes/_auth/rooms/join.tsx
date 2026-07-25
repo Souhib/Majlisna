@@ -31,7 +31,6 @@ function JoinByLink() {
         data: {
           public_room_id: code,
           password: pin,
-          user_id: user.id,
         },
       },
       {

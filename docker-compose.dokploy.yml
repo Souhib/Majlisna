@@ -81,6 +81,13 @@ services:
       target: production
     environment:
       DATABASE_URL: postgresql+asyncpg://majlisna:${DB_PASSWORD}@pgbouncer:6432/majlisna
+      # Bypasses PgBouncer. Used ONLY by scripts/generate_fake_data.py, which runs
+      # DDL: asyncpg's per-connection type cache goes stale after a drop/create of
+      # every table, and under PgBouncer's transaction pooling the following bulk
+      # inserts then fail with "could not resolve query result and/or argument
+      # types in N attempts" (reproducible every run). The app itself keeps using
+      # DATABASE_URL through PgBouncer.
+      DIRECT_DATABASE_URL: postgresql+asyncpg://majlisna:${DB_PASSWORD}@db:5432/majlisna
       REDIS_URL: redis://redis:6379/0
       # Shared rate-limit counters across uvicorn workers (db 1, isolated from the
       # Socket.IO pub/sub on db 0). Without this, slowapi keeps per-worker counters
@@ -110,8 +117,13 @@ services:
       timeout: 10s
       start_period: 40s
       retries: 3
+    # Bound to loopback only. A 0.0.0.0 publish let anyone reach the API at
+    # SERVER_IP:33648 — bypassing Cloudflare (WAF) and Traefik, and, because
+    # uvicorn runs with --forwarded-allow-ips '*', letting a caller spoof
+    # X-Forwarded-For and defeat every rate limit. Traefik reaches the container
+    # over dokploy-network, so it does not need a published port.
     ports:
-      - "33648:5000"
+      - "127.0.0.1:33648:5000"
     labels:
       - "traefik.enable=${TRAEFIK_ENABLED:-false}"
       - "traefik.http.routers.majlisna-backend.rule=(Host(`${DOMAIN:-majlisna.local}`) && (PathPrefix(`/api`) || PathPrefix(`/socket.io`) || PathPrefix(`/health`) || PathPrefix(`/scalar`) || PathPrefix(`/openapi.json`))) || Host(`api.${DOMAIN:-majlisna.local}`)"
@@ -144,8 +156,10 @@ services:
       timeout: 3s
       start_period: 5s
       retries: 3
+    # Loopback only — see the backend note above. Public traffic arrives through
+    # Cloudflare → Traefik → dokploy-network, never through a host port.
     ports:
-      - "30819:80"
+      - "127.0.0.1:30819:80"
     labels:
       - "traefik.enable=${TRAEFIK_ENABLED:-false}"
       - "traefik.http.routers.majlisna-frontend.rule=Host(`${DOMAIN:-majlisna.local}`)"

@@ -7,9 +7,10 @@ from loguru import logger
 from sqlalchemy import text
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from majlisna.api.constants import LOCK_TIMEOUT_SECONDS
+
 _fallback_locks: dict[str, asyncio.Lock] = {}
 
-LOCK_TIMEOUT_SECONDS = 30
 LOCK_RETRY_INTERVAL = 0.1
 
 

@@ -1,12 +1,13 @@
 from collections import defaultdict
 from collections.abc import Sequence
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy.exc import NoResultFound
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from majlisna.api.constants import CACHE_TTL_LEADERBOARD_SECONDS, CACHE_TTL_USER_STATS_SECONDS
 from majlisna.api.models.game import GameStatus, GameType
 from majlisna.api.models.relationship import UserGameLink
 from majlisna.api.models.stats import UserStats
@@ -15,15 +16,12 @@ from majlisna.api.schemas.error import UserNotFoundError
 from majlisna.api.schemas.stats import DailyGameRecord, GameDurationStats, HeadToHeadStats, LeaderboardEntry
 from majlisna.api.utils.cache import cache
 
-LEADERBOARD_TTL_SECONDS = 30
-USER_STATS_TTL_SECONDS = 300
-
 
 class StatsController:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def get_or_create_user_stats(self, user_id: UUID) -> UserStats:
+    async def get_or_create_user_stats(self, user_id: UUID, *, commit: bool = True) -> UserStats:
         """Get existing stats for a user, or create a new record if none exists.
 
         :param user_id: The id of the user.
@@ -36,8 +34,9 @@ class StatsController:
 
         new_stats = UserStats(user_id=user_id)
         self.session.add(new_stats)
-        await self.session.commit()
-        await self.session.refresh(new_stats)
+        if commit:
+            await self.session.commit()
+            await self.session.refresh(new_stats)
         return new_stats
 
     async def get_user_stats(self, user_id: UUID) -> UserStats:
@@ -53,7 +52,7 @@ class StatsController:
             return cached  # type: ignore[return-value]
         try:
             stats = (await self.session.exec(select(UserStats).where(UserStats.user_id == user_id))).one()
-            cache.set(cache_key, stats, USER_STATS_TTL_SECONDS)
+            cache.set(cache_key, stats, CACHE_TTL_USER_STATS_SECONDS)
             return stats
         except NoResultFound:
             raise UserNotFoundError(user_id=user_id) from None
@@ -64,6 +63,8 @@ class StatsController:
         game_type: str,
         won: bool,
         role: str | None = None,
+        *,
+        commit: bool = True,
     ) -> UserStats:
         """Increment relevant counters after a game ends.
 
@@ -74,7 +75,7 @@ class StatsController:
             "mr_white", "spymaster", "operative").
         :return: The updated stats record.
         """
-        stats = await self.get_or_create_user_stats(user_id)
+        stats = await self.get_or_create_user_stats(user_id, commit=commit)
 
         # Global counts
         stats.total_games_played += 1
@@ -91,7 +92,7 @@ class StatsController:
             stats.current_win_streak = 0
 
         # Play streak tracking
-        now = datetime.now()
+        now = datetime.now(UTC)
         if stats.last_played_at is not None:
             days_since_last = (now.date() - stats.last_played_at.date()).days
             if days_since_last == 1:
@@ -143,8 +144,9 @@ class StatsController:
 
         stats.updated_at = now
         self.session.add(stats)
-        await self.session.commit()
-        await self.session.refresh(stats)
+        if commit:
+            await self.session.commit()
+            await self.session.refresh(stats)
 
         cache.invalidate(f"user_stats:{user_id}")
         cache.invalidate_prefix("leaderboard:")
@@ -195,12 +197,12 @@ class StatsController:
                 )
             )
 
-        cache.set(cache_key, entries, LEADERBOARD_TTL_SECONDS)
+        cache.set(cache_key, entries, CACHE_TTL_LEADERBOARD_SECONDS)
         return entries
 
     async def get_game_history_for_charts(self, user_id: UUID, days: int = 30) -> list[DailyGameRecord]:
         """Get daily win/loss counts for a user over the last N days."""
-        cutoff = datetime.now() - timedelta(days=days)
+        cutoff = datetime.now(UTC) - timedelta(days=days)
         results = await self.session.exec(
             select(Game)
             .join(UserGameLink, Game.id == UserGameLink.game_id)

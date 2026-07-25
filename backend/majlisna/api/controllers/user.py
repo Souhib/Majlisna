@@ -3,7 +3,6 @@ from uuid import UUID
 
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError, NoResultFound
-from sqlalchemy.orm import selectinload
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -32,16 +31,22 @@ class UserController:
         """
         Create a new user in the database and return the created user.
 
+        Only the safe, client-editable fields are copied — security-sensitive
+        columns always get their server-side defaults (no mass assignment).
+
         :param user_create: The body of the user we have to create.
         :return: The created user.
         """
         try:
-            user_data = user_create.model_dump()
-            # Hash the password — storing it in clear (as this did before) left
-            # plaintext credentials in the DB and produced accounts that could
-            # never log in (bcrypt verify fails against a non-hash).
-            user_data["password"] = await async_get_password_hash(user_data["password"])
-            new_user = User(**user_data)
+            # Always hash the password — storing it in clear leaves plaintext
+            # credentials in the DB and produces accounts that can never log in.
+            new_user = User(
+                username=user_create.username,
+                email_address=user_create.email_address,
+                password=await async_get_password_hash(user_create.password),
+                country=user_create.country,
+                bio=user_create.bio,
+            )
             self.session.add(new_user)
             await self.session.commit()
             await self.session.refresh(new_user)
@@ -63,11 +68,7 @@ class UserController:
         :return: The user with the given id.
         """
         try:
-            return (
-                await self.session.exec(
-                    select(User).where(User.id == user_id).options(selectinload(User.rooms), selectinload(User.games))
-                )
-            ).one()
+            return (await self.session.exec(select(User).where(User.id == user_id))).one()
         except NoResultFound:
             raise UserNotFoundError(user_id=user_id) from None
 

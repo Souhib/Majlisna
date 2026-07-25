@@ -19,6 +19,7 @@ export type {
   AddWordToPackApiV1CodenamesWordPacksPackIdWordsPostMutation,
 } from "./AddWordToPackApiV1CodenamesWordPacksPackIdWordsPost.ts";
 export type { AdvanceRoundResponse } from "./AdvanceRoundResponse.ts";
+export type { BodyRefreshTokenApiV1AuthRefreshPost } from "./BodyRefreshTokenApiV1AuthRefreshPost.ts";
 export type { ChatMessageView } from "./ChatMessageView.ts";
 export type { ClueGuess } from "./ClueGuess.ts";
 export type { ClueHistoryEntry } from "./ClueHistoryEntry.ts";
@@ -50,14 +51,6 @@ export type {
   CreateTermPairApiV1UndercoverTermpairPostMutationResponse,
   CreateTermPairApiV1UndercoverTermpairPostMutation,
 } from "./CreateTermPairApiV1UndercoverTermpairPost.ts";
-export type {
-  CreateUserApiV1UsersPost201,
-  CreateUserApiV1UsersPost404,
-  CreateUserApiV1UsersPost422,
-  CreateUserApiV1UsersPostMutationRequest,
-  CreateUserApiV1UsersPostMutationResponse,
-  CreateUserApiV1UsersPostMutation,
-} from "./CreateUserApiV1UsersPost.ts";
 export type {
   CreateWordApiV1UndercoverWordsPost201,
   CreateWordApiV1UndercoverWordsPost404,
@@ -134,6 +127,10 @@ export type {
 } from "./DeleteWordPackApiV1CodenamesWordPacksPackIdDelete.ts";
 export type { DescriptionOrderEntry } from "./DescriptionOrderEntry.ts";
 export type { DescriptionRequest } from "./DescriptionRequest.ts";
+export type {
+  DifficultyLevelEnumKey,
+  DifficultyLevel,
+} from "./DifficultyLevel.ts";
 export type { EliminatedInfo } from "./EliminatedInfo.ts";
 export type { EliminatedPlayer } from "./EliminatedPlayer.ts";
 export type {
@@ -161,11 +158,9 @@ export type {
   FriendshipStatusEnum,
 } from "./FriendshipStatusEnum.ts";
 export type { FriendshipStatusResponse } from "./FriendshipStatusResponse.ts";
-export type { Game } from "./Game.ts";
 export type { GameDurationStats } from "./GameDurationStats.ts";
 export type { GameHistoryEntry } from "./GameHistoryEntry.ts";
 export type { GameStartResponse } from "./GameStartResponse.ts";
-export type { GameStatusEnumKey, GameStatus } from "./GameStatus.ts";
 export type { GameSummary } from "./GameSummary.ts";
 export type { GameSummaryPlayer } from "./GameSummaryPlayer.ts";
 export type { GameTypeEnumKey, GameType } from "./GameType.ts";
@@ -181,12 +176,6 @@ export type {
   GetActiveRoomApiV1RoomsActiveGetQueryResponse,
   GetActiveRoomApiV1RoomsActiveGetQuery,
 } from "./GetActiveRoomApiV1RoomsActiveGet.ts";
-export type {
-  GetAllRoomsApiV1RoomsGet200,
-  GetAllRoomsApiV1RoomsGet404,
-  GetAllRoomsApiV1RoomsGetQueryResponse,
-  GetAllRoomsApiV1RoomsGetQuery,
-} from "./GetAllRoomsApiV1RoomsGet.ts";
 export type {
   GetAllTermPairsApiV1UndercoverTermpairGet200,
   GetAllTermPairsApiV1UndercoverTermpairGet404,
@@ -558,6 +547,7 @@ export type {
 } from "./NextRoundApiV1WordquizGamesGameIdNextRoundPost.ts";
 export type { NextRoundRequest } from "./NextRoundRequest.ts";
 export type { PublicProfile } from "./PublicProfile.ts";
+export type { PublicUserView } from "./PublicUserView.ts";
 export type {
   RecordHintViewedApiV1CodenamesGamesGameIdHintViewedPostPathParams,
   RecordHintViewedApiV1CodenamesGamesGameIdHintViewedPost200,
@@ -585,9 +575,9 @@ export type {
   RecordHintViewedApiV1WordquizGamesGameIdHintViewedPostMutation,
 } from "./RecordHintViewedApiV1WordquizGamesGameIdHintViewedPost.ts";
 export type {
-  RefreshTokenApiV1AuthRefreshPostQueryParams,
   RefreshTokenApiV1AuthRefreshPost200,
   RefreshTokenApiV1AuthRefreshPost422,
+  RefreshTokenApiV1AuthRefreshPostMutationRequest,
   RefreshTokenApiV1AuthRefreshPostMutationResponse,
   RefreshTokenApiV1AuthRefreshPostMutation,
 } from "./RefreshTokenApiV1AuthRefreshPost.ts";
@@ -648,7 +638,6 @@ export type { RoomPlayerState } from "./RoomPlayerState.ts";
 export type { RoomSettings } from "./RoomSettings.ts";
 export type { RoomSettingsRequest } from "./RoomSettingsRequest.ts";
 export type { RoomState } from "./RoomState.ts";
-export type { RoomStatusEnumKey, RoomStatus } from "./RoomStatus.ts";
 export type { RoomTypeEnumKey, RoomType } from "./RoomType.ts";
 export type { RoomView } from "./RoomView.ts";
 export type {
@@ -876,8 +865,7 @@ export type { WordQuizGameState } from "./WordQuizGameState.ts";
 export type { WordQuizPlayerState } from "./WordQuizPlayerState.ts";
 export type { WordQuizRoundResult } from "./WordQuizRoundResult.ts";
 export type { WordQuizTimerConfig } from "./WordQuizTimerConfig.ts";
+export { difficultyLevelEnum } from "./DifficultyLevel.ts";
 export { friendshipStatusEnumEnum } from "./FriendshipStatusEnum.ts";
-export { gameStatusEnum } from "./GameStatus.ts";
 export { gameTypeEnum } from "./GameType.ts";
-export { roomStatusEnum } from "./RoomStatus.ts";
 export { roomTypeEnum } from "./RoomType.ts";

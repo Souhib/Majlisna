@@ -66,16 +66,15 @@ def test_create_room_success(test_app: FastAPI, client: TestClient) -> None:
         assert data["id"] == str(room_id)
         assert data["public_id"] == "ABC12"
         assert data["owner_id"] == str(owner_id)
-        assert data["password"] == "1234"
-        assert data["status"] == RoomStatus.ONLINE.value
+        assert "password" not in data
         assert data["type"] == RoomType.ACTIVE.value
         assert data["created_at"] == mock_room.created_at.isoformat()
         assert len(data["users"]) == 1
         assert data["users"][0]["id"] == str(owner_id)
         assert data["users"][0]["username"] == "owner"
-        assert data["users"][0]["email_address"] == "owner@test.com"
+        assert "email_address" not in data["users"][0]
         assert data["users"][0]["country"] == "FRA"
-        assert data["games"] == []
+        assert "games" not in data
     finally:
         test_app.dependency_overrides.clear()
 
@@ -129,83 +128,26 @@ def test_create_room_owner_already_in_room(test_app: FastAPI, client: TestClient
         test_app.dependency_overrides.clear()
 
 
-# ========== GET /rooms ==========
+# ========== GET /rooms (removed) ==========
 
 
-def test_get_all_rooms_success(test_app: FastAPI, client: TestClient) -> None:
-    """GET /rooms returns 200 and a list of RoomView objects."""
+def test_room_directory_endpoint_is_gone(test_app: FastAPI, client: TestClient) -> None:
+    """GET /rooms no longer exists — it leaked the directory of every active room.
+
+    Listing rooms handed any authenticated user each room's public_id, owner and
+    member list, which turns a 4-digit PIN into a feasible brute-force target.
+    Only POST is mounted on the collection path, so GET must be rejected.
+    """
     # Arrange
-    mock_controller = Mock(spec=RoomController)
-    owner_id = uuid4()
-    room_id_1 = uuid4()
-    room_id_2 = uuid4()
-    created_at = datetime.now()
-
-    mock_rooms = [
-        Room(
-            id=room_id_1,
-            public_id="AAA11",
-            owner_id=owner_id,
-            password="1234",
-            status=RoomStatus.ONLINE,
-            type=RoomType.ACTIVE,
-            created_at=created_at,
-        ),
-        Room(
-            id=room_id_2,
-            public_id="BBB22",
-            owner_id=owner_id,
-            password="5678",
-            status=RoomStatus.ONLINE,
-            type=RoomType.ACTIVE,
-            created_at=created_at,
-        ),
-    ]
-    for room in mock_rooms:
-        room.users = []
-        room.games = []
-
-    mock_controller.get_rooms = AsyncMock(return_value=mock_rooms)
-    test_app.dependency_overrides[get_room_controller] = lambda: mock_controller
+    mock_user = User(id=uuid4(), username="testuser", email_address="test@test.com")
+    test_app.dependency_overrides[get_current_user] = lambda: mock_user
 
     try:
         # Act
         response = client.get(BASE_URL)
 
         # Assert
-        assert response.status_code == 200
-        data = response.json()
-        assert len(data) == 2
-        assert data[0]["id"] == str(room_id_1)
-        assert data[0]["public_id"] == "AAA11"
-        assert data[0]["owner_id"] == str(owner_id)
-        assert data[0]["password"] == "1234"
-        assert data[0]["status"] == RoomStatus.ONLINE.value
-        assert data[0]["type"] == RoomType.ACTIVE.value
-        assert data[0]["created_at"] == created_at.isoformat()
-        assert data[0]["users"] == []
-        assert data[0]["games"] == []
-        assert data[1]["id"] == str(room_id_2)
-        assert data[1]["public_id"] == "BBB22"
-        assert data[1]["password"] == "5678"
-    finally:
-        test_app.dependency_overrides.clear()
-
-
-def test_get_all_rooms_empty(test_app: FastAPI, client: TestClient) -> None:
-    """GET /rooms returns 200 and an empty list when no rooms exist."""
-    # Arrange
-    mock_controller = Mock(spec=RoomController)
-    mock_controller.get_rooms = AsyncMock(return_value=[])
-    test_app.dependency_overrides[get_room_controller] = lambda: mock_controller
-
-    try:
-        # Act
-        response = client.get(BASE_URL)
-
-        # Assert
-        assert response.status_code == 200
-        assert response.json() == []
+        assert response.status_code == 405
     finally:
         test_app.dependency_overrides.clear()
 
@@ -241,6 +183,8 @@ def test_get_room_by_id_success(test_app: FastAPI, client: TestClient) -> None:
     mock_room.games = []
 
     mock_controller.get_room_by_id = AsyncMock(return_value=mock_room)
+    auth_user = User(id=uuid4(), username="authuser", email_address="auth@test.com")
+    test_app.dependency_overrides[get_current_user] = lambda: auth_user
     test_app.dependency_overrides[get_room_controller] = lambda: mock_controller
 
     try:
@@ -253,16 +197,15 @@ def test_get_room_by_id_success(test_app: FastAPI, client: TestClient) -> None:
         assert data["id"] == str(room_id)
         assert data["public_id"] == "XYZ99"
         assert data["owner_id"] == str(owner_id)
-        assert data["password"] == "4321"
-        assert data["status"] == RoomStatus.ONLINE.value
+        assert "password" not in data
         assert data["type"] == RoomType.ACTIVE.value
         assert data["created_at"] == created_at.isoformat()
         assert len(data["users"]) == 1
         assert data["users"][0]["id"] == str(owner_id)
         assert data["users"][0]["username"] == "player1"
-        assert data["users"][0]["email_address"] == "player1@test.com"
+        assert "email_address" not in data["users"][0]
         assert data["users"][0]["country"] == "USA"
-        assert data["games"] == []
+        assert "games" not in data
     finally:
         test_app.dependency_overrides.clear()
 
@@ -274,6 +217,8 @@ def test_get_room_by_id_not_found(test_app: FastAPI, client: TestClient) -> None
     room_id = uuid4()
 
     mock_controller.get_room_by_id = AsyncMock(side_effect=RoomNotFoundError(room_id=room_id))
+    auth_user = User(id=uuid4(), username="authuser", email_address="auth@test.com")
+    test_app.dependency_overrides[get_current_user] = lambda: auth_user
     test_app.dependency_overrides[get_room_controller] = lambda: mock_controller
 
     try:
@@ -297,7 +242,6 @@ def test_join_room_success(test_app: FastAPI, client: TestClient) -> None:
     # Arrange
     mock_controller = Mock(spec=RoomController)
     room_id = uuid4()
-    user_id = uuid4()
     owner_id = uuid4()
     created_at = datetime.now()
 
@@ -314,6 +258,8 @@ def test_join_room_success(test_app: FastAPI, client: TestClient) -> None:
     mock_room.games = []
 
     mock_controller.join_room = AsyncMock(return_value=mock_room)
+    mock_user = User(id=uuid4(), username="joiner", email_address="joiner@test.com")
+    test_app.dependency_overrides[get_current_user] = lambda: mock_user
     test_app.dependency_overrides[get_room_controller] = lambda: mock_controller
 
     try:
@@ -321,7 +267,6 @@ def test_join_room_success(test_app: FastAPI, client: TestClient) -> None:
         response = client.patch(
             f"{BASE_URL}/join",
             json={
-                "user_id": str(user_id),
                 "public_room_id": "JON55",
                 "password": "1234",
             },
@@ -333,12 +278,11 @@ def test_join_room_success(test_app: FastAPI, client: TestClient) -> None:
         assert data["id"] == str(room_id)
         assert data["public_id"] == "JON55"
         assert data["owner_id"] == str(owner_id)
-        assert data["password"] == "1234"
-        assert data["status"] == RoomStatus.ONLINE.value
+        assert "password" not in data
         assert data["type"] == RoomType.ACTIVE.value
         assert data["created_at"] == created_at.isoformat()
         assert data["users"] == []
-        assert data["games"] == []
+        assert "games" not in data
     finally:
         test_app.dependency_overrides.clear()
 
@@ -348,9 +292,10 @@ def test_join_room_wrong_password(test_app: FastAPI, client: TestClient) -> None
     # Arrange
     mock_controller = Mock(spec=RoomController)
     room_id = uuid4()
-    user_id = uuid4()
 
     mock_controller.join_room = AsyncMock(side_effect=WrongRoomPasswordError(room_id=room_id))
+    mock_user = User(id=uuid4(), username="joiner", email_address="joiner@test.com")
+    test_app.dependency_overrides[get_current_user] = lambda: mock_user
     test_app.dependency_overrides[get_room_controller] = lambda: mock_controller
 
     try:
@@ -358,7 +303,6 @@ def test_join_room_wrong_password(test_app: FastAPI, client: TestClient) -> None
         response = client.patch(
             f"{BASE_URL}/join",
             json={
-                "user_id": str(user_id),
                 "public_room_id": "ABCDE",
                 "password": "9999",
             },
@@ -378,9 +322,10 @@ def test_join_room_not_found(test_app: FastAPI, client: TestClient) -> None:
     # Arrange
     mock_controller = Mock(spec=RoomController)
     room_id = uuid4()
-    user_id = uuid4()
 
     mock_controller.join_room = AsyncMock(side_effect=RoomNotFoundError(room_id=room_id))
+    mock_user = User(id=uuid4(), username="joiner", email_address="joiner@test.com")
+    test_app.dependency_overrides[get_current_user] = lambda: mock_user
     test_app.dependency_overrides[get_room_controller] = lambda: mock_controller
 
     try:
@@ -388,7 +333,6 @@ def test_join_room_not_found(test_app: FastAPI, client: TestClient) -> None:
         response = client.patch(
             f"{BASE_URL}/join",
             json={
-                "user_id": str(user_id),
                 "public_room_id": "ZZZZZ",
                 "password": "1234",
             },
@@ -411,7 +355,6 @@ def test_leave_room_success(test_app: FastAPI, client: TestClient) -> None:
     # Arrange
     mock_controller = Mock(spec=RoomController)
     room_id = uuid4()
-    user_id = uuid4()
     owner_id = uuid4()
     created_at = datetime.now()
 
@@ -428,6 +371,8 @@ def test_leave_room_success(test_app: FastAPI, client: TestClient) -> None:
     mock_room.games = []
 
     mock_controller.leave_room = AsyncMock(return_value=mock_room)
+    mock_user = User(id=uuid4(), username="leaver", email_address="leaver@test.com")
+    test_app.dependency_overrides[get_current_user] = lambda: mock_user
     test_app.dependency_overrides[get_room_controller] = lambda: mock_controller
 
     try:
@@ -436,7 +381,6 @@ def test_leave_room_success(test_app: FastAPI, client: TestClient) -> None:
             f"{BASE_URL}/leave",
             json={
                 "room_id": str(room_id),
-                "user_id": str(user_id),
             },
         )
 
@@ -446,12 +390,11 @@ def test_leave_room_success(test_app: FastAPI, client: TestClient) -> None:
         assert data["id"] == str(room_id)
         assert data["public_id"] == "LEV88"
         assert data["owner_id"] == str(owner_id)
-        assert data["password"] == "5678"
-        assert data["status"] == RoomStatus.ONLINE.value
+        assert "password" not in data
         assert data["type"] == RoomType.ACTIVE.value
         assert data["created_at"] == created_at.isoformat()
         assert data["users"] == []
-        assert data["games"] == []
+        assert "games" not in data
     finally:
         test_app.dependency_overrides.clear()
 
@@ -464,6 +407,8 @@ def test_leave_room_user_not_in_room(test_app: FastAPI, client: TestClient) -> N
     user_id = uuid4()
 
     mock_controller.leave_room = AsyncMock(side_effect=UserNotInRoomError(user_id=user_id, room_id=room_id))
+    mock_user = User(id=uuid4(), username="leaver", email_address="leaver@test.com")
+    test_app.dependency_overrides[get_current_user] = lambda: mock_user
     test_app.dependency_overrides[get_room_controller] = lambda: mock_controller
 
     try:
@@ -472,7 +417,6 @@ def test_leave_room_user_not_in_room(test_app: FastAPI, client: TestClient) -> N
             f"{BASE_URL}/leave",
             json={
                 "room_id": str(room_id),
-                "user_id": str(user_id),
             },
         )
 
@@ -495,6 +439,8 @@ def test_delete_room_success(test_app: FastAPI, client: TestClient) -> None:
     room_id = uuid4()
 
     mock_controller.delete_room = AsyncMock(return_value=None)
+    mock_user = User(id=uuid4(), username="deleter", email_address="deleter@test.com")
+    test_app.dependency_overrides[get_current_user] = lambda: mock_user
     test_app.dependency_overrides[get_room_controller] = lambda: mock_controller
 
     try:
@@ -622,7 +568,7 @@ def test_join_room_as_spectator_success(test_app: FastAPI, client: TestClient) -
         # Act
         response = client.patch(
             f"{BASE_URL}/join-spectator",
-            json={"room_id": str(room_id)},
+            json={"room_id": str(room_id), "password": "1234"},
         )
 
         # Assert
@@ -771,7 +717,8 @@ def test_join_room_wrong_field_name_returns_422(test_app: FastAPI, client: TestC
     """PATCH /rooms/join with room_id (UUID) instead of public_room_id returns 422."""
     # Arrange — no mocked controller; let Pydantic reject the payload
     room_id = uuid4()
-    user_id = uuid4()
+    mock_user = User(id=uuid4(), username="authuser", email_address="auth@test.com")
+    test_app.dependency_overrides[get_current_user] = lambda: mock_user
 
     try:
         # Act
@@ -779,7 +726,6 @@ def test_join_room_wrong_field_name_returns_422(test_app: FastAPI, client: TestC
             f"{BASE_URL}/join",
             json={
                 "room_id": str(room_id),
-                "user_id": str(user_id),
                 "password": "1234",
             },
         )
@@ -793,7 +739,8 @@ def test_join_room_wrong_field_name_returns_422(test_app: FastAPI, client: TestC
 def test_leave_room_wrong_field_name_returns_422(test_app: FastAPI, client: TestClient) -> None:
     """PATCH /rooms/leave with public_room_id (str) instead of room_id (UUID) returns 422."""
     # Arrange — no mocked controller; let Pydantic reject the payload
-    user_id = uuid4()
+    mock_user = User(id=uuid4(), username="authuser", email_address="auth@test.com")
+    test_app.dependency_overrides[get_current_user] = lambda: mock_user
 
     try:
         # Act
@@ -801,7 +748,6 @@ def test_leave_room_wrong_field_name_returns_422(test_app: FastAPI, client: Test
             f"{BASE_URL}/leave",
             json={
                 "public_room_id": "ABCDE",
-                "user_id": str(user_id),
             },
         )
 

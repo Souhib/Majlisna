@@ -1,39 +1,44 @@
 from datetime import datetime
 from uuid import UUID
 
-from majlisna.api.models.event import TurnBase
-from majlisna.api.models.game import GameBase
-from majlisna.api.models.room import RoomBase, RoomType
-from majlisna.api.models.table import Event, Game, Room, Turn, User
+from majlisna.api.models.room import RoomType
+from majlisna.api.models.shared import DBModel
 from majlisna.api.models.user import UserBase
 
 
-class TurnView(TurnBase):
-    id: UUID
-    game_id: UUID
-    game: Game
-    events: list[Event]
-
-
-class GameView(GameBase):
-    id: UUID
-    room_id: UUID
-    user_id: UUID
-    room: Room
-    users: list[User]
-    turns: list[Turn]
-
-
 class UserView(UserBase):
+    """Full user representation — only ever returned to the user themselves
+    (register, /me, own profile updates). Never use for other users."""
+
     id: UUID
 
 
-class RoomView(RoomBase):
+class PublicUserView(DBModel):
+    """User representation safe to expose to OTHER users.
+
+    Declares only non-sensitive public-profile fields — email_address,
+    google_sub, auth_provider and email_verified are never read nor serialized.
+    """
+
+    id: UUID
+    username: str
+    country: str | None = None
+    bio: str | None = None
+    profile_picture_url: str | None = None
+
+
+class RoomView(DBModel):
+    """Public room representation.
+
+    Intentionally does NOT inherit RoomBase: the room PIN (`password`) and
+    `games` (whose `live_state` leaks in-progress roles/words) must never
+    leave this boundary. Members-only data (PIN, full state) is served by the
+    authenticated `/rooms/{id}/state` endpoint instead.
+    """
+
     id: UUID
     public_id: str
     owner_id: UUID
-    password: str
     created_at: datetime
     type: RoomType
-    users: list[UserView] = []
-    games: list[Game] = []
+    users: list[PublicUserView] = []

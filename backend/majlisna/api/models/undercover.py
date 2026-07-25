@@ -5,7 +5,6 @@ from pydantic import model_validator
 from sqlalchemy import JSON, Column
 from sqlmodel import Field
 
-from majlisna.api.models.game import GameBase
 from majlisna.api.models.shared import DBModel
 
 
@@ -50,16 +49,6 @@ class TermPairCreate(TermPairBase):
     pass
 
 
-class CodeNameTeam(StrEnum):
-    RED = "red"
-    BLUE = "blue"
-
-
-class CodeNameRole(StrEnum):
-    SPYMASTER = "spymaster"
-    OPERATIVE = "operative"
-
-
 class UndercoverRole(StrEnum):
     UNDERCOVER = "undercover"
     CIVILIAN = "civilian"
@@ -69,7 +58,3 @@ class UndercoverRole(StrEnum):
 # class UndercoverTurn(DBModel):
 #     votes: dict[UUID, UUID] = Field(default_factory=dict)
 #     words: dict[UUID, str] = Field(default_factory=dict)
-
-
-class UndercoverGame(GameBase):
-    pass

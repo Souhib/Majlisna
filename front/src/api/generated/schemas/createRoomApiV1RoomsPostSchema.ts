@@ -13,7 +13,11 @@ import { z } from "zod/v4";
 /**
  * @description Successful Response
  */
-export const createRoomApiV1RoomsPost201Schema = z.lazy(() => roomViewSchema);
+export const createRoomApiV1RoomsPost201Schema = z
+  .lazy(() => roomViewSchema)
+  .describe(
+    "Public room representation.\n\nIntentionally does NOT inherit RoomBase: the room PIN (`password`) and\n`games` (whose `live_state` leaks in-progress roles/words) must never\nleave this boundary. Members-only data (PIN, full state) is served by the\nauthenticated `/rooms/{id}/state` endpoint instead.",
+  );
 
 /**
  * @description Not found

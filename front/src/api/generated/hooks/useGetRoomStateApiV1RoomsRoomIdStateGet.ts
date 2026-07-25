@@ -35,7 +35,7 @@ export type GetRoomStateApiV1RoomsRoomIdStateGetQueryKey = ReturnType<
 >;
 
 /**
- * @description Get room state with player connection status. Updates heartbeat.
+ * @description Get room state with player connection status. Updates heartbeat. Members only.
  * @summary Get Room State
  * {@link /api/v1/rooms/:room_id/state}
  */
@@ -84,7 +84,7 @@ export function getRoomStateApiV1RoomsRoomIdStateGetQueryOptions(
 }
 
 /**
- * @description Get room state with player connection status. Updates heartbeat.
+ * @description Get room state with player connection status. Updates heartbeat. Members only.
  * @summary Get Room State
  * {@link /api/v1/rooms/:room_id/state}
  */

@@ -18,9 +18,11 @@ export const updateUserPasswordApiV1UsersUserIdPasswordPatchPathParamsSchema =
 /**
  * @description Successful Response
  */
-export const updateUserPasswordApiV1UsersUserIdPasswordPatch200Schema = z.lazy(
-  () => userViewSchema,
-);
+export const updateUserPasswordApiV1UsersUserIdPasswordPatch200Schema = z
+  .lazy(() => userViewSchema)
+  .describe(
+    "Full user representation — only ever returned to the user themselves\n(register, /me, own profile updates). Never use for other users.",
+  );
 
 /**
  * @description Not found

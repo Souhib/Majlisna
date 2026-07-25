@@ -27,7 +27,7 @@ export type JoinRoomAsSpectatorApiV1RoomsJoinSpectatorPatchMutationKey =
   ReturnType<typeof joinRoomAsSpectatorApiV1RoomsJoinSpectatorPatchMutationKey>;
 
 /**
- * @description Join a room as a spectator (watch-only mode).
+ * @description Join a room as a spectator (watch-only mode). Requires the room PIN.
  * @summary Join Room As Spectator
  * {@link /api/v1/rooms/join-spectator}
  */
@@ -83,7 +83,7 @@ export function joinRoomAsSpectatorApiV1RoomsJoinSpectatorPatchMutationOptions<
 }
 
 /**
- * @description Join a room as a spectator (watch-only mode).
+ * @description Join a room as a spectator (watch-only mode). Requires the room PIN.
  * @summary Join Room As Spectator
  * {@link /api/v1/rooms/join-spectator}
  */

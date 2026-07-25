@@ -26,6 +26,10 @@ export type LoginResponse = {
    */
   token_type?: string;
   /**
+   * @type integer
+   */
+  expires_in: number;
+  /**
    * @description User data included in login response.
    * @type object
    */

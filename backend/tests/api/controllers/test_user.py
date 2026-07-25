@@ -309,11 +309,13 @@ async def test_delete_user_account_not_found(user_controller: UserController):
 async def test_update_user_password_verifiable(user_controller: UserController):
     """Updated password can be verified; the current password is required."""
     # Prepare
-    user_create = UserCreate(username="verifiable", email_address="verify@test.com", password="old", country=None)
+    user_create = UserCreate(
+        username="verifiable", email_address="verify@test.com", password="oldpass123", country=None
+    )
     user = await user_controller.create_user(user_create)
 
     # Act
-    updated = await user_controller.update_user_password(user.id, "old", "newsecurepass")
+    updated = await user_controller.update_user_password(user.id, "oldpass123", "newsecurepass")
 
     # Assert — the new password is verifiable
     assert verify_password("newsecurepass", updated.password) is True
@@ -323,7 +325,9 @@ async def test_update_user_password_verifiable(user_controller: UserController):
 async def test_update_user_password_wrong_current_rejected(user_controller: UserController):
     """Changing the password with the wrong current password raises InvalidCredentialsError."""
     # Prepare
-    user_create = UserCreate(username="wrongcur", email_address="wrongcur@test.com", password="realpass", country=None)
+    user_create = UserCreate(
+        username="wrongcur", email_address="wrongcur@test.com", password="realpass123", country=None
+    )
     user = await user_controller.create_user(user_create)
 
     # Act & Assert

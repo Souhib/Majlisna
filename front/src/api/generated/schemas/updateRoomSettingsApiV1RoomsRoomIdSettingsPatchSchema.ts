@@ -35,7 +35,11 @@ export const updateRoomSettingsApiV1RoomsRoomIdSettingsPatch422Schema = z.lazy(
 );
 
 export const updateRoomSettingsApiV1RoomsRoomIdSettingsPatchMutationRequestSchema =
-  z.lazy(() => roomSettingsRequestSchema);
+  z
+    .lazy(() => roomSettingsRequestSchema)
+    .describe(
+      "Host-supplied room settings.\n\nEvery numeric field is bounded. These values are copied verbatim into\n``Room.settings`` and then into a game's ``live_state`` at start, so an\nunbounded value is not just cosmetic: ``word_quiz_rounds=10_000_000`` makes\ngame creation try to draw ten million questions, and a negative timer makes\nthe timer-expiry check pass immediately and spin the round forward.",
+    );
 
 export const updateRoomSettingsApiV1RoomsRoomIdSettingsPatchMutationResponseSchema =
   z.lazy(() => updateRoomSettingsApiV1RoomsRoomIdSettingsPatch200Schema);

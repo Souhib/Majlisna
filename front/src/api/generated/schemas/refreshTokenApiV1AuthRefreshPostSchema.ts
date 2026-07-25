@@ -5,15 +5,10 @@
  * Do not edit manually.
  */
 
+import { bodyRefreshTokenApiV1AuthRefreshPostSchema } from "./bodyRefreshTokenApiV1AuthRefreshPostSchema.ts";
 import { HTTPValidationErrorSchema } from "./HTTPValidationErrorSchema.ts";
 import { tokenPairResponseSchema } from "./tokenPairResponseSchema.ts";
 import { z } from "zod/v4";
-
-export const refreshTokenApiV1AuthRefreshPostQueryParamsSchema = z
-  .object({
-    refresh_token: z.optional(z.union([z.string(), z.null()])),
-  })
-  .optional();
 
 /**
  * @description Successful Response
@@ -27,6 +22,10 @@ export const refreshTokenApiV1AuthRefreshPost200Schema = z
  */
 export const refreshTokenApiV1AuthRefreshPost422Schema = z.lazy(
   () => HTTPValidationErrorSchema,
+);
+
+export const refreshTokenApiV1AuthRefreshPostMutationRequestSchema = z.lazy(
+  () => bodyRefreshTokenApiV1AuthRefreshPostSchema,
 );
 
 export const refreshTokenApiV1AuthRefreshPostMutationResponseSchema = z.lazy(

@@ -81,7 +81,7 @@ async def test_get_games_by_user_success(test_app: FastAPI, client: TestClient):
         assert data[1]["type"] == GameType.CODENAMES.value
         assert data[1]["number_of_players"] == 8
         assert data[1]["end_time"] is None
-        mock_controller.get_games_by_user.assert_awaited_once_with(user_id, limit=20)
+        mock_controller.get_games_by_user.assert_awaited_once_with(user_id, limit=20, requester_id=user.id)
     finally:
         test_app.dependency_overrides.clear()
 
@@ -104,7 +104,7 @@ async def test_get_games_by_user_empty(test_app: FastAPI, client: TestClient):
         # Assert
         assert response.status_code == 200
         assert response.json() == []
-        mock_controller.get_games_by_user.assert_awaited_once_with(user_id, limit=20)
+        mock_controller.get_games_by_user.assert_awaited_once_with(user_id, limit=20, requester_id=user.id)
     finally:
         test_app.dependency_overrides.clear()
 
@@ -169,7 +169,7 @@ async def test_get_game_summary_success(test_app: FastAPI, client: TestClient):
         assert data["winner"] == "civilians"
         assert len(data["players"]) == 2
         assert data["players"][0]["username"] == "alice"
-        mock_controller.get_game_summary.assert_awaited_once_with(game_id)
+        mock_controller.get_game_summary.assert_awaited_once_with(game_id, user.id)
     finally:
         test_app.dependency_overrides.clear()
 

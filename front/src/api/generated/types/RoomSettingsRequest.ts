@@ -5,8 +5,11 @@
  * Do not edit manually.
  */
 
+import type { DifficultyLevel } from "./DifficultyLevel.ts";
+
 /**
  * RoomSettingsRequest
+ * @description Host-supplied room settings.\n\nEvery numeric field is bounded. These values are copied verbatim into\n``Room.settings`` and then into a game\'s ``live_state`` at start, so an\nunbounded value is not just cosmetic: ``word_quiz_rounds=10_000_000`` makes\ngame creation try to draw ten million questions, and a negative timer makes\nthe timer-expiry check pass immediately and spin the round forward.
  */
 export type RoomSettingsRequest = {
   description_timer?: number | null;
@@ -20,6 +23,6 @@ export type RoomSettingsRequest = {
   word_quiz_hint_interval?: number | null;
   mcq_quiz_turn_duration?: number | null;
   mcq_quiz_rounds?: number | null;
-  word_quiz_difficulty?: string | null;
-  mcq_quiz_difficulty?: string | null;
+  word_quiz_difficulty?: DifficultyLevel | null;
+  mcq_quiz_difficulty?: DifficultyLevel | null;
 };

@@ -5,13 +5,13 @@
  * Do not edit manually.
  */
 
-import type { UserView } from "./UserView.ts";
+import type { PublicUserView } from "./PublicUserView.ts";
 
 /**
  * Response Get All Users Api V1 Users Get
  * @description Successful Response
  */
-export type GetAllUsersApiV1UsersGet200 = UserView[];
+export type GetAllUsersApiV1UsersGet200 = PublicUserView[];
 
 /**
  * @description Not found

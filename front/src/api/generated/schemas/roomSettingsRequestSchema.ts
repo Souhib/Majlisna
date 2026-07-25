@@ -5,20 +5,34 @@
  * Do not edit manually.
  */
 
+import { difficultyLevelSchema } from "./difficultyLevelSchema.ts";
 import { z } from "zod/v4";
 
-export const roomSettingsRequestSchema = z.object({
-  description_timer: z.optional(z.union([z.int(), z.null()])),
-  voting_timer: z.optional(z.union([z.int(), z.null()])),
-  codenames_clue_timer: z.optional(z.union([z.int(), z.null()])),
-  codenames_guess_timer: z.optional(z.union([z.int(), z.null()])),
-  enable_mr_white: z.optional(z.union([z.boolean(), z.null()])),
-  custom_word_packs: z.optional(z.union([z.array(z.string()), z.null()])),
-  word_quiz_turn_duration: z.optional(z.union([z.int(), z.null()])),
-  word_quiz_rounds: z.optional(z.union([z.int(), z.null()])),
-  word_quiz_hint_interval: z.optional(z.union([z.int(), z.null()])),
-  mcq_quiz_turn_duration: z.optional(z.union([z.int(), z.null()])),
-  mcq_quiz_rounds: z.optional(z.union([z.int(), z.null()])),
-  word_quiz_difficulty: z.optional(z.union([z.string(), z.null()])),
-  mcq_quiz_difficulty: z.optional(z.union([z.string(), z.null()])),
-});
+/**
+ * @description Host-supplied room settings.\n\nEvery numeric field is bounded. These values are copied verbatim into\n``Room.settings`` and then into a game\'s ``live_state`` at start, so an\nunbounded value is not just cosmetic: ``word_quiz_rounds=10_000_000`` makes\ngame creation try to draw ten million questions, and a negative timer makes\nthe timer-expiry check pass immediately and spin the round forward.
+ */
+export const roomSettingsRequestSchema = z
+  .object({
+    description_timer: z.optional(z.union([z.int(), z.null()])),
+    voting_timer: z.optional(z.union([z.int(), z.null()])),
+    codenames_clue_timer: z.optional(z.union([z.int(), z.null()])),
+    codenames_guess_timer: z.optional(z.union([z.int(), z.null()])),
+    enable_mr_white: z.optional(z.union([z.boolean(), z.null()])),
+    custom_word_packs: z.optional(
+      z.union([z.array(z.string()).max(20), z.null()]),
+    ),
+    word_quiz_turn_duration: z.optional(z.union([z.int(), z.null()])),
+    word_quiz_rounds: z.optional(z.union([z.int(), z.null()])),
+    word_quiz_hint_interval: z.optional(z.union([z.int(), z.null()])),
+    mcq_quiz_turn_duration: z.optional(z.union([z.int(), z.null()])),
+    mcq_quiz_rounds: z.optional(z.union([z.int(), z.null()])),
+    get word_quiz_difficulty() {
+      return z.union([difficultyLevelSchema, z.null()]).optional();
+    },
+    get mcq_quiz_difficulty() {
+      return z.union([difficultyLevelSchema, z.null()]).optional();
+    },
+  })
+  .describe(
+    "Host-supplied room settings.\n\nEvery numeric field is bounded. These values are copied verbatim into\n``Room.settings`` and then into a game's ``live_state`` at start, so an\nunbounded value is not just cosmetic: ``word_quiz_rounds=10_000_000`` makes\ngame creation try to draw ten million questions, and a negative timer makes\nthe timer-expiry check pass immediately and spin the round forward.",
+  );

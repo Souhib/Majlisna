@@ -13,9 +13,11 @@ import { z } from "zod/v4";
 /**
  * @description Successful Response
  */
-export const leaveRoomApiV1RoomsLeavePatch200Schema = z.lazy(
-  () => roomViewSchema,
-);
+export const leaveRoomApiV1RoomsLeavePatch200Schema = z
+  .lazy(() => roomViewSchema)
+  .describe(
+    "Public room representation.\n\nIntentionally does NOT inherit RoomBase: the room PIN (`password`) and\n`games` (whose `live_state` leaks in-progress roles/words) must never\nleave this boundary. Members-only data (PIN, full state) is served by the\nauthenticated `/rooms/{id}/state` endpoint instead.",
+  );
 
 /**
  * @description Not found
@@ -29,9 +31,11 @@ export const leaveRoomApiV1RoomsLeavePatch422Schema = z.lazy(
   () => HTTPValidationErrorSchema,
 );
 
-export const leaveRoomApiV1RoomsLeavePatchMutationRequestSchema = z.lazy(
-  () => roomLeaveSchema,
-);
+export const leaveRoomApiV1RoomsLeavePatchMutationRequestSchema = z
+  .lazy(() => roomLeaveSchema)
+  .describe(
+    "Leave request body. The user identity comes from the JWT — never from the body.",
+  );
 
 export const leaveRoomApiV1RoomsLeavePatchMutationResponseSchema = z.lazy(
   () => leaveRoomApiV1RoomsLeavePatch200Schema,

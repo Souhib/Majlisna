@@ -7,34 +7,26 @@
 
 /**
  * UserCreate
+ * @description Fields a client may provide at registration.\n\nDeliberately does NOT inherit UserBase: that would let a client set\nsecurity-sensitive fields (email_verified, auth_provider, google_sub) via\nmass assignment — e.g. self-verify their email or pre-empt an OAuth link.
  */
 export type UserCreate = {
   /**
    * @minLength 3
-   * @type string | undefined
+   * @maxLength 30
+   * @pattern ^[^\s<>/\\@]+$
+   * @type string
    */
-  username?: string;
+  username: string;
   /**
    * @type string, email
    */
   email_address: string;
-  country?: string | null;
   /**
-   * @default false
-   * @type boolean | undefined
-   */
-  email_verified?: boolean;
-  bio?: string | null;
-  google_sub?: string | null;
-  /**
-   * @maxLength 20
-   * @default "email"
-   * @type string | undefined
-   */
-  auth_provider?: string;
-  profile_picture_url?: string | null;
-  /**
+   * @minLength 8
+   * @maxLength 72
    * @type string
    */
   password: string;
+  country?: string | null;
+  bio?: string | null;
 };

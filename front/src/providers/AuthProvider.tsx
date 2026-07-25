@@ -55,9 +55,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     isRefreshingRef.current = true
     try {
-      const data = await refreshTokenApiV1AuthRefreshPost(
-        storedRefreshToken ? { refresh_token: storedRefreshToken } : undefined,
-      )
+      let data: unknown
+      try {
+        data = await refreshTokenApiV1AuthRefreshPost(
+          storedRefreshToken ? { refresh_token: storedRefreshToken } : undefined,
+        )
+      } catch (bodyTokenError) {
+        // The backend prefers the token in the body over the httpOnly cookie, so
+        // a stale localStorage value shadows a perfectly good refresh cookie.
+        // Retry cookie-only before giving up and logging the user out.
+        if (!storedRefreshToken) throw bodyTokenError
+        data = await refreshTokenApiV1AuthRefreshPost(undefined)
+      }
 
       const { access_token, refresh_token, expires_in } = data as {
         access_token: string
@@ -118,7 +127,24 @@ export function AuthProvider({ children }: AuthProviderProps) {
       try {
         const userData = await getMeApiV1AuthMeGet() as UserData
         setUser(userData)
-        setToken("cookie-auth") // sentinel value — actual token is in httpOnly cookie
+
+        // Mint a fresh token pair right away and schedule the next refresh from
+        // its expires_in.
+        //
+        // This path used to just set a "cookie-auth" sentinel and return, which
+        // scheduled NO refresh at all. Every reloaded tab therefore ran on the
+        // access token it happened to find — and once that expired (15 min in
+        // production) the very next request 401'd and the response interceptor
+        // bounced the player to the login page, mid-game. It also left a stale
+        // token in localStorage, which is what useSocket authenticates the
+        // Socket.IO handshake with, so real-time silently degraded to 2s polling.
+        const refreshed = await refreshAccessToken()
+        if (refreshed) {
+          const expiry = getTokenExpiry()
+          if (expiry) scheduleTokenRefresh(expiry)
+        } else {
+          setToken("cookie-auth") // sentinel — the access token lives in the httpOnly cookie
+        }
         setIsLoading(false)
         return
       } catch {
@@ -144,7 +170,31 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return () => {
       if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current)
     }
-  }, [scheduleTokenRefresh])
+  }, [refreshAccessToken, scheduleTokenRefresh])
+
+  // Refresh on tab refocus when the token is at/near expiry.
+  //
+  // setTimeout is throttled (or frozen) in a backgrounded tab, so the scheduled
+  // refresh above is not reliable on mobile — which is where a party game spends
+  // most of its time. Without this, coming back to the tab after a phone call
+  // lands on an expired token and an immediate forced logout.
+  useEffect(() => {
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState !== "visible") return
+      const expiry = getTokenExpiry()
+      if (!expiry) return
+      if (expiry - Date.now() > REFRESH_BUFFER_MS) return
+
+      const success = await refreshAccessToken()
+      if (success) {
+        const newExpiry = getTokenExpiry()
+        if (newExpiry) scheduleTokenRefresh(newExpiry)
+      }
+    }
+
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange)
+  }, [refreshAccessToken, scheduleTokenRefresh])
 
   const login = useCallback(
     (accessToken: string, refreshToken: string, expiresIn: number, userData?: UserData) => {

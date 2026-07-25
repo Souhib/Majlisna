@@ -133,6 +133,7 @@ async def start_next_round(
 async def create_word(
     *,
     word_create: WordCreate,
+    current_user: Annotated[User, Depends(get_current_user)],  # noqa: ARG001 — auth required
     undercover_controller: UndercoverController = Depends(get_undercover_controller),
 ) -> Word:
     return await undercover_controller.create_word(word_create)
@@ -168,6 +169,7 @@ async def get_word_by_word(
 async def delete_word(
     *,
     word_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],  # noqa: ARG001 — auth required
     undercover_controller: UndercoverController = Depends(get_undercover_controller),
 ) -> None:
     await undercover_controller.delete_word(word_id)
@@ -177,6 +179,7 @@ async def delete_word(
 async def create_term_pair(
     *,
     term_pair_create: TermPairCreate,
+    current_user: Annotated[User, Depends(get_current_user)],  # noqa: ARG001 — auth required
     undercover_controller: UndercoverController = Depends(get_undercover_controller),
 ) -> TermPair:
     return await undercover_controller.create_term_pair(term_pair_create.word1_id, term_pair_create.word2_id)
@@ -211,6 +214,7 @@ async def get_random_term_pair(
 async def delete_term_pair(
     *,
     term_pair_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],  # noqa: ARG001 — auth required
     undercover_controller: UndercoverController = Depends(get_undercover_controller),
 ) -> None:
     await undercover_controller.delete_term_pair(term_pair_id)

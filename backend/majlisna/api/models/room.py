@@ -45,7 +45,8 @@ class RoomCreateRequest(DBModel):
 
 
 class RoomJoin(DBModel):
-    user_id: UUID
+    """Join request body. The user identity comes from the JWT — never from the body."""
+
     public_room_id: str
     password: str
 
@@ -57,5 +58,6 @@ class RoomJoin(DBModel):
 
 
 class RoomLeave(DBModel):
+    """Leave request body. The user identity comes from the JWT — never from the body."""
+
     room_id: UUID
-    user_id: UUID

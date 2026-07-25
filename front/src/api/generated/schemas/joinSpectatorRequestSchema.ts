@@ -9,4 +9,5 @@ import { z } from "zod/v4";
 
 export const joinSpectatorRequestSchema = z.object({
   room_id: z.uuid(),
+  password: z.string(),
 });

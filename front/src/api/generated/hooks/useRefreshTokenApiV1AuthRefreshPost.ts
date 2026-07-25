@@ -7,8 +7,8 @@
 
 import fetch from "@/api/client";
 import type {
+  RefreshTokenApiV1AuthRefreshPostMutationRequest,
   RefreshTokenApiV1AuthRefreshPostMutationResponse,
-  RefreshTokenApiV1AuthRefreshPostQueryParams,
   RefreshTokenApiV1AuthRefreshPost422,
 } from "../types/RefreshTokenApiV1AuthRefreshPost.ts";
 import type { Client, RequestConfig, ResponseErrorConfig } from "@/api/client";
@@ -27,43 +27,60 @@ export type RefreshTokenApiV1AuthRefreshPostMutationKey = ReturnType<
 >;
 
 /**
- * @description Refresh access token using refresh token (from param or cookie).
+ * @description Refresh access token using refresh token (from request body or httpOnly cookie).
+ * The token is accepted in the JSON body only — never as a query parameter,
+ * so it cannot leak into access logs / browser history.
  * @summary Refresh Token
  * {@link /api/v1/auth/refresh}
  */
 export async function refreshTokenApiV1AuthRefreshPost(
-  params?: RefreshTokenApiV1AuthRefreshPostQueryParams,
-  config: Partial<RequestConfig> & { client?: Client } = {},
+  data?: RefreshTokenApiV1AuthRefreshPostMutationRequest,
+  config: Partial<
+    RequestConfig<RefreshTokenApiV1AuthRefreshPostMutationRequest>
+  > & { client?: Client } = {},
 ) {
   const { client: request = fetch, ...requestConfig } = config;
+
+  const requestData = data;
 
   const res = await request<
     RefreshTokenApiV1AuthRefreshPostMutationResponse,
     ResponseErrorConfig<RefreshTokenApiV1AuthRefreshPost422>,
-    unknown
-  >({ method: "POST", url: `/api/v1/auth/refresh`, params, ...requestConfig });
+    RefreshTokenApiV1AuthRefreshPostMutationRequest
+  >({
+    method: "POST",
+    url: `/api/v1/auth/refresh`,
+    data: requestData,
+    ...requestConfig,
+  });
   return res.data;
 }
 
 export function refreshTokenApiV1AuthRefreshPostMutationOptions<
   TContext = unknown,
->(config: Partial<RequestConfig> & { client?: Client } = {}) {
+>(
+  config: Partial<
+    RequestConfig<RefreshTokenApiV1AuthRefreshPostMutationRequest>
+  > & { client?: Client } = {},
+) {
   const mutationKey = refreshTokenApiV1AuthRefreshPostMutationKey();
   return mutationOptions<
     RefreshTokenApiV1AuthRefreshPostMutationResponse,
     ResponseErrorConfig<RefreshTokenApiV1AuthRefreshPost422>,
-    { params?: RefreshTokenApiV1AuthRefreshPostQueryParams },
+    { data?: RefreshTokenApiV1AuthRefreshPostMutationRequest },
     TContext
   >({
     mutationKey,
-    mutationFn: async ({ params }) => {
-      return refreshTokenApiV1AuthRefreshPost(params, config);
+    mutationFn: async ({ data }) => {
+      return refreshTokenApiV1AuthRefreshPost(data, config);
     },
   });
 }
 
 /**
- * @description Refresh access token using refresh token (from param or cookie).
+ * @description Refresh access token using refresh token (from request body or httpOnly cookie).
+ * The token is accepted in the JSON body only — never as a query parameter,
+ * so it cannot leak into access logs / browser history.
  * @summary Refresh Token
  * {@link /api/v1/auth/refresh}
  */
@@ -72,10 +89,12 @@ export function useRefreshTokenApiV1AuthRefreshPost<TContext>(
     mutation?: UseMutationOptions<
       RefreshTokenApiV1AuthRefreshPostMutationResponse,
       ResponseErrorConfig<RefreshTokenApiV1AuthRefreshPost422>,
-      { params?: RefreshTokenApiV1AuthRefreshPostQueryParams },
+      { data?: RefreshTokenApiV1AuthRefreshPostMutationRequest },
       TContext
     > & { client?: QueryClient };
-    client?: Partial<RequestConfig> & { client?: Client };
+    client?: Partial<
+      RequestConfig<RefreshTokenApiV1AuthRefreshPostMutationRequest>
+    > & { client?: Client };
   } = {},
 ) {
   const { mutation = {}, client: config = {} } = options ?? {};
@@ -89,14 +108,14 @@ export function useRefreshTokenApiV1AuthRefreshPost<TContext>(
   ) as UseMutationOptions<
     RefreshTokenApiV1AuthRefreshPostMutationResponse,
     ResponseErrorConfig<RefreshTokenApiV1AuthRefreshPost422>,
-    { params?: RefreshTokenApiV1AuthRefreshPostQueryParams },
+    { data?: RefreshTokenApiV1AuthRefreshPostMutationRequest },
     TContext
   >;
 
   return useMutation<
     RefreshTokenApiV1AuthRefreshPostMutationResponse,
     ResponseErrorConfig<RefreshTokenApiV1AuthRefreshPost422>,
-    { params?: RefreshTokenApiV1AuthRefreshPostQueryParams },
+    { data?: RefreshTokenApiV1AuthRefreshPostMutationRequest },
     TContext
   >(
     {
@@ -108,7 +127,7 @@ export function useRefreshTokenApiV1AuthRefreshPost<TContext>(
   ) as UseMutationResult<
     RefreshTokenApiV1AuthRefreshPostMutationResponse,
     ResponseErrorConfig<RefreshTokenApiV1AuthRefreshPost422>,
-    { params?: RefreshTokenApiV1AuthRefreshPostQueryParams },
+    { data?: RefreshTokenApiV1AuthRefreshPostMutationRequest },
     TContext
   >;
 }

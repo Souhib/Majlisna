@@ -1,3 +1,6 @@
+from pydantic import Field
+
+from majlisna.api.constants import PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH
 from majlisna.api.schemas.shared import BaseModel
 
 
@@ -22,6 +25,7 @@ class TokenPairResponse(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
+    expires_in: int  # Access token lifetime in seconds — clients schedule refresh from this.
 
 
 class LoginUserData(BaseModel):
@@ -38,6 +42,7 @@ class LoginResponse(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
+    expires_in: int  # Access token lifetime in seconds.
     user: LoginUserData
 
 
@@ -46,6 +51,7 @@ class LoginResult(BaseModel):
 
     access_token: str
     refresh_token: str
+    expires_in: int
     user: LoginUserData
 
 
@@ -62,7 +68,7 @@ class ForgotPasswordRequest(BaseModel):
 
 class ResetPasswordRequest(BaseModel):
     token: str
-    new_password: str
+    new_password: str = Field(min_length=PASSWORD_MIN_LENGTH, max_length=PASSWORD_MAX_LENGTH)
 
 
 class VerifyEmailRequest(BaseModel):

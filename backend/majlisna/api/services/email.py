@@ -1,4 +1,5 @@
 import asyncio
+import html
 
 import resend
 from loguru import logger
@@ -108,6 +109,8 @@ class EmailService:
 
     async def send_password_reset_email(self, to_email: str, username: str, reset_url: str) -> bool:
         """Send password reset email."""
+        safe_username = html.escape(username)
+        safe_url = html.escape(reset_url, quote=True)
         content = f"""\
 <h1 style="font-family:{_FONT_STACK};font-size:18px;font-weight:600;
            color:#18181b;margin:0 0 16px;line-height:26px;">
@@ -115,10 +118,10 @@ class EmailService:
 </h1>
 <p style="font-family:{_FONT_STACK};font-size:14px;line-height:22px;
           color:#3f3f46;margin:0 0 24px;">
-  Hi {username}, we received a request to reset the password for your Majlisna account.
+  Hi {safe_username}, we received a request to reset the password for your Majlisna account.
   Click the button below to choose a new one.
 </p>
-{_cta_button(reset_url, "Reset Password 🔑")}
+{_cta_button(safe_url, "Reset Password 🔑")}
 <p style="font-family:{_FONT_STACK};font-size:13px;line-height:20px;
           color:#71717a;margin:16px 0 0;">
   This link expires in <strong>1 hour</strong>. If you didn't request a password reset,
@@ -128,6 +131,8 @@ class EmailService:
 
     async def send_verification_email(self, to_email: str, username: str, verify_url: str) -> bool:
         """Send email verification."""
+        safe_username = html.escape(username)
+        safe_url = html.escape(verify_url, quote=True)
         content = f"""\
 <h1 style="font-family:{_FONT_STACK};font-size:18px;font-weight:600;
            color:#18181b;margin:0 0 16px;line-height:26px;">
@@ -135,14 +140,14 @@ class EmailService:
 </h1>
 <p style="font-family:{_FONT_STACK};font-size:14px;line-height:22px;
           color:#3f3f46;margin:0 0 4px;">
-  Assalamu alaykum {username} 👋
+  Assalamu alaykum {safe_username} 👋
 </p>
 <p style="font-family:{_FONT_STACK};font-size:14px;line-height:22px;
           color:#3f3f46;margin:0 0 24px;">
   Welcome to Majlisna! 🎉 Please confirm your email address so you can start
   playing with your friends.
 </p>
-{_cta_button(verify_url, "Verify Email ✅")}
+{_cta_button(safe_url, "Verify Email ✅")}
 <p style="font-family:{_FONT_STACK};font-size:13px;line-height:20px;
           color:#71717a;margin:16px 0 0;">
   This link expires in <strong>24 hours</strong>. If you didn't create a
@@ -170,6 +175,6 @@ class EmailService:
             )
             logger.debug("Email sent to {to}: {subject}", to=to_email, subject=subject)
             return True
-        except Exception:
+        except (resend.exceptions.ApiError, OSError, TimeoutError):
             logger.exception("Failed to send email to {to}", to=to_email)
             return False

@@ -326,3 +326,20 @@ pyrightconfig.json
 e2e/node_modules/
 e2e/playwright-report/
 e2e/test-results/
+
+# macOS
+.DS_Store
+
+# Env files carrying real secrets. Only *.env.example / e2e/.env.e2e are tracked;
+# .env.docker holds POSTGRES_PASSWORD and JWT_SECRET_KEY and slipped past the
+# .env.development / .env.production / .env.*.local patterns above.
+.env.docker
+
+# Local SQLite databases (dev only; `database.db` is already ignored above)
+*.db-journal
+backend/ipg.db
+
+# Test/tool output that Playwright and pytest drop at the repo root
+test-results/
+backend/test-results/
+.playwright-mcp/

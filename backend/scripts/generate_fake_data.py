@@ -42,6 +42,7 @@ import argparse
 import asyncio
 import random
 import string
+import sys
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
@@ -804,6 +805,24 @@ async def main() -> None:
         fake = Faker()
 
     settings = Settings()  # type: ignore[call-arg]
+
+    # This script runs DDL (drop/create every table) and then bulk-inserts, which
+    # must NOT go through PgBouncer: asyncpg's per-connection type cache goes
+    # stale after the DDL and the inserts fail with "could not resolve query
+    # result and/or argument types in N attempts". Prefer DIRECT_DATABASE_URL.
+    if settings.direct_database_url:
+        settings = settings.model_copy(update={"database_url": settings.direct_database_url})
+    elif "pgbouncer" in settings.database_url:
+        print(
+            "ERROR: DATABASE_URL points at PgBouncer and DIRECT_DATABASE_URL is not set.\n"
+            "       This script runs DDL and cannot use PgBouncer's transaction pooling —\n"
+            "       the bulk inserts will fail with an asyncpg type-resolution error.\n"
+            "       Set DIRECT_DATABASE_URL to the PostgreSQL server itself, e.g.\n"
+            "       postgresql+asyncpg://<user>:<pass>@db:5432/<db>",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+
     engine = await create_app_engine(settings)
 
     try:

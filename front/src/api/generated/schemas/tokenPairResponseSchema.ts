@@ -15,5 +15,6 @@ export const tokenPairResponseSchema = z
     access_token: z.string(),
     refresh_token: z.string(),
     token_type: z.optional(z.string().default("bearer")),
+    expires_in: z.int(),
   })
   .describe("Response with access and refresh tokens.");

@@ -80,6 +80,12 @@ class SocialAuthService:
 
         except InvalidCredentialsError:
             raise
-        except Exception as e:
+        # httpx.HTTPError covers BOTH RequestError (network/timeout) and
+        # HTTPStatusError (raise_for_status). Listing only RequestError let the
+        # common case — Google answering 400 for an invalid/expired token —
+        # escape as an unhandled exception, so every bad token surfaced to the
+        # client as a 500 instead of a 401. KeyError covers a userinfo payload
+        # missing `sub`/`email`.
+        except (httpx.HTTPError, ValueError, KeyError) as e:
             logger.warning("Google access token verification failed", error=str(e))
             raise InvalidCredentialsError() from e

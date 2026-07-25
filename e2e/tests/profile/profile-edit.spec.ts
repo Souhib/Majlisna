@@ -76,9 +76,16 @@ test.describe("Profile — Change Password", () => {
 
     await authenticatedPage.getByText("Change Password").click();
 
-    // Password input should appear
-    const passwordInput = authenticatedPage.locator('input[type="password"]');
-    await expect(passwordInput).toBeVisible();
+    // Both password inputs must appear. Target them by placeholder: changing a
+    // password now requires the CURRENT one too, so the form renders two
+    // input[type="password"] elements and a bare locator on that selector is a
+    // Playwright strict-mode violation.
+    await expect(
+      authenticatedPage.locator('input[placeholder="Current Password"]'),
+    ).toBeVisible();
+    await expect(
+      authenticatedPage.locator('input[placeholder="New Password"]'),
+    ).toBeVisible();
   });
 });
 
