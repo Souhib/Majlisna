@@ -1,13 +1,13 @@
 from datetime import datetime
 from uuid import UUID
 
-from loguru import logger
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from majlisna.api.constants import HEARTBEAT_THROTTLE_SECONDS
 from majlisna.api.controllers.achievement import AchievementController
 from majlisna.api.controllers.game import GameController
+from majlisna.api.controllers.game_end_stats import scorable_players
 from majlisna.api.controllers.room import RoomController
 from majlisna.api.controllers.stats import StatsController
 from majlisna.api.models.error import (
@@ -19,7 +19,7 @@ from majlisna.api.models.error import (
 from majlisna.api.models.game import GameStatus
 from majlisna.api.models.relationship import RoomUserLink
 from majlisna.api.models.table import Game, Room, User
-from majlisna.api.schemas.error import BaseError
+from majlisna.api.schemas.error import BaseError, TooManyPlayersError
 
 
 class BaseGameController:
@@ -32,7 +32,9 @@ class BaseGameController:
         self._stats_controller = StatsController(session)
         self._achievement_controller = AchievementController(session)
 
-    async def _prepare_game_start(self, room_id: UUID, *, min_players: int = 1) -> tuple[Room, list[User]]:
+    async def _prepare_game_start(
+        self, room_id: UUID, *, min_players: int = 1, max_players: int | None = None
+    ) -> tuple[Room, list[User]]:
         """Shared game start preparation: validate room, check no active game, fetch players.
 
         Handles room locking, active game validation, and bulk user fetch (avoids N+1).
@@ -45,6 +47,7 @@ class BaseGameController:
             BaseError: if room already has an active game.
             RoomNotFoundError: if no players found.
             NotEnoughPlayersError: if fewer than min_players.
+            TooManyPlayersError: if more than max_players (when given).
         """
         # Scalar columns only — this path never serializes the Room, and the
         # eager-loading variant would pull every past game's live_state JSON.
@@ -97,7 +100,9 @@ class BaseGameController:
         player_users = [users_by_id[uid] for uid in user_ids if uid in users_by_id]
 
         if len(player_users) < min_players:
-            raise NotEnoughPlayersError(player_count=len(player_users))
+            raise NotEnoughPlayersError(player_count=len(player_users), required=min_players)
+        if max_players is not None and len(player_users) > max_players:
+            raise TooManyPlayersError(player_count=len(player_users), allowed=max_players)
 
         return db_room, player_users
 
@@ -182,30 +187,11 @@ class BaseGameController:
     async def _scorable_players(self, state: dict) -> list[dict]:
         """The players from live_state whose User row still exists.
 
-        End-of-game stat writes must skip deleted accounts. `live_state["players"]`
-        is a frozen snapshot taken at game start, so a player who deletes their
-        account mid-game stays in it — and `UserStats(user_id=<gone>)` then fails
-        the foreign key, which (now that the stats loop no longer swallows
-        SQLAlchemy errors) would make the game impossible to ever finish.
-
-        One query for the whole set, not one per player.
+        Delegates to ``game_end_stats.scorable_players`` — the disconnect handlers
+        need the same rule and cannot import a controller (that would close the
+        ``base_game`` → ``room`` → ``disconnect`` cycle).
         """
-        players = state.get("players", [])
-        if not players:
-            return []
-        player_ids = [UUID(p["user_id"]) for p in players]
-        existing = set(
-            (
-                await self.session.exec(
-                    select(User.id).where(User.id.in_(player_ids))  # type: ignore[union-attr]
-                )
-            ).all()
-        )
-        scorable = [p for p in players if UUID(p["user_id"]) in existing]
-        if len(scorable) != len(players):
-            missing = [p["user_id"] for p in players if UUID(p["user_id"]) not in existing]
-            logger.warning("Skipping stats for deleted users {}", missing)
-        return scorable
+        return await scorable_players(self.session, state)
 
     @staticmethod
     def _resolve_multilingual(data: dict | None, lang: str) -> str | None:

@@ -24,13 +24,33 @@ from majlisna.api.schemas.undercover import (
 )
 from majlisna.api.ws.handlers import auto_join_game_room
 from majlisna.api.ws.notify import notify_game_changed, notify_room_changed
-from majlisna.dependencies import get_current_user, get_undercover_controller, get_undercover_game_controller
+from majlisna.dependencies import (
+    get_current_admin_user,
+    get_current_user,
+    get_undercover_controller,
+    get_undercover_game_controller,
+)
 
 router = APIRouter(
     prefix="/undercover",
     tags=["undercover"],
     responses={404: {"description": "Not found"}},
 )
+
+# ─── Content endpoints (words + term pairs) are ADMIN ONLY ────────────────────
+#
+# Reads as well as writes. No client uses them, and both directions were holes:
+#
+# * the GETs required no authentication at all, and `GET /undercover/termpair`
+#   lists every (civilian word, undercover word) pair. A player is always told
+#   one of the two words for their own role, so that list handed them the other
+#   one — an undercover could blend in perfectly. Requiring a login does NOT fix
+#   that, since every player has one; the endpoint has to be closed.
+# * the POST/DELETE routes required only *a* login, so any player could delete
+#   every word and term pair in the database and take Undercover down globally
+#   (get_random_term_pair would then raise on every game start).
+#
+# Content is seeded by scripts/generate_fake_data.py. See get_current_admin_user.
 
 
 # --- Game Action Endpoints ---
@@ -133,7 +153,7 @@ async def start_next_round(
 async def create_word(
     *,
     word_create: WordCreate,
-    current_user: Annotated[User, Depends(get_current_user)],  # noqa: ARG001 — auth required
+    admin: Annotated[User, Depends(get_current_admin_user)],  # noqa: ARG001 — admin required
     undercover_controller: UndercoverController = Depends(get_undercover_controller),
 ) -> Word:
     return await undercover_controller.create_word(word_create)
@@ -142,6 +162,7 @@ async def create_word(
 @router.get("/words", response_model=Sequence[Word])
 async def get_all_words(
     *,
+    admin: Annotated[User, Depends(get_current_admin_user)],  # noqa: ARG001 — admin required
     undercover_controller: UndercoverController = Depends(get_undercover_controller),
 ) -> Sequence[Word]:
     return await undercover_controller.get_words()
@@ -151,6 +172,7 @@ async def get_all_words(
 async def get_word_by_id(
     *,
     word_id: UUID,
+    admin: Annotated[User, Depends(get_current_admin_user)],  # noqa: ARG001 — admin required
     undercover_controller: UndercoverController = Depends(get_undercover_controller),
 ) -> Word:
     return await undercover_controller.get_word_by_id(word_id)
@@ -160,6 +182,7 @@ async def get_word_by_id(
 async def get_word_by_word(
     *,
     word: str,
+    admin: Annotated[User, Depends(get_current_admin_user)],  # noqa: ARG001 — admin required
     undercover_controller: UndercoverController = Depends(get_undercover_controller),
 ) -> Word:
     return await undercover_controller.get_word_by_word(word)
@@ -169,7 +192,7 @@ async def get_word_by_word(
 async def delete_word(
     *,
     word_id: UUID,
-    current_user: Annotated[User, Depends(get_current_user)],  # noqa: ARG001 — auth required
+    admin: Annotated[User, Depends(get_current_admin_user)],  # noqa: ARG001 — admin required
     undercover_controller: UndercoverController = Depends(get_undercover_controller),
 ) -> None:
     await undercover_controller.delete_word(word_id)
@@ -179,7 +202,7 @@ async def delete_word(
 async def create_term_pair(
     *,
     term_pair_create: TermPairCreate,
-    current_user: Annotated[User, Depends(get_current_user)],  # noqa: ARG001 — auth required
+    admin: Annotated[User, Depends(get_current_admin_user)],  # noqa: ARG001 — admin required
     undercover_controller: UndercoverController = Depends(get_undercover_controller),
 ) -> TermPair:
     return await undercover_controller.create_term_pair(term_pair_create.word1_id, term_pair_create.word2_id)
@@ -188,6 +211,7 @@ async def create_term_pair(
 @router.get("/termpair", response_model=Sequence[TermPair])
 async def get_all_term_pairs(
     *,
+    admin: Annotated[User, Depends(get_current_admin_user)],  # noqa: ARG001 — admin required
     undercover_controller: UndercoverController = Depends(get_undercover_controller),
 ) -> Sequence[TermPair]:
     return await undercover_controller.get_term_pairs()
@@ -197,6 +221,7 @@ async def get_all_term_pairs(
 async def get_term_pair_by_id(
     *,
     term_pair_id: UUID,
+    admin: Annotated[User, Depends(get_current_admin_user)],  # noqa: ARG001 — admin required
     undercover_controller: UndercoverController = Depends(get_undercover_controller),
 ) -> TermPair:
     return await undercover_controller.get_term_pair_by_id(term_pair_id)
@@ -205,6 +230,7 @@ async def get_term_pair_by_id(
 @router.get("/termpair/search/random", response_model=TermPair)
 async def get_random_term_pair(
     *,
+    admin: Annotated[User, Depends(get_current_admin_user)],  # noqa: ARG001 — admin required
     undercover_controller: UndercoverController = Depends(get_undercover_controller),
 ) -> TermPair:
     return await undercover_controller.get_random_term_pair()
@@ -214,7 +240,7 @@ async def get_random_term_pair(
 async def delete_term_pair(
     *,
     term_pair_id: UUID,
-    current_user: Annotated[User, Depends(get_current_user)],  # noqa: ARG001 — auth required
+    admin: Annotated[User, Depends(get_current_admin_user)],  # noqa: ARG001 — admin required
     undercover_controller: UndercoverController = Depends(get_undercover_controller),
 ) -> None:
     await undercover_controller.delete_term_pair(term_pair_id)

@@ -34,76 +34,6 @@ def _override_auth(test_app: FastAPI, user: User):
 # ========== GET /api/v1/users ==========
 
 
-def test_get_all_users_success(test_app: FastAPI, client: TestClient):
-    """GET /users returns 200 and a list of users."""
-    # Arrange
-    user_id_1 = uuid4()
-    user_id_2 = uuid4()
-    auth_user = _make_user(user_id_1)
-    mock_controller = Mock(spec=UserController)
-    mock_controller.get_users = AsyncMock(
-        return_value=[
-            _make_user(user_id_1),
-            _make_user(user_id_2, username="JaneDoe", email="jane.doe@test.com", country="USA"),
-        ]
-    )
-    test_app.dependency_overrides[get_user_controller] = lambda: mock_controller
-    _override_auth(test_app, auth_user)
-
-    # Act
-    response = client.get("/api/v1/users")
-
-    # Assert
-    assert response.status_code == 200
-    body = response.json()
-    assert len(body) == 2
-    assert body[0]["id"] == str(user_id_1)
-    assert body[0]["username"] == "JohnDoe"
-    assert "email_address" not in body[0]
-    assert body[0]["country"] == "FRA"
-    assert "password" not in body[0]
-    assert body[1]["id"] == str(user_id_2)
-    assert body[1]["username"] == "JaneDoe"
-    assert "email_address" not in body[1]
-    assert body[1]["country"] == "USA"
-    assert "password" not in body[1]
-
-    test_app.dependency_overrides.clear()
-
-
-def test_get_all_users_empty(test_app: FastAPI, client: TestClient):
-    """GET /users returns 200 and an empty list when no users exist."""
-    # Arrange
-    auth_user = _make_user()
-    mock_controller = Mock(spec=UserController)
-    mock_controller.get_users = AsyncMock(return_value=[])
-    test_app.dependency_overrides[get_user_controller] = lambda: mock_controller
-    _override_auth(test_app, auth_user)
-
-    # Act
-    response = client.get("/api/v1/users")
-
-    # Assert
-    assert response.status_code == 200
-    assert response.json() == []
-
-    test_app.dependency_overrides.clear()
-
-
-def test_get_all_users_unauthenticated(test_app: FastAPI, client: TestClient):
-    """GET /users without auth returns 401."""
-    # Act
-    response = client.get("/api/v1/users")
-
-    # Assert
-    assert response.status_code == 401
-
-    test_app.dependency_overrides.clear()
-
-
-# ========== GET /api/v1/users/{user_id} ==========
-
-
 def test_get_user_by_id_success(test_app: FastAPI, client: TestClient):
     """GET /users/{id} returns 200 and the requested UserView."""
     # Arrange
@@ -323,71 +253,6 @@ def test_update_user_password_not_found(test_app: FastAPI, client: TestClient):
 # ========== DELETE /api/v1/users/{user_id} ==========
 
 
-def test_delete_user_success(test_app: FastAPI, client: TestClient):
-    """DELETE /users/{id} returns 204 on successful deletion."""
-    # Arrange
-    user_id = uuid4()
-    auth_user = _make_user(user_id)
-    mock_controller = Mock(spec=UserController)
-    mock_controller.delete_user = AsyncMock(return_value=None)
-    test_app.dependency_overrides[get_user_controller] = lambda: mock_controller
-    _override_auth(test_app, auth_user)
-
-    # Act
-    response = client.delete(f"/api/v1/users/{user_id}")
-
-    # Assert
-    assert response.status_code == 204
-    assert response.content == b""
-
-    test_app.dependency_overrides.clear()
-
-
-def test_delete_user_forbidden(test_app: FastAPI, client: TestClient):
-    """DELETE /users/{id} returns 403 when deleting another user's account."""
-    # Arrange
-    user_id = uuid4()
-    other_user_id = uuid4()
-    auth_user = _make_user(other_user_id)
-    mock_controller = Mock(spec=UserController)
-    test_app.dependency_overrides[get_user_controller] = lambda: mock_controller
-    _override_auth(test_app, auth_user)
-
-    # Act
-    response = client.delete(f"/api/v1/users/{user_id}")
-
-    # Assert
-    assert response.status_code == 403
-
-    test_app.dependency_overrides.clear()
-
-
-def test_delete_user_not_found(test_app: FastAPI, client: TestClient):
-    """DELETE /users/{id} returns 404 when the user does not exist."""
-    # Arrange
-    user_id = uuid4()
-    auth_user = _make_user(user_id)
-    mock_controller = Mock(spec=UserController)
-    mock_controller.delete_user = AsyncMock(side_effect=UserNotFoundError(user_id=user_id))
-    test_app.dependency_overrides[get_user_controller] = lambda: mock_controller
-    _override_auth(test_app, auth_user)
-
-    # Act
-    response = client.delete(f"/api/v1/users/{user_id}")
-
-    # Assert
-    assert response.status_code == 404
-    body = response.json()
-    assert body["error"] == "UserNotFoundError"
-    assert body["error_key"] == "errors.api.userNotFound"
-    assert body["message"] == "User not found."
-
-    test_app.dependency_overrides.clear()
-
-
-# ========== Validation edge case ==========
-
-
 def test_get_user_invalid_uuid(test_app: FastAPI, client: TestClient):
     """GET /users/not-a-uuid returns 422 for an invalid UUID path parameter."""
     # Arrange
@@ -404,5 +269,46 @@ def test_get_user_invalid_uuid(test_app: FastAPI, client: TestClient):
     body = response.json()
     assert body["error"] == "ValidationError"
     assert body["error_key"] == "errors.api.validation"
+
+    test_app.dependency_overrides.clear()
+
+
+def test_list_all_users_endpoint_is_gone(test_app: FastAPI, client: TestClient):
+    """`GET /users` must stay removed.
+
+    It returned the whole user table, unpaginated, to any authenticated caller — a
+    full table scan per call and a complete directory of the player base. Nothing
+    used it.
+    """
+    # Arrange
+    mock_user = User(id=uuid4(), username="testuser", email_address="test@example.com")
+    test_app.dependency_overrides[get_current_user] = lambda: mock_user
+
+    # Act
+    response = client.get("/api/v1/users")
+
+    # Assert
+    assert response.status_code == 404
+
+    test_app.dependency_overrides.clear()
+
+
+def test_delete_user_by_id_endpoint_is_gone(test_app: FastAPI, client: TestClient):
+    """`DELETE /users/{user_id}` must stay removed.
+
+    It destroyed the caller's own account irreversibly on nothing but a valid
+    session, while `/users/me/account` does the same thing and requires the
+    password — so a stolen token was enough.
+    """
+    # Arrange
+    user_id = uuid4()
+    mock_user = User(id=user_id, username="testuser", email_address="test@example.com")
+    test_app.dependency_overrides[get_current_user] = lambda: mock_user
+
+    # Act
+    response = client.delete(f"/api/v1/users/{user_id}")
+
+    # Assert
+    assert response.status_code == 405  # the path exists for GET/PATCH, not DELETE
 
     test_app.dependency_overrides.clear()

@@ -528,6 +528,23 @@ _ACHIEVEMENT_STAT_MAP: dict[str, str | None] = {defn["code"]: defn["stat_field"]
 class AchievementController:
     def __init__(self, session: AsyncSession):
         self.session = session
+        self._definitions: Sequence[AchievementDefinition] | None = None
+
+    async def _all_definitions(self) -> Sequence[AchievementDefinition]:
+        """The achievement definitions, loaded once per controller instance.
+
+        `check_achievements` is called once per player, and every call re-read the
+        whole definitions table — so a 12-player game end ran that query twelve
+        times, inside the game advisory lock.
+
+        Memoised on the instance, NOT in the global TTLCache: these are ORM rows
+        bound to this request's session, and one `AchievementController` already
+        serves every player of a single game end (BaseGameController builds it once).
+        Caching them process-wide would share detached rows across sessions.
+        """
+        if self._definitions is None:
+            self._definitions = (await self.session.exec(select(AchievementDefinition))).all()
+        return self._definitions
 
     async def get_user_achievements(self, user_id: UUID) -> Sequence[AchievementWithProgress]:
         """Get all achievements with definitions, user progress, and rarity.
@@ -538,8 +555,8 @@ class AchievementController:
         :param user_id: The id of the user.
         :return: A list of AchievementWithProgress records.
         """
-        # Load all definitions
-        all_definitions = (await self.session.exec(select(AchievementDefinition))).all()
+        # Load all definitions (memoised per instance)
+        all_definitions = await self._all_definitions()
 
         # Load user's achievement progress
         user_achievements = (
@@ -598,8 +615,8 @@ class AchievementController:
         :param stats: The user's current stats.
         :return: A list of newly unlocked AchievementDefinition records.
         """
-        # Load all definitions
-        all_definitions = (await self.session.exec(select(AchievementDefinition))).all()
+        # Load all definitions (memoised per instance)
+        all_definitions = await self._all_definitions()
 
         # Load already-unlocked achievement IDs for this user
         existing = await self.session.exec(
@@ -688,3 +705,4 @@ class AchievementController:
             self.session.add(definition)
 
         await self.session.commit()
+        self._definitions = None  # the memo above is now stale

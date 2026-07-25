@@ -1,4 +1,3 @@
-import random
 from collections.abc import Sequence
 
 from sqlmodel import select
@@ -7,6 +6,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from majlisna.api.constants import CACHE_TTL_GAME_CONTENT_SECONDS
 from majlisna.api.models.mcqquiz import McqQuestion
 from majlisna.api.utils.cache import cache
+from majlisna.api.utils.rng import rng
 
 MCQ_QUESTIONS_CACHE_KEY = "mcqquiz:questions"
 
@@ -35,4 +35,4 @@ class McqQuizController:
                 available = filtered
         if len(available) < count:
             available = list(all_questions)
-        return random.sample(list(available), min(count, len(available)))
+        return rng.sample(list(available), min(count, len(available)))

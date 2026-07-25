@@ -10,6 +10,7 @@ import { codenamesClueHistoryEntrySchema } from "./codenamesClueHistoryEntrySche
 import { codenamesPlayerViewSchema } from "./codenamesPlayerViewSchema.ts";
 import { codenamesTimerConfigSchema } from "./codenamesTimerConfigSchema.ts";
 import { codenamesTurnStateSchema } from "./codenamesTurnStateSchema.ts";
+import { playerUnlockedAchievementsSchema } from "./playerUnlockedAchievementsSchema.ts";
 import { z } from "zod/v4";
 
 export const codenamesBoardStateSchema = z.object({
@@ -39,5 +40,17 @@ export const codenamesBoardStateSchema = z.object({
   timer_started_at: z.optional(z.union([z.string(), z.null()])),
   get players() {
     return z.array(codenamesPlayerViewSchema);
+  },
+  get newly_unlocked_achievements() {
+    return z
+      .union([
+        z.array(
+          playerUnlockedAchievementsSchema.describe(
+            'Badges earned by one player at the end of a game.\n\nEvery game controller wrote this into ``live_state["newly_unlocked_achievements"]``\nbut no game-state schema declared it, and ``BaseModel`` is ``extra="forbid"`` — so\nit never left the server. The client has always been ready for it\n(``useAchievementNotifications`` + ``AchievementToast``); the toast simply had no\ndata. Declaring the field is what connects the two.',
+          ),
+        ),
+        z.null(),
+      ])
+      .optional();
   },
 });

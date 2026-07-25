@@ -55,7 +55,7 @@ describe("AuthProvider", () => {
 
   it("restores auth from localStorage when /me fails", async () => {
     mockGetStoredToken.mockReturnValue("stored-token")
-    mockGetStoredUserData.mockReturnValue({ id: "u1", username: "Alice", email: "a@b.com", is_active: true, is_admin: false })
+    mockGetStoredUserData.mockReturnValue({ id: "u1", username: "Alice", email: "a@b.com" })
     mockGetTokenExpiry.mockReturnValue(Date.now() + 300_000) // 5 min from now
 
     const { result } = renderHook(() => useAuth(), { wrapper })
@@ -66,7 +66,7 @@ describe("AuthProvider", () => {
   })
 
   it("authenticates via /me endpoint (cookie auth)", async () => {
-    const userData = { id: "u2", username: "Bob", email: "b@b.com", is_active: true, is_admin: false }
+    const userData = { id: "u2", username: "Bob", email: "b@b.com" }
     mockApiClient.mockResolvedValueOnce({ data: userData })
 
     const { result } = renderHook(() => useAuth(), { wrapper })
@@ -83,7 +83,7 @@ describe("AuthProvider", () => {
     // the next request 401'd and bounced the player to /auth/login mid-game. It
     // also left a stale token behind, which is what useSocket authenticates the
     // Socket.IO handshake with — so real-time silently fell back to polling.
-    const userData = { id: "u3", username: "Cookie", email: "c@b.com", is_active: true, is_admin: false }
+    const userData = { id: "u3", username: "Cookie", email: "c@b.com" }
     mockApiClient.mockResolvedValueOnce({ data: userData }) // GET /me
     mockApiClient.mockResolvedValueOnce({
       data: { access_token: "fresh-access", refresh_token: "fresh-refresh", expires_in: 900 },
@@ -100,7 +100,7 @@ describe("AuthProvider", () => {
   })
 
   it("falls back to the cookie-auth sentinel when the refresh call fails", async () => {
-    const userData = { id: "u4", username: "Dana", email: "d@b.com", is_active: true, is_admin: false }
+    const userData = { id: "u4", username: "Dana", email: "d@b.com" }
     mockApiClient.mockResolvedValueOnce({ data: userData }) // GET /me
     // Every later call rejects (default mock) → both refresh attempts fail.
 
@@ -115,7 +115,7 @@ describe("AuthProvider", () => {
     const { result } = renderHook(() => useAuth(), { wrapper })
     await waitFor(() => expect(result.current.isLoading).toBe(false))
 
-    const userData = { id: "u1", username: "Alice", email: "a@b.com", is_active: true, is_admin: false }
+    const userData = { id: "u1", username: "Alice", email: "a@b.com" }
     act(() => {
       result.current.login("access-tok", "refresh-tok", 3600, userData)
     })
@@ -127,7 +127,7 @@ describe("AuthProvider", () => {
 
   it("logout clears auth state", async () => {
     // Start authenticated via /me
-    const userData = { id: "u1", username: "Alice", email: "a@b.com", is_active: true, is_admin: false }
+    const userData = { id: "u1", username: "Alice", email: "a@b.com" }
     mockApiClient.mockResolvedValueOnce({ data: userData }) // /me success
     mockApiClient.mockResolvedValueOnce({}) // /logout success
 

@@ -24,7 +24,7 @@ function RegisterPage() {
   const registerMutation = useRegisterApiV1AuthRegisterPost({
     mutation: {
       onSuccess: (data) => {
-        const d = data as unknown as { access_token: string; refresh_token: string; token_type: string; user?: { id: string; username: string; email: string; is_active: boolean; is_admin: boolean } }
+        const d = data as unknown as { access_token: string; refresh_token: string; token_type: string; user?: { id: string; username: string; email: string } }
         trackEvent("signup")
         login(d.access_token, d.refresh_token, 900, d.user || undefined)
         navigate({ to: "/" })

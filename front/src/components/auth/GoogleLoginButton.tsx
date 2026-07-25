@@ -65,8 +65,6 @@ export function GoogleLoginButton() {
           id: data.user.id,
           username: data.user.username,
           email: data.user.email,
-          is_active: true,
-          is_admin: false,
         })
 
         if (data.is_new_user) {

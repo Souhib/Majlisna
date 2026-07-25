@@ -26,7 +26,7 @@ from majlisna.api.controllers.user import UserController
 from majlisna.api.controllers.wordquiz import WordQuizController
 from majlisna.api.controllers.wordquiz_game import WordQuizGameController
 from majlisna.api.models.table import User
-from majlisna.api.schemas.error import InvalidTokenError
+from majlisna.api.schemas.error import ForbiddenError, InvalidTokenError
 from majlisna.api.services.email import EmailService
 from majlisna.api.services.social_auth import SocialAuthService
 from majlisna.database import get_engine as _get_engine
@@ -142,6 +142,26 @@ async def get_current_active_user(
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> User:
     """Get the current active user."""
+    return current_user
+
+
+async def get_current_admin_user(
+    current_user: Annotated[User, Depends(get_current_user)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> User:
+    """Require the caller to be listed in ADMIN_EMAILS.
+
+    Guards the game-content endpoints (undercover words / term pairs, codenames
+    word packs). Those used to require nothing beyond a valid login, which meant
+    any player could ``DELETE`` every word in the game — and could ``GET`` the
+    whole term-pair list, which next to the word their own role gives them
+    reveals the opposing word and defeats Undercover entirely.
+
+    Fails closed: with ADMIN_EMAILS unset nobody passes. Game content is loaded
+    by ``scripts/generate_fake_data.py``, not through the API.
+    """
+    if current_user.email_address not in settings.admin_emails:
+        raise ForbiddenError(f"User {current_user.id} is not an administrator")
     return current_user
 
 

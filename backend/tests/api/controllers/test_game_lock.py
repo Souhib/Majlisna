@@ -1,61 +1,75 @@
 """Tests for the game_lock module."""
 
+import asyncio
+
 import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from majlisna.api.controllers.game_lock import _fallback_locks, _game_id_to_lock_key, cleanup_game_lock, get_game_lock
 
 # ========== Fallback (asyncio.Lock) Tests ==========
+#
+# `_fallback_locks` is a WeakValueDictionary: an entry exists exactly while some task
+# holds or awaits the lock, and is collected once the last reference goes. So these
+# tests assert from INSIDE the `async with`, never after it — "the entry is gone
+# afterwards" is the point of the weak map, not a regression.
 
 
 async def test_creates_lock_on_use():
     """get_game_lock creates an asyncio.Lock when no session is provided."""
-    _fallback_locks.clear()
     async with get_game_lock("game-1"):
-        pass
-    assert "game-1" in _fallback_locks
-    _fallback_locks.clear()
+        assert isinstance(_fallback_locks["game-1"], asyncio.Lock)
+        assert _fallback_locks["game-1"].locked()
 
 
 async def test_returns_same_lock_for_same_id():
-    """get_game_lock reuses the same Lock for the same game_id."""
-    _fallback_locks.clear()
-    async with get_game_lock("game-1"):
-        lock1 = _fallback_locks["game-1"]
-    async with get_game_lock("game-1"):
-        lock2 = _fallback_locks["game-1"]
-    assert lock1 is lock2
-    _fallback_locks.clear()
+    """Concurrent holders of the same game_id share one lock, so they serialize."""
+    order: list[str] = []
+
+    async def hold(tag: str, delay: float) -> None:
+        async with get_game_lock("game-shared"):
+            order.append(f"{tag}-enter")
+            await asyncio.sleep(delay)
+            order.append(f"{tag}-exit")
+
+    await asyncio.gather(hold("a", 0.05), hold("b", 0))
+
+    # Interleaved entries would mean two different locks.
+    assert order in (
+        ["a-enter", "a-exit", "b-enter", "b-exit"],
+        ["b-enter", "b-exit", "a-enter", "a-exit"],
+    )
 
 
 async def test_returns_different_locks_for_different_ids():
-    """Different game_ids get independent locks."""
-    _fallback_locks.clear()
-    async with get_game_lock("game-a"):
-        pass
-    async with get_game_lock("game-b"):
-        pass
-    assert _fallback_locks["game-a"] is not _fallback_locks["game-b"]
-    _fallback_locks.clear()
+    """Different game_ids get independent locks and do not block each other."""
+    async with get_game_lock("game-a"), get_game_lock("game-b"):
+        assert _fallback_locks["game-a"] is not _fallback_locks["game-b"]
 
 
 async def test_fallback_when_session_is_none():
     """Passing session=None uses fallback asyncio.Lock."""
-    _fallback_locks.clear()
     async with get_game_lock("game-1", session=None):
-        pass
-    assert "game-1" in _fallback_locks
-    _fallback_locks.clear()
+        assert "game-1" in _fallback_locks
+
+
+async def test_unused_lock_is_not_retained():
+    """An entry disappears once nothing holds the lock.
+
+    This is what keeps `_fallback_locks` from growing one entry per game forever —
+    `cleanup_game_lock` existed for that and had no caller anywhere in the app.
+    """
+    async with get_game_lock("game-transient"):
+        assert "game-transient" in _fallback_locks
+    assert "game-transient" not in _fallback_locks
 
 
 async def test_cleanup_removes_existing_lock():
-    """cleanup_game_lock removes a lock that was previously created."""
-    _fallback_locks.clear()
+    """cleanup_game_lock drops a lock that is still referenced."""
     async with get_game_lock("game-1"):
-        pass
-    assert "game-1" in _fallback_locks
-    cleanup_game_lock("game-1")
-    assert "game-1" not in _fallback_locks
+        assert "game-1" in _fallback_locks
+        cleanup_game_lock("game-1")
+        assert "game-1" not in _fallback_locks
 
 
 def test_cleanup_nonexistent_no_error():

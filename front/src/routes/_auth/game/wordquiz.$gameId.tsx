@@ -23,6 +23,7 @@ import { AnswerInput } from "@/components/games/wordquiz/AnswerInput"
 import { PlayerScoreboard } from "@/components/games/shared/PlayerScoreboard"
 import { QuizGameOver } from "@/components/games/shared/QuizGameOver"
 import { RoundResults } from "@/components/games/wordquiz/RoundResults"
+import { useAchievementNotifications } from "@/components/achievements/AchievementToast"
 import { useSocket } from "@/hooks/use-socket"
 import { trackEvent } from "@/lib/analytics"
 import { useAuth } from "@/providers/AuthProvider"
@@ -70,6 +71,7 @@ interface WordQuizState {
   game_over: boolean
   timer_config: { turn_duration_seconds: number; hint_interval_seconds: number } | null
   difficulty?: string | null
+  newly_unlocked_achievements?: { user_id: string; achievements: { code: string; name: string; icon: string; tier: number }[] }[]
 }
 
 export const Route = createFileRoute("/_auth/game/wordquiz/$gameId")({
@@ -219,6 +221,8 @@ function WordQuizGamePage() {
   )
 
   const timerExpiredRef = useRef(false)
+  useAchievementNotifications(state?.newly_unlocked_achievements, user?.id)
+
   const handleTimerExpired = useCallback(async () => {
     if (!state?.is_host || timerExpiredRef.current) return
     timerExpiredRef.current = true

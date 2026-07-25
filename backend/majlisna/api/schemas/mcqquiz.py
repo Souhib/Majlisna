@@ -1,3 +1,4 @@
+from majlisna.api.schemas.common import PlayerUnlockedAchievements
 from majlisna.api.schemas.shared import BaseModel
 
 
@@ -50,3 +51,4 @@ class McqQuizGameState(BaseModel):
     ready_players: list[str] = []
     ready_count: int = 0
     total_players: int = 0
+    newly_unlocked_achievements: list[PlayerUnlockedAchievements] | None = None

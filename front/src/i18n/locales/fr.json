@@ -122,6 +122,7 @@
     "host": "Hôte",
     "minPlayers": "Minimum {{count}} joueurs requis",
     "lobby": "Salle d'attente",
+    "staleState": "Ce salon ne se met plus à jour. Essayez de le rejoindre à nouveau.",
     "enterCode": "Entrez le code du salon à 6 caractères",
     "enterPassword": "Entrez le mot de passe à 4 chiffres",
     "joining": "Connexion au salon...",

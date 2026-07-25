@@ -15,6 +15,11 @@ MAX_CUSTOM_WORD_PACKS = 20
 
 # Game constants
 MIN_PLAYERS_FOR_GAME = 3
+# Upper bounds, matching what each game is designed and tested for. Only the minimums
+# were enforced: role distribution scales past these numbers without erroring, so a
+# 20-player room produced a game nobody had ever played or tested.
+MAX_PLAYERS_UNDERCOVER = 12
+MAX_PLAYERS_CODENAMES = 10
 
 # Undercover role distribution thresholds
 UNDERCOVER_MR_WHITE_THRESHOLD_SMALL = 10  # < 10 players: 1 Mr. White
@@ -83,9 +88,10 @@ LOCK_TIMEOUT_SECONDS = 30
 # Undercover word constants
 UNDERCOVER_WORD_MAX_LENGTH = 50
 
-# Cache TTLs (seconds)
+# Cache TTLs (seconds). NOTE: the cache is per-uvicorn-worker, so a TTL is the only
+# real freshness bound — invalidation reaches one worker out of four. User stats are
+# deliberately NOT cached; see StatsController.get_user_stats.
 CACHE_TTL_GAME_CONTENT_SECONDS = 3600  # Words, term pairs, packs, quiz questions
-CACHE_TTL_USER_STATS_SECONDS = 300
 CACHE_TTL_LEADERBOARD_SECONDS = 30
 
 # Auth providers

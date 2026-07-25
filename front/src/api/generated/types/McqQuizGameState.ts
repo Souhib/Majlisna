@@ -7,6 +7,7 @@
 
 import type { McqQuizPlayerState } from "./McqQuizPlayerState.ts";
 import type { McqQuizRoundResult } from "./McqQuizRoundResult.ts";
+import type { PlayerUnlockedAchievements } from "./PlayerUnlockedAchievements.ts";
 
 /**
  * McqQuizGameState
@@ -96,4 +97,5 @@ export type McqQuizGameState = {
    * @type integer | undefined
    */
   total_players?: number;
+  newly_unlocked_achievements?: PlayerUnlockedAchievements[] | null;
 };

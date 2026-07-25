@@ -16,6 +16,7 @@ from majlisna.api.constants import (
     TIMER_EXPIRATION_TOLERANCE_SECONDS,
 )
 from majlisna.api.controllers.base_game import BaseGameController
+from majlisna.api.controllers.game_end_stats import record_game_end, top_score_winners
 from majlisna.api.controllers.game_lock import get_game_lock
 from majlisna.api.controllers.wordquiz import WordQuizController
 from majlisna.api.models.error import (
@@ -305,6 +306,7 @@ class WordQuizGameController(BaseGameController):
             turn_duration_seconds=state.get("turn_duration_seconds", DEFAULT_WORD_QUIZ_TURN_DURATION),
             hint_interval_seconds=state.get("hint_interval_seconds", DEFAULT_WORD_QUIZ_HINT_INTERVAL),
             round_started_at=state.get("round_started_at"),
+            newly_unlocked_achievements=state.get("newly_unlocked_achievements"),
             players=player_states,
             my_answered=my_answered,
             my_points=my_points,
@@ -506,8 +508,10 @@ class WordQuizGameController(BaseGameController):
                 room.active_game_id = None
                 self.session.add(room)
 
-            # Process stats
-            await self._process_game_end_stats(state)
+            # Process stats and achievements
+            newly_unlocked = await self._process_game_end_stats(state)
+            if newly_unlocked:
+                state["newly_unlocked_achievements"] = newly_unlocked
         else:
             # Pick new word
             used_ids = state.get("used_word_ids", [])
@@ -640,21 +644,18 @@ class WordQuizGameController(BaseGameController):
         ]
         return round_results, correct_answer, explanation
 
-    async def _process_game_end_stats(self, state: dict) -> None:
-        """Update stats for all players after game ends.
+    async def _process_game_end_stats(self, state: dict) -> list[dict]:
+        """Stage the end-of-game stat and achievement writes. See game_end_stats.
 
-        Writes are staged only — the caller's single ``commit()`` persists them.
-        See ``UndercoverGameController._process_game_end_stats`` for why this must
-        neither commit (it runs inside a transaction-scoped advisory lock) nor
-        swallow SQLAlchemy errors (it would poison the session).
+        The quizzes used to update stats but never run the achievement check, so a
+        player who only played quizzes had their counters rise while no badge ever
+        unlocked. Hint tracking stays off: the quizzes have their own progressive
+        hint mechanic, which is not what `games_without_hints` counts.
         """
-        sorted_players = sorted(state["players"], key=lambda p: p["total_score"], reverse=True)
-        winner_id = sorted_players[0]["user_id"] if sorted_players else None
-
-        for player in await self._scorable_players(state):
-            user_id = UUID(player["user_id"])
-            won = player["user_id"] == winner_id
-            await self._stats_controller.update_stats_after_game(
-                user_id=user_id, game_type="word_quiz", won=won, role="player", commit=False
-            )
-            logger.info("Stats updated: game=word_quiz user={}", user_id)
+        return await record_game_end(
+            self.session,
+            state,
+            game_type="word_quiz",
+            winners=top_score_winners(state["players"]),
+            track_hints=False,
+        )

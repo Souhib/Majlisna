@@ -1,4 +1,3 @@
-import random
 import unicodedata
 from datetime import UTC, datetime
 from uuid import UUID
@@ -12,6 +11,7 @@ from majlisna.api.constants import (
     CODENAMES_BOARD_SIZE,
     DEFAULT_CODENAMES_CLUE_TIMER_SECONDS,
     DEFAULT_CODENAMES_GUESS_TIMER_SECONDS,
+    MAX_PLAYERS_CODENAMES,
     TIMER_EXPIRATION_TOLERANCE_SECONDS,
 )
 from majlisna.api.controllers.base_game import BaseGameController
@@ -26,6 +26,7 @@ from majlisna.api.controllers.codenames_helpers import (
     get_board_for_player,
     get_player_from_game,
 )
+from majlisna.api.controllers.game_end_stats import codenames_winners, record_game_end
 from majlisna.api.controllers.game_lock import get_game_lock
 from majlisna.api.models.error import (
     CardAlreadyRevealedError,
@@ -49,6 +50,7 @@ from majlisna.api.schemas.codenames import (
 )
 from majlisna.api.schemas.common import GameStartResponse, HintRecordResponse, TimerExpiredResponse
 from majlisna.api.schemas.error import BaseError
+from majlisna.api.utils.rng import rng
 
 
 class CodenamesGameController(BaseGameController):
@@ -70,7 +72,9 @@ class CodenamesGameController(BaseGameController):
     ) -> GameStartResponse:
         """Start a new Codenames game in the given room. Host only."""
         async with get_game_lock(f"room:{room_id}", self.session):
-            db_room, player_users = await self._prepare_game_start(room_id, min_players=4)
+            db_room, player_users = await self._prepare_game_start(
+                room_id, min_players=4, max_players=MAX_PLAYERS_CODENAMES
+            )
             self._require_room_host(db_room, user_id)
 
             room_user_dicts = [{"user_id": str(u.id), "username": u.username} for u in player_users]
@@ -82,7 +86,7 @@ class CodenamesGameController(BaseGameController):
             word_strings = [w.word for w in random_words]
             word_hints = {w.word: w.hint for w in random_words if w.hint}
 
-            first_team = random.choice([CodenamesTeam.RED, CodenamesTeam.BLUE])
+            first_team = rng.choice([CodenamesTeam.RED, CodenamesTeam.BLUE])
             board = build_board(word_strings, first_team)
             players = assign_players(room_user_dicts, first_team)
 
@@ -435,6 +439,7 @@ class CodenamesGameController(BaseGameController):
             clue_history=state.get("clue_history", []),
             timer_config=state.get("timer_config"),
             timer_started_at=state.get("timer_started_at"),
+            newly_unlocked_achievements=state.get("newly_unlocked_achievements"),
             players=[
                 CodenamesPlayerView(
                     user_id=p["user_id"],
@@ -513,7 +518,7 @@ class CodenamesGameController(BaseGameController):
         if len(top_cards) == 1:
             return top_cards[0], False
 
-        return random.choice(top_cards), True
+        return rng.choice(top_cards), True
 
     def _resolve_card(self, state: dict, card: dict) -> str:
         """Resolve what happens when a card is revealed."""
@@ -579,45 +584,14 @@ class CodenamesGameController(BaseGameController):
         return HintRecordResponse(game_id=str(game_id), recorded=True)
 
     async def _process_game_end_stats(self, state: dict, winner: str) -> list[dict]:
-        """Update stats and check achievements for all players after game ends.
-
-        Writes are staged only — the caller's single ``commit()`` persists them.
-        See ``UndercoverGameController._process_game_end_stats`` for why this must
-        neither commit (it runs inside a transaction-scoped advisory lock) nor
-        swallow SQLAlchemy errors (it would poison the session).
-
-        Returns a list of {user_id, achievements: [{code, name, icon, tier}]} for newly unlocked.
-        """
-        hint_usage = state.get("hint_usage", {})
-        newly_unlocked_all: list[dict] = []
-        for player in await self._scorable_players(state):
-            user_id = UUID(player["user_id"])
-            role = player.get("role", "operative")
-            won = player.get("team") == winner
-            stats = await self._stats_controller.update_stats_after_game(
-                user_id=user_id, game_type="codenames", won=won, role=role, commit=False
-            )
-            # Update hint-related stats
-            user_hints = hint_usage.get(str(user_id), [])
-            hints_viewed_count = len(user_hints)
-            if hints_viewed_count > 0:
-                stats.total_hints_viewed += hints_viewed_count
-            if won and hints_viewed_count == 0:
-                stats.games_without_hints += 1
-            self.session.add(stats)
-
-            unlocked = await self._achievement_controller.check_achievements(user_id, stats, commit=False)
-            if unlocked:
-                newly_unlocked_all.append(
-                    {
-                        "user_id": str(user_id),
-                        "achievements": [
-                            {"code": a.code, "name": a.name, "icon": a.icon, "tier": a.tier} for a in unlocked
-                        ],
-                    }
-                )
-            logger.info("Stats updated: game=codenames user={}", user_id)
-        return newly_unlocked_all
+        """Stage the end-of-game stat and achievement writes. See game_end_stats."""
+        return await record_game_end(
+            self.session,
+            state,
+            game_type="codenames",
+            winners=codenames_winners(state, winner),
+            default_role="operative",
+        )
 
     def _decrement_remaining(self, state: dict, team: str) -> int:
         """Decrement the remaining card count for a team and return the new count."""

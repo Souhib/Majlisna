@@ -86,6 +86,18 @@ class Settings(BaseSettings):
     # CORS
     cors_origins: str = ""
 
+    # Emails allowed to reach the game-content endpoints (undercover words and
+    # term pairs, codenames word packs). Comma-separated or a JSON array.
+    #
+    # There is no admin column on User and no migration mechanism, so membership
+    # is configuration rather than data. Empty means NOBODY is an admin — content
+    # is seeded by scripts/generate_fake_data.py, so a deployment that never sets
+    # this loses nothing. Fail-closed is deliberate: those endpoints previously
+    # accepted any logged-in user, i.e. any player could DELETE every word in the
+    # game, and could read the full term-pair list — which, next to the word
+    # their own role hands them, reveals the opposing word outright.
+    admin_emails: str = ""
+
     # Auth flags
     # When True, email/password users must verify their email before they can log
     # in. Off by default so enabling it is a deliberate choice (requires working
@@ -106,7 +118,7 @@ class Settings(BaseSettings):
             raise ValueError(msg)
         return self
 
-    @field_validator("cors_origins")
+    @field_validator("cors_origins", "admin_emails")
     @classmethod
     def parse_cors_origins(cls, v: str) -> list[str]:
         """Parse JSON arrays or comma-separated strings into lists."""

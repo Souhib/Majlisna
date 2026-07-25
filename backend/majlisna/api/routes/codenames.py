@@ -27,7 +27,12 @@ from majlisna.api.schemas.codenames import (
 from majlisna.api.schemas.common import GameStartResponse, HintRecordResponse, TimerExpiredResponse
 from majlisna.api.ws.handlers import auto_join_game_room
 from majlisna.api.ws.notify import notify_game_changed, notify_room_changed
-from majlisna.dependencies import get_codenames_controller, get_codenames_game_controller, get_current_user
+from majlisna.dependencies import (
+    get_codenames_controller,
+    get_codenames_game_controller,
+    get_current_admin_user,
+    get_current_user,
+)
 
 router = APIRouter(
     prefix="/codenames",
@@ -121,6 +126,13 @@ async def end_turn(
     return result
 
 
+# ─── Content endpoints (word packs + words) are ADMIN ONLY ────────────────────
+#
+# Same reasoning as routes/undercover.py: no client calls these, the GETs took no
+# authentication at all, and the POST/DELETE routes took only *a* login — so any
+# player could delete every word pack and break Codenames for everyone. Content
+# is seeded by scripts/generate_fake_data.py. See get_current_admin_user.
+
 # --- Word Packs ---
 
 
@@ -128,7 +140,7 @@ async def end_turn(
 async def create_word_pack(
     *,
     word_pack_create: CodenamesWordPackCreate,
-    current_user: Annotated[User, Depends(get_current_user)],  # noqa: ARG001 — auth required
+    admin: Annotated[User, Depends(get_current_admin_user)],  # noqa: ARG001 — admin required
     codenames_controller: CodenamesController = Depends(get_codenames_controller),
 ) -> CodenamesWordPack:
     """Create a new Codenames word pack."""
@@ -138,6 +150,7 @@ async def create_word_pack(
 @router.get("/word-packs", response_model=Sequence[CodenamesWordPack])
 async def get_word_packs(
     *,
+    admin: Annotated[User, Depends(get_current_admin_user)],  # noqa: ARG001 — admin required
     codenames_controller: CodenamesController = Depends(get_codenames_controller),
 ) -> Sequence[CodenamesWordPack]:
     """List all Codenames word packs."""
@@ -148,6 +161,7 @@ async def get_word_packs(
 async def get_word_pack(
     *,
     pack_id: UUID,
+    admin: Annotated[User, Depends(get_current_admin_user)],  # noqa: ARG001 — admin required
     codenames_controller: CodenamesController = Depends(get_codenames_controller),
 ) -> CodenamesWordPack:
     """Get a specific Codenames word pack by ID."""
@@ -158,7 +172,7 @@ async def get_word_pack(
 async def delete_word_pack(
     *,
     pack_id: UUID,
-    current_user: Annotated[User, Depends(get_current_user)],  # noqa: ARG001 — auth required
+    admin: Annotated[User, Depends(get_current_admin_user)],  # noqa: ARG001 — admin required
     codenames_controller: CodenamesController = Depends(get_codenames_controller),
 ) -> None:
     """Delete a Codenames word pack by ID."""
@@ -173,7 +187,7 @@ async def add_word_to_pack(
     *,
     pack_id: UUID,
     word_create: CodenamesWordCreate,
-    current_user: Annotated[User, Depends(get_current_user)],  # noqa: ARG001 — auth required
+    admin: Annotated[User, Depends(get_current_admin_user)],  # noqa: ARG001 — admin required
     codenames_controller: CodenamesController = Depends(get_codenames_controller),
 ) -> CodenamesWord:
     """Add a word to a Codenames word pack."""
@@ -184,6 +198,7 @@ async def add_word_to_pack(
 async def get_words_by_pack(
     *,
     pack_id: UUID,
+    admin: Annotated[User, Depends(get_current_admin_user)],  # noqa: ARG001 — admin required
     codenames_controller: CodenamesController = Depends(get_codenames_controller),
 ) -> Sequence[CodenamesWord]:
     """List all words in a Codenames word pack."""
@@ -194,7 +209,7 @@ async def get_words_by_pack(
 async def delete_word(
     *,
     word_id: UUID,
-    current_user: Annotated[User, Depends(get_current_user)],  # noqa: ARG001 — auth required
+    admin: Annotated[User, Depends(get_current_admin_user)],  # noqa: ARG001 — admin required
     codenames_controller: CodenamesController = Depends(get_codenames_controller),
 ) -> None:
     """Delete a Codenames word by ID."""

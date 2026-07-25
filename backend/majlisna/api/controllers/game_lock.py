@@ -1,7 +1,8 @@
 import asyncio
 import hashlib
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, MutableMapping
 from contextlib import asynccontextmanager
+from weakref import WeakValueDictionary
 
 from loguru import logger
 from sqlalchemy import text
@@ -9,7 +10,14 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from majlisna.api.constants import LOCK_TIMEOUT_SECONDS
 
-_fallback_locks: dict[str, asyncio.Lock] = {}
+# Weak-valued on purpose: an entry disappears as soon as nothing is using the lock.
+#
+# This was a plain dict that grew one entry per game forever — `cleanup_game_lock`
+# exists to purge it but had no caller anywhere in the app, which made the leak look
+# handled. A WeakValueDictionary needs no caller: the only strong reference to a lock
+# is the `async with` below, so the entry survives exactly as long as some task holds
+# or awaits it. (Only SQLite/dev reaches this path; PostgreSQL uses advisory locks.)
+_fallback_locks: MutableMapping[str, asyncio.Lock] = WeakValueDictionary()
 
 LOCK_RETRY_INTERVAL = 0.1
 
@@ -49,13 +57,25 @@ async def get_game_lock(game_id: str, session: AsyncSession | None = None) -> As
                 pass  # xact locks auto-release on commit/rollback
             return
 
-    # Fallback: in-process asyncio.Lock (SQLite, tests, or no session)
-    if game_id not in _fallback_locks:
-        _fallback_locks[game_id] = asyncio.Lock()
-    async with _fallback_locks[game_id]:
+    # Fallback: in-process asyncio.Lock (SQLite, tests, or no session).
+    #
+    # The local `lock` variable is what keeps the entry alive in the weak map — a
+    # second lookup instead of a local would race the garbage collector between the
+    # insert and the `async with`. There is no await between the two statements, so
+    # no other task can interleave here.
+    lock = _fallback_locks.get(game_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _fallback_locks[game_id] = lock
+    async with lock:
         yield
 
 
 def cleanup_game_lock(game_id: str) -> None:
-    """Remove the fallback lock for a game_id when the game is finished."""
+    """Drop the fallback lock for a game_id.
+
+    No longer required for correctness — `_fallback_locks` is weak-valued, so an
+    unused lock is collected on its own. Kept because it is harmless and makes the
+    intent explicit at a call site that knows a game is over.
+    """
     _fallback_locks.pop(game_id, None)

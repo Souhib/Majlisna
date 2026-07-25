@@ -125,6 +125,7 @@
     "rejoinButton": "Rejoin",
     "minPlayers": "Minimum {{count}} players required",
     "lobby": "Room Lobby",
+    "staleState": "This room is no longer refreshing. Try rejoining.",
     "enterCode": "Enter the 6-character room code",
     "enterPassword": "Enter the 4-digit room password",
     "joining": "Joining room...",

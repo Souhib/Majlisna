@@ -2,6 +2,7 @@ from uuid import UUID
 
 from pydantic import Field
 
+from majlisna.api.schemas.common import PlayerUnlockedAchievements
 from majlisna.api.schemas.shared import BaseModel
 
 
@@ -105,3 +106,4 @@ class CodenamesBoardState(BaseModel):
     timer_config: CodenamesTimerConfig | None = None
     timer_started_at: str | None = None
     players: list[CodenamesPlayerView]
+    newly_unlocked_achievements: list[PlayerUnlockedAchievements] | None = None

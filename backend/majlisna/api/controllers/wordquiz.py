@@ -1,4 +1,3 @@
-import random
 from collections.abc import Sequence
 from uuid import UUID
 
@@ -8,6 +7,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from majlisna.api.constants import CACHE_TTL_GAME_CONTENT_SECONDS
 from majlisna.api.models.wordquiz import QuizWord
 from majlisna.api.utils.cache import cache
+from majlisna.api.utils.rng import rng
 
 QUIZ_WORDS_CACHE_KEY = "wordquiz:words"
 
@@ -49,4 +49,4 @@ class WordQuizController:
                 available = filtered
         if len(available) < count:
             available = list(all_words)
-        return random.sample(list(available), min(count, len(available)))
+        return rng.sample(list(available), min(count, len(available)))

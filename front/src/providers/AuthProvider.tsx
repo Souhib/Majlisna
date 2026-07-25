@@ -16,12 +16,20 @@ import {
   storeAuthData,
 } from "@/lib/auth"
 
+/**
+ * The shape the app actually gets back from the API.
+ *
+ * `is_active` and `is_admin` used to be declared here too, and every call site
+ * fabricated them (`is_admin: false` at login, `updated.is_admin` from a PATCH
+ * response that has no such field). The backend's UserView has never carried
+ * either one, so both were permanently `undefined` behind a `boolean` type — a
+ * lie waiting for the first piece of code that trusted it. Authorization is
+ * decided server-side; see get_current_admin_user.
+ */
 interface UserData {
   id: string
   username: string
   email: string
-  is_active: boolean
-  is_admin: boolean
 }
 
 interface AuthContextValue {
@@ -47,13 +55,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [token, setToken] = useState<string | null>(null)
   const [user, setUser] = useState<UserData | null>(null)
   const refreshTimerRef = useRef<number | null>(null)
-  const isRefreshingRef = useRef(false)
+  // The in-flight refresh, shared by every caller.
+  //
+  // This used to be a boolean and a concurrent caller got `false` back — which
+  // both the scheduled refresh and the past-expiry branch read as "refresh
+  // failed" and answered by clearing auth and logging the player out, even though
+  // the other refresh was about to succeed. Two callers overlapping is the normal
+  // case on mobile: the throttled timer fires at the same moment the tab becomes
+  // visible again. Sharing the promise makes the second caller await the first.
+  const refreshPromiseRef = useRef<Promise<boolean> | null>(null)
 
-  const refreshAccessToken = useCallback(async (): Promise<boolean> => {
-    if (isRefreshingRef.current) return false
+  const performTokenRefresh = useCallback(async (): Promise<boolean> => {
     const storedRefreshToken = localStorage.getItem("majlisna-refresh-token")
-
-    isRefreshingRef.current = true
     try {
       let data: unknown
       try {
@@ -79,10 +92,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
       return true
     } catch {
       return false
-    } finally {
-      isRefreshingRef.current = false
     }
   }, [])
+
+  const refreshAccessToken = useCallback(async (): Promise<boolean> => {
+    if (refreshPromiseRef.current) return refreshPromiseRef.current
+    const promise = performTokenRefresh()
+    refreshPromiseRef.current = promise
+    try {
+      return await promise
+    } finally {
+      refreshPromiseRef.current = null
+    }
+  }, [performTokenRefresh])
 
   const scheduleTokenRefresh = useCallback(
     (expiryTime: number) => {

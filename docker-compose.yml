@@ -70,6 +70,7 @@ services:
       MAJLISNA_ENV: development
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-secret-key-change-me}
       CORS_ORIGINS: "http://localhost:3000,http://localhost:3051"
+      ADMIN_EMAILS: "${ADMIN_EMAILS:-admin@test.com}"
       LOG_LEVEL: DEBUG
       SENTRY_DSN: ${SENTRY_DSN:-}
     depends_on:

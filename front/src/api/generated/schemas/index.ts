@@ -85,13 +85,6 @@ export {
   deleteTermPairApiV1UndercoverTermpairTermPairIdDeleteMutationResponseSchema,
 } from "./deleteTermPairApiV1UndercoverTermpairTermPairIdDeleteSchema.ts";
 export {
-  deleteUserApiV1UsersUserIdDeletePathParamsSchema,
-  deleteUserApiV1UsersUserIdDelete204Schema,
-  deleteUserApiV1UsersUserIdDelete404Schema,
-  deleteUserApiV1UsersUserIdDelete422Schema,
-  deleteUserApiV1UsersUserIdDeleteMutationResponseSchema,
-} from "./deleteUserApiV1UsersUserIdDeleteSchema.ts";
-export {
   deleteWordApiV1CodenamesWordsWordIdDeletePathParamsSchema,
   deleteWordApiV1CodenamesWordsWordIdDelete204Schema,
   deleteWordApiV1CodenamesWordsWordIdDelete404Schema,
@@ -158,11 +151,6 @@ export {
   getAllTermPairsApiV1UndercoverTermpairGet404Schema,
   getAllTermPairsApiV1UndercoverTermpairGetQueryResponseSchema,
 } from "./getAllTermPairsApiV1UndercoverTermpairGetSchema.ts";
-export {
-  getAllUsersApiV1UsersGet200Schema,
-  getAllUsersApiV1UsersGet404Schema,
-  getAllUsersApiV1UsersGetQueryResponseSchema,
-} from "./getAllUsersApiV1UsersGetSchema.ts";
 export {
   getAllWordsApiV1UndercoverWordsGet200Schema,
   getAllWordsApiV1UndercoverWordsGet404Schema,
@@ -478,6 +466,7 @@ export {
   nextRoundApiV1WordquizGamesGameIdNextRoundPostMutationResponseSchema,
 } from "./nextRoundApiV1WordquizGamesGameIdNextRoundPostSchema.ts";
 export { nextRoundRequestSchema } from "./nextRoundRequestSchema.ts";
+export { playerUnlockedAchievementsSchema } from "./playerUnlockedAchievementsSchema.ts";
 export { publicProfileSchema } from "./publicProfileSchema.ts";
 export { publicUserViewSchema } from "./publicUserViewSchema.ts";
 export {
@@ -707,6 +696,7 @@ export { undercoverHintViewedRequestSchema } from "./undercoverHintViewedRequest
 export { undercoverPlayerStateSchema } from "./undercoverPlayerStateSchema.ts";
 export { undercoverTimerConfigSchema } from "./undercoverTimerConfigSchema.ts";
 export { undercoverWordExplanationsSchema } from "./undercoverWordExplanationsSchema.ts";
+export { unlockedAchievementSchema } from "./unlockedAchievementSchema.ts";
 export { updateBioRequestSchema } from "./updateBioRequestSchema.ts";
 export {
   updateMyProfileApiV1ProfilesMePatch200Schema,

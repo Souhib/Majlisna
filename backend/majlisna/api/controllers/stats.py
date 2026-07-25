@@ -7,7 +7,7 @@ from sqlalchemy.exc import NoResultFound
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from majlisna.api.constants import CACHE_TTL_LEADERBOARD_SECONDS, CACHE_TTL_USER_STATS_SECONDS
+from majlisna.api.constants import CACHE_TTL_LEADERBOARD_SECONDS
 from majlisna.api.models.game import GameStatus, GameType
 from majlisna.api.models.relationship import UserGameLink
 from majlisna.api.models.stats import UserStats
@@ -42,18 +42,25 @@ class StatsController:
     async def get_user_stats(self, user_id: UUID) -> UserStats:
         """Get stats for a user. Raises UserNotFoundError if no stats exist.
 
+        Deliberately NOT cached. It was, for 5 minutes, and both halves of that were
+        wrong:
+
+        * `TTLCache` is per-process and production runs 4 uvicorn workers, so the
+          `cache.invalidate()` at the end of `update_stats_after_game` only reached
+          the worker that finished the game. The other three kept serving the
+          pre-game numbers for up to five minutes — a player watched their own win
+          not appear, then appear, depending on which worker answered.
+        * the cached object was the SQLAlchemy `UserStats` instance, i.e. a detached
+          ORM row shared between sessions.
+
+        The query it replaces is a single indexed lookup on `user_stats.user_id`.
+
         :param user_id: The id of the user.
         :return: The user's stats record.
         :raises UserNotFoundError: If no stats record exists for this user.
         """
-        cache_key = f"user_stats:{user_id}"
-        cached = cache.get(cache_key)
-        if cached is not None:
-            return cached  # type: ignore[return-value]
         try:
-            stats = (await self.session.exec(select(UserStats).where(UserStats.user_id == user_id))).one()
-            cache.set(cache_key, stats, CACHE_TTL_USER_STATS_SECONDS)
-            return stats
+            return (await self.session.exec(select(UserStats).where(UserStats.user_id == user_id))).one()
         except NoResultFound:
             raise UserNotFoundError(user_id=user_id) from None
 
@@ -148,7 +155,8 @@ class StatsController:
             await self.session.commit()
             await self.session.refresh(stats)
 
-        cache.invalidate(f"user_stats:{user_id}")
+        # Best-effort, and only on this worker — see TTLCache's docstring. The
+        # leaderboard's real freshness bound is its short TTL, not this call.
         cache.invalidate_prefix("leaderboard:")
 
         return stats

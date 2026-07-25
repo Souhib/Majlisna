@@ -10,6 +10,7 @@ import type { CodenamesClueHistoryEntry } from "./CodenamesClueHistoryEntry.ts";
 import type { CodenamesPlayerView } from "./CodenamesPlayerView.ts";
 import type { CodenamesTimerConfig } from "./CodenamesTimerConfig.ts";
 import type { CodenamesTurnState } from "./CodenamesTurnState.ts";
+import type { PlayerUnlockedAchievements } from "./PlayerUnlockedAchievements.ts";
 
 /**
  * CodenamesBoardState
@@ -75,4 +76,5 @@ export type CodenamesBoardState = {
    * @type array
    */
   players: CodenamesPlayerView[];
+  newly_unlocked_achievements?: PlayerUnlockedAchievements[] | null;
 };

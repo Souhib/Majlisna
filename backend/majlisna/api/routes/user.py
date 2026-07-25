@@ -18,14 +18,12 @@ router = APIRouter(
 )
 
 
-@router.get("", response_model=list[PublicUserView])
-async def get_all_users(
-    *,
-    current_user: Annotated[User, Depends(get_current_user)],  # noqa: ARG001
-    user_controller: Annotated[UserController, Depends(get_user_controller)],
-) -> list[PublicUserView]:
-    """List users. Returns the public representation only (no emails)."""
-    return [PublicUserView.model_validate(user) for user in await user_controller.get_users()]
+# NOTE: `GET /users` (list every user) was removed on purpose. It returned the entire
+# user table, unpaginated, to any authenticated caller — a full table scan per call and
+# a complete directory of the player base. No client used it: the friends page works
+# off `/friends`, and a profile is fetched by id. Same reasoning that removed
+# `GET /rooms`. If a people-search is ever needed, add a paginated query endpoint
+# rather than a list-everything one.
 
 
 @router.get("/{user_id}", response_model=PublicUserView)
@@ -71,16 +69,12 @@ async def update_user_password(
     )
 
 
-@router.delete("/{user_id}", status_code=204)
-async def delete_user(
-    *,
-    user_id: UUID,
-    current_user: Annotated[User, Depends(get_current_user)],
-    user_controller: Annotated[UserController, Depends(get_user_controller)],
-) -> None:
-    if current_user.id != user_id:
-        raise ForbiddenError("You can only delete your own account")
-    await user_controller.delete_user(user_id)
+# NOTE: `DELETE /users/{user_id}` was removed on purpose. It deleted the caller's own
+# account — irreversibly, purging every related row — on nothing more than a valid
+# session, while `DELETE /users/me/account` right below does the same thing and
+# requires the password. A stolen token was therefore enough to destroy the account,
+# which contradicts the rule applied to password changes and account deletion
+# everywhere else. No client used it. Account deletion goes through /users/me/account.
 
 
 @router.delete("/me/account", status_code=204)

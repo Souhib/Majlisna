@@ -47,24 +47,14 @@ function ProfilePage() {
       const updated = await updateUserMutation.mutateAsync({
         user_id: user.id,
         data: { username: newUsername.trim() },
-      }) as { id: string; username: string; email_address: string; is_active: boolean; is_admin: boolean }
-      setUser({
+      }) as { id: string; username: string; email_address: string }
+      const nextUser = {
         id: updated.id,
         username: updated.username,
         email: updated.email_address,
-        is_active: updated.is_active,
-        is_admin: updated.is_admin,
-      })
-      localStorage.setItem(
-        "majlisna-user-data",
-        JSON.stringify({
-          id: updated.id,
-          username: updated.username,
-          email: updated.email_address,
-          is_active: updated.is_active,
-          is_admin: updated.is_admin,
-        }),
-      )
+      }
+      setUser(nextUser)
+      localStorage.setItem("majlisna-user-data", JSON.stringify(nextUser))
       toast.success(t("profile.saved"))
       setIsEditingUsername(false)
     } catch (err) {

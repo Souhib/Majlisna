@@ -24,6 +24,7 @@ import { ChoiceButtons } from "@/components/games/mcqquiz/ChoiceButtons"
 import { PlayerScoreboard } from "@/components/games/shared/PlayerScoreboard"
 import { McqRoundResults } from "@/components/games/mcqquiz/McqRoundResults"
 import { QuizGameOver } from "@/components/games/shared/QuizGameOver"
+import { useAchievementNotifications } from "@/components/achievements/AchievementToast"
 import { useSocket } from "@/hooks/use-socket"
 import { trackEvent } from "@/lib/analytics"
 import { useAuth } from "@/providers/AuthProvider"
@@ -66,6 +67,7 @@ interface McqQuizState {
   }[]
   game_over: boolean
   difficulty?: string | null
+  newly_unlocked_achievements?: { user_id: string; achievements: { code: string; name: string; icon: string; tier: number }[] }[]
 }
 
 export const Route = createFileRoute("/_auth/game/mcqquiz/$gameId")({
@@ -204,6 +206,8 @@ function McqQuizGamePage() {
   }, [gameId, queryClient, answerMutation, selectedChoice, state?.my_answered, state?.is_spectator])
 
   const timerExpiredRef = useRef(false)
+  useAchievementNotifications(state?.newly_unlocked_achievements, user?.id)
+
   const handleTimerExpired = useCallback(async () => {
     if (!state?.is_host || timerExpiredRef.current) return
     timerExpiredRef.current = true

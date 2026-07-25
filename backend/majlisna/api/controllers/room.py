@@ -38,6 +38,19 @@ from majlisna.api.schemas.room import (
 )
 
 
+def _passwords_match(stored: str, supplied: str) -> bool:
+    """Constant-time PIN comparison that tolerates any client input.
+
+    ``secrets.compare_digest`` on **str** arguments raises TypeError as soon as
+    either side holds a non-ASCII character, and nothing validates the shape of
+    the PIN a client sends: ``RoomJoin.password`` only coerces to str, and the
+    spectator request takes a bare str. So joining with a PIN like "é123"
+    crashed the endpoint into a 500 instead of answering "wrong password".
+    Comparing the UTF-8 bytes keeps the timing guarantee and never raises.
+    """
+    return secrets.compare_digest(stored.encode("utf-8"), supplied.encode("utf-8"))
+
+
 class RoomController:
     def __init__(self, session: AsyncSession):
         self.session = session
@@ -194,7 +207,7 @@ class RoomController:
             ).one()
         except NoResultFound:
             raise RoomNotFoundError(room_id=room_join.public_room_id) from None
-        if not secrets.compare_digest(db_room.password, room_join.password):
+        if not _passwords_match(db_room.password, room_join.password):
             raise WrongRoomPasswordError(room_id=db_room.id)
 
         # Check for existing connected link
@@ -309,7 +322,7 @@ class RoomController:
             db_room = (await self.session.exec(select(Room).where(Room.id == room_id))).one()
         except NoResultFound:
             raise RoomNotFoundError(room_id=room_id) from None
-        if not secrets.compare_digest(db_room.password, password):
+        if not _passwords_match(db_room.password, password):
             raise WrongRoomPasswordError(room_id=db_room.id)
 
         # Check for existing link

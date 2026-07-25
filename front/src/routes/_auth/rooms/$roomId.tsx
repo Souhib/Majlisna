@@ -281,15 +281,27 @@ function RoomLobbyPage() {
     navigate({ to: "/rooms" })
   }
 
-  // Detect being kicked: if current user was in the list but disappears (and didn't leave voluntarily)
+  // Detect being kicked: the current user was in the list and disappeared, without
+  // having left voluntarily.
+  //
+  // This tracks membership in its OWN ref. It used to read
+  // `previousPlayerIdsRef.current`, which the join/leave-toast effect above
+  // overwrites with the current roster — and effects run in declaration order, so
+  // by the time this one looked, "previous" already was "current" and the condition
+  // could never be true. The fallback was dead: with Socket.IO down (2s polling),
+  // where the `you_were_kicked` event never arrives, a kicked player just sat on a
+  // stale lobby.
+  const wasRoomMemberRef = useRef(false)
   useEffect(() => {
     if (!user || !roomData || isLeavingRef.current) return
-    const wasInRoom = previousPlayerIdsRef.current.has(user.id)
     const isInRoom = allUsers.some((u) => u.id === user.id)
-    if (wasInRoom && !isInRoom) {
+    if (wasRoomMemberRef.current && !isInRoom) {
+      wasRoomMemberRef.current = false
       toast.error(t("toast.youWereKicked"))
       navigate({ to: "/rooms" })
+      return
     }
+    wasRoomMemberRef.current = isInRoom
   }, [allUsers, user, roomData, navigate, t])
 
   const kickMutation = useKickPlayerApiV1RoomsRoomIdKickPatch()
@@ -345,6 +357,9 @@ function RoomLobbyPage() {
     )
   }
 
+  // Full-page error only when there is nothing to show. When we already have a roster
+  // on screen, a failing refetch gets the banner further down instead — replacing a
+  // live lobby over one bad poll would be worse than the stale data.
   if (queryError && !roomData && failureCount > 2) {
     return (
       <div className="mx-auto max-w-lg px-4 py-8">
@@ -358,6 +373,13 @@ function RoomLobbyPage() {
   return (
     <div className="mx-auto max-w-lg px-4 py-8 animate-slide-up">
       <ConnectionStatus connected={socketConnected} />
+      {/* The roster below is stale: the room state stopped refreshing. Say so rather
+          than let the player act on data that no longer matches the server. */}
+      {queryError && roomData && failureCount > 2 && (
+        <div className="glass mb-4 rounded-xl border-destructive/30 p-3 text-center text-xs text-destructive">
+          {getApiErrorMessage(queryError, t("room.staleState"))}
+        </div>
+      )}
       <div className="flex items-center justify-between mb-8">
         <h1 className="text-3xl font-extrabold tracking-tight gradient-text">{t("room.lobby")}</h1>
         <button

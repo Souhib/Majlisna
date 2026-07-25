@@ -26,8 +26,10 @@ services:
       timeout: 5s
       start_period: 30s
       retries: 10
-    ports:
-      - "127.0.0.1:5432:5432"
+    # No host port. Nothing needs one: Traefik never talks to the database, Uptime
+    # Kuma probes it by container name over majlisna-internal, and administration goes
+    # through `docker exec`. A published port — even on loopback — is reachable by
+    # every process and every other container on the box.
     networks:
       - internal
     logging: *default-logging
@@ -99,6 +101,10 @@ services:
       REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-7}
       FRONTEND_URL: ${FRONTEND_URL:-http://<SERVER_IP>:30819}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://<SERVER_IP>:30819}
+      # Empty = nobody may reach the game-content endpoints. See
+      # get_current_admin_user: those routes were previously open to any logged-in
+      # player, in both directions (read the term-pair list, or delete all of it).
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-}
       LOGFIRE_TOKEN: ${LOGFIRE_TOKEN:-}
       ENVIRONMENT: ${ENVIRONMENT:-production}
       MAJLISNA_ENV: ${MAJLISNA_ENV:-production}

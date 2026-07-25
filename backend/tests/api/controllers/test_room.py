@@ -670,3 +670,41 @@ async def test_no_ghost_room_after_all_leave(create_user, create_room, room_cont
     assert db_room.type == RoomType.INACTIVE
     assert await room_controller.get_active_room_for_user(owner_id) is None
     assert await room_controller.get_active_room_for_user(player2_id) is None
+
+
+async def test_join_room_with_non_ascii_pin_is_rejected_not_crashed(
+    create_user, create_room, room_controller: RoomController
+):
+    """A PIN containing non-ASCII characters is a wrong password, not a 500.
+
+    Nothing constrains the shape of the PIN a client sends (`RoomJoin.password`
+    only coerces to str), and `secrets.compare_digest` raises TypeError the moment
+    either str argument holds a non-ASCII character. So this input escaped as an
+    unhandled exception — a 500 from the generic handler — instead of the 401-class
+    WrongRoomPasswordError.
+    """
+    # Arrange
+    owner = await create_user(username="owner_nonascii", email="owner_nonascii@test.com")
+    joiner = await create_user(username="joiner_nonascii", email="joiner_nonascii@test.com")
+    room = await create_room(owner=owner)
+
+    # Act / Assert
+    with pytest.raises(WrongRoomPasswordError):
+        await room_controller.join_room(
+            RoomJoin(public_room_id=room.public_id, password="é123"),
+            joiner.id,
+        )
+
+
+async def test_join_as_spectator_with_non_ascii_pin_is_rejected_not_crashed(
+    create_user, create_room, room_controller: RoomController
+):
+    """Same guarantee on the spectator path, which takes the PIN as a bare str."""
+    # Arrange
+    owner = await create_user(username="owner_spec_na", email="owner_spec_na@test.com")
+    watcher = await create_user(username="watcher_na", email="watcher_na@test.com")
+    room = await create_room(owner=owner)
+
+    # Act / Assert
+    with pytest.raises(WrongRoomPasswordError):
+        await room_controller.join_room_as_spectator(room.id, watcher.id, "日本語")

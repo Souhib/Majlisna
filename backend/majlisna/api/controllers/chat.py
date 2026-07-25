@@ -47,9 +47,15 @@ class ChatController:
     async def get_messages(
         self, room_id: UUID, user_id: UUID, after_id: UUID | None = None, limit: int = 50
     ) -> Sequence[ChatMessage]:
-        """Get messages for a room. Only room members may read.
+        """Get the most recent messages for a room, oldest-first. Members only.
 
         Optionally filter to messages after a specific message ID for incremental polling.
+
+        The ``limit`` window is taken from the NEWEST end. Ordering ascending
+        before applying the limit returned the OLDEST ``limit`` rows, so once a
+        room passed 50 messages the chat panel opened on the very first messages
+        of the session and never showed the recent ones — it only appends what
+        arrives afterwards over Socket.IO, so the gap was permanent.
         """
         await self._ensure_member(room_id, user_id)
         query = select(ChatMessage).where(ChatMessage.room_id == room_id)
@@ -60,5 +66,6 @@ class ChatController:
             if ref_msg:
                 query = query.where(ChatMessage.created_at > ref_msg.created_at)
 
-        query = query.order_by(ChatMessage.created_at.asc()).limit(limit)  # type: ignore[union-attr]
-        return (await self.session.exec(query)).all()
+        query = query.order_by(ChatMessage.created_at.desc()).limit(limit)  # type: ignore[attr-defined]
+        newest_first = (await self.session.exec(query)).all()
+        return list(reversed(newest_first))

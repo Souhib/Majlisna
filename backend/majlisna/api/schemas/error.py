@@ -487,14 +487,36 @@ class GameNotInProgressError(BaseError):
 
 
 class NotEnoughPlayersError(BaseError):
-    """Raised when there are not enough players to start a game."""
+    """Raised when there are not enough players to start a game.
 
-    def __init__(self, player_count: int):
+    ``required`` used to be hardcoded to "4 players for Codenames" in both the log
+    line and the user-facing message. Codenames was the only caller that could
+    reach it (the quizzes need 1 player, and Undercover was not passing a minimum
+    at all), so the moment Undercover started enforcing its own minimum of 3 the
+    message told players the wrong number for the wrong game.
+    """
+
+    def __init__(self, player_count: int, required: int | None = None):
+        needed = required if required is not None else 4
         super().__init__(
-            message=f"Need at least 4 players for Codenames, got {player_count}",
-            frontend_message="At least 4 players are needed to start Codenames.",
+            message=f"Need at least {needed} players to start, got {player_count}",
+            frontend_message=f"At least {needed} players are needed to start this game.",
             status_code=status.HTTP_400_BAD_REQUEST,
-            details={"player_count": player_count},
+            details={"player_count": player_count, "required": needed},
+            error_params={"required": str(needed), "player_count": str(player_count)},
+        )
+
+
+class TooManyPlayersError(BaseError):
+    """Raised when a room holds more players than the game supports."""
+
+    def __init__(self, player_count: int, allowed: int):
+        super().__init__(
+            message=f"At most {allowed} players can play this game, got {player_count}",
+            frontend_message=f"This game supports at most {allowed} players.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            details={"player_count": player_count, "allowed": allowed},
+            error_params={"allowed": str(allowed), "player_count": str(player_count)},
         )
 
 

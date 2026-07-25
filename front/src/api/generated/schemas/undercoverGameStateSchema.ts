@@ -7,6 +7,7 @@
 
 import { descriptionOrderEntrySchema } from "./descriptionOrderEntrySchema.ts";
 import { eliminatedPlayerSchema } from "./eliminatedPlayerSchema.ts";
+import { playerUnlockedAchievementsSchema } from "./playerUnlockedAchievementsSchema.ts";
 import { undercoverPlayerStateSchema } from "./undercoverPlayerStateSchema.ts";
 import { undercoverTimerConfigSchema } from "./undercoverTimerConfigSchema.ts";
 import { voteHistoryRoundSchema } from "./voteHistoryRoundSchema.ts";
@@ -49,4 +50,16 @@ export const undercoverGameStateSchema = z.object({
     return z.union([wordExplanationsSchema, z.null()]).optional();
   },
   mr_white_guesser: z.optional(z.union([z.string(), z.null()])),
+  get newly_unlocked_achievements() {
+    return z
+      .union([
+        z.array(
+          playerUnlockedAchievementsSchema.describe(
+            'Badges earned by one player at the end of a game.\n\nEvery game controller wrote this into ``live_state["newly_unlocked_achievements"]``\nbut no game-state schema declared it, and ``BaseModel`` is ``extra="forbid"`` — so\nit never left the server. The client has always been ready for it\n(``useAchievementNotifications`` + ``AchievementToast``); the toast simply had no\ndata. Declaring the field is what connects the two.',
+          ),
+        ),
+        z.null(),
+      ])
+      .optional();
+  },
 });

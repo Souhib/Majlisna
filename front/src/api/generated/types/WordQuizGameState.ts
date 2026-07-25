@@ -5,6 +5,7 @@
  * Do not edit manually.
  */
 
+import type { PlayerUnlockedAchievements } from "./PlayerUnlockedAchievements.ts";
 import type { WordQuizPlayerState } from "./WordQuizPlayerState.ts";
 import type { WordQuizRoundResult } from "./WordQuizRoundResult.ts";
 import type { WordQuizTimerConfig } from "./WordQuizTimerConfig.ts";
@@ -102,4 +103,5 @@ export type WordQuizGameState = {
    * @type integer | undefined
    */
   total_players?: number;
+  newly_unlocked_achievements?: PlayerUnlockedAchievements[] | null;
 };

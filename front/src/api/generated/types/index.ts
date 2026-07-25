@@ -94,14 +94,6 @@ export type {
   DeleteTermPairApiV1UndercoverTermpairTermPairIdDeleteMutation,
 } from "./DeleteTermPairApiV1UndercoverTermpairTermPairIdDelete.ts";
 export type {
-  DeleteUserApiV1UsersUserIdDeletePathParams,
-  DeleteUserApiV1UsersUserIdDelete204,
-  DeleteUserApiV1UsersUserIdDelete404,
-  DeleteUserApiV1UsersUserIdDelete422,
-  DeleteUserApiV1UsersUserIdDeleteMutationResponse,
-  DeleteUserApiV1UsersUserIdDeleteMutation,
-} from "./DeleteUserApiV1UsersUserIdDelete.ts";
-export type {
   DeleteWordApiV1CodenamesWordsWordIdDeletePathParams,
   DeleteWordApiV1CodenamesWordsWordIdDelete204,
   DeleteWordApiV1CodenamesWordsWordIdDelete404,
@@ -182,12 +174,6 @@ export type {
   GetAllTermPairsApiV1UndercoverTermpairGetQueryResponse,
   GetAllTermPairsApiV1UndercoverTermpairGetQuery,
 } from "./GetAllTermPairsApiV1UndercoverTermpairGet.ts";
-export type {
-  GetAllUsersApiV1UsersGet200,
-  GetAllUsersApiV1UsersGet404,
-  GetAllUsersApiV1UsersGetQueryResponse,
-  GetAllUsersApiV1UsersGetQuery,
-} from "./GetAllUsersApiV1UsersGet.ts";
 export type {
   GetAllWordsApiV1UndercoverWordsGet200,
   GetAllWordsApiV1UndercoverWordsGet404,
@@ -546,6 +532,7 @@ export type {
   NextRoundApiV1WordquizGamesGameIdNextRoundPostMutation,
 } from "./NextRoundApiV1WordquizGamesGameIdNextRoundPost.ts";
 export type { NextRoundRequest } from "./NextRoundRequest.ts";
+export type { PlayerUnlockedAchievements } from "./PlayerUnlockedAchievements.ts";
 export type { PublicProfile } from "./PublicProfile.ts";
 export type { PublicUserView } from "./PublicUserView.ts";
 export type {
@@ -802,6 +789,7 @@ export type { UndercoverHintViewedRequest } from "./UndercoverHintViewedRequest.
 export type { UndercoverPlayerState } from "./UndercoverPlayerState.ts";
 export type { UndercoverTimerConfig } from "./UndercoverTimerConfig.ts";
 export type { UndercoverWordExplanations } from "./UndercoverWordExplanations.ts";
+export type { UnlockedAchievement } from "./UnlockedAchievement.ts";
 export type { UpdateBioRequest } from "./UpdateBioRequest.ts";
 export type {
   UpdateMyProfileApiV1ProfilesMePatch200,

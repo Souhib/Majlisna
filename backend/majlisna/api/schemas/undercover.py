@@ -2,6 +2,7 @@ from uuid import UUID
 
 from pydantic import Field
 
+from majlisna.api.schemas.common import PlayerUnlockedAchievements
 from majlisna.api.schemas.shared import BaseModel
 
 
@@ -120,3 +121,4 @@ class UndercoverGameState(BaseModel):
     descriptions: dict
     word_explanations: WordExplanations | None = None
     mr_white_guesser: str | None = None
+    newly_unlocked_achievements: list[PlayerUnlockedAchievements] | None = None

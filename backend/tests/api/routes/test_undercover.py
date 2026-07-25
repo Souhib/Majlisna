@@ -3,6 +3,7 @@
 import uuid
 from unittest.mock import AsyncMock, Mock
 
+import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
@@ -10,7 +11,23 @@ from majlisna.api.controllers.undercover import UndercoverController
 from majlisna.api.models.table import User
 from majlisna.api.models.undercover import TermPair, Word
 from majlisna.api.schemas.error import TermPairNotFoundError, WordNotFoundByIdError, WordNotFoundByNameError
-from majlisna.dependencies import get_current_user, get_undercover_controller
+from majlisna.dependencies import get_current_admin_user, get_undercover_controller
+
+
+@pytest.fixture(autouse=True)
+def _admin_auth(test_app: FastAPI):
+    """Every endpoint in this module is admin-only.
+
+    The game-content routes (words, term pairs, word packs) used to accept any
+    logged-in user for writes and no authentication at all for reads. They are now
+    behind ``get_current_admin_user`` — see routes/undercover.py for why.
+    """
+    test_app.dependency_overrides[get_current_admin_user] = lambda: User(
+        id=uuid.uuid4(), username="admin", email_address="admin@test.com"
+    )
+    yield
+    test_app.dependency_overrides.clear()
+
 
 # ──────────────────────────────────────────────────────────────
 # Words (/api/v1/undercover/words)
@@ -22,7 +39,7 @@ def test_word_create_word_success(test_app: FastAPI, client: TestClient):
     # Arrange
     word_id = uuid.uuid4()
     mock_user = User(id=uuid.uuid4(), username="testuser", email="test@example.com")
-    test_app.dependency_overrides[get_current_user] = lambda: mock_user
+    test_app.dependency_overrides[get_current_admin_user] = lambda: mock_user
     mock_controller = Mock(spec=UndercoverController)
     mock_controller.create_word = AsyncMock(
         return_value=Word(
@@ -63,7 +80,7 @@ def test_word_create_word_validation_error(test_app: FastAPI, client: TestClient
     # Arrange
     mock_controller = Mock(spec=UndercoverController)
     mock_user = User(id=uuid.uuid4(), username="testuser", email="test@example.com")
-    test_app.dependency_overrides[get_current_user] = lambda: mock_user
+    test_app.dependency_overrides[get_current_admin_user] = lambda: mock_user
     test_app.dependency_overrides[get_undercover_controller] = lambda: mock_controller
 
     # Act
@@ -248,7 +265,7 @@ def test_word_delete_word_success(test_app: FastAPI, client: TestClient):
     # Arrange
     word_id = uuid.uuid4()
     mock_user = User(id=uuid.uuid4(), username="testuser", email="test@example.com")
-    test_app.dependency_overrides[get_current_user] = lambda: mock_user
+    test_app.dependency_overrides[get_current_admin_user] = lambda: mock_user
     mock_controller = Mock(spec=UndercoverController)
     mock_controller.delete_word = AsyncMock(return_value=None)
     test_app.dependency_overrides[get_undercover_controller] = lambda: mock_controller
@@ -268,7 +285,7 @@ def test_word_delete_word_not_found(test_app: FastAPI, client: TestClient):
     # Arrange
     word_id = uuid.uuid4()
     mock_user = User(id=uuid.uuid4(), username="testuser", email="test@example.com")
-    test_app.dependency_overrides[get_current_user] = lambda: mock_user
+    test_app.dependency_overrides[get_current_admin_user] = lambda: mock_user
     mock_controller = Mock(spec=UndercoverController)
     mock_controller.delete_word = AsyncMock(side_effect=WordNotFoundByIdError(word_id=word_id))
     test_app.dependency_overrides[get_undercover_controller] = lambda: mock_controller
@@ -297,7 +314,7 @@ def test_term_pair_create_term_pair_success(test_app: FastAPI, client: TestClien
     word1_id = uuid.uuid4()
     word2_id = uuid.uuid4()
     mock_user = User(id=uuid.uuid4(), username="testuser", email="test@example.com")
-    test_app.dependency_overrides[get_current_user] = lambda: mock_user
+    test_app.dependency_overrides[get_current_admin_user] = lambda: mock_user
     mock_controller = Mock(spec=UndercoverController)
     mock_controller.create_term_pair = AsyncMock(
         return_value=TermPair(
@@ -471,7 +488,7 @@ def test_term_pair_delete_term_pair_success(test_app: FastAPI, client: TestClien
     # Arrange
     term_pair_id = uuid.uuid4()
     mock_user = User(id=uuid.uuid4(), username="testuser", email="test@example.com")
-    test_app.dependency_overrides[get_current_user] = lambda: mock_user
+    test_app.dependency_overrides[get_current_admin_user] = lambda: mock_user
     mock_controller = Mock(spec=UndercoverController)
     mock_controller.delete_term_pair = AsyncMock(return_value=None)
     test_app.dependency_overrides[get_undercover_controller] = lambda: mock_controller

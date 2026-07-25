@@ -1,4 +1,3 @@
-import random
 from enum import StrEnum
 
 from majlisna.api.constants import (
@@ -8,6 +7,7 @@ from majlisna.api.constants import (
     CODENAMES_SECOND_TEAM_CARDS,
 )
 from majlisna.api.schemas.error import BaseError
+from majlisna.api.utils.rng import rng
 
 
 class CodenamesTeam(StrEnum):
@@ -49,7 +49,7 @@ def build_board(words: list[str], first_team: CodenamesTeam) -> list[dict]:
         + [CodenamesCardType.NEUTRAL.value] * CODENAMES_NEUTRAL_CARDS
         + [CodenamesCardType.ASSASSIN.value] * CODENAMES_ASSASSIN_CARDS
     )
-    random.shuffle(card_types)
+    rng.shuffle(card_types)
 
     board = []
     for word, card_type in zip(words, card_types, strict=True):
@@ -70,7 +70,7 @@ def assign_players(
     second_team = CodenamesTeam.BLUE if first_team == CodenamesTeam.RED else CodenamesTeam.RED
 
     shuffled = list(room_user_links)
-    random.shuffle(shuffled)
+    rng.shuffle(shuffled)
 
     mid = len(shuffled) // 2
     first_team_users = shuffled[: mid + (len(shuffled) % 2)]

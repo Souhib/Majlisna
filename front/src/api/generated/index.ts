@@ -7,7 +7,6 @@ export type { CreateWordPackApiV1CodenamesWordPacksPostMutationKey } from "./hoo
 export type { DeleteAccountApiV1UsersMeAccountDeleteMutationKey } from "./hooks/useDeleteAccountApiV1UsersMeAccountDelete.ts";
 export type { DeleteRoomApiV1RoomsRoomIdDeleteMutationKey } from "./hooks/useDeleteRoomApiV1RoomsRoomIdDelete.ts";
 export type { DeleteTermPairApiV1UndercoverTermpairTermPairIdDeleteMutationKey } from "./hooks/useDeleteTermPairApiV1UndercoverTermpairTermPairIdDelete.ts";
-export type { DeleteUserApiV1UsersUserIdDeleteMutationKey } from "./hooks/useDeleteUserApiV1UsersUserIdDelete.ts";
 export type { DeleteWordApiV1CodenamesWordsWordIdDeleteMutationKey } from "./hooks/useDeleteWordApiV1CodenamesWordsWordIdDelete.ts";
 export type { DeleteWordApiV1UndercoverWordsWordIdDeleteMutationKey } from "./hooks/useDeleteWordApiV1UndercoverWordsWordIdDelete.ts";
 export type { DeleteWordPackApiV1CodenamesWordPacksPackIdDeleteMutationKey } from "./hooks/useDeleteWordPackApiV1CodenamesWordPacksPackIdDelete.ts";
@@ -19,8 +18,6 @@ export type { GetActiveRoomApiV1RoomsActiveGetQueryKey } from "./hooks/useGetAct
 export type { GetActiveRoomApiV1RoomsActiveGetSuspenseQueryKey } from "./hooks/useGetActiveRoomApiV1RoomsActiveGetSuspense.ts";
 export type { GetAllTermPairsApiV1UndercoverTermpairGetQueryKey } from "./hooks/useGetAllTermPairsApiV1UndercoverTermpairGet.ts";
 export type { GetAllTermPairsApiV1UndercoverTermpairGetSuspenseQueryKey } from "./hooks/useGetAllTermPairsApiV1UndercoverTermpairGetSuspense.ts";
-export type { GetAllUsersApiV1UsersGetQueryKey } from "./hooks/useGetAllUsersApiV1UsersGet.ts";
-export type { GetAllUsersApiV1UsersGetSuspenseQueryKey } from "./hooks/useGetAllUsersApiV1UsersGetSuspense.ts";
 export type { GetAllWordsApiV1UndercoverWordsGetQueryKey } from "./hooks/useGetAllWordsApiV1UndercoverWordsGet.ts";
 export type { GetAllWordsApiV1UndercoverWordsGetSuspenseQueryKey } from "./hooks/useGetAllWordsApiV1UndercoverWordsGetSuspense.ts";
 export type { GetCodenamesBoardApiV1CodenamesGamesGameIdBoardGetQueryKey } from "./hooks/useGetCodenamesBoardApiV1CodenamesGamesGameIdBoardGet.ts";
@@ -223,14 +220,6 @@ export type {
   DeleteTermPairApiV1UndercoverTermpairTermPairIdDeleteMutation,
 } from "./types/DeleteTermPairApiV1UndercoverTermpairTermPairIdDelete.ts";
 export type {
-  DeleteUserApiV1UsersUserIdDeletePathParams,
-  DeleteUserApiV1UsersUserIdDelete204,
-  DeleteUserApiV1UsersUserIdDelete404,
-  DeleteUserApiV1UsersUserIdDelete422,
-  DeleteUserApiV1UsersUserIdDeleteMutationResponse,
-  DeleteUserApiV1UsersUserIdDeleteMutation,
-} from "./types/DeleteUserApiV1UsersUserIdDelete.ts";
-export type {
   DeleteWordApiV1CodenamesWordsWordIdDeletePathParams,
   DeleteWordApiV1CodenamesWordsWordIdDelete204,
   DeleteWordApiV1CodenamesWordsWordIdDelete404,
@@ -311,12 +300,6 @@ export type {
   GetAllTermPairsApiV1UndercoverTermpairGetQueryResponse,
   GetAllTermPairsApiV1UndercoverTermpairGetQuery,
 } from "./types/GetAllTermPairsApiV1UndercoverTermpairGet.ts";
-export type {
-  GetAllUsersApiV1UsersGet200,
-  GetAllUsersApiV1UsersGet404,
-  GetAllUsersApiV1UsersGetQueryResponse,
-  GetAllUsersApiV1UsersGetQuery,
-} from "./types/GetAllUsersApiV1UsersGet.ts";
 export type {
   GetAllWordsApiV1UndercoverWordsGet200,
   GetAllWordsApiV1UndercoverWordsGet404,
@@ -675,6 +658,7 @@ export type {
   NextRoundApiV1WordquizGamesGameIdNextRoundPostMutation,
 } from "./types/NextRoundApiV1WordquizGamesGameIdNextRoundPost.ts";
 export type { NextRoundRequest } from "./types/NextRoundRequest.ts";
+export type { PlayerUnlockedAchievements } from "./types/PlayerUnlockedAchievements.ts";
 export type { PublicProfile } from "./types/PublicProfile.ts";
 export type { PublicUserView } from "./types/PublicUserView.ts";
 export type {
@@ -931,6 +915,7 @@ export type { UndercoverHintViewedRequest } from "./types/UndercoverHintViewedRe
 export type { UndercoverPlayerState } from "./types/UndercoverPlayerState.ts";
 export type { UndercoverTimerConfig } from "./types/UndercoverTimerConfig.ts";
 export type { UndercoverWordExplanations } from "./types/UndercoverWordExplanations.ts";
+export type { UnlockedAchievement } from "./types/UnlockedAchievement.ts";
 export type { UpdateBioRequest } from "./types/UpdateBioRequest.ts";
 export type {
   UpdateMyProfileApiV1ProfilesMePatch200,
@@ -1030,10 +1015,6 @@ export { deleteTermPairApiV1UndercoverTermpairTermPairIdDeleteMutationKey } from
 export { deleteTermPairApiV1UndercoverTermpairTermPairIdDelete } from "./hooks/useDeleteTermPairApiV1UndercoverTermpairTermPairIdDelete.ts";
 export { deleteTermPairApiV1UndercoverTermpairTermPairIdDeleteMutationOptions } from "./hooks/useDeleteTermPairApiV1UndercoverTermpairTermPairIdDelete.ts";
 export { useDeleteTermPairApiV1UndercoverTermpairTermPairIdDelete } from "./hooks/useDeleteTermPairApiV1UndercoverTermpairTermPairIdDelete.ts";
-export { deleteUserApiV1UsersUserIdDeleteMutationKey } from "./hooks/useDeleteUserApiV1UsersUserIdDelete.ts";
-export { deleteUserApiV1UsersUserIdDelete } from "./hooks/useDeleteUserApiV1UsersUserIdDelete.ts";
-export { deleteUserApiV1UsersUserIdDeleteMutationOptions } from "./hooks/useDeleteUserApiV1UsersUserIdDelete.ts";
-export { useDeleteUserApiV1UsersUserIdDelete } from "./hooks/useDeleteUserApiV1UsersUserIdDelete.ts";
 export { deleteWordApiV1CodenamesWordsWordIdDeleteMutationKey } from "./hooks/useDeleteWordApiV1CodenamesWordsWordIdDelete.ts";
 export { deleteWordApiV1CodenamesWordsWordIdDelete } from "./hooks/useDeleteWordApiV1CodenamesWordsWordIdDelete.ts";
 export { deleteWordApiV1CodenamesWordsWordIdDeleteMutationOptions } from "./hooks/useDeleteWordApiV1CodenamesWordsWordIdDelete.ts";
@@ -1078,14 +1059,6 @@ export { getAllTermPairsApiV1UndercoverTermpairGetSuspenseQueryKey } from "./hoo
 export { getAllTermPairsApiV1UndercoverTermpairGetSuspense } from "./hooks/useGetAllTermPairsApiV1UndercoverTermpairGetSuspense.ts";
 export { getAllTermPairsApiV1UndercoverTermpairGetSuspenseQueryOptions } from "./hooks/useGetAllTermPairsApiV1UndercoverTermpairGetSuspense.ts";
 export { useGetAllTermPairsApiV1UndercoverTermpairGetSuspense } from "./hooks/useGetAllTermPairsApiV1UndercoverTermpairGetSuspense.ts";
-export { getAllUsersApiV1UsersGetQueryKey } from "./hooks/useGetAllUsersApiV1UsersGet.ts";
-export { getAllUsersApiV1UsersGet } from "./hooks/useGetAllUsersApiV1UsersGet.ts";
-export { getAllUsersApiV1UsersGetQueryOptions } from "./hooks/useGetAllUsersApiV1UsersGet.ts";
-export { useGetAllUsersApiV1UsersGet } from "./hooks/useGetAllUsersApiV1UsersGet.ts";
-export { getAllUsersApiV1UsersGetSuspenseQueryKey } from "./hooks/useGetAllUsersApiV1UsersGetSuspense.ts";
-export { getAllUsersApiV1UsersGetSuspense } from "./hooks/useGetAllUsersApiV1UsersGetSuspense.ts";
-export { getAllUsersApiV1UsersGetSuspenseQueryOptions } from "./hooks/useGetAllUsersApiV1UsersGetSuspense.ts";
-export { useGetAllUsersApiV1UsersGetSuspense } from "./hooks/useGetAllUsersApiV1UsersGetSuspense.ts";
 export { getAllWordsApiV1UndercoverWordsGetQueryKey } from "./hooks/useGetAllWordsApiV1UndercoverWordsGet.ts";
 export { getAllWordsApiV1UndercoverWordsGet } from "./hooks/useGetAllWordsApiV1UndercoverWordsGet.ts";
 export { getAllWordsApiV1UndercoverWordsGetQueryOptions } from "./hooks/useGetAllWordsApiV1UndercoverWordsGet.ts";
@@ -1597,13 +1570,6 @@ export {
   deleteTermPairApiV1UndercoverTermpairTermPairIdDeleteMutationResponseSchema,
 } from "./schemas/deleteTermPairApiV1UndercoverTermpairTermPairIdDeleteSchema.ts";
 export {
-  deleteUserApiV1UsersUserIdDeletePathParamsSchema,
-  deleteUserApiV1UsersUserIdDelete204Schema,
-  deleteUserApiV1UsersUserIdDelete404Schema,
-  deleteUserApiV1UsersUserIdDelete422Schema,
-  deleteUserApiV1UsersUserIdDeleteMutationResponseSchema,
-} from "./schemas/deleteUserApiV1UsersUserIdDeleteSchema.ts";
-export {
   deleteWordApiV1CodenamesWordsWordIdDeletePathParamsSchema,
   deleteWordApiV1CodenamesWordsWordIdDelete204Schema,
   deleteWordApiV1CodenamesWordsWordIdDelete404Schema,
@@ -1670,11 +1636,6 @@ export {
   getAllTermPairsApiV1UndercoverTermpairGet404Schema,
   getAllTermPairsApiV1UndercoverTermpairGetQueryResponseSchema,
 } from "./schemas/getAllTermPairsApiV1UndercoverTermpairGetSchema.ts";
-export {
-  getAllUsersApiV1UsersGet200Schema,
-  getAllUsersApiV1UsersGet404Schema,
-  getAllUsersApiV1UsersGetQueryResponseSchema,
-} from "./schemas/getAllUsersApiV1UsersGetSchema.ts";
 export {
   getAllWordsApiV1UndercoverWordsGet200Schema,
   getAllWordsApiV1UndercoverWordsGet404Schema,
@@ -1990,6 +1951,7 @@ export {
   nextRoundApiV1WordquizGamesGameIdNextRoundPostMutationResponseSchema,
 } from "./schemas/nextRoundApiV1WordquizGamesGameIdNextRoundPostSchema.ts";
 export { nextRoundRequestSchema } from "./schemas/nextRoundRequestSchema.ts";
+export { playerUnlockedAchievementsSchema } from "./schemas/playerUnlockedAchievementsSchema.ts";
 export { publicProfileSchema } from "./schemas/publicProfileSchema.ts";
 export { publicUserViewSchema } from "./schemas/publicUserViewSchema.ts";
 export {
@@ -2219,6 +2181,7 @@ export { undercoverHintViewedRequestSchema } from "./schemas/undercoverHintViewe
 export { undercoverPlayerStateSchema } from "./schemas/undercoverPlayerStateSchema.ts";
 export { undercoverTimerConfigSchema } from "./schemas/undercoverTimerConfigSchema.ts";
 export { undercoverWordExplanationsSchema } from "./schemas/undercoverWordExplanationsSchema.ts";
+export { unlockedAchievementSchema } from "./schemas/unlockedAchievementSchema.ts";
 export { updateBioRequestSchema } from "./schemas/updateBioRequestSchema.ts";
 export {
   updateMyProfileApiV1ProfilesMePatch200Schema,

@@ -1,4 +1,3 @@
-import random
 from collections.abc import Sequence
 from uuid import UUID
 
@@ -16,6 +15,7 @@ from majlisna.api.models.error import (
 )
 from majlisna.api.models.undercover import TermPair, Word, WordCreate, WordUpdate
 from majlisna.api.utils.cache import cache
+from majlisna.api.utils.rng import rng
 
 WORDS_CACHE_KEY = "undercover:words"
 TERM_PAIRS_CACHE_KEY = "undercover:term_pairs"
@@ -112,7 +112,7 @@ class UndercoverController:
 
     async def get_random_term_pair(self) -> TermPair:
         try:
-            return random.choice((await self.session.exec(select(TermPair))).all())
+            return rng.choice((await self.session.exec(select(TermPair))).all())
         except IndexError:
             raise NoResultFound from None
 

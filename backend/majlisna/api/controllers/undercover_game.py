@@ -1,4 +1,3 @@
-import random
 import unicodedata
 from datetime import UTC, datetime
 from uuid import UUID
@@ -11,6 +10,8 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from majlisna.api.constants import (
     DEFAULT_DESCRIPTION_TIMER_SECONDS,
     DEFAULT_VOTING_TIMER_SECONDS,
+    MAX_PLAYERS_UNDERCOVER,
+    MIN_PLAYERS_FOR_GAME,
     TIMER_EXPIRATION_TOLERANCE_SECONDS,
     UNDERCOVER_MR_WHITE_COUNT_LARGE,
     UNDERCOVER_MR_WHITE_COUNT_MEDIUM,
@@ -20,6 +21,7 @@ from majlisna.api.constants import (
     UNDERCOVER_WORD_MAX_LENGTH,
 )
 from majlisna.api.controllers.base_game import BaseGameController
+from majlisna.api.controllers.game_end_stats import record_game_end, undercover_winners
 from majlisna.api.controllers.game_lock import get_game_lock
 from majlisna.api.controllers.undercover import UndercoverController
 from majlisna.api.models.error import (
@@ -43,6 +45,7 @@ from majlisna.api.schemas.undercover import (
     UndercoverPlayerState,
     WordExplanations,
 )
+from majlisna.api.utils.rng import rng
 
 
 class UndercoverGameController(BaseGameController):
@@ -88,7 +91,7 @@ class UndercoverGameController(BaseGameController):
             + [UndercoverRole.CIVILIAN.value] * num_civilians
             + [UndercoverRole.MR_WHITE.value] * num_mr_white
         )
-        random.shuffle(roles)
+        rng.shuffle(roles)
         return roles
 
     async def _get_civilian_and_undercover_words(self) -> tuple:
@@ -96,7 +99,7 @@ class UndercoverGameController(BaseGameController):
         term_pair = await self._undercover_controller.get_random_term_pair()
         civilian_word_id = term_pair.word1_id
         undercover_word_id = term_pair.word2_id
-        if random.choice([True, False]):
+        if rng.choice([True, False]):
             civilian_word_id, undercover_word_id = term_pair.word2_id, term_pair.word1_id
         civilian_word = await self._undercover_controller.get_word_by_id(civilian_word_id)
         undercover_word = await self._undercover_controller.get_word_by_id(undercover_word_id)
@@ -108,7 +111,7 @@ class UndercoverGameController(BaseGameController):
         Mr. White is never placed first.
         """
         alive_ids = [p["user_id"] for p in players if p["is_alive"]]
-        random.shuffle(alive_ids)
+        rng.shuffle(alive_ids)
 
         if len(alive_ids) > 1:
             mr_white_ids = {
@@ -117,7 +120,7 @@ class UndercoverGameController(BaseGameController):
             if alive_ids[0] in mr_white_ids:
                 swap_candidates = [i for i in range(1, len(alive_ids)) if alive_ids[i] not in mr_white_ids]
                 if swap_candidates:
-                    swap_idx = random.choice(swap_candidates)
+                    swap_idx = rng.choice(swap_candidates)
                     alive_ids[0], alive_ids[swap_idx] = alive_ids[swap_idx], alive_ids[0]
 
         return alive_ids
@@ -125,7 +128,15 @@ class UndercoverGameController(BaseGameController):
     async def create_and_start(self, room_id: UUID, user_id: UUID) -> GameStartResponse:
         """Start a new Undercover game in the given room. Host only."""
         async with get_game_lock(f"room:{room_id}", self.session):
-            db_room, player_users = await self._prepare_game_start(room_id)
+            # Undercover needs 3 players. MIN_PLAYERS_FOR_GAME existed but was
+            # never passed, leaving the base default of 1 in force — so a lone
+            # host could start a game that _compute_roles filled with a single
+            # undercover and ZERO civilians (instantly won, unplayable: the only
+            # player cannot vote, and voting for yourself is rejected), and a
+            # 2-player game was a pure coin flip on the first tie-break.
+            db_room, player_users = await self._prepare_game_start(
+                room_id, min_players=MIN_PLAYERS_FOR_GAME, max_players=MAX_PLAYERS_UNDERCOVER
+            )
             self._require_room_host(db_room, user_id)
 
             num_players = len(player_users)
@@ -143,7 +154,7 @@ class UndercoverGameController(BaseGameController):
                 }
                 for u, role in zip(player_users, roles, strict=True)
             ]
-            players[random.randint(0, len(players) - 1)]["is_mayor"] = True
+            players[rng.randint(0, len(players) - 1)]["is_mayor"] = True
 
             civilian_word, undercover_word = await self._get_civilian_and_undercover_words()
             civilian_word_hint = civilian_word.hint
@@ -256,8 +267,13 @@ class UndercoverGameController(BaseGameController):
             flag_modified(game, "live_state")
             self.session.add(game)
 
-            # Create DB turn record
-            turn = await self._game_controller.create_turn(game_id=game.id)
+            # Create DB turn record. commit=False on both: these ran with the
+            # default commit=True, i.e. two commits inside the game lock. On
+            # PostgreSQL the lock is pg_try_advisory_xact_lock — transaction
+            # scoped — so the first commit RELEASED it and the rest of this block
+            # ran unprotected, letting two concurrent next-round calls each append
+            # a turn. One commit per locked block.
+            turn = await self._game_controller.create_turn(game_id=game.id, commit=False)
             await self._game_controller.create_turn_event(
                 game_id=game.id,
                 event_create=EventCreate(
@@ -265,6 +281,7 @@ class UndercoverGameController(BaseGameController):
                     data={"game_id": str(game.id), "turn_id": str(turn.id), "message": "Turn started."},
                     user_id=user_id,
                 ),
+                commit=False,
             )
 
             await self.session.commit()
@@ -506,7 +523,7 @@ class UndercoverGameController(BaseGameController):
             if p["user_id"] not in current_turn["votes"]:
                 candidates = [pid for pid in alive_ids if pid != p["user_id"]]
                 if candidates:
-                    current_turn["votes"][p["user_id"]] = random.choice(candidates)
+                    current_turn["votes"][p["user_id"]] = rng.choice(candidates)
 
     def _is_timer_actually_expired(self, state: dict) -> bool:
         """Check if the game timer has actually elapsed server-side."""
@@ -551,6 +568,19 @@ class UndercoverGameController(BaseGameController):
                 action = "skip_to_voting"
 
             elif current_turn["phase"] == "voting":
+                # A round whose votes have already produced an elimination stays in
+                # the "voting" phase until the host starts the next round, and
+                # `timer_started_at` still points at the voting deadline — so the
+                # timer reads as expired for the whole gap. Without this guard every
+                # timer-expired call in that window re-ran the tally over the SAME
+                # votes: another player died, `eliminated_players` grew a duplicate
+                # entry (which desynchronises vote history), and the client's timer
+                # callback kept the cycle going, one DB write and one broadcast per
+                # tick. Re-resolving is never correct: a round has exactly one
+                # elimination.
+                if current_turn.get("resolved"):
+                    return TimerExpiredResponse(game_id=str(game_id), action="round_already_resolved")
+
                 self._auto_fill_missing_votes(state)
                 # Now eliminate
                 eliminated_player, _ = self._eliminate_player_based_on_votes(state)
@@ -573,6 +603,15 @@ class UndercoverGameController(BaseGameController):
                 winner = self._get_winning_team(state)
                 if winner:
                     await self._finish_game(game, state, winner)
+                    current_turn["phase"] = "game_over"
+                else:
+                    # Leave the turn in the same phase a *wrong guess* leaves it
+                    # (see submit_mr_white_guess). Staying in "mr_white_guessing"
+                    # with no `mr_white_guesser` wedged the game: guessing 403s
+                    # (nobody matches the guesser), voting and describing both
+                    # reject the phase, and only the host's next-round call could
+                    # rescue it.
+                    current_turn["phase"] = "voting"
 
             game.live_state = state
             flag_modified(game, "live_state")
@@ -582,11 +621,27 @@ class UndercoverGameController(BaseGameController):
         return TimerExpiredResponse(game_id=str(game_id), action=action)
 
     def _eliminate_player_based_on_votes(self, state: dict) -> tuple[dict, int]:
-        """Eliminate the player with the most votes. Returns (eliminated_player, vote_count)."""
-        votes = state["turns"][-1]["votes"]
-        vote_counts: dict[str, int] = {}
-        for p in state["players"]:
-            vote_counts[p["user_id"]] = 0
+        """Eliminate the alive player with the most votes. Returns (eliminated_player, vote_count).
+
+        Marks the turn ``resolved`` so the round can never be counted twice — see
+        ``handle_timer_expired``.
+
+        Candidates are restricted to ALIVE players. Seeding the tally with every
+        player (dead included) meant a dead player could win the tally and be
+        "eliminated" a second time: with one alive player left,
+        ``_auto_fill_missing_votes`` cannot record a vote (no one to vote for), so
+        every count was 0 and the tie-break picked at random from the whole
+        roster, corpses included.
+        """
+        current_turn = state["turns"][-1]
+        votes = current_turn["votes"]
+        vote_counts: dict[str, int] = {p["user_id"]: 0 for p in state["players"] if p["is_alive"]}
+        if not vote_counts:
+            raise BaseError(
+                message="No alive players left to eliminate.",
+                frontend_message="This game is already over.",
+                status_code=400,
+            )
         for voted_id in votes.values():
             if voted_id in vote_counts:
                 vote_counts[voted_id] += 1
@@ -600,10 +655,10 @@ class UndercoverGameController(BaseGameController):
             if mayor and mayor.get("is_alive"):
                 mayor_vote = votes.get(mayor["user_id"])
                 player_with_most_vote = (
-                    mayor_vote if mayor_vote in players_with_max_votes else random.choice(players_with_max_votes)
+                    mayor_vote if mayor_vote in players_with_max_votes else rng.choice(players_with_max_votes)
                 )
             else:
-                player_with_most_vote = random.choice(players_with_max_votes)
+                player_with_most_vote = rng.choice(players_with_max_votes)
         else:
             player_with_most_vote = players_with_max_votes[0]
 
@@ -614,8 +669,17 @@ class UndercoverGameController(BaseGameController):
                 "user_id": eliminated_player["user_id"],
                 "username": eliminated_player["username"],
                 "role": eliminated_player["role"],
+                # Which turn eliminated them. Vote history and the post-game summary
+                # used to pair eliminated_players[i] with turns[i] by POSITION, an
+                # implicit invariant that silently produced a wrong history the
+                # moment anything appended out of step. Readers prefer this field
+                # and fall back to the index for rows written before it existed.
+                "round": len(state["turns"]),
             }
         )
+        # This round's votes have now produced their elimination and must never
+        # produce another one. See handle_timer_expired.
+        current_turn["resolved"] = True
 
         return eliminated_player, vote_counts[player_with_most_vote]
 
@@ -709,6 +773,7 @@ class UndercoverGameController(BaseGameController):
             timer_started_at=state.get("timer_started_at"),
             word_explanations=word_explanations,
             mr_white_guesser=state.get("mr_white_guesser"),
+            newly_unlocked_achievements=state.get("newly_unlocked_achievements"),
             **turn_state,
         )
 
@@ -779,55 +844,14 @@ class UndercoverGameController(BaseGameController):
         }
 
     async def _process_game_end_stats(self, state: dict, winner_label: str) -> list[dict]:
-        """Update stats and check achievements for all players after game ends.
-
-        Writes are staged only — the caller's single ``commit()`` persists them.
-        This must NOT commit: it runs inside ``get_game_lock``, which on
-        PostgreSQL is a *transaction-scoped* advisory lock, so committing here
-        would release the game lock in the middle of the end-of-game critical
-        section and let a concurrent mutation in.
-
-        A SQLAlchemy failure is deliberately NOT swallowed either. Once a
-        statement errors the session needs a rollback, so catching-and-continuing
-        made every later query in the loop (and the caller's commit) raise
-        PendingRollbackError, losing the whole game-end write. Letting it
-        propagate rolls the request back cleanly; the client retries and the
-        game state is still IN_PROGRESS, so the retry re-runs the flow.
-
-        Returns a list of {user_id, achievements: [{code, name, icon, tier}]} for newly unlocked.
-        """
-        hint_usage = state.get("hint_usage", {})
-        newly_unlocked_all: list[dict] = []
-        for player in await self._scorable_players(state):
-            user_id = UUID(player["user_id"])
-            role = player.get("role", "civilian")
-            won = (winner_label == "civilians" and role == "civilian") or (
-                winner_label == "undercovers" and role in ("undercover", "mr_white")
-            )
-            stats = await self._stats_controller.update_stats_after_game(
-                user_id=user_id, game_type="undercover", won=won, role=role, commit=False
-            )
-            # Update hint-related stats
-            user_hints = hint_usage.get(str(user_id), [])
-            hints_viewed_count = len(user_hints)
-            if hints_viewed_count > 0:
-                stats.total_hints_viewed += hints_viewed_count
-            if won and hints_viewed_count == 0:
-                stats.games_without_hints += 1
-            self.session.add(stats)
-
-            unlocked = await self._achievement_controller.check_achievements(user_id, stats, commit=False)
-            if unlocked:
-                newly_unlocked_all.append(
-                    {
-                        "user_id": str(user_id),
-                        "achievements": [
-                            {"code": a.code, "name": a.name, "icon": a.icon, "tier": a.tier} for a in unlocked
-                        ],
-                    }
-                )
-            logger.info("Stats updated: game=undercover user={}", user_id)
-        return newly_unlocked_all
+        """Stage the end-of-game stat and achievement writes. See game_end_stats."""
+        return await record_game_end(
+            self.session,
+            state,
+            game_type="undercover",
+            winners=undercover_winners(state, winner_label),
+            default_role="civilian",
+        )
 
     def _get_winner_label(self, state: dict) -> str | None:
         """Get the winner label string, or None if game is still in progress.
@@ -871,8 +895,10 @@ class UndercoverGameController(BaseGameController):
                 )
 
             eliminated_info = None
-            if i < len(eliminated_list):
-                ep = eliminated_list[i]
+            ep = next((e for e in eliminated_list if e.get("round") == i + 1), None)
+            if ep is None and i < len(eliminated_list) and "round" not in eliminated_list[i]:
+                ep = eliminated_list[i]  # pre-"round" rows: fall back to position
+            if ep is not None:
                 eliminated_info = {
                     "username": ep["username"],
                     "role": ep["role"],

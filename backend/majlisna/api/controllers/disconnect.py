@@ -16,6 +16,7 @@ from majlisna.api.constants import (
     LOBBY_GRACE_PERIOD_SECONDS,
 )
 from majlisna.api.controllers.codenames_helpers import CodenamesGameStatus
+from majlisna.api.controllers.game_end_stats import codenames_winners, record_game_end, undercover_winners
 from majlisna.api.controllers.game_lock import get_game_lock
 from majlisna.api.models.game import GameStatus, GameType
 from majlisna.api.models.relationship import RoomUserLink
@@ -133,6 +134,36 @@ async def disconnect_checker_loop(
         await asyncio.sleep(DISCONNECT_CHECK_INTERVAL_SECONDS)
 
 
+async def _record_disconnect_game_end(
+    session: AsyncSession,
+    state: dict,
+    *,
+    game_type: str,
+    winners: set[str],
+    default_role: str,
+) -> None:
+    """Record stats and achievements for a game that ended because someone dropped.
+
+    Ending by disconnect is a very common path — a player closing the tab decides
+    plenty of games — and it used to record NOTHING: the handlers flipped the game to
+    FINISHED and wrote the winner, but never ran the stat/achievement flow. Those
+    games counted for no one: not in totals, not in win streaks, not towards a badge.
+
+    Staged only, no commit: the caller is inside ``get_game_lock`` and commits once
+    at the end of its block. A failure propagates and rolls the whole handler back,
+    leaving the game IN_PROGRESS for the next checker pass rather than half-ended.
+    """
+    newly_unlocked = await record_game_end(
+        session,
+        state,
+        game_type=game_type,
+        winners=winners,
+        default_role=default_role,
+    )
+    if newly_unlocked:
+        state["newly_unlocked_achievements"] = newly_unlocked
+
+
 async def mark_user_disconnected(session: AsyncSession, user_id: str, room_id: str) -> None:
     """Mark a user as disconnected (but not permanently removed). Called on Socket.IO disconnect."""
     link = (
@@ -200,9 +231,14 @@ async def _handle_permanent_disconnect(session: AsyncSession, link: RoomUserLink
         room.type = RoomType.INACTIVE
         room.active_game_id = None
         session.add(room)
-    elif room.owner_id == user_id and remaining:
-        # Transfer ownership
-        room.owner_id = remaining[0].user_id
+    elif room.owner_id == user_id:
+        # Transfer ownership, preferring an actual player. `remaining` includes
+        # spectators, so handing it to remaining[0] blindly could make a
+        # spectator the host — and the host is who starts games, changes settings
+        # and kicks, while _prepare_game_start excludes spectators from the
+        # roster. Fall back to a spectator only if nobody else is left.
+        next_owner = next((link for link in remaining if not link.is_spectator), remaining[0])
+        room.owner_id = next_owner.user_id
         session.add(room)
 
     await session.commit()
@@ -244,6 +280,10 @@ async def _handle_undercover_disconnect(session: AsyncSession, game: Game, user_
                 "user_id": player["user_id"],
                 "username": player["username"],
                 "role": player["role"],
+                # Not a vote result: a drop-out is not "the elimination of round N",
+                # so it carries 0 and vote history skips it rather than mislabelling
+                # some round's outcome. See _build_vote_history.
+                "round": 0,
             }
         )
 
@@ -277,6 +317,13 @@ async def _handle_undercover_disconnect(session: AsyncSession, game: Game, user_
                 state["winner"] = "undercovers"
             room.active_game_id = None
             session.add(room)
+            await _record_disconnect_game_end(
+                session,
+                state,
+                game_type="undercover",
+                winners=undercover_winners(state, state["winner"]),
+                default_role="civilian",
+            )
         else:
             alive_count = sum(1 for p in state["players"] if p["is_alive"])
             if alive_count < 3:
@@ -322,6 +369,13 @@ async def _handle_codenames_disconnect(session: AsyncSession, game: Game, user_i
             game.end_time = datetime.now(UTC)
             room.active_game_id = None
             session.add(room)
+            await _record_disconnect_game_end(
+                session,
+                state,
+                game_type="codenames",
+                winners=codenames_winners(state, state["winner"]),
+                default_role="operative",
+            )
 
         game.live_state = state
         flag_modified(game, "live_state")

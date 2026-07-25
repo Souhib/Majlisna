@@ -14,7 +14,23 @@ from majlisna.api.controllers.codenames import (
 )
 from majlisna.api.models.codenames import CodenamesWord, CodenamesWordPack
 from majlisna.api.models.table import User
-from majlisna.dependencies import get_codenames_controller, get_current_user
+from majlisna.dependencies import get_codenames_controller, get_current_admin_user
+
+
+@pytest.fixture(autouse=True)
+def _admin_auth(test_app: FastAPI):
+    """Every endpoint in this module is admin-only.
+
+    The game-content routes (words, term pairs, word packs) used to accept any
+    logged-in user for writes and no authentication at all for reads. They are now
+    behind ``get_current_admin_user`` — see routes/undercover.py for why.
+    """
+    test_app.dependency_overrides[get_current_admin_user] = lambda: User(
+        id=uuid.uuid4(), username="admin", email_address="admin@test.com"
+    )
+    yield
+    test_app.dependency_overrides.clear()
+
 
 # ──────────────────────────────────────────────────────────────
 # Word Packs (/api/v1/codenames/word-packs)
@@ -39,7 +55,7 @@ def test_word_pack_create_word_pack_success(test_app: FastAPI, client: TestClien
     )
     test_app.dependency_overrides[get_codenames_controller] = lambda: mock_controller
     mock_user = User(id=uuid.uuid4(), username="testuser", email="test@example.com")
-    test_app.dependency_overrides[get_current_user] = lambda: mock_user
+    test_app.dependency_overrides[get_current_admin_user] = lambda: mock_user
 
     # Act
     response = client.post(
@@ -69,7 +85,7 @@ def test_word_pack_create_word_pack_validation_error(test_app: FastAPI, client: 
     mock_controller = Mock(spec=CodenamesController)
     test_app.dependency_overrides[get_codenames_controller] = lambda: mock_controller
     mock_user = User(id=uuid.uuid4(), username="testuser", email="test@example.com")
-    test_app.dependency_overrides[get_current_user] = lambda: mock_user
+    test_app.dependency_overrides[get_current_admin_user] = lambda: mock_user
 
     # Act
     response = client.post(
@@ -208,7 +224,7 @@ def test_word_pack_delete_word_pack_success(test_app: FastAPI, client: TestClien
     mock_controller.delete_word_pack = AsyncMock(return_value=None)
     test_app.dependency_overrides[get_codenames_controller] = lambda: mock_controller
     mock_user = User(id=uuid.uuid4(), username="testuser", email="test@example.com")
-    test_app.dependency_overrides[get_current_user] = lambda: mock_user
+    test_app.dependency_overrides[get_current_admin_user] = lambda: mock_user
 
     # Act
     response = client.delete(f"/api/v1/codenames/word-packs/{pack_id}")
@@ -228,7 +244,7 @@ def test_word_pack_delete_word_pack_not_found(test_app: FastAPI, client: TestCli
     mock_controller.delete_word_pack = AsyncMock(side_effect=CodenamesWordPackNotFoundError(pack_id=pack_id))
     test_app.dependency_overrides[get_codenames_controller] = lambda: mock_controller
     mock_user = User(id=uuid.uuid4(), username="testuser", email="test@example.com")
-    test_app.dependency_overrides[get_current_user] = lambda: mock_user
+    test_app.dependency_overrides[get_current_admin_user] = lambda: mock_user
 
     # Act & Assert
     with pytest.raises(CodenamesWordPackNotFoundError) as exc_info:
@@ -262,7 +278,7 @@ def test_word_add_word_to_pack_success(test_app: FastAPI, client: TestClient):
     )
     test_app.dependency_overrides[get_codenames_controller] = lambda: mock_controller
     mock_user = User(id=uuid.uuid4(), username="testuser", email="test@example.com")
-    test_app.dependency_overrides[get_current_user] = lambda: mock_user
+    test_app.dependency_overrides[get_current_admin_user] = lambda: mock_user
 
     # Act
     response = client.post(
@@ -352,7 +368,7 @@ def test_word_delete_word_success(test_app: FastAPI, client: TestClient):
     mock_controller.delete_word = AsyncMock(return_value=None)
     test_app.dependency_overrides[get_codenames_controller] = lambda: mock_controller
     mock_user = User(id=uuid.uuid4(), username="testuser", email="test@example.com")
-    test_app.dependency_overrides[get_current_user] = lambda: mock_user
+    test_app.dependency_overrides[get_current_admin_user] = lambda: mock_user
 
     # Act
     response = client.delete(f"/api/v1/codenames/words/{word_id}")

@@ -21,6 +21,7 @@ from majlisna.api.controllers.shared import get_password_hash
 from majlisna.api.models.game import GameStatus, GameType
 from majlisna.api.models.relationship import RoomUserLink
 from majlisna.api.models.room import RoomType
+from majlisna.api.models.stats import UserStats
 from majlisna.api.models.table import Game, Room, User
 from majlisna.api.models.undercover import UndercoverRole
 
@@ -1035,3 +1036,138 @@ async def test_update_heartbeat_nonexistent_link(session):
 
     # Act — should not raise
     await update_heartbeat(session, str(user.id), str(room.id))
+
+
+@pytest.mark.asyncio
+async def test_disconnect_transfers_ownership_to_a_player_not_a_spectator(session):
+    """Host transfer prefers an actual player over a spectator.
+
+    `remaining` includes spectators, and handing the room to `remaining[0]` blindly
+    could make one of them host — while the host is who starts games, changes
+    settings and kicks players, and `_prepare_game_start` excludes spectators from
+    the roster entirely.
+    """
+    # Prepare — the spectator's link is created first, so remaining[0] is the
+    # spectator unless the handler filters.
+    owner = await _create_user(session, "owner_spec", "owner_spec@test.com")
+    spectator = await _create_user(session, "watcher", "watcher@test.com")
+    player = await _create_user(session, "player", "player@test.com")
+    room = await _create_room(session, owner)
+    owner_link = await _create_link(session, room.id, owner.id)
+    spectator_link = await _create_link(session, room.id, spectator.id)
+    spectator_link.is_spectator = True
+    session.add(spectator_link)
+    await session.commit()
+    await _create_link(session, room.id, player.id)
+
+    # Act
+    await _handle_permanent_disconnect(session, owner_link)
+
+    # Assert
+    room = (await session.exec(select(Room).where(Room.id == room.id))).first()
+    assert room.owner_id == player.id
+
+
+@pytest.mark.asyncio
+async def test_disconnect_transfers_ownership_to_a_spectator_as_last_resort(session):
+    """With nobody but spectators left, one of them has to take the room."""
+    # Prepare
+    owner = await _create_user(session, "owner_only", "owner_only@test.com")
+    spectator = await _create_user(session, "lone_watcher", "lone_watcher@test.com")
+    room = await _create_room(session, owner)
+    owner_link = await _create_link(session, room.id, owner.id)
+    spectator_link = await _create_link(session, room.id, spectator.id)
+    spectator_link.is_spectator = True
+    session.add(spectator_link)
+    await session.commit()
+
+    # Act
+    await _handle_permanent_disconnect(session, owner_link)
+
+    # Assert
+    room = (await session.exec(select(Room).where(Room.id == room.id))).first()
+    assert room.owner_id == spectator.id
+    assert room.type == RoomType.ACTIVE
+
+
+@pytest.mark.asyncio
+async def test_uc_disconnect_records_stats_for_every_player(session):
+    """A game that ends because someone dropped must still count for the players.
+
+    The handlers flipped the game to FINISHED and wrote the winner but never ran the
+    stat/achievement flow, so these games counted for nobody: not in totals, not in
+    win streaks, not towards a badge. Ending by disconnect is a common path — a
+    player closing their tab decides plenty of games.
+    """
+    # Prepare — 3 players; dropping a civilian leaves 1 UC vs 1 CIV, so undercovers win
+    users = [await _create_user(session, f"p{i}", f"p{i}@test.com") for i in range(3)]
+    room = await _create_room(session, users[0])
+    players_data = [
+        {
+            "user_id": str(u.id),
+            "username": u.username,
+            "role": UndercoverRole.CIVILIAN.value,
+            "is_alive": True,
+            "is_mayor": i == 0,
+        }
+        for i, u in enumerate(users)
+    ]
+    players_data[1]["role"] = UndercoverRole.UNDERCOVER.value
+    game = await _create_undercover_game(session, room, players_data)
+
+    # Act — a civilian drops
+    await _handle_undercover_disconnect(session, game, str(users[2].id), room)
+
+    # Assert — the game ended, and every player has a stats row reflecting it
+    game = (await session.exec(select(Game).where(Game.id == game.id))).first()
+    assert game.game_status == GameStatus.FINISHED
+    assert game.live_state["winner"] == "undercovers"
+
+    for user in users:
+        stats = (await session.exec(select(UserStats).where(UserStats.user_id == user.id))).first()
+        assert stats is not None, f"no stats recorded for {user.username}"
+        assert stats.total_games_played == 1
+        assert stats.undercover_games_played == 1
+
+    undercover_stats = (await session.exec(select(UserStats).where(UserStats.user_id == users[1].id))).first()
+    civilian_stats = (await session.exec(select(UserStats).where(UserStats.user_id == users[0].id))).first()
+    assert undercover_stats.total_games_won == 1
+    assert civilian_stats.total_games_won == 0
+
+
+@pytest.mark.asyncio
+async def test_codenames_disconnect_records_stats_for_the_winning_team(session):
+    """Same guarantee on the Codenames disconnect path."""
+    # Prepare — one player per team; the red player dropping hands blue the win
+    users = [await _create_user(session, f"c{i}", f"c{i}@test.com") for i in range(2)]
+    room = await _create_room(session, users[0])
+    players_data = [
+        {
+            "user_id": str(users[0].id),
+            "username": users[0].username,
+            "team": CodenamesTeam.RED.value,
+            "role": CodenamesRole.SPYMASTER.value,
+        },
+        {
+            "user_id": str(users[1].id),
+            "username": users[1].username,
+            "team": CodenamesTeam.BLUE.value,
+            "role": CodenamesRole.SPYMASTER.value,
+        },
+    ]
+    game = await _create_codenames_game(session, room, players_data)
+
+    # Act — the red player drops
+    await _handle_codenames_disconnect(session, game, str(users[0].id), room)
+
+    # Assert
+    game = (await session.exec(select(Game).where(Game.id == game.id))).first()
+    assert game.game_status == GameStatus.FINISHED
+    assert game.live_state["winner"] == CodenamesTeam.BLUE.value
+
+    # The remaining (winning) player is scored. The one who dropped is removed from
+    # live_state["players"] by the handler, so there is nothing left to score them by.
+    winner_stats = (await session.exec(select(UserStats).where(UserStats.user_id == users[1].id))).first()
+    assert winner_stats is not None
+    assert winner_stats.codenames_games_played == 1
+    assert winner_stats.total_games_won == 1

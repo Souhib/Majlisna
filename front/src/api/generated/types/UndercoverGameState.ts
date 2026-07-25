@@ -7,6 +7,7 @@
 
 import type { DescriptionOrderEntry } from "./DescriptionOrderEntry.ts";
 import type { EliminatedPlayer } from "./EliminatedPlayer.ts";
+import type { PlayerUnlockedAchievements } from "./PlayerUnlockedAchievements.ts";
 import type { UndercoverPlayerState } from "./UndercoverPlayerState.ts";
 import type { UndercoverTimerConfig } from "./UndercoverTimerConfig.ts";
 import type { VoteHistoryRound } from "./VoteHistoryRound.ts";
@@ -95,4 +96,5 @@ export type UndercoverGameState = {
   };
   word_explanations?: WordExplanations | null;
   mr_white_guesser?: string | null;
+  newly_unlocked_achievements?: PlayerUnlockedAchievements[] | null;
 };

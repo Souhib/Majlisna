@@ -29,8 +29,6 @@ function LoginPage() {
           id: d.user.id,
           username: d.user.username,
           email: d.user.email,
-          is_active: true,
-          is_admin: false,
         })
         navigate({ to: "/" })
       },

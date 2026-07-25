@@ -1,6 +1,6 @@
 """Tests for the UndercoverGameController."""
 
-import random
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import pytest
@@ -8,6 +8,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from majlisna.api.constants import MAX_PLAYERS_UNDERCOVER
 from majlisna.api.controllers.shared import get_password_hash
 from majlisna.api.controllers.undercover_game import UndercoverGameController
 from majlisna.api.models.game import GameStatus
@@ -19,7 +20,9 @@ from majlisna.api.schemas.error import (
     CantVoteBecauseYouDeadError,
     CantVoteForDeadPersonError,
     CantVoteForYourselfError,
+    NotEnoughPlayersError,
     PlayerRemovedFromGameError,
+    TooManyPlayersError,
 )
 
 # ─── Helpers ──────────────────────────────────────────────────
@@ -725,9 +728,10 @@ async def test_edge_mr_white_never_first_in_description_order(
     # Prepare — 5 players to get Mr. White
     setup = await setup_undercover_game(5)
 
-    # Run multiple times with different seeds to verify
+    # Run repeatedly to exercise different draws. Game draws come from
+    # SystemRandom (see api/utils/rng.py), so there is no seed to set — the
+    # assertion below is an invariant that must hold for every draw.
     for seed in range(10):
-        random.seed(seed)
         try:
             result = await _start_game(undercover_game_controller, setup["room"].id, setup["users"][0].id)
             game = await _get_game(session, result.game_id)
@@ -1498,3 +1502,210 @@ async def test_mr_white_guess_non_mr_white_rejected(undercover_game_controller, 
     # Act / Assert — non-Mr. White player tries to guess
     with pytest.raises(BaseError, match="Only the eliminated Mr. White"):
         await undercover_game_controller.submit_mr_white_guess(game_uuid, UUID(non_mr_white["user_id"]), "some_word")
+
+
+# ─── Regression: a round resolves exactly once ────────────────
+
+
+async def _expire_timer(session: AsyncSession, game_id_str: str) -> None:
+    """Give the game a real timer and push its start far enough into the past.
+
+    The default room settings use 0 (= no time limit), for which
+    _is_timer_actually_expired always answers False — so a timer test has to
+    configure one.
+    """
+    game = await _get_game(session, game_id_str)
+    state = game.live_state
+    state["timer_config"] = {"description_seconds": 30, "voting_seconds": 30}
+    state["timer_started_at"] = (datetime.now(UTC) - timedelta(seconds=120)).isoformat()
+    game.live_state = state
+    flag_modified(game, "live_state")
+    session.add(game)
+    await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_timer_expired_does_not_re_resolve_a_finished_round(
+    undercover_game_controller, setup_undercover_game, session
+):
+    """A second timer-expired call on an already-resolved round changes nothing.
+
+    Once every alive player has voted, the turn keeps phase "voting" until the host
+    starts the next round, and `timer_started_at` still points at the voting
+    deadline — so the timer reads as expired for that whole gap. The handler used to
+    re-run the tally over the SAME votes on every call: one more player died,
+    `eliminated_players` grew a duplicate entry (which desynchronises vote history),
+    and the client's timer callback kept firing, so it repeated indefinitely — one
+    DB write and one Socket.IO broadcast per cycle.
+    """
+    # Prepare — 5 players with forced roles (1 undercover, 4 civilians) so that
+    # voting out a civilian leaves the game running: 1 undercover vs 3 civilians
+    # is not a win for either side.
+    setup = await setup_undercover_game(5)
+    result = await _start_game(undercover_game_controller, setup["room"].id, setup["users"][0].id)
+    game_uuid = UUID(result.game_id)
+    game = await _get_game(session, result.game_id)
+    state = game.live_state
+    state["players"][0]["role"] = UndercoverRole.UNDERCOVER.value
+    for player in state["players"][1:]:
+        player["role"] = UndercoverRole.CIVILIAN.value
+    game.live_state = state
+    flag_modified(game, "live_state")
+    session.add(game)
+    await session.commit()
+
+    game = await _get_game(session, result.game_id)
+    for uid in game.live_state["turns"][0]["description_order"]:
+        await undercover_game_controller.submit_description(game_uuid, UUID(uid), "word")
+
+    game = await _get_game(session, result.game_id)
+    players = game.live_state["players"]
+    target = players[4]["user_id"]  # a civilian
+    for player in players:
+        vote_for = target if player["user_id"] != target else players[0]["user_id"]
+        await undercover_game_controller.submit_vote(game_uuid, UUID(player["user_id"]), UUID(vote_for))
+
+    game = await _get_game(session, result.game_id)
+    assert game.game_status == GameStatus.IN_PROGRESS
+    alive_after_vote = len(_alive_players(game.live_state))
+    eliminated_after_vote = len(game.live_state["eliminated_players"])
+    assert eliminated_after_vote == 1
+    await _expire_timer(session, result.game_id)
+
+    # Act — the (already resolved) round's timer expires, twice.
+    first = await undercover_game_controller.handle_timer_expired(game_uuid, setup["users"][0].id)
+    second = await undercover_game_controller.handle_timer_expired(game_uuid, setup["users"][0].id)
+
+    # Assert
+    assert first.action == "round_already_resolved"
+    assert second.action == "round_already_resolved"
+    game = await _get_game(session, result.game_id)
+    assert len(_alive_players(game.live_state)) == alive_after_vote
+    assert len(game.live_state["eliminated_players"]) == eliminated_after_vote
+
+
+@pytest.mark.asyncio
+async def test_mr_white_guess_timeout_leaves_a_playable_phase(
+    undercover_game_controller, setup_undercover_game, session
+):
+    """Timing out the Mr. White guess must not wedge the turn.
+
+    The handler dropped `mr_white_guesser` but left the phase on
+    "mr_white_guessing", so guessing 403'd (nobody matched the guesser) while
+    voting and describing both rejected the phase — only the host's next-round call
+    could rescue the game.
+    """
+    # Prepare — reach the mr_white_guessing phase by voting Mr. White out.
+    setup, result, game = await _setup_mr_white_voting_phase(undercover_game_controller, setup_undercover_game, session)
+    game_uuid = UUID(result.game_id)
+    mr_white = _find_player_by_role(game.live_state, UndercoverRole.MR_WHITE.value)
+    voters = [p["user_id"] for p in game.live_state["players"] if p["is_alive"]]
+    for voter in voters:
+        target = mr_white["user_id"] if voter != mr_white["user_id"] else voters[1]
+        await undercover_game_controller.submit_vote(game_uuid, UUID(voter), UUID(target))
+
+    game = await _get_game(session, result.game_id)
+    assert game.live_state["turns"][-1]["phase"] == "mr_white_guessing"
+    await _expire_timer(session, result.game_id)
+
+    # Act — the guess timer expires.
+    response = await undercover_game_controller.handle_timer_expired(game_uuid, setup["users"][0].id)
+
+    # Assert — no dangling guesser, and the phase is one the game can leave.
+    assert response.action == "mr_white_guess_timeout"
+    game = await _get_game(session, result.game_id)
+    state = game.live_state
+    assert "mr_white_guesser" not in state
+    assert state["turns"][-1]["phase"] in ("voting", "game_over")
+
+    # And landing there does not re-open the elimination.
+    eliminated_count = len(state["eliminated_players"])
+    await _expire_timer(session, result.game_id)
+    await undercover_game_controller.handle_timer_expired(game_uuid, setup["users"][0].id)
+    game = await _get_game(session, result.game_id)
+    assert len(game.live_state["eliminated_players"]) == eliminated_count
+
+
+@pytest.mark.asyncio
+async def test_cannot_start_undercover_with_one_player(undercover_game_controller, setup_undercover_game):
+    """A lone host cannot start Undercover.
+
+    MIN_PLAYERS_FOR_GAME existed but was never passed to _prepare_game_start, so the
+    base default of 1 applied and _compute_roles produced one undercover and ZERO
+    civilians — won on paper the moment anyone checked, and unplayable in practice
+    since the only player may not vote for themselves.
+    """
+    setup = await setup_undercover_game(1)
+    with pytest.raises(NotEnoughPlayersError):
+        await _start_game(undercover_game_controller, setup["room"].id, setup["users"][0].id)
+
+
+@pytest.mark.asyncio
+async def test_cannot_start_undercover_with_two_players(undercover_game_controller, setup_undercover_game):
+    """Two players is a coin flip on the first tie-break, not a game of Undercover."""
+    setup = await setup_undercover_game(2)
+    with pytest.raises(NotEnoughPlayersError):
+        await _start_game(undercover_game_controller, setup["room"].id, setup["users"][0].id)
+
+
+@pytest.mark.asyncio
+async def test_cannot_start_undercover_above_the_supported_player_count(
+    undercover_game_controller, setup_undercover_game
+):
+    """Undercover is designed for at most 12 players.
+
+    Only the minimum was enforced. Role distribution scales past 12 without erroring,
+    so a 20-player room quietly produced a game nobody had played or tested.
+    """
+    setup = await setup_undercover_game(MAX_PLAYERS_UNDERCOVER + 1)
+    with pytest.raises(TooManyPlayersError):
+        await _start_game(undercover_game_controller, setup["room"].id, setup["users"][0].id)
+
+
+@pytest.mark.asyncio
+async def test_vote_history_pairs_each_round_with_its_own_elimination(
+    undercover_game_controller, setup_undercover_game, session
+):
+    """Each elimination carries the round that produced it.
+
+    Vote history and the post-game summary used to pair `eliminated_players[i]` with
+    `turns[i]` by POSITION — an implicit invariant that produced a wrong history as
+    soon as anything appended out of step (a duplicate elimination, or a drop-out,
+    which is not a round result at all).
+    """
+    # Prepare — 5 players, forced roles so the first elimination doesn't end the game
+    setup = await setup_undercover_game(5)
+    result = await _start_game(undercover_game_controller, setup["room"].id, setup["users"][0].id)
+    game_uuid = UUID(result.game_id)
+    game = await _get_game(session, result.game_id)
+    state = game.live_state
+    state["players"][0]["role"] = UndercoverRole.UNDERCOVER.value
+    for player in state["players"][1:]:
+        player["role"] = UndercoverRole.CIVILIAN.value
+    game.live_state = state
+    flag_modified(game, "live_state")
+    session.add(game)
+    await session.commit()
+
+    game = await _get_game(session, result.game_id)
+    for uid in game.live_state["turns"][0]["description_order"]:
+        await undercover_game_controller.submit_description(game_uuid, UUID(uid), "word")
+
+    game = await _get_game(session, result.game_id)
+    players = game.live_state["players"]
+    target = players[4]["user_id"]
+    for player in players:
+        vote_for = target if player["user_id"] != target else players[0]["user_id"]
+        await undercover_game_controller.submit_vote(game_uuid, UUID(player["user_id"]), UUID(vote_for))
+
+    # Assert
+    game = await _get_game(session, result.game_id)
+    eliminated = game.live_state["eliminated_players"]
+    assert len(eliminated) == 1
+    assert eliminated[0]["round"] == 1
+    assert eliminated[0]["user_id"] == target
+
+    history = undercover_game_controller._build_vote_history(game.live_state)
+    assert len(history) == 1
+    assert history[0]["round"] == 1
+    assert history[0]["eliminated"]["user_id"] == target

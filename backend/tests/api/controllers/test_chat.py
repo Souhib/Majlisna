@@ -122,3 +122,28 @@ async def test_get_messages_rejects_non_member(chat_controller: ChatController, 
     # Act / Assert
     with pytest.raises(UserNotInRoomError):
         await chat_controller.get_messages(room_id=room.id, user_id=outsider.id)
+
+
+async def test_get_messages_returns_the_newest_window_not_the_oldest(
+    chat_controller: ChatController, create_user, create_room
+):
+    """The `limit` window is taken from the newest end of the history.
+
+    Ordering ascending *before* applying the limit returned the OLDEST `limit`
+    rows, so a room that passed the 50-message default opened the chat panel on the
+    very first messages of the session and never showed the recent ones — the panel
+    only appends what arrives afterwards over Socket.IO, so the gap was permanent.
+    """
+    # Arrange
+    user = await create_user(username="talker", email="talker@test.com")
+    room = await create_room(owner=user)
+    for i in range(10):
+        await chat_controller.send_message(
+            room_id=room.id, user_id=user.id, username=user.username, message=f"message-{i}"
+        )
+
+    # Act
+    messages = await chat_controller.get_messages(room_id=room.id, user_id=user.id, limit=3)
+
+    # Assert — the last three, still oldest-first for rendering.
+    assert [m.message for m in messages] == ["message-7", "message-8", "message-9"]

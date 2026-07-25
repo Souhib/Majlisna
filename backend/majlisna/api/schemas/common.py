@@ -32,3 +32,26 @@ class HintRecordResponse(BaseModel):
 class TimerExpiredResponse(BaseModel):
     game_id: str
     action: str
+
+
+class UnlockedAchievement(BaseModel):
+    """One badge a player just earned."""
+
+    code: str
+    name: str
+    icon: str
+    tier: int
+
+
+class PlayerUnlockedAchievements(BaseModel):
+    """Badges earned by one player at the end of a game.
+
+    Every game controller wrote this into ``live_state["newly_unlocked_achievements"]``
+    but no game-state schema declared it, and ``BaseModel`` is ``extra="forbid"`` — so
+    it never left the server. The client has always been ready for it
+    (``useAchievementNotifications`` + ``AchievementToast``); the toast simply had no
+    data. Declaring the field is what connects the two.
+    """
+
+    user_id: str
+    achievements: list[UnlockedAchievement]

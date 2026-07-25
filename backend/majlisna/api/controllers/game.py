@@ -259,7 +259,9 @@ class GameController:
                     VoteHistoryEntry(voter=players_map.get(vid, ""), target=players_map.get(tid, ""))
                     for vid, tid in votes.items()
                 ]
-                raw_elim = eliminated[i] if i < len(eliminated) else None
+                raw_elim = next((e for e in eliminated if e.get("round") == i + 1), None)
+                if raw_elim is None and i < len(eliminated) and "round" not in eliminated[i]:
+                    raw_elim = eliminated[i]  # pre-"round" rows: fall back to position
                 elim_info = (
                     EliminatedInfo(
                         username=raw_elim.get("username", ""),

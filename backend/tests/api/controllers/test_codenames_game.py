@@ -796,7 +796,7 @@ async def test_vote_resolve_unanimous(codenames_game_controller, setup_codenames
 
 
 @pytest.mark.asyncio
-@patch("majlisna.api.controllers.codenames_game.random.choice", side_effect=lambda x: x[0])
+@patch("majlisna.api.controllers.codenames_game.rng.choice", side_effect=lambda x: x[0])
 async def test_vote_resolve_two_way_tie(mock_choice, codenames_game_controller, setup_codenames_game, session):
     """Each votes different → tied=True (mock random.choice)."""
     setup = await setup_codenames_game(6)
@@ -823,7 +823,7 @@ async def test_vote_resolve_two_way_tie(mock_choice, codenames_game_controller, 
 
 
 @pytest.mark.asyncio
-@patch("majlisna.api.controllers.codenames_game.random.choice", side_effect=lambda x: x[0])
+@patch("majlisna.api.controllers.codenames_game.rng.choice", side_effect=lambda x: x[0])
 async def test_vote_resolve_three_way_tie(mock_choice, codenames_game_controller, setup_codenames_game, session):
     """8p game, 3 ops vote 3 different cards → tied=True (mock)."""
     setup = await setup_codenames_game(8)
