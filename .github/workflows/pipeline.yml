@@ -1,11 +1,23 @@
 name: CI
 
+# CI checks, and the gate in front of the production deploy.
+#
+# Dokploy autodeploys the `production` branch. `main` is NOT deployed: the
+# `promote` job at the bottom fast-forwards `production` to the tested commit,
+# and only once the backend and frontend suites are green. Previously Dokploy
+# watched `main`, so a red CI still shipped — the deploy was live about a minute
+# after the push, roughly twelve minutes before CI had an opinion.
+#
+# Pointing Dokploy's compose app back at `main` silently restores that.
+
 on:
   push:
+    # No `paths` filter on main, deliberately. This workflow is the only thing
+    # that deploys, so filtering it would mean a push touching only
+    # docker-compose.dokploy.yml, nginx.conf or a Dockerfile never reaches
+    # production. The `changes` job below still skips the suites that aren't
+    # affected, so an unrelated push costs two short jobs.
     branches: [main]
-    paths:
-      - "backend/**"
-      - "front/**"
   pull_request:
     branches: [main]
     paths:
@@ -15,7 +27,14 @@ on:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Do NOT cancel in-progress runs. Two reasons:
+  # - A cancelled run's commits are never tested: the replacing run's diff range
+  #   only covers ITS own push, so a superseded change could reach production
+  #   untested.
+  # - A cancelled run never reaches `deploy`, so the change would silently sit
+  #   undeployed.
+  # Queue instead — each run tests its own push range and deploys its own HEAD.
+  cancel-in-progress: false
 
 jobs:
   # ── Detect which paths changed ──────────────────────────────
@@ -127,3 +146,52 @@ jobs:
 
       - name: Test (vitest)
         run: bun run test
+
+  # ── Promote to production ───────────────────────────────────
+
+  promote:
+    runs-on: ubuntu-latest
+    needs: [changes, backend, frontend]
+    # `needs` alone would skip this job whenever a needed job is SKIPPED, which
+    # happens on every push that touches only one component. So gate explicitly:
+    # each suite must have either passed or been skipped, never failed.
+    if: >-
+      github.event_name != 'pull_request'
+      && github.ref == 'refs/heads/main'
+      && !cancelled()
+      && contains(fromJSON('["success","skipped"]'), needs.backend.result)
+      && contains(fromJSON('["success","skipped"]'), needs.frontend.result)
+    permissions:
+      contents: write
+    # One promotion at a time, so two runs can't race the branch pointer.
+    concurrency:
+      group: promote-production
+      cancel-in-progress: false
+
+    steps:
+      # Dokploy watches the `production` branch, not `main`. Its push handler
+      # filters on (autoDeploy, triggerType=push, branch, repository, owner), so
+      # pushes to `main` are ignored and this fast-forward is what actually
+      # triggers the build.
+      #
+      # Why a release branch rather than Dokploy's deploy webhook: in Dokploy
+      # v0.26.7 the manual webhook POST /api/deploy/compose/<token> is ALSO gated
+      # on `autoDeploy`, answering 400 "Automatic deployments are disabled for
+      # this compose". So there is no way to have "webhook-only" deploys — the
+      # flag is all-or-nothing. Pointing Dokploy at a branch that only ever
+      # advances from a green run gives the same guarantee using Dokploy's own
+      # semantics, needs no API key or webhook secret, and is reverted by setting
+      # the branch back to `main`.
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Deliberately NOT a force push. `production` only ever moves through this
+      # job, so a fast-forward always applies; a rejection means history was
+      # rewritten on `main` and deserves a loud failure rather than a silent
+      # overwrite of what is currently live.
+      - name: Fast-forward production to the tested commit
+        run: |
+          echo "Promoting ${GITHUB_SHA} to production"
+          git push origin "${GITHUB_SHA}:refs/heads/production"

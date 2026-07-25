@@ -432,11 +432,36 @@ page.locator('text=Discuss and vote')
 
 ### Infrastructure
 
-**GitHub Actions = CI only** (on `ubuntu-latest`). On push to `main` or PR, the pipeline detects changed components and runs CI checks (lint, format, test) in parallel. No deploy job — CI is informational on push, blocking on PRs. Backend tests use SQLite (no `--use-postgres` in CI). No self-hosted runners needed for CI.
+**GitHub Actions gates the deploy; Dokploy performs it.** On push to `main` the
+pipeline detects changed components and runs the suites in parallel (backend
+tests run with `--use-postgres`, so the dialect-specific tests actually execute).
+When they are green, the `promote` job fast-forwards the **`production`** branch
+to the tested commit.
 
-**Dokploy = CD.** Dokploy autodeploy is enabled — it pulls from `main` on every push, builds images, and runs `docker compose up -d`. Deploy does NOT wait for CI. This eliminates container conflicts (Dokploy owns all containers) and removes the need for rsync, health checks, orphan adoption, and image pruning in the pipeline.
+**Dokploy watches `production`, not `main`.** Its compose app for
+`majlisna-compose` has `autoDeploy=true`, `triggerType=push`, `branch=production`.
+The push handler filters on `(autoDeploy, triggerType, branch, repository, owner)`,
+so pushes to `main` are ignored and only a promotion triggers a build. Dokploy
+still owns every container, so there is no rsync, health-check or orphan-adoption
+logic in the pipeline.
 
-**CI is a real quality gate for PRs.** No `continue-on-error` on any CI step. `cancel-in-progress: true` since there's no deploy to protect.
+**Why a release branch and not Dokploy's deploy webhook.** In Dokploy v0.26.7 the
+manual webhook `POST /api/deploy/compose/<refreshToken>` is *also* gated on
+`autoDeploy` — with the flag off it answers `400 {"message":"Automatic deployments
+are disabled for this compose"}`. So "webhook-only deploys" is not expressible:
+the flag is all-or-nothing. Verified empirically on 2026-07-25. Pointing Dokploy
+at a branch that only ever advances from a green run achieves the same gate using
+Dokploy's own semantics, needs no API key or webhook secret, and is undone by
+setting `branch` back to `main`.
+
+**Do not push directly to `production`** — that bypasses the gate entirely. To
+deploy without a code change, use Dokploy's Deploy button.
+
+**`cancel-in-progress: false`.** A cancelled run's commits are never tested (the
+replacing run's diff range only covers its own push), so a superseded change
+could reach production untested; and a cancelled run never reaches `promote`, so
+the change would silently sit undeployed. Runs queue instead. No
+`continue-on-error` on any CI step.
 
 **E2E docker-compose is separate from production.** `docker-compose.e2e.yml` runs the backend with `MAJLISNA_ENV=development` and a dedicated PostgreSQL. Never mix E2E and production compose files.
 

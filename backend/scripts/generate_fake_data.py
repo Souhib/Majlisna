@@ -40,6 +40,7 @@ Note:
 
 import argparse
 import asyncio
+import importlib.util
 import random
 import string
 import sys
@@ -793,16 +794,69 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _faker_available() -> bool:
+    """Whether `faker` can be imported.
+
+    It is a main dependency, so this should always be true — the check exists
+    because when it once wasn't, the failure mode was an emptied database (see
+    main()).
+
+    find_spec does not only return None for a missing module — it raises
+    ModuleNotFoundError when a parent package is absent, and ValueError when a
+    module is present in sys.modules with no __spec__. This helper only ever
+    answers the question, it must never be the thing that crashes the script.
+    """
+    try:
+        return importlib.util.find_spec("faker") is not None
+    except (ImportError, ValueError):
+        return False
+
+
 async def main() -> None:
     """Main entry point for the fake data generation script."""
     global fake
     args = parse_args()
 
-    # Import dev-only dependencies only when needed (not in production image)
+    # faker is imported lazily so that --delete and --seed keep working even if it
+    # is somehow unavailable, and the check MUST come before anything touches the
+    # database.
+    #
+    # History: faker used to be a dev extra while the production image builds with
+    # INSTALL_DEV=false, so --create-db died there with a bare ModuleNotFoundError.
+    # In the documented two-step flow (--delete then --create-db) that left the
+    # database dropped and EMPTY — no users, no game content, app unusable. It is a
+    # main dependency now; this guard is the seatbelt for any future slimmed image.
     if args.create_db:
-        from faker import Faker
+        try:
+            from faker import Faker
+        except ModuleNotFoundError:
+            print(
+                "ERROR: --create-db needs `faker`, which is not importable here.\n"
+                "       It is declared as a main dependency, so this means the\n"
+                "       environment is incomplete (stale image or partial install).\n"
+                "\n"
+                "       Do NOT run --delete before fixing this: it would leave the\n"
+                "       database empty with no way to refill it.\n"
+                "\n"
+                "       Options:\n"
+                "         - rebuild/redeploy the image so the dependency is installed\n"
+                "         - use --seed instead (game content only, no faker needed)\n"
+                "         - patch this container: uv pip install --python /app/.venv/bin/python faker",
+                file=sys.stderr,
+            )
+            raise SystemExit(1) from None
 
         fake = Faker()
+
+    # --delete on its own is legitimate, but warn when the follow-up --create-db
+    # is guaranteed to fail, so the destructive step isn't taken blind.
+    if args.delete and not _faker_available():
+        print(
+            "WARNING: `faker` is not importable here, so --create-db will NOT work\n"
+            "         after this. Rebuild the image, or use --seed to restore game\n"
+            "         content. Continuing with the drop/recreate.",
+            file=sys.stderr,
+        )
 
     settings = Settings()  # type: ignore[call-arg]
 

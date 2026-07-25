@@ -358,6 +358,28 @@ docker exec -w /app majlisna-backend env PYTHONPATH=/app python scripts/generate
 
 Do not add Alembic-style migration DDL to `database.py`.
 
+Two things this script needs, both of which have already bitten once:
+
+**It must not go through PgBouncer.** `DIRECT_DATABASE_URL` (set in both compose
+files) points at the PostgreSQL server itself. asyncpg caches type introspection
+per connection; the drop/create invalidates those types while PgBouncer's
+transaction pooling keeps handing out connections with the stale cache, and the
+following bulk INSERT dies with "could not resolve query result and/or argument
+types in N attempts" — reproducible every single run. The script refuses to start
+if `DATABASE_URL` names pgbouncer and `DIRECT_DATABASE_URL` is unset.
+
+**`faker` is a MAIN dependency, not a dev extra — leave it there.** It looks like
+a test-only package, but this script is the project's migration mechanism and so
+has to run on the production image, which is built with `ARG INSTALL_DEV=false`.
+As a dev extra it was absent there: the command above worked in E2E (that image
+passes `INSTALL_DEV: "true"`) and failed on the server with a bare
+`ModuleNotFoundError` — *after* `--delete` had already dropped everything, leaving
+production with an empty schema and no way to refill it.
+
+Belt and braces on top of that: `--create-db` verifies faker is importable BEFORE
+touching the database, and `--delete` warns when the follow-up cannot succeed.
+`--seed` (game content only) never needs faker and stays the safe minimum.
+
 ### Expected 4xx log at INFO, not WARNING
 
 `BaseError` picks `INFO` for < 500 and `ERROR` for >= 500. `app.py` attaches a
