@@ -244,17 +244,28 @@ Handy narrower runs while iterating (then finish with the full gate):
 `bun run test:local` (one run), `bun run test:rooms`, `bun run test:undercover`,
 `./run-local.sh --no-build` (reuse images), `./run-local.sh -- --grep "room join"`.
 
-**Why the full suite is not in CI.** The self-hosted runners live **on the
-production VPS**. A long browser suite on a shared host is exactly what LaTabdhir
-had to delete from its CI: Chrome reacts to co-tenant Docker veth churn with
-`net::ERR_NETWORK_CHANGED`, producing large failure counts against clean server
-logs. `.github/workflows/e2e.yml` therefore runs as a **safety net in parallel
-with the deploy** (it now triggers on push to `main` — it used to be
-`pull_request`-only, so with pushes going straight to main it never ran once). It
-does **not** gate `promote`: blocking production on browser flakiness, on a runner
-sharing a box with production, trades a real outage risk for a marginal one. To
-change that, add `e2e` to `promote`'s `needs` in `pipeline.yml` and expect about
-+10 min on every deploy.
+**CI runs the same script, and it BLOCKS the deploy.** The `e2e` job in
+`.github/workflows/pipeline.yml` calls this very `run-local.sh` with `CI=true`, and
+`promote` lists it in `needs` — so nothing reaches production until the browser
+suite is green. Two consequences worth knowing:
+
+- The job lives in `pipeline.yml`, not its own workflow file, because `needs`
+  cannot reference a job in another workflow. That is the only way to make it
+  actually block. (There used to be a separate `e2e.yml`; it was merged in.)
+- Because CI executes the same script, **editing `run-local.sh` changes what gates
+  production.** It is not a local-only convenience.
+
+It costs little wall-clock: `e2e` runs in parallel with `backend`, on a different
+runner, so the deploy waits for max(backend, e2e) rather than their sum.
+
+**The known risk.** The self-hosted runner lives **on the production VPS**, so the
+stack it starts competes with production for resources, and a browser flake now
+blocks a deploy. This is the shape that forced LaTabdhir to delete its own browser
+job: Chrome reacts to co-tenant Docker veth churn with `net::ERR_NETWORK_CHANGED`,
+producing large failure counts against clean server logs. Majlisna's suite is
+loopback against a local isolated stack, which is the safer profile — but if those
+flakes appear, switch the job's `runs-on` to `ubuntu-latest`: a GitHub-hosted
+runner has its own network namespace, so co-tenant churn cannot reach Chromium.
 
 **E2E is the layer that catches what nothing else can.** The audit of 2026-07-25
 found room join/leave returning 422 for every client: the request schemas had
@@ -486,10 +497,11 @@ page.locator('text=Discuss and vote')
 ### Infrastructure
 
 **GitHub Actions gates the deploy; Dokploy performs it.** On push to `main` the
-pipeline detects changed components and runs the suites in parallel (backend
-tests run with `--use-postgres`, so the dialect-specific tests actually execute).
-When they are green, the `promote` job fast-forwards the **`production`** branch
-to the tested commit.
+pipeline detects changed components and runs the suites in parallel — backend
+(with `--use-postgres`, so the dialect-specific tests actually execute), frontend,
+and **e2e** (the full Playwright suite, on the self-hosted runner). When all three
+are green, the `promote` job fast-forwards the **`production`** branch to the
+tested commit. A red or flaky suite means nothing ships.
 
 **Dokploy watches `production`, not `main`.** Its compose app for
 `majlisna-compose` has `autoDeploy=true`, `triggerType=push`, `branch=production`.

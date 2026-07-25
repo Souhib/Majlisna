@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 #
-# The authoritative E2E gate: the full Playwright suite against the isolated
-# local docker stack.
+# The E2E gate: the full Playwright suite against the isolated local docker stack.
 #
 # This exists because running the suite by hand is a five-step dance (bring up
 # the stack, wait for health, drop the DB, reseed, run) and skipping any step
 # gives a misleading result — a run against an unseeded database fails on
 # missing test accounts, which looks like a product bug.
+#
+# CI RUNS THIS SAME SCRIPT (the `e2e` job in .github/workflows/pipeline.yml, with
+# CI=true), and that job blocks the production deploy. So a change here changes
+# what gates production — it is not a local-only convenience.
 #
 # Usage:
 #   ./run-local.sh                # one full run

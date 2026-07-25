@@ -4,11 +4,17 @@ name: CI
 #
 # Dokploy autodeploys the `production` branch. `main` is NOT deployed: the
 # `promote` job at the bottom fast-forwards `production` to the tested commit,
-# and only once the backend and frontend suites are green. Previously Dokploy
+# and only once the backend, frontend AND e2e suites are green. Previously Dokploy
 # watched `main`, so a red CI still shipped — the deploy was live about a minute
 # after the push, roughly twelve minutes before CI had an opinion.
 #
 # Pointing Dokploy's compose app back at `main` silently restores that.
+#
+# The e2e job lives HERE rather than in its own workflow because `needs` cannot
+# reference a job in another file — that is the only way to make it actually block
+# the deploy. It runs in parallel with `backend`, and on a different runner, so
+# blocking on it costs little wall-clock: the deploy waits for
+# max(backend, e2e), not their sum.
 
 on:
   push:
@@ -44,6 +50,7 @@ jobs:
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
+      e2e: ${{ steps.filter.outputs.e2e }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -61,6 +68,12 @@ jobs:
               - 'backend/**'
             frontend:
               - 'front/**'
+            # E2E drives the real stack, so it is relevant to a change in either
+            # component as well as to the harness itself.
+            e2e:
+              - 'backend/**'
+              - 'front/**'
+              - 'e2e/**'
 
   # ── Security Scan (Trivy) ───────────────────────────────────
 
@@ -147,11 +160,67 @@ jobs:
       - name: Test (vitest)
         run: bun run test
 
+  # ── E2E (blocking) ──────────────────────────────────────────
+
+  e2e:
+    # Self-hosted, because it needs Docker to bring the whole stack up. Note this
+    # runner lives ON the production VPS: the stack it starts competes for
+    # resources with production. Loopback against a local isolated stack keeps it
+    # away from the veth-churn flakiness that forced LaTabdhir to delete its own
+    # browser job (net::ERR_NETWORK_CHANGED from co-tenant Docker churn). If those
+    # flakes ever show up here, switch to `ubuntu-latest` — a GitHub-hosted runner
+    # has its own network namespace.
+    runs-on: self-hosted
+    timeout-minutes: 40
+    needs: changes
+    if: needs.changes.outputs.e2e == 'true' || github.event_name == 'workflow_dispatch'
+    defaults:
+      run:
+        working-directory: e2e
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: bunx playwright install chromium --with-deps
+
+      # Runs the same run-local.sh developers use, so CI and local cannot drift:
+      # one place brings the stack up, waits for BOTH services, reseeds before the
+      # run, and decides pass/fail. CI=true switches playwright to retries:2 and
+      # the github reporter.
+      - name: E2E suite
+        run: ./run-local.sh -n 1
+        env:
+          CI: true
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: e2e/playwright-report/
+          retention-days: 7
+
+      # Separate from the script's own --down so it still runs when the script
+      # bails out early (e.g. the stack never became healthy).
+      - name: Tear down the stack
+        if: always()
+        run: docker compose -f docker-compose.e2e.yml down -v
+
   # ── Promote to production ───────────────────────────────────
 
   promote:
     runs-on: ubuntu-latest
-    needs: [changes, backend, frontend]
+    needs: [changes, backend, frontend, e2e]
     # `needs` alone would skip this job whenever a needed job is SKIPPED, which
     # happens on every push that touches only one component. So gate explicitly:
     # each suite must have either passed or been skipped, never failed.
@@ -161,6 +230,7 @@ jobs:
       && !cancelled()
       && contains(fromJSON('["success","skipped"]'), needs.backend.result)
       && contains(fromJSON('["success","skipped"]'), needs.frontend.result)
+      && contains(fromJSON('["success","skipped"]'), needs.e2e.result)
     permissions:
       contents: write
     # One promotion at a time, so two runs can't race the branch pointer.
