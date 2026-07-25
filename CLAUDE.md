@@ -173,7 +173,9 @@ A task is NEVER complete until the ENTIRE test suite passes with:
 3. Re-run the full test suite **3 consecutive times** to confirm 0 failures and 0 flaky
 4. Only then is the task complete
 
-**⛔ NEVER commit or push without running ALL tests first.** You MUST run the full backend test suite (`uv run pytest`) and the full frontend test suite (`bun run test`) BEFORE every commit. Do NOT rely on CI to catch failures — CI is a safety net, not a substitute for local verification. If you commit broken code, you break the deploy (Dokploy auto-deploys from `main`). Running linters alone is NOT sufficient.
+**⛔ NEVER commit or push without running ALL tests first.** You MUST run the full backend suite (`uv run pytest --use-postgres`), the full frontend suite (`bun run test`) and, for any change to app logic, the E2E gate (`cd e2e && bun run gate`) BEFORE every commit. Running linters alone is NOT sufficient.
+
+CI now gates the deploy (nothing reaches production until the suites are green), but it is still not a substitute for local verification: it runs the backend and frontend suites only — the E2E gate is local and authoritative — and a failure discovered in CI means a 13-minute round trip per attempt.
 
 **What you MUST NOT do:**
 - Do NOT report a task as done if any test is broken
@@ -209,16 +211,67 @@ cd front && bun run lint && bun run typecheck
 # E2E — MANDATORY after any backend or frontend change that touches main logic
 # (API routes, controllers, game components, rooms, auth, shared state)
 # Only skip for purely cosmetic/unrelated pages (e.g. About page, static content)
-cd e2e && npx playwright test
+cd e2e && bun run gate          # 3 consecutive clean runs — see "The E2E gate" below
 ```
 
-**CRITICAL: E2E tests are NOT optional.** Any change to backend controllers, API routes, game logic, room management, auth flow, or frontend components that interact with the backend MUST be followed by a full E2E run. The E2E suite is the final safety net — unit tests and linters alone are not sufficient to catch integration regressions.
+### The E2E gate
 
-Do not consider a task complete until ALL tests pass with zero failures AND zero flaky tests — whether or not the failures appear related to your changes. A flaky test is still a failing test. If a pre-existing flaky test blocks completion, fix it before moving on.
+**The local docker stack is the ONLY authoritative regression gate. Run it before
+every push that touches app logic:**
+
+```bash
+cd e2e && bun run gate          # = ./run-local.sh -n 3
+```
+
+`run-local.sh` does the whole dance in one command, because doing it by hand is
+five steps and skipping one gives a misleading result:
+
+1. brings up the isolated stack (`docker-compose.e2e.yml`, loopback :5049/:3049),
+2. waits for backend **and** frontend to answer,
+3. **reseeds the database before every run** (`--delete` then `--create-db`) so
+   each run starts identical — a run against an unseeded DB fails on missing test
+   accounts, which reads like a product bug,
+4. runs Playwright N times, failing on the first unclean run,
+5. `--down` tears the stack back down.
+
+Retries are OFF locally (`playwright.config.ts` enables them only under `CI`), so
+a test that only passes on a second attempt is reported as a failure. That is the
+intent: **a flaky test is a failing test.** Do not consider a task complete until
+the gate is green — whether or not a failure looks related to your change. If a
+pre-existing flake blocks you, fix it before moving on.
+
+Handy narrower runs while iterating (then finish with the full gate):
+`bun run test:local` (one run), `bun run test:rooms`, `bun run test:undercover`,
+`./run-local.sh --no-build` (reuse images), `./run-local.sh -- --grep "room join"`.
+
+**Why the full suite is not in CI.** The self-hosted runners live **on the
+production VPS**. A long browser suite on a shared host is exactly what LaTabdhir
+had to delete from its CI: Chrome reacts to co-tenant Docker veth churn with
+`net::ERR_NETWORK_CHANGED`, producing large failure counts against clean server
+logs. `.github/workflows/e2e.yml` therefore runs as a **safety net in parallel
+with the deploy** (it now triggers on push to `main` — it used to be
+`pull_request`-only, so with pushes going straight to main it never ran once). It
+does **not** gate `promote`: blocking production on browser flakiness, on a runner
+sharing a box with production, trades a real outage risk for a marginal one. To
+change that, add `e2e` to `promote`'s `needs` in `pipeline.yml` and expect about
++10 min on every deploy.
+
+**E2E is the layer that catches what nothing else can.** The audit of 2026-07-25
+found room join/leave returning 422 for every client: the request schemas had
+dropped `user_id` while the frontend still sent it, and `BaseModel` is
+`extra="forbid"`. Backend tests missed it (they call controllers directly, never
+the route's Pydantic validation) and `tsc` missed it (the generated Kubb client
+was stale). Only a browser run through the real stack failed.
 
 ### CI Must Pass After Every Push
 
-**After every `git push`, check that CI passes.** Use `gh run list --repo Souhib/Majlisna --limit 1` to find the run, then `gh run watch <run-id> --repo Souhib/Majlisna` to wait for completion. If CI fails, investigate and fix immediately — do not leave `main` in a broken state. Dokploy auto-deploys from `main`, so a broken CI means a broken deploy is possible.
+**After every `git push`, check that CI passes.** Use `gh run list --repo Souhib/Majlisna --workflow=pipeline.yml --limit 1` to find the run, then `gh run watch <run-id> --repo Souhib/Majlisna` to wait for completion.
+
+A red CI can no longer ship: Dokploy watches the **`production`** branch, and only
+the `promote` job advances it, after the suites are green (see Infrastructure →
+"GitHub Actions gates the deploy"). So a failure leaves `main` untested-but-not-live
+rather than broken-in-production. Fix it anyway — until it is green, nothing you
+pushed has reached production, and it is easy to assume otherwise.
 
 ### Debugging Test Failures
 

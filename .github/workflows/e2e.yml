@@ -1,6 +1,38 @@
 name: E2E Tests
 
+# A SAFETY NET, not the gate.
+#
+# The authoritative regression gate is the FULL suite run locally, before
+# pushing: `cd e2e && bun run gate` (3 consecutive clean runs). See the E2E gate
+# section in the root CLAUDE.md. That is deliberate, and mirrors LaTabdhir:
+#
+# - These runners are self-hosted ON THE PRODUCTION VPS. A long browser suite on
+#   a shared host is the exact shape that had to be deleted from LaTabdhir's CI:
+#   Chrome reacts to constant Docker veth churn from co-tenant containers with
+#   net::ERR_NETWORK_CHANGED, producing large "failed" counts against clean
+#   server logs. Majlisna's suite has the safer profile (loopback, against a
+#   local isolated stack rather than a live app over the internet), which is why
+#   it runs here at all — but it stays off the deploy path.
+# - It does NOT gate `promote` in pipeline.yml. Blocking production on browser
+#   flakiness, on a runner that shares a box with production, trades a real
+#   outage risk for a marginal one. To change that, add `e2e` to `promote`'s
+#   `needs` — and expect roughly +10 min on every deploy.
+#
+# It used to trigger on `pull_request` only, so with pushes going straight to
+# `main` it never ran once. Now it runs on push to main, in parallel with the
+# deploy: a red run is a notification to investigate, not a rollback trigger.
+#
+# If veth-churn flakes ever appear here, flip `runs-on` to `ubuntu-latest` — a
+# GitHub-hosted runner has its own network namespace, so co-tenant Docker churn
+# cannot reach Chromium.
+
 on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "front/**"
+      - "e2e/**"
   pull_request:
     branches: [main]
     paths:

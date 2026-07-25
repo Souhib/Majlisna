@@ -4,6 +4,8 @@
   "private": true,
   "scripts": {
     "test": "playwright test",
+    "gate": "./run-local.sh -n 3",
+    "test:local": "./run-local.sh",
     "test:smoke": "playwright test tests/smoke/",
     "test:auth": "playwright test tests/auth/",
     "test:rooms": "playwright test tests/rooms/",
