@@ -211,6 +211,51 @@ async def test_get_random_words_success(codenames_controller: CodenamesControlle
     assert len(set(word_ids)) == 25
 
 
+async def test_get_random_words_never_repeats_a_word_across_the_board(
+    codenames_controller: CodenamesController,
+):
+    """A board never carries the same word twice, even when packs overlap.
+
+    The same term legitimately lives in more than one thematic pack — the seed data
+    has Ikhlas, Tafsir and Tajweed in two packs each, with different hints. Sampling
+    distinct *rows* therefore dealt the same word onto two of the 25 cards on roughly
+    4% of boards, which makes the game unplayable: a one-word clue cannot say which
+    of the two identical cards the spymaster meant, and anything addressing a card by
+    its word hits whichever it finds first.
+    """
+    # Arrange — two packs that share every word, as the real packs partly do.
+    pack_a = await codenames_controller.create_word_pack(CodenamesWordPackCreate(name="Pack A"))
+    pack_b = await codenames_controller.create_word_pack(CodenamesWordPackCreate(name="Pack B"))
+    for i in range(30):
+        await codenames_controller.add_word(CodenamesWordCreate(word=f"shared_{i}"), pack_a.id)
+        await codenames_controller.add_word(CodenamesWordCreate(word=f"shared_{i}"), pack_b.id)
+
+    # Act — draw a full board several times; the collision is probabilistic.
+    for _ in range(20):
+        words = await codenames_controller.get_random_words(count=25)
+
+        # Assert
+        assert len(words) == 25
+        texts = [w.word for w in words]
+        assert len(set(texts)) == 25, f"duplicate word on the board: {texts}"
+
+
+async def test_get_random_words_counts_available_words_not_rows(
+    codenames_controller: CodenamesController,
+):
+    """Availability is measured in distinct words, so a board is never short-dealt."""
+    # Arrange — 60 rows, but only 20 distinct words.
+    pack_a = await codenames_controller.create_word_pack(CodenamesWordPackCreate(name="Dup A"))
+    pack_b = await codenames_controller.create_word_pack(CodenamesWordPackCreate(name="Dup B"))
+    for i in range(20):
+        await codenames_controller.add_word(CodenamesWordCreate(word=f"dup_{i}"), pack_a.id)
+        await codenames_controller.add_word(CodenamesWordCreate(word=f"dup_{i}"), pack_b.id)
+
+    # Act / Assert — 40 rows is not 40 playable cards.
+    with pytest.raises(NotEnoughWordsError):
+        await codenames_controller.get_random_words(count=25)
+
+
 async def test_get_random_words_not_enough(codenames_controller: CodenamesController):
     """Requesting more words than available raises NotEnoughWordsError."""
     # Arrange

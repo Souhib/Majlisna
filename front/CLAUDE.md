@@ -249,3 +249,21 @@ stopped refreshing (kicked, room closed, backend down) left the player on a froz
 lobby with no signal. A banner (`room.staleState`) now says so when there is already a
 roster on screen. Deliberately a banner and not a redirect: replacing a live lobby
 over one bad poll would be worse than showing stale data.
+
+### Text on a 10% tint uses the `-on-tint` tokens
+
+`text-primary` on `bg-primary/10` measured **3.56:1** at 12px and
+`text-destructive` on `bg-destructive/10` measured **4.09:1** — both under the 4.5:1
+AA floor for small text. `--primary-on-tint` / `--destructive-on-tint` exist for that
+pairing only, so buttons, icons and headings keep the brand colours. They are
+*darker* in light mode and *lighter* in dark mode: the tint composites over opposite
+backgrounds.
+
+This is also a lesson about the accessibility suite. The axe scan runs right after
+`domcontentloaded`, while the cards are still animating in, and axe skips a node that
+is momentarily `opacity: 0` — so whether the chips got measured at all depended on
+machine speed. Three clean local gate runs missed it; CI caught it. The deterministic
+guard is `e2e/tests/accessibility/contrast.spec.ts`, which waits for the animation to
+settle and composites the translucent tint the way a browser does. When adding a
+chip-style label, keep it above 4.5:1 or make the text large enough to qualify for
+the 3:1 large-text threshold.

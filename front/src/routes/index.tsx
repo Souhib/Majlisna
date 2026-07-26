@@ -127,10 +127,10 @@ function HomePage() {
             {t("games.undercover.description")}
           </p>
           <div className="mt-5 flex flex-wrap gap-1.5">
-            <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
+            <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary-on-tint">
               {t("games.undercover.roles.civilian")}
             </span>
-            <span className="rounded-full bg-destructive/10 px-2.5 py-1 text-xs font-medium text-destructive">
+            <span className="rounded-full bg-destructive/10 px-2.5 py-1 text-xs font-medium text-destructive-on-tint">
               {t("games.undercover.roles.undercover")}
             </span>
             <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
@@ -195,7 +195,7 @@ function HomePage() {
             <span className="rounded-full bg-violet-100 dark:bg-violet-900/30 px-3 py-1 text-xs font-medium text-violet-700 dark:text-violet-400">
               {t("game.wordQuiz.hint")}
             </span>
-            <span className="rounded-full bg-amber-100 dark:bg-amber-900/30 px-3 py-1 text-xs font-medium text-amber-700 dark:text-amber-400">
+            <span className="rounded-full bg-amber-100 dark:bg-amber-900/30 px-3 py-1 text-xs font-medium text-amber-800 dark:text-amber-300">
               {t("game.wordQuiz.score")}
             </span>
             <span className="rounded-full bg-emerald-100 dark:bg-emerald-900/30 px-3 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-400">
@@ -229,7 +229,7 @@ function HomePage() {
             <span className="rounded-full bg-rose-100 dark:bg-rose-900/30 px-3 py-1 text-xs font-medium text-rose-700 dark:text-rose-400">
               {t("game.mcqQuiz.chooseAnswer")}
             </span>
-            <span className="rounded-full bg-amber-100 dark:bg-amber-900/30 px-3 py-1 text-xs font-medium text-amber-700 dark:text-amber-400">
+            <span className="rounded-full bg-amber-100 dark:bg-amber-900/30 px-3 py-1 text-xs font-medium text-amber-800 dark:text-amber-300">
               {t("game.mcqQuiz.explanation")}
             </span>
           </div>

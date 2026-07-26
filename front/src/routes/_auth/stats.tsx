@@ -192,17 +192,17 @@ function StatsPage() {
               </div>
               <div className="flex items-center gap-2">
                 {game.user_won === true && (
-                  <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-bold text-primary">
+                  <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-bold text-primary-on-tint">
                     {t("stats.won")}
                   </span>
                 )}
                 {game.user_won === false && (
-                  <span className="rounded-full bg-destructive/10 px-3 py-1 text-xs font-bold text-destructive">
+                  <span className="rounded-full bg-destructive/10 px-3 py-1 text-xs font-bold text-destructive-on-tint">
                     {t("stats.lost")}
                   </span>
                 )}
                 {game.user_won === null && !game.end_time && (
-                  <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-bold text-primary">
+                  <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-bold text-primary-on-tint">
                     {t("stats.inProgress")}
                   </span>
                 )}

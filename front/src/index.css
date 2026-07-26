@@ -24,6 +24,12 @@
   /* Richer jewel-toned emerald */
   --primary: oklch(0.52 0.15 160);
   --primary-foreground: oklch(0.98 0.005 155);
+  /* Text colour for a label sitting on a 10% tint of its own hue (the role chips
+     on the home page). `text-primary` on `bg-primary/10` measured 3.56:1 at 12px,
+     under the 4.5:1 AA floor for small text — a real WCAG failure that the
+     accessibility suite caught. Darkened just for that pairing so buttons, icons
+     and headings keep the brand green. */
+  --primary-on-tint: oklch(0.44 0.14 160);
 
   --secondary: oklch(0.94 0.015 155);
   --secondary-foreground: oklch(0.3 0.03 155);
@@ -36,6 +42,7 @@
   --accent-foreground: oklch(0.22 0.03 65);
 
   --destructive: oklch(0.55 0.22 25);
+  --destructive-on-tint: oklch(0.46 0.17 25);
   --destructive-foreground: oklch(0.98 0.005 155);
 
   --border: oklch(0.9 0.015 85);
@@ -92,6 +99,9 @@
 
   --primary: oklch(0.65 0.16 160);
   --primary-foreground: oklch(0.13 0.02 260);
+  /* Dark mode inverts the problem: the 10% tint sits on a dark card, so the label
+     has to go lighter to clear 4.5:1, not darker. */
+  --primary-on-tint: oklch(0.78 0.14 160);
 
   --secondary: oklch(0.22 0.02 260);
   --secondary-foreground: oklch(0.94 0.008 85);
@@ -104,6 +114,7 @@
 
   --destructive: oklch(0.55 0.2 25);
   --destructive-foreground: oklch(0.94 0.008 85);
+  --destructive-on-tint: oklch(0.72 0.17 25);
 
   --border: oklch(0.26 0.02 260);
   --input: oklch(0.26 0.02 260);
@@ -156,6 +167,7 @@
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-primary-on-tint: var(--primary-on-tint);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
@@ -164,6 +176,7 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-destructive-on-tint: var(--destructive-on-tint);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);

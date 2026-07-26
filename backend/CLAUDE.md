@@ -611,3 +611,19 @@ It is now typed as `list[PlayerUnlockedAchievements] | None` (see `schemas/commo
 on `UndercoverGameState`, `CodenamesBoardState`, `WordQuizGameState` and
 `McqQuizGameState`, and passed through from `state.get(...)` in each `get_state` /
 `get_board`. Writing to `live_state` is not the same as returning it — check both ends.
+
+### A Codenames board never carries the same word twice
+
+`get_random_words` samples distinct word **texts**, not distinct rows. The same term
+legitimately lives in more than one thematic pack — the seed data has Ikhlas, Tafsir
+and Tajweed in two packs each, with different hints — so sampling rows dealt the same
+word onto two of the 25 cards on roughly 4% of boards.
+
+That is not cosmetic. A one-word clue cannot say which of two identical cards the
+spymaster meant, and anything that addresses a card by its word (the UI, the E2E
+suite) hits whichever it finds first. It is also what made
+`codenames/game-voting.spec.ts` fail once every few full gate runs — the kind of
+low-rate flake that reads as infrastructure and isn't.
+
+`NotEnoughWordsError` counts distinct words too: forty rows of twenty words is not a
+board.

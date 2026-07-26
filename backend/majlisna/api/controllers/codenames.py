@@ -1,4 +1,3 @@
-import random
 from collections.abc import Sequence
 from uuid import UUID
 
@@ -14,6 +13,7 @@ from majlisna.api.models.codenames import (
     CodenamesWordPackCreate,
 )
 from majlisna.api.utils.cache import cache
+from majlisna.api.utils.rng import rng
 
 WORD_PACKS_CACHE_KEY = "codenames:word_packs"
 
@@ -185,7 +185,19 @@ class CodenamesController:
 
         all_words = list((await self.session.exec(query)).all())
 
-        if len(all_words) < count:
-            raise NotEnoughWordsError(requested=count, available=len(all_words))
+        # Distinct by word TEXT, not by row. The same word can exist in more than one
+        # pack — and did: the seed data carried Ikhlas, Tafsir and Tajweed twice — so
+        # sampling rows could deal the same word onto two of the 25 cards. That makes
+        # the game unplayable rather than merely odd: a one-word clue cannot say which
+        # of the two identical cards the spymaster meant, and anything addressing a
+        # card by its word (the UI, the E2E suite) hits whichever it finds first.
+        # ~4% of boards were affected.
+        unique_by_text: dict[str, CodenamesWord] = {}
+        for word in all_words:
+            unique_by_text.setdefault(word.word, word)
+        distinct_words = list(unique_by_text.values())
 
-        return random.sample(all_words, count)
+        if len(distinct_words) < count:
+            raise NotEnoughWordsError(requested=count, available=len(distinct_words))
+
+        return rng.sample(distinct_words, count)
