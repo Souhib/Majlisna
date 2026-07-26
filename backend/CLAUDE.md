@@ -675,3 +675,17 @@ with SQLAlchemy's stubs (`selectinload(Room.users)`, `User.id.in_(...)`,
 `ignore`, which would also hide real ones. Two real bugs surfaced during the cleanup:
 `get_latest_turn` could return None behind a `-> Turn` annotation, and `ws/state.py`
 rebound one variable to four unrelated controller types.
+
+### A warm `.mypy_cache` can lie — CI is always cold
+
+`mypy majlisna/` passed locally and failed in CI on the very commit that added it to
+the pipeline: a warm cache did not re-report `import-untyped` for `jose` and
+`socketio`, while CI's fresh checkout did. If a mypy result surprises you,
+`rm -rf .mypy_cache` before believing it.
+
+`[tool.mypy]` now pins `python_version = "3.12"` — the version CI and the production
+image run — so a developer on 3.13 cannot get a clean run for code CI rejects.
+`types-python-jose` is a dev dependency (real types on the auth path, not silence),
+and `ignore_missing_imports` is scoped to `socketio` alone, which ships neither stubs
+nor a py.typed marker. Do not make that setting global: it would swallow a genuinely
+missing stub for a typed dependency.

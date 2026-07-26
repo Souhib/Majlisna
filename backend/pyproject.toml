@@ -118,4 +118,22 @@ dev = [
     "poethepoet>=0.41.0",
     "prek>=0.2.2",
     "ruff>=0.15.2",
+    "types-python-jose>=3.5.0.20260408",
 ]
+
+[tool.mypy]
+# Pinned to the version CI and the production image run (Dockerfile: python:3.12-slim).
+# Without this, mypy analyses against whatever interpreter is local — and a developer on
+# 3.13 can get a clean run for code CI rejects.
+python_version = "3.12"
+
+# NOTE on caching: a warm .mypy_cache can hide missing-stub errors that a cold run
+# reports, which is how a "clean" local run shipped a failing CI job once. CI is always
+# cold; if a result surprises you, `rm -rf .mypy_cache` before believing it.
+
+[[tool.mypy.overrides]]
+# python-socketio ships neither stubs nor a py.typed marker. Scoped to this module
+# rather than set globally, so a genuinely missing stub for a typed dependency still
+# surfaces instead of being silently swallowed.
+module = ["socketio", "socketio.*"]
+ignore_missing_imports = true
