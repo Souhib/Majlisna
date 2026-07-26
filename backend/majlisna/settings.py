@@ -1,10 +1,11 @@
 import json
 import os
 from pathlib import Path
+from typing import Annotated
 
 from dotenv import dotenv_values, load_dotenv
 from pydantic import field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 def _get_env_file() -> tuple[str, ...]:
@@ -84,7 +85,18 @@ class Settings(BaseSettings):
     google_client_id_web: str = ""
 
     # CORS
-    cors_origins: str = ""
+    #
+    # Typed as the list it actually is. It used to be declared `str` with an
+    # "after" validator returning a list, which made the annotation a lie: mypy
+    # (and any reader) saw a str, so `x in settings.cors_origins` type-checked as a
+    # SUBSTRING test rather than membership, and serialising Settings emitted a
+    # PydanticSerializationUnexpectedValue warning on every test run.
+    #
+    # `NoDecode` is what makes `list[str]` usable here: without it pydantic-settings
+    # treats a list field as complex and tries `json.loads` on the raw env value
+    # BEFORE validators run, so a plain `a,b` string raises SettingsError. With it,
+    # the raw string reaches the "before" validator below.
+    cors_origins: Annotated[list[str], NoDecode] = []
 
     # Emails allowed to reach the game-content endpoints (undercover words and
     # term pairs, codenames word packs). Comma-separated or a JSON array.
@@ -96,7 +108,7 @@ class Settings(BaseSettings):
     # accepted any logged-in user, i.e. any player could DELETE every word in the
     # game, and could read the full term-pair list — which, next to the word
     # their own role hands them, reveals the opposing word outright.
-    admin_emails: str = ""
+    admin_emails: Annotated[list[str], NoDecode] = []
 
     # Auth flags
     # When True, email/password users must verify their email before they can log
@@ -118,10 +130,22 @@ class Settings(BaseSettings):
             raise ValueError(msg)
         return self
 
-    @field_validator("cors_origins", "admin_emails")
+    @field_validator("cors_origins", "admin_emails", mode="before")
     @classmethod
-    def parse_cors_origins(cls, v: str) -> list[str]:
-        """Parse JSON arrays or comma-separated strings into lists."""
-        if v.startswith("["):
-            return json.loads(v)
-        return [item.strip() for item in v.split(",") if item.strip()]
+    def parse_string_list(cls, v: object) -> list[str]:
+        """Accept a JSON array, a comma-separated string, or an actual list.
+
+        Runs in "before" mode because the fields are declared `list[str]` (see
+        cors_origins) — the raw env value arrives here as a str, while a default or a
+        direct `Settings(cors_origins=[...])` arrives already as a list.
+        """
+        if v is None:
+            return []
+        if isinstance(v, list):
+            return [str(item).strip() for item in v if str(item).strip()]
+        text = str(v).strip()
+        if not text:
+            return []
+        if text.startswith("["):
+            return [str(item).strip() for item in json.loads(text) if str(item).strip()]
+        return [item.strip() for item in text.split(",") if item.strip()]

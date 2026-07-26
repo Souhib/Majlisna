@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from loguru import logger
 from starlette.responses import JSONResponse
-from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 MAX_URL_PATH_LENGTH = 2048
 
@@ -87,7 +87,7 @@ class SecurityMiddleware:
                 scope["query_string"] = sanitized.encode("utf-8")
 
         # Inject security headers into the response
-        async def send_with_headers(message: dict) -> None:
+        async def send_with_headers(message: Message) -> None:
             if message["type"] == "http.response.start":
                 headers = list(message.get("headers", []))
                 headers.append((b"x-content-type-options", b"nosniff"))
@@ -119,7 +119,7 @@ class RequestIDMiddleware:
         # Store in scope state for downstream middleware/routes
         scope.setdefault("state", {})["request_id"] = request_id
 
-        async def send_with_request_id(message: dict) -> None:
+        async def send_with_request_id(message: Message) -> None:
             if message["type"] == "http.response.start":
                 headers = list(message.get("headers", []))
                 headers.append((b"x-request-id", request_id.encode()))
@@ -170,7 +170,7 @@ class LoggingMiddleware:
             start_time = time.perf_counter()
             status_code = 500  # Default in case of error
 
-            async def send_with_logging(message: dict) -> None:
+            async def send_with_logging(message: Message) -> None:
                 nonlocal status_code
                 if message["type"] == "http.response.start":
                     status_code = message.get("status", 500)

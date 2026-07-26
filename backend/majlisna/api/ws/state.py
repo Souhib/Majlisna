@@ -36,22 +36,24 @@ async def fetch_game_state(game_id: str, user_id: str) -> dict:
         if not game:
             return {}
         try:
+            # A local per branch, not one name rebound to four unrelated controller
+            # types: they share no base method (three expose get_state, codenames
+            # exposes get_board), so a single variable only hid that from the reader.
             if game.type == GameType.UNDERCOVER:
-                controller = UndercoverGameController(session)
-                result = await controller.get_state(UUID(game_id), UUID(user_id), update_heartbeat=False)
-                return result.model_dump(mode="json")
-            elif game.type == GameType.WORD_QUIZ:
-                controller = WordQuizGameController(session)
-                result = await controller.get_state(UUID(game_id), UUID(user_id), update_heartbeat=False)
-                return result.model_dump(mode="json")
-            elif game.type == GameType.MCQ_QUIZ:
-                controller = McqQuizGameController(session)
-                result = await controller.get_state(UUID(game_id), UUID(user_id), update_heartbeat=False)
-                return result.model_dump(mode="json")
-            else:
-                controller = CodenamesGameController(session)
-                result = await controller.get_board(UUID(game_id), UUID(user_id), update_heartbeat=False)
-                return result.model_dump(mode="json")
+                undercover = UndercoverGameController(session)
+                state = await undercover.get_state(UUID(game_id), UUID(user_id), update_heartbeat=False)
+                return state.model_dump(mode="json")
+            if game.type == GameType.WORD_QUIZ:
+                wordquiz = WordQuizGameController(session)
+                wordquiz_state = await wordquiz.get_state(UUID(game_id), UUID(user_id), update_heartbeat=False)
+                return wordquiz_state.model_dump(mode="json")
+            if game.type == GameType.MCQ_QUIZ:
+                mcqquiz = McqQuizGameController(session)
+                mcqquiz_state = await mcqquiz.get_state(UUID(game_id), UUID(user_id), update_heartbeat=False)
+                return mcqquiz_state.model_dump(mode="json")
+            codenames = CodenamesGameController(session)
+            board = await codenames.get_board(UUID(game_id), UUID(user_id), update_heartbeat=False)
+            return board.model_dump(mode="json")
         except Exception:
             logger.exception("Failed to fetch game state for game={}", game_id)
             return {}

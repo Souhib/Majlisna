@@ -172,7 +172,7 @@ class CodenamesController:
         :raises NotEnoughWordsError: If there aren't enough words available.
         """
         if pack_ids:
-            query = select(CodenamesWord).where(CodenamesWord.word_pack_id.in_(pack_ids))  # type: ignore[union-attr]
+            query = select(CodenamesWord).where(CodenamesWord.word_pack_id.in_(pack_ids))  # type: ignore[attr-defined,union-attr]
         else:
             # Get words from all active packs
             active_pack_ids_query = select(CodenamesWordPack.id).where(
@@ -181,7 +181,7 @@ class CodenamesController:
             active_pack_ids = (await self.session.exec(active_pack_ids_query)).all()
             if not active_pack_ids:
                 raise NotEnoughWordsError(requested=count, available=0)
-            query = select(CodenamesWord).where(CodenamesWord.word_pack_id.in_(active_pack_ids))  # type: ignore[union-attr]
+            query = select(CodenamesWord).where(CodenamesWord.word_pack_id.in_(active_pack_ids))  # type: ignore[attr-defined,union-attr]
 
         all_words = list((await self.session.exec(query)).all())
 

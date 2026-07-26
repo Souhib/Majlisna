@@ -53,7 +53,7 @@ class GameController:
         """
         new_game = Game(**game_create.model_dump())
         room: Room = (
-            await self.session.exec(select(Room).where(Room.id == new_game.room_id).options(selectinload(Room.users)))
+            await self.session.exec(select(Room).where(Room.id == new_game.room_id).options(selectinload(Room.users)))  # type: ignore[arg-type]
         ).one()
         if room.type != RoomType.ACTIVE:
             raise RoomIsNotActiveError(room_id=room.id)  # type: ignore
@@ -85,7 +85,7 @@ class GameController:
         """
         return (
             await self.session.exec(
-                select(Game).where(Game.id == game_id).options(selectinload(Game.turns), selectinload(Game.room))
+                select(Game).where(Game.id == game_id).options(selectinload(Game.turns), selectinload(Game.room))  # type: ignore[arg-type]
             )
         ).one()
 
@@ -145,7 +145,7 @@ class GameController:
         :return: A list of enriched GameHistoryEntry records.
         """
         statement = (
-            select(Game).join(UserGameLink, Game.id == UserGameLink.game_id).where(UserGameLink.user_id == user_id)
+            select(Game).join(UserGameLink, Game.id == UserGameLink.game_id).where(UserGameLink.user_id == user_id)  # type: ignore[arg-type]
         )
         if requester_id is not None and requester_id != user_id:
             statement = statement.where(Game.game_status != GameStatus.IN_PROGRESS)
@@ -346,13 +346,17 @@ class GameController:
         """
         try:
             db_game = (
-                await self.session.exec(select(Game).where(Game.id == game_id).options(selectinload(Game.turns)))
+                await self.session.exec(select(Game).where(Game.id == game_id).options(selectinload(Game.turns)))  # type: ignore[arg-type]
             ).one()
             if not db_game.turns:
                 raise NoTurnInsideGameError(game_id=game_id)
             latest_turn = (
                 await self.session.exec(select(Turn).where(Turn.game_id == db_game.id).order_by(desc(Turn.start_time)))
             ).first()
+            # `db_game.turns` being non-empty does not prove this query found one:
+            # the eager-loaded collection and this SELECT are two different reads.
+            if latest_turn is None:
+                raise NoTurnInsideGameError(game_id=game_id)
             event = Event(
                 turn_id=latest_turn.id,
                 name=event_create.name,
@@ -378,12 +382,15 @@ class GameController:
         """
         try:
             db_game = (
-                await self.session.exec(select(Game).where(Game.id == game_id).options(selectinload(Game.turns)))
+                await self.session.exec(select(Game).where(Game.id == game_id).options(selectinload(Game.turns)))  # type: ignore[arg-type]
             ).one()
             if not db_game.turns:
                 raise NoTurnInsideGameError(game_id=game_id)
-            return (
+            latest_turn = (
                 await self.session.exec(select(Turn).where(Turn.game_id == db_game.id).order_by(desc(Turn.start_time)))
             ).first()
+            if latest_turn is None:
+                raise NoTurnInsideGameError(game_id=game_id)
+            return latest_turn
         except NoResultFound:
             raise GameNotFoundError(game_id=game_id) from None

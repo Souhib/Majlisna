@@ -142,7 +142,7 @@ class FriendController:
 
         # Batch-fetch friend usernames in a single query to avoid N+1.
         friend_uids = [f.addressee_id if f.requester_id == user_id else f.requester_id for f in results]
-        users = (await self.session.exec(select(User).where(User.id.in_(friend_uids)))).all() if friend_uids else []
+        users = (await self.session.exec(select(User).where(User.id.in_(friend_uids)))).all() if friend_uids else []  # type: ignore[attr-defined]
         username_by_id = {u.id: u.username for u in users}
 
         friends: list[FriendEntry] = []
@@ -173,7 +173,7 @@ class FriendController:
 
         # Batch-fetch requester usernames in a single query to avoid N+1.
         requester_ids = [f.requester_id for f in results]
-        users = (await self.session.exec(select(User).where(User.id.in_(requester_ids)))).all() if requester_ids else []
+        users = (await self.session.exec(select(User).where(User.id.in_(requester_ids)))).all() if requester_ids else []  # type: ignore[attr-defined]
         username_by_id = {u.id: u.username for u in users}
 
         entries: list[FriendEntry] = []

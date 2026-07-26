@@ -43,12 +43,19 @@ async def test_room_notification_failure_does_not_propagate(mock_sio):  # noqa: 
 
 
 async def test_game_updated_emits_signal_to_room(mock_sio, mock_fetch_room_state):  # noqa: ARG001
-    """Game change emits game_updated signal to game room, not per-user state."""
+    """Game change emits game_updated to the game room AND the room, not per-user state.
+
+    The room is in the recipient list because `game:{id}` membership is built by
+    `auto_join_game_room`, which walks a process-local SID map — with 4 uvicorn
+    workers the first `game_updated` of a game would otherwise miss most of the
+    table. `room:{id}` membership is established at connect on every worker.
+    """
     with patch("majlisna.api.ws.notify._get_room_id_for_game", new_callable=AsyncMock, return_value="room-1"):
         await notify_game_changed("game-1")
 
-    # game_updated signal to game room
-    mock_sio.emit.assert_any_call("game_updated", {"game_id": "game-1"}, to="game:game-1")
+    # game_updated signal addressed to BOTH rooms in one emit — get_participants
+    # merges the recipient sets, so a client in both is delivered to once.
+    mock_sio.emit.assert_any_call("game_updated", {"game_id": "game-1"}, to=["game:game-1", "room:room-1"])
     # Also notifies room
     mock_sio.emit.assert_any_call("room_state", {"id": "room-1", "players": []}, to="room:room-1")
 

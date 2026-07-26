@@ -20,7 +20,7 @@ class AchievementCategory(StrEnum):
 class UserStats(BaseTable, table=True):
     """Aggregated player statistics."""
 
-    id: UUID | None = Field(default_factory=uuid4, primary_key=True)
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
     user_id: UUID = Field(foreign_key="user.id", unique=True, index=True)
 
     # Game counts
@@ -89,7 +89,7 @@ class UserStats(BaseTable, table=True):
 class AchievementDefinition(BaseTable, table=True):
     """Badge/achievement definitions."""
 
-    id: UUID | None = Field(default_factory=uuid4, primary_key=True)
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
     code: str = Field(unique=True, index=True)
     category: AchievementCategory
     name: str
@@ -105,7 +105,7 @@ class UserAchievement(BaseTable, table=True):
 
     __table_args__ = (UniqueConstraint("user_id", "achievement_id"),)
 
-    id: UUID | None = Field(default_factory=uuid4, primary_key=True)
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
     user_id: UUID = Field(foreign_key="user.id", index=True)
     achievement_id: UUID = Field(foreign_key="achievementdefinition.id", index=True)
     progress: int = 0

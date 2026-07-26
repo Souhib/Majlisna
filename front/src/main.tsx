@@ -1,3 +1,8 @@
+// FIRST, deliberately: this disables Zod's `new Function` probe, and it has to run
+// before any module that constructs a schema (the generated API schemas are built at
+// import time). See lib/zod-jitless.ts.
+import "./lib/zod-jitless"
+
 import * as Sentry from "@sentry/react"
 import { createRouter, RouterProvider } from "@tanstack/react-router"
 import { StrictMode } from "react"

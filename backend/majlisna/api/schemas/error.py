@@ -187,7 +187,7 @@ class UserNotInRoomError(BaseError):
 class UserAlreadyInRoomError(BaseError):
     """User is already in a room."""
 
-    def __init__(self, user_id: UUID | str, room_id: UUID | str):
+    def __init__(self, user_id: UUID | str, room_id: UUID | str | None):
         super().__init__(
             message=f"User with id {user_id} is already in room with id {room_id}",
             frontend_message="You are already in a room.",

@@ -175,6 +175,6 @@ class EmailService:
             )
             logger.debug("Email sent to {to}: {subject}", to=to_email, subject=subject)
             return True
-        except (resend.exceptions.ApiError, OSError, TimeoutError):
+        except (resend.exceptions.ApiError, OSError, TimeoutError):  # type: ignore[attr-defined]
             logger.exception("Failed to send email to {to}", to=to_email)
             return False

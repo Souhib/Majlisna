@@ -45,7 +45,7 @@ async def scorable_players(session: AsyncSession, state: dict) -> list[dict]:
     existing = set(
         (
             await session.exec(
-                select(User.id).where(User.id.in_(player_ids))  # type: ignore[union-attr]
+                select(User.id).where(User.id.in_(player_ids))  # type: ignore[attr-defined,union-attr]
             )
         ).all()
     )

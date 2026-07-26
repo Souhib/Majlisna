@@ -28,6 +28,7 @@ from majlisna.api.models.error import (
     CantVoteBecauseYouDeadError,
     CantVoteForDeadPersonError,
     CantVoteForYourselfError,
+    PlayerRemovedFromGameError,
 )
 from majlisna.api.models.event import EventCreate
 from majlisna.api.models.game import GameCreate, GameStatus, GameType
@@ -45,6 +46,7 @@ from majlisna.api.schemas.undercover import (
     UndercoverPlayerState,
     WordExplanations,
 )
+from majlisna.api.utils.game_state import require_state
 from majlisna.api.utils.rng import rng
 
 
@@ -251,7 +253,7 @@ class UndercoverGameController(BaseGameController):
             room = (await self.session.exec(select(Room).where(Room.id == room_id))).first()
             if room:
                 self._require_room_host(room, user_id)
-            state = game.live_state
+            state = require_state(game)
 
             description_order = self._generate_description_order(state["players"])
             new_turn = {
@@ -304,7 +306,7 @@ class UndercoverGameController(BaseGameController):
         async with get_game_lock(str(game_id), self.session):
             game = await self._get_game(game_id)
             self._check_game_in_progress(game)
-            state = game.live_state
+            state = require_state(game)
             current_turn = state["turns"][-1]
 
             if current_turn["phase"] != "describing":
@@ -361,7 +363,7 @@ class UndercoverGameController(BaseGameController):
         async with get_game_lock(str(game_id), self.session):
             game = await self._get_game(game_id)
             self._check_game_in_progress(game)
-            state = game.live_state
+            state = require_state(game)
 
             if state["turns"] and state["turns"][-1]["phase"] != "voting":
                 raise BaseError(
@@ -463,7 +465,7 @@ class UndercoverGameController(BaseGameController):
         async with get_game_lock(str(game_id), self.session):
             game = await self._get_game(game_id)
             self._check_game_in_progress(game)
-            state = game.live_state
+            state = require_state(game)
             current_turn = state["turns"][-1]
 
             if current_turn["phase"] != "mr_white_guessing":
@@ -549,7 +551,7 @@ class UndercoverGameController(BaseGameController):
         async with get_game_lock(str(game_id), self.session):
             game = await self._get_game(game_id)
             self._check_game_in_progress(game)
-            state = game.live_state
+            state = require_state(game)
 
             # Any player may trigger timer expiration (consistent with the other
             # games); the server only acts if the timer has actually elapsed, so
@@ -703,7 +705,7 @@ class UndercoverGameController(BaseGameController):
     ) -> UndercoverGameState:
         """Get full game state for a player or spectator. Used for polling and initial page load."""
         game = await self._get_game(game_id)
-        state = game.live_state
+        state = require_state(game)
 
         player = next((p for p in state["players"] if p["user_id"] == str(user_id)), None)
         is_spectator = await self._check_spectator(game, user_id, player)
@@ -731,6 +733,11 @@ class UndercoverGameController(BaseGameController):
                 )
             turn_state = self._build_turn_state(state, "")
         else:
+            if player is None:
+                # Unreachable: _check_spectator above raises unless the caller is
+                # either a player or a spectator, and this is the not-a-spectator
+                # branch. Stated rather than assumed, so the invariant is checked.
+                raise PlayerRemovedFromGameError(user_id=str(user_id), game_id=str(game.id))
             my_role = player["role"]
             my_word = self._get_player_word(player, state)
             my_word_hint = self._get_player_word_hint(player, state, lang)
@@ -801,7 +808,7 @@ class UndercoverGameController(BaseGameController):
             # be accepted after the game has ended — the end-of-game stats have
             # already been computed from hint_usage.
             self._check_game_in_progress(game)
-            state = game.live_state
+            state = require_state(game)
 
             hint_usage = state.setdefault("hint_usage", {})
             user_key = str(user_id)

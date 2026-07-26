@@ -136,7 +136,7 @@ docker compose -f docker-compose.dokploy.yml up -d
 | Security | Trivy (CI vulnerability scanning) |
 | API Codegen | Kubb (OpenAPI -> React Query hooks) |
 | i18n | i18next (English + Arabic + French) |
-| Testing | pytest (backend, 800+ tests), Vitest (frontend, 256 tests), Playwright (E2E, 145 tests) |
+| Testing | pytest (backend, 820+ tests), Vitest (frontend, 256 tests), Playwright (E2E, 170+ tests) |
 | CI/CD | GitHub Actions |
 | Deployment | Docker + Dokploy (Oracle VPS) |
 | Domain | `majlisna.app` (Cloudflare DNS + proxy) |
@@ -426,7 +426,13 @@ When a test fails, the goal is NEVER to make the test pass — it's to have a wo
 
 **`GET /users` and `DELETE /users/{user_id}` were removed.** The first returned the entire unpaginated user table to any caller; the second deleted an account on nothing but a valid session, while `/users/me/account` does the same and requires the password.
 
-**Game content endpoints (undercover words/term pairs, codenames word packs) are admin-only — reads included.** `ADMIN_EMAILS` + `get_current_admin_user`, fail-closed. The GETs took no auth at all and `GET /undercover/termpair` reveals the opposing word to any player; the writes took only *a* login, so any player could delete all game content. There is no `is_admin` column (no migrations), so admin membership is configuration.
+**Game content endpoints (undercover words/term pairs, codenames word packs) are admin-only — reads included.** `ADMIN_EMAILS` + `get_current_admin_user`, fail-closed. The GETs took no auth at all and `GET /undercover/termpair` reveals the opposing word to any player; the writes took only *a* login, so any player could delete all game content. There is no `is_admin` column (no migrations), so admin membership is configuration — matched case-insensitively, and the account must have a **verified** email, because naming an address in config turns that address into a credential anyone could register. See `backend/CLAUDE.md`.
+
+**The frontend CSP is ENFORCED.** The API, Umami and Sentry origins are substituted into `security-headers.conf` from the same build args the bundle is compiled with. `'self'` does not cover a different port or subdomain, so a split-origin API needs its own entry. `src/lib/zod-jitless.ts` must stay imported first in `main.tsx`. `e2e/tests/smoke/csp.spec.ts` fails on any violation. See `front/CLAUDE.md`.
+
+**mypy passes and runs in CI** (`uv run poe check`, and the `backend` job). It was 311 errors behind an uninstalled pre-commit hook. `api/utils/game_state.py::require_state` is what makes `Game.live_state` typed; primary keys are `UUID`, not `UUID | None`. See `backend/CLAUDE.md`.
+
+**`notify_game_changed` addresses the room as well as the game room.** Game-room membership is built from a per-process SID map, so with 4 workers the first `game_updated` of a game reached only a fraction of the table.
 
 **Game creation must be ONE transaction — never commit mid-`create_and_start`.** `GameController.create_game` / `create_turn` / `create_turn_event` take a `commit: bool = True` flag; the four `create_and_start` methods call them with `commit=False` and commit once at the end. Previously these helpers committed internally, which released the room advisory lock (it is transaction-scoped) *before* `active_game_id` was set — so two truly-concurrent starts for the same room both slipped through and created two games. `_prepare_game_start` also reads `active_game_id` with `SELECT ... FOR UPDATE` on postgres (a plain read returned a stale `None` from an older MVCC snapshot). Together these make concurrent same-room starts safe (see `test_concurrent_game_starts_same_room`).
 

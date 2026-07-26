@@ -28,7 +28,7 @@ from majlisna.api.models.wordquiz import QuizWord  # noqa: F401
 
 
 class Room(RoomBase, table=True):
-    id: UUID | None = Field(default_factory=uuid4, primary_key=True, unique=True)
+    id: UUID = Field(default_factory=uuid4, primary_key=True, unique=True)
     public_id: str = Field(min_length=5, max_length=5, unique=True, index=True)
     # Nullable so a room can be orphaned (owner set to NULL, marked inactive) when
     # its owner deletes their account, instead of blocking the delete with an FK
@@ -54,7 +54,7 @@ class Room(RoomBase, table=True):
 
 
 class Game(GameBase, table=True):
-    id: UUID | None = Field(default_factory=uuid4, primary_key=True, unique=True)
+    id: UUID = Field(default_factory=uuid4, primary_key=True, unique=True)
     room_id: UUID | None = Field(foreign_key="room.id", index=True)
     user_id: UUID | None = Field(foreign_key="user.id", index=True)
     room: Room = Relationship(back_populates="games", link_model=RoomGameLink)
@@ -63,14 +63,14 @@ class Game(GameBase, table=True):
 
 
 class User(UserBase, table=True):
-    id: UUID | None = Field(default_factory=uuid4, primary_key=True, unique=True)
+    id: UUID = Field(default_factory=uuid4, primary_key=True, unique=True)
     password: str = Field(min_length=5)
     rooms: list[Room] = Relationship(back_populates="users", link_model=RoomUserLink)
     games: list[Game] = Relationship(back_populates="users", link_model=UserGameLink)
 
 
 class Event(DBModel, table=True):
-    id: UUID | None = Field(default_factory=uuid4, primary_key=True, unique=True)
+    id: UUID = Field(default_factory=uuid4, primary_key=True, unique=True)
     name: str
     data: dict[str, Any] = Field(sa_column=Column(JSON))
     turn_id: UUID | None = Field(foreign_key="turn.id")
@@ -83,7 +83,7 @@ class Event(DBModel, table=True):
 
 
 class Activity(DBModel, table=True):
-    id: UUID | None = Field(default_factory=uuid4, primary_key=True, unique=True)
+    id: UUID = Field(default_factory=uuid4, primary_key=True, unique=True)
     room_id: UUID | None = Field(foreign_key="room.id")
     user_id: UUID | None = Field(foreign_key="user.id")
     name: str
@@ -96,7 +96,7 @@ class Activity(DBModel, table=True):
 
 
 class Turn(TurnBase, table=True):
-    id: UUID | None = Field(default_factory=uuid4, primary_key=True, unique=True)
+    id: UUID = Field(default_factory=uuid4, primary_key=True, unique=True)
     game_id: UUID | None = Field(foreign_key="game.id")
     game: Game = Relationship(back_populates="turns", link_model=GameTurnLink)
     events: list[Event] = Relationship(back_populates="turn", link_model=TurnEventLink)

@@ -35,6 +35,7 @@ from majlisna.api.schemas.mcqquiz import (
     McqQuizRoundResult,
     McqSubmitAnswerResponse,
 )
+from majlisna.api.utils.game_state import require_state
 
 
 class McqQuizGameController(BaseGameController):
@@ -136,7 +137,7 @@ class McqQuizGameController(BaseGameController):
     ) -> McqQuizGameState:
         """Get full game state for a player or spectator."""
         game = await self._get_game(game_id)
-        state = game.live_state
+        state = require_state(game)
 
         player = next((p for p in state["players"] if p["user_id"] == str(user_id)), None)
         is_spectator = await self._check_spectator(game, user_id, player)
@@ -195,7 +196,7 @@ class McqQuizGameController(BaseGameController):
         logger.info("McqQuiz answer: game={} user={}", game_id, user_id)
         async with get_game_lock(str(game_id), self.session):
             game = await self._get_game(game_id)
-            state = game.live_state
+            state = require_state(game)
 
             if state["round_phase"] != "playing":
                 raise RoundNotPlayingError()
@@ -264,7 +265,7 @@ class McqQuizGameController(BaseGameController):
         async with get_game_lock(str(game_id), self.session):
             game = await self._get_game(game_id)
             self._check_game_in_progress(game)
-            state = game.live_state
+            state = require_state(game)
 
             if state["round_phase"] != "playing":
                 return TimerExpiredResponse(game_id=str(game_id), action="not_playing")
@@ -291,7 +292,7 @@ class McqQuizGameController(BaseGameController):
         async with get_game_lock(str(game_id), self.session):
             game = await self._get_game(game_id)
             self._check_game_in_progress(game)
-            state = game.live_state
+            state = require_state(game)
 
             if state["round_phase"] != "results":
                 raise BaseError(

@@ -369,7 +369,7 @@ class ChallengeController:
             return []
 
         definitions = (
-            await self.session.exec(select(ChallengeDefinition).where(ChallengeDefinition.id.in_(challenge_ids)))  # type: ignore[union-attr]
+            await self.session.exec(select(ChallengeDefinition).where(ChallengeDefinition.id.in_(challenge_ids)))  # type: ignore[attr-defined,union-attr]
         ).all()
         defn_map = {d.id: d for d in definitions}
 
@@ -422,7 +422,7 @@ class ChallengeController:
 
         challenge_ids = [c.challenge_id for c in active]
         definitions = (
-            await self.session.exec(select(ChallengeDefinition).where(ChallengeDefinition.id.in_(challenge_ids)))  # type: ignore[union-attr]
+            await self.session.exec(select(ChallengeDefinition).where(ChallengeDefinition.id.in_(challenge_ids)))  # type: ignore[attr-defined,union-attr]
         ).all()
         defn_map = {d.id: d for d in definitions}
 

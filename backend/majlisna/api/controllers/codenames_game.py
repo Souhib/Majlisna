@@ -37,6 +37,7 @@ from majlisna.api.models.error import (
     NotOperativeError,
     NotSpymasterError,
     NotYourTurnError,
+    PlayerRemovedFromGameError,
 )
 from majlisna.api.models.game import GameCreate, GameStatus, GameType
 from majlisna.api.models.relationship import RoomUserLink
@@ -50,6 +51,7 @@ from majlisna.api.schemas.codenames import (
 )
 from majlisna.api.schemas.common import GameStartResponse, HintRecordResponse, TimerExpiredResponse
 from majlisna.api.schemas.error import BaseError
+from majlisna.api.utils.game_state import require_state
 from majlisna.api.utils.rng import rng
 
 
@@ -108,7 +110,7 @@ class CodenamesGameController(BaseGameController):
                 commit=False,
             )
 
-            live_state = {
+            live_state: dict = {
                 "board": board,
                 "players": players,
                 "current_team": first_team.value,
@@ -158,7 +160,7 @@ class CodenamesGameController(BaseGameController):
         logger.info("Codenames clue: game={} user={} word={} number={}", game_id, user_id, clue_word, clue_number)
         async with get_game_lock(str(game_id), self.session):
             game = await self._get_game(game_id)
-            state = game.live_state
+            state = require_state(game)
 
             if state["status"] != CodenamesGameStatus.IN_PROGRESS.value:
                 raise GameNotInProgressError(game_id=str(game_id))
@@ -221,7 +223,7 @@ class CodenamesGameController(BaseGameController):
         logger.info("Codenames guess: game={} user={} card={}", game_id, user_id, card_index)
         async with get_game_lock(str(game_id), self.session):
             game = await self._get_game(game_id)
-            state = game.live_state
+            state = require_state(game)
 
             self._validate_guess(state, str(user_id), card_index)
 
@@ -324,7 +326,7 @@ class CodenamesGameController(BaseGameController):
         """Allow an operative to voluntarily end their turn."""
         async with get_game_lock(str(game_id), self.session):
             game = await self._get_game(game_id)
-            state = game.live_state
+            state = require_state(game)
 
             if state["status"] != CodenamesGameStatus.IN_PROGRESS.value:
                 raise GameNotInProgressError(game_id=str(game_id))
@@ -353,7 +355,7 @@ class CodenamesGameController(BaseGameController):
     ) -> CodenamesBoardState:
         """Get the current board state for a player or spectator. Used for polling."""
         game = await self._get_game(game_id)
-        state = game.live_state
+        state = require_state(game)
 
         # Try to find the user as a player first
         is_spectator = False
@@ -405,6 +407,11 @@ class CodenamesGameController(BaseGameController):
                 for i, card in enumerate(state["board"])
             ]
         else:
+            if player is None:
+                # Unreachable: _check_spectator raises unless the caller is a player
+                # or a spectator, and both other branches are taken first. Stated
+                # rather than assumed, so the invariant is checked.
+                raise PlayerRemovedFromGameError(user_id=str(user_id), game_id=str(game_id))
             board_view = get_board_for_player(state["board"], player)
             # Add hints: revealed cards and spymaster see hints, unrevealed cards for operatives get null
             for card_view in board_view:
@@ -455,7 +462,7 @@ class CodenamesGameController(BaseGameController):
         """Handle timer expiration — auto end-turn. Validates timer actually expired."""
         async with get_game_lock(str(game_id), self.session):
             game = await self._get_game(game_id)
-            state = game.live_state
+            state = require_state(game)
 
             if state["status"] != CodenamesGameStatus.IN_PROGRESS.value:
                 raise GameNotInProgressError(game_id=str(game_id))
@@ -568,7 +575,7 @@ class CodenamesGameController(BaseGameController):
             # be accepted after the game has ended — the end-of-game stats have
             # already been computed from hint_usage.
             self._check_game_in_progress(game)
-            state = game.live_state
+            state = require_state(game)
 
             hint_usage = state.setdefault("hint_usage", {})
             user_key = str(user_id)

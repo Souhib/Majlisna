@@ -93,7 +93,12 @@ omit = [
 # Check commands (CI mode)
 lint = "ruff check majlisna/ tests/"
 format-check = "ruff format --check majlisna/ tests/"
-check = ["lint", "format-check"]
+# mypy is part of `check` — and of the CI backend job — because a type checker that
+# nobody runs is worse than none: .pre-commit-config.yaml claimed it for months while
+# the hook was not installed and the package had 311 errors. Scope is majlisna/ only,
+# matching the hook.
+typecheck = "mypy majlisna/"
+check = ["lint", "format-check", "typecheck"]
 
 # Fix commands
 lint-fix = "ruff check --fix majlisna/ tests/"

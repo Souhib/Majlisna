@@ -9,7 +9,7 @@ from majlisna.api.schemas.shared import BaseTable
 class McqQuestion(BaseTable, table=True):
     __tablename__ = "mcq_question"
 
-    id: UUID | None = Field(default_factory=uuid4, primary_key=True, unique=True)
+    id: UUID = Field(default_factory=uuid4, primary_key=True, unique=True)
     question_en: str = Field(index=True)
     question_ar: str | None = None
     question_fr: str | None = None

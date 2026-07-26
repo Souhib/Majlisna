@@ -9,7 +9,7 @@ from majlisna.api.schemas.shared import BaseTable
 class QuizWord(BaseTable, table=True):
     __tablename__ = "quiz_word"
 
-    id: UUID | None = Field(default_factory=uuid4, primary_key=True, unique=True)
+    id: UUID = Field(default_factory=uuid4, primary_key=True, unique=True)
     word_en: str = Field(index=True)
     word_ar: str | None = None
     word_fr: str | None = None

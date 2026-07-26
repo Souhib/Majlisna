@@ -15,7 +15,7 @@ class FriendshipStatus(StrEnum):
 class Friendship(BaseTable, table=True):
     __table_args__ = (UniqueConstraint("requester_id", "addressee_id", name="uq_friendship_pair"),)
 
-    id: UUID | None = Field(default_factory=uuid4, primary_key=True, unique=True)
+    id: UUID = Field(default_factory=uuid4, primary_key=True, unique=True)
     requester_id: UUID = Field(foreign_key="user.id", index=True)
     addressee_id: UUID = Field(foreign_key="user.id", index=True)
     status: FriendshipStatus = FriendshipStatus.PENDING

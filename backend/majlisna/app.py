@@ -78,14 +78,38 @@ def _configure_observability(settings: Settings, app: FastAPI) -> None:
         logfire.instrument_fastapi(app, capture_headers=True, excluded_urls=["/health", "/scalar"])
 
 
+def _log_admin_access(settings: Settings) -> None:
+    """State at boot whether the game-content endpoints are reachable by anyone.
+
+    ``get_current_admin_user`` fails closed, so an unset ADMIN_EMAILS means those
+    endpoints answer 403 to every caller — correct, but indistinguishable from a
+    broken deploy when you are looking at a 403 and wondering which of the two it
+    is. Logged at INFO, not WARNING: an empty admin list is a valid configuration,
+    and app.py routes WARNING+ to the error tracker.
+
+    Only the count and the domains are logged. The addresses are operator config,
+    not secrets, but there is no reason to put them in a log stream.
+    """
+    if not settings.admin_emails:
+        logger.info("Admin access: DISABLED (ADMIN_EMAILS is unset — game-content endpoints deny everyone)")
+        return
+    domains = sorted({email.rpartition("@")[2].casefold() for email in settings.admin_emails})
+    logger.info(
+        "Admin access: {count} address(es) configured on {domains} (a verified email is also required)",
+        count=len(settings.admin_emails),
+        domains=", ".join(domains),
+    )
+
+
 def create_app(lifespan) -> FastAPI:
     """Create a FastAPI app with all routers, middleware, and exception handlers."""
     settings = Settings()  # type: ignore
 
     app = FastAPI(title="Majlisna", lifespan=lifespan)
     _configure_observability(settings, app)
+    _log_admin_access(settings)
     app.state.limiter = limiter
-    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
 
     # Middleware stack (order matters: first added = outermost)
     app.add_middleware(SecurityMiddleware, is_production=settings.environment == "production")

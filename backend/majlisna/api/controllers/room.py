@@ -80,7 +80,7 @@ class RoomController:
         # Re-fetch with relationships eagerly loaded for serialization
         room = (
             await self.session.exec(
-                select(Room).where(Room.id == new_room.id).options(selectinload(Room.users), selectinload(Room.games))
+                select(Room).where(Room.id == new_room.id).options(selectinload(Room.users), selectinload(Room.games))  # type: ignore[arg-type]
             )
         ).one()
         return room
@@ -140,7 +140,7 @@ class RoomController:
         try:
             return (
                 await self.session.exec(
-                    select(Room).where(Room.id == room_id).options(selectinload(Room.users), selectinload(Room.games))
+                    select(Room).where(Room.id == room_id).options(selectinload(Room.users), selectinload(Room.games))  # type: ignore[arg-type]
                 )
             ).one()
         except NoResultFound:
@@ -229,7 +229,7 @@ class RoomController:
                 await self.session.exec(
                     select(Room)
                     .where(Room.id == db_room.id)
-                    .options(selectinload(Room.users), selectinload(Room.games))
+                    .options(selectinload(Room.users), selectinload(Room.games))  # type: ignore[arg-type]
                 )
             ).one()
             return room
@@ -261,7 +261,7 @@ class RoomController:
 
         room = (
             await self.session.exec(
-                select(Room).where(Room.id == db_room.id).options(selectinload(Room.users), selectinload(Room.games))
+                select(Room).where(Room.id == db_room.id).options(selectinload(Room.users), selectinload(Room.games))  # type: ignore[arg-type]
             )
         ).one()
         logger.info("Room join: user={} room={}", user_id, db_room.id)
@@ -280,7 +280,7 @@ class RoomController:
         """
         try:
             db_room = (
-                await self.session.exec(select(Room).where(Room.id == room_id).options(selectinload(Room.users)))
+                await self.session.exec(select(Room).where(Room.id == room_id).options(selectinload(Room.users)))  # type: ignore[arg-type]
             ).one()
         except NoResultFound:
             raise RoomNotFoundError(room_id=room_id) from None
@@ -303,7 +303,7 @@ class RoomController:
 
         room = (
             await self.session.exec(
-                select(Room).where(Room.id == db_room.id).options(selectinload(Room.users), selectinload(Room.games))
+                select(Room).where(Room.id == db_room.id).options(selectinload(Room.users), selectinload(Room.games))  # type: ignore[arg-type]
             )
         ).one()
         return room
@@ -364,7 +364,7 @@ class RoomController:
 
         room = (
             await self.session.exec(
-                select(Room).where(Room.id == db_room.id).options(selectinload(Room.users), selectinload(Room.games))
+                select(Room).where(Room.id == db_room.id).options(selectinload(Room.users), selectinload(Room.games))  # type: ignore[arg-type]
             )
         ).one()
         logger.info("Room spectator join: user={} room={}", user_id, room_id)
@@ -410,12 +410,14 @@ class RoomController:
         all_links = (await self.session.exec(select(RoomUserLink).where(RoomUserLink.room_id == room_id))).all()
 
         user_ids = [rul.user_id for rul in all_links]
-        users = (await self.session.exec(select(User).where(User.id.in_(user_ids)))).all() if user_ids else []
+        users = (await self.session.exec(select(User).where(User.id.in_(user_ids)))).all() if user_ids else []  # type: ignore[attr-defined]
         user_map = {u.id: u for u in users}
 
         players: list[RoomPlayerState] = []
         for rul in all_links:
-            u = user_map.get(rul.user_id)
+            # RoomUserLink.user_id is nullable in the model, so ask only when there is
+            # something to ask about rather than looking up None.
+            u = user_map.get(rul.user_id) if rul.user_id else None
             if u:
                 players.append(
                     RoomPlayerState(
@@ -530,7 +532,7 @@ class RoomController:
         link = (
             await self.session.exec(
                 select(RoomUserLink)
-                .join(Room, Room.id == RoomUserLink.room_id)
+                .join(Room, Room.id == RoomUserLink.room_id)  # type: ignore[arg-type]
                 .where(
                     RoomUserLink.user_id == user_id,
                     Room.type == RoomType.ACTIVE,

@@ -125,6 +125,13 @@ jobs:
       - name: Format check (ruff format)
         run: uv run ruff format --check majlisna/ tests/
 
+      # Type checking runs HERE, not only in a local hook. The repo carried a mypy
+      # pre-commit hook for months while the hook was never installed and the package
+      # had 311 errors — a guarantee that existed only on paper. CI is what makes it
+      # real; the hook stays as the fast local echo of the same command.
+      - name: Type check (mypy)
+        run: uv run mypy majlisna/
+
       # --use-postgres spins up a PostgreSQL testcontainer (Docker is available
       # on ubuntu-latest) so the advisory-lock / concurrency tests actually run
       # in CI. Without it those tests are silently skipped.

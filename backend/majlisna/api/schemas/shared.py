@@ -30,12 +30,12 @@ class BaseTable(BaseModel):
     TIMESTAMP WITH TIME ZONE support for proper timezone handling.
     """
 
-    created_at: datetime = Field(
+    created_at: datetime = Field(  # type: ignore[call-overload]
         default_factory=lambda: datetime.now(UTC),
         sa_type=TIMESTAMP(timezone=True),  # type: ignore[invalid-argument-type]
         description="Timestamp when the record was created (UTC)",
     )
-    updated_at: datetime = Field(
+    updated_at: datetime = Field(  # type: ignore[call-overload]
         default_factory=lambda: datetime.now(UTC),
         sa_type=TIMESTAMP(timezone=True),  # type: ignore[invalid-argument-type]
         # onupdate makes SQLAlchemy refresh this on every UPDATE; without it the

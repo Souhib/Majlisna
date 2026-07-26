@@ -115,7 +115,7 @@ class UserController:
             select(UserGameLink).where(UserGameLink.user_id == user_id),
             select(PasswordResetToken).where(PasswordResetToken.user_id == user_id),
             select(EmailVerificationToken).where(EmailVerificationToken.user_id == user_id),
-            select(Friendship).where(or_(Friendship.requester_id == user_id, Friendship.addressee_id == user_id)),
+            select(Friendship).where(or_(Friendship.requester_id == user_id, Friendship.addressee_id == user_id)),  # type: ignore[arg-type]
         ):
             for row in (await self.session.exec(statement)).all():
                 await self.session.delete(row)

@@ -627,3 +627,51 @@ low-rate flake that reads as infrastructure and isn't.
 
 `NotEnoughWordsError` counts distinct words too: forty rows of twenty words is not a
 board.
+
+### `ADMIN_EMAILS` is a credential, so the account must be verified
+
+`get_current_admin_user` requires the caller's address to be in `ADMIN_EMAILS`
+**case-insensitively** and the account to have `email_verified = True`.
+
+Both halves came from getting it wrong first. Comparing raw strings meant a configured
+`Admin@Example.com` silently denied the account registered as `admin@example.com`, a
+failure indistinguishable from a broken deploy. And naming an address in config turns
+that address into a credential: registration is open, `require_email_verification` is
+off by default, so if the configured admin has not registered yet, anyone who guesses
+the address — a project owner's email is rarely secret — could register it and inherit
+content-management rights. Requiring a verified email means squatting the address buys
+nothing without access to the mailbox. Keying on user ids would sidestep the squat
+entirely, but ids are not knowable when writing a deploy config; a verified address is.
+
+`app.py` logs at boot whether admin access is configured (count and domains only).
+An unset `ADMIN_EMAILS` is a valid configuration — it means nobody is an admin — but a
+403 from these endpoints is otherwise indistinguishable from a broken deploy.
+
+Both `ADMIN_EMAILS` and `CORS_ORIGINS` are `Annotated[list[str], NoDecode]`. They were
+declared `str` with an "after" validator returning a list, so the annotation lied:
+`x in settings.admin_emails` type-checked as a *substring* test. `NoDecode` is what
+makes `list[str]` usable at all here — without it pydantic-settings JSON-decodes a
+list-typed field before validators run, and a plain `a,b` env value raises.
+
+### mypy runs in CI, and it passes
+
+`uv run poe check` and the CI backend job both run `mypy majlisna/`. The package was at
+**311 errors** with a pre-commit hook that was never installed — a guarantee that
+existed only on paper. Getting to zero was mostly two changes, not 311:
+
+- `api/utils/game_state.py::require_state(game)` narrows `Game.live_state` once, in a
+  place that raises if it is empty, instead of leaving `dict | None` to be indexed at
+  ~150 sites. Handlers that prefer to bail assign to a local and guard *that* —
+  narrowing a local survives an intervening await, narrowing an attribute does not.
+- Primary keys declared `id: UUID | None` with `default_factory=uuid4` became `UUID`.
+  They are generated in Python and never None; the `| None` was cargo-culted from
+  SQLModel's autoincrement examples. **The generated DDL is byte-identical** — verified
+  by diffing `CreateTable` output before and after, which matters because there are no
+  migrations.
+
+What remains is ~34 `# type: ignore[...]` lines where SQLModel's descriptors disagree
+with SQLAlchemy's stubs (`selectinload(Room.users)`, `User.id.in_(...)`,
+`A.id == B.id` typing as `bool`). Each carries its specific error code — never a bare
+`ignore`, which would also hide real ones. Two real bugs surfaced during the cleanup:
+`get_latest_turn` could return None behind a `-> Turn` annotation, and `ws/state.py`
+rebound one variable to four unrelated controller types.

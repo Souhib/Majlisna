@@ -267,3 +267,33 @@ guard is `e2e/tests/accessibility/contrast.spec.ts`, which waits for the animati
 settle and composites the translucent tint the way a browser does. When adding a
 chip-style label, keep it above 4.5:1 or make the text large enough to qualify for
 the 3:1 large-text threshold.
+
+### The CSP is enforced, and `Zod` must stay jitless for it to be
+
+`security-headers.conf` ships `Content-Security-Policy`, not `-Report-Only`. Two things
+made that possible:
+
+**The unknown hosts are no longer unknown.** The Umami, Sentry and **API** origins are
+substituted into the policy by the frontend Dockerfile's production stage, from the
+same build args the bundle is compiled with — so the allowlist cannot drift from what
+the bundle talks to. Only the origin is taken from the Sentry DSN; its key never
+reaches a response header. An unset arg substitutes to nothing, which is valid.
+
+The API origin is **not** redundant with `'self'`: `'self'` is scheme + host + *port*,
+so `api.majlisna.app` (documented as supported) or the E2E stack's `:5049` next to the
+frontend's `:3049` is a different origin. Without it an enforced policy blocks every
+API call. The E2E suite is what found that.
+
+**`src/lib/zod-jitless.ts` must stay imported first in `main.tsx`.** Zod 4 decides
+whether to JIT-compile validators by *probing* `new Function("")` in a try/catch. Under
+the policy that probe is blocked; Zod catches it and uses the interpreted path, so
+nothing breaks — but every page load records a `script-src`/`eval` violation. Setting
+`jitless` short-circuits the probe (`fastEnabled = jit && allowsEval.value`), giving the
+same code path with no violation. It took a while to find because minification aliases
+`Function` to a local, so it does not appear in the bundle as `new Function`.
+
+`e2e/tests/smoke/csp.spec.ts` fails on any enforced violation and reports
+`sourceFile`/`line`, so the next one names itself. It collects violations over
+`console`, never `page.evaluate` — Playwright evaluates in the main world, which
+Chromium subjects to CSP, so reading results that way reports an `eval` violation of
+the harness's own making.

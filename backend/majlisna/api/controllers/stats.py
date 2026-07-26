@@ -184,7 +184,7 @@ class StatsController:
 
         results = await self.session.exec(
             select(UserStats, User.username)
-            .join(User, UserStats.user_id == User.id)
+            .join(User, UserStats.user_id == User.id)  # type: ignore[arg-type]
             .order_by(col(column).desc())
             .limit(limit)
         )
@@ -213,10 +213,10 @@ class StatsController:
         cutoff = datetime.now(UTC) - timedelta(days=days)
         results = await self.session.exec(
             select(Game)
-            .join(UserGameLink, Game.id == UserGameLink.game_id)
+            .join(UserGameLink, Game.id == UserGameLink.game_id)  # type: ignore[arg-type]
             .where(UserGameLink.user_id == user_id)
             .where(Game.game_status == GameStatus.FINISHED)
-            .where(Game.end_time >= cutoff)
+            .where(Game.end_time >= cutoff)  # type: ignore[operator]
         )
         games = results.all()
 
@@ -251,7 +251,7 @@ class StatsController:
         """Compute game duration analytics for a user."""
         results = await self.session.exec(
             select(Game)
-            .join(UserGameLink, Game.id == UserGameLink.game_id)
+            .join(UserGameLink, Game.id == UserGameLink.game_id)  # type: ignore[arg-type]
             .where(UserGameLink.user_id == user_id)
             .where(Game.game_status == GameStatus.FINISHED)
             .where(Game.end_time.is_not(None))  # type: ignore[union-attr]
@@ -323,7 +323,7 @@ class StatsController:
         games = (
             await self.session.exec(
                 select(Game).where(
-                    Game.id.in_(shared_game_ids),  # type: ignore[union-attr]
+                    Game.id.in_(shared_game_ids),  # type: ignore[attr-defined,union-attr]
                     Game.game_status == GameStatus.FINISHED,
                 )
             )

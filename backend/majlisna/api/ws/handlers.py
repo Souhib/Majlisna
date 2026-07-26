@@ -153,11 +153,18 @@ async def join_game(sid, data):
 
 
 async def auto_join_game_room(game_id: str, room_id: str) -> int:
-    """Auto-join all connected room members into the game's Socket.IO room.
+    """Auto-join this worker's room members into the game's Socket.IO room.
 
-    Called from game start routes so players are already in the game room
-    when the first ``game_updated`` event is emitted — eliminates the race
-    condition where the event fires before ``join_game`` from the client.
+    Called from game start routes so players are already in the game room when the
+    first ``game_updated`` event is emitted, instead of racing their own
+    ``join_game``.
+
+    **This is an optimisation, not a guarantee.** `_user_sids` is per-process, so
+    with 4 uvicorn workers it reaches roughly a quarter of the table. Correctness
+    comes from ``notify_game_changed`` addressing ``room:{room_id}`` as well as
+    ``game:{game_id}`` — room membership is established at connect on whichever
+    worker holds the socket. Do not reintroduce a dependency on this function
+    having reached everyone.
 
     Returns the number of SIDs joined.
     """

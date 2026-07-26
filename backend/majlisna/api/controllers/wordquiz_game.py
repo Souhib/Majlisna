@@ -46,6 +46,8 @@ from majlisna.api.schemas.wordquiz import (
 )
 
 # Arabic diacritics regex for normalization
+from majlisna.api.utils.game_state import require_state
+
 _ARABIC_DIACRITICS = re.compile("[\u0610-\u061a\u064b-\u065f\u0670\u06d6-\u06dc\u06df-\u06e8\u06ea-\u06ed]")
 
 
@@ -268,7 +270,7 @@ class WordQuizGameController(BaseGameController):
     ) -> WordQuizGameState:
         """Get full game state for a player or spectator."""
         game = await self._get_game(game_id)
-        state = game.live_state
+        state = require_state(game)
 
         player = next((p for p in state["players"] if p["user_id"] == str(user_id)), None)
         is_spectator = await self._check_spectator(game, user_id, player)
@@ -330,7 +332,7 @@ class WordQuizGameController(BaseGameController):
         logger.info("WordQuiz answer: game={} user={}", game_id, user_id)
         async with get_game_lock(str(game_id), self.session):
             game = await self._get_game(game_id)
-            state = game.live_state
+            state = require_state(game)
 
             if state["round_phase"] != "playing":
                 raise RoundNotPlayingError()
@@ -403,7 +405,7 @@ class WordQuizGameController(BaseGameController):
         async with get_game_lock(str(game_id), self.session):
             game = await self._get_game(game_id)
             self._check_game_in_progress(game)
-            state = game.live_state
+            state = require_state(game)
 
             if state["round_phase"] != "playing":
                 return TimerExpiredResponse(game_id=str(game_id), action="not_playing")
@@ -430,7 +432,7 @@ class WordQuizGameController(BaseGameController):
         async with get_game_lock(str(game_id), self.session):
             game = await self._get_game(game_id)
             self._check_game_in_progress(game)
-            state = game.live_state
+            state = require_state(game)
 
             if state["round_phase"] != "results":
                 raise BaseError(
@@ -556,7 +558,7 @@ class WordQuizGameController(BaseGameController):
             # be accepted after the game has ended — the end-of-game stats have
             # already been computed from hint_usage.
             self._check_game_in_progress(game)
-            state = game.live_state
+            state = require_state(game)
 
             hint_usage = state.setdefault("hint_usage", {})
             user_key = str(user_id)

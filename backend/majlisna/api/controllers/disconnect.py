@@ -35,7 +35,7 @@ async def _mark_stale_users(session: AsyncSession) -> set[str]:
             select(RoomUserLink)
             .where(RoomUserLink.connected == True)  # noqa: E712
             .where(RoomUserLink.last_seen_at != None)  # noqa: E711
-            .where(RoomUserLink.last_seen_at < stale_threshold)
+            .where(RoomUserLink.last_seen_at < stale_threshold)  # type: ignore[operator]
         )
     ).all()
 
@@ -78,7 +78,7 @@ async def _remove_expired_users(session: AsyncSession) -> tuple[set[str], set[st
             select(RoomUserLink)
             .where(RoomUserLink.connected == False)  # noqa: E712
             .where(RoomUserLink.disconnected_at != None)  # noqa: E711
-            .where(RoomUserLink.disconnected_at < grace_threshold)
+            .where(RoomUserLink.disconnected_at < grace_threshold)  # type: ignore[operator]
         )
     ).all()
 
@@ -265,10 +265,18 @@ async def _handle_undercover_disconnect(session: AsyncSession, game: Game, user_
     """Handle undercover game disconnect: mark player dead, check win conditions."""
     async with get_game_lock(str(game.id), session):
         # Re-fetch to avoid stale state
-        game = (await session.exec(select(Game).where(Game.id == game.id))).first()
-        if not game or not game.live_state:
+        # Re-read under the lock. Assigned to a new name and then narrowed: the
+        # parameter is a Game, and rebinding it to the Optional result of .first()
+        # is the sort of thing that only looks harmless.
+        locked_game = (await session.exec(select(Game).where(Game.id == game.id))).first()
+        if not locked_game:
             return
+        game = locked_game
+        # Guard the LOCAL, not `game.live_state`: narrowing a local survives the
+        # intervening awaits, narrowing an attribute does not.
         state = game.live_state
+        if not state:
+            return
 
         player = next((p for p in state["players"] if p["user_id"] == user_id), None)
         if not player or not player["is_alive"]:
@@ -342,10 +350,18 @@ async def _handle_undercover_disconnect(session: AsyncSession, game: Game, user_
 async def _handle_codenames_disconnect(session: AsyncSession, game: Game, user_id: str, room: Room) -> None:
     """Handle codenames game disconnect: check if team is empty."""
     async with get_game_lock(str(game.id), session):
-        game = (await session.exec(select(Game).where(Game.id == game.id))).first()
-        if not game or not game.live_state:
+        # Re-read under the lock. Assigned to a new name and then narrowed: the
+        # parameter is a Game, and rebinding it to the Optional result of .first()
+        # is the sort of thing that only looks harmless.
+        locked_game = (await session.exec(select(Game).where(Game.id == game.id))).first()
+        if not locked_game:
             return
+        game = locked_game
+        # Guard the LOCAL, not `game.live_state`: narrowing a local survives the
+        # intervening awaits, narrowing an attribute does not.
         state = game.live_state
+        if not state:
+            return
 
         player = next((p for p in state["players"] if p["user_id"] == user_id), None)
         if not player:
@@ -386,10 +402,18 @@ async def _handle_codenames_disconnect(session: AsyncSession, game: Game, user_i
 async def _handle_wordquiz_disconnect(session: AsyncSession, game: Game, user_id: str, room: Room) -> None:
     """Handle Word Quiz game disconnect: remove player, end if no players left."""
     async with get_game_lock(str(game.id), session):
-        game = (await session.exec(select(Game).where(Game.id == game.id))).first()
-        if not game or not game.live_state:
+        # Re-read under the lock. Assigned to a new name and then narrowed: the
+        # parameter is a Game, and rebinding it to the Optional result of .first()
+        # is the sort of thing that only looks harmless.
+        locked_game = (await session.exec(select(Game).where(Game.id == game.id))).first()
+        if not locked_game:
             return
+        game = locked_game
+        # Guard the LOCAL, not `game.live_state`: narrowing a local survives the
+        # intervening awaits, narrowing an attribute does not.
         state = game.live_state
+        if not state:
+            return
 
         player = next((p for p in state["players"] if p["user_id"] == user_id), None)
         if not player:
@@ -418,10 +442,18 @@ async def _handle_wordquiz_disconnect(session: AsyncSession, game: Game, user_id
 async def _handle_mcqquiz_disconnect(session: AsyncSession, game: Game, user_id: str, room: Room) -> None:
     """Handle MCQ Quiz game disconnect: remove player, end if no players left."""
     async with get_game_lock(str(game.id), session):
-        game = (await session.exec(select(Game).where(Game.id == game.id))).first()
-        if not game or not game.live_state:
+        # Re-read under the lock. Assigned to a new name and then narrowed: the
+        # parameter is a Game, and rebinding it to the Optional result of .first()
+        # is the sort of thing that only looks harmless.
+        locked_game = (await session.exec(select(Game).where(Game.id == game.id))).first()
+        if not locked_game:
             return
+        game = locked_game
+        # Guard the LOCAL, not `game.live_state`: narrowing a local survives the
+        # intervening awaits, narrowing an attribute does not.
         state = game.live_state
+        if not state:
+            return
 
         player = next((p for p in state["players"] if p["user_id"] == user_id), None)
         if not player:

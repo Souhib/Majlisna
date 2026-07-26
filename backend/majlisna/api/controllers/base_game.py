@@ -91,7 +91,7 @@ class BaseGameController:
         user_ids = [link.user_id for link in links]
         users_result = (
             await self.session.exec(
-                select(User).where(User.id.in_(user_ids))  # type: ignore[union-attr]
+                select(User).where(User.id.in_(user_ids))  # type: ignore[attr-defined,union-attr]
             )
         ).all()
 
@@ -113,8 +113,11 @@ class BaseGameController:
             raise GameNotFoundError(game_id=game_id)
         return game
 
-    async def _check_is_host(self, room_id: UUID, user_id: UUID) -> bool:
-        """Check if the user is the host of the room."""
+    async def _check_is_host(self, room_id: UUID | None, user_id: UUID) -> bool:
+        """Check if the user is the host of the room.
+
+        Accepts None because callers pass `game.room_id`, and answering False for
+        "no room" is the same answer the missing-room branch already gives."""
         room = (await self.session.exec(select(Room).where(Room.id == room_id))).first()
         if room:
             return room.owner_id == user_id
@@ -145,8 +148,11 @@ class BaseGameController:
                 status_code=400,
             )
 
-    async def _update_heartbeat_throttled(self, room_id: UUID, user_id: UUID) -> None:
-        """Update heartbeat only if last_seen_at is stale (>HEARTBEAT_THROTTLE_SECONDS)."""
+    async def _update_heartbeat_throttled(self, room_id: UUID | None, user_id: UUID) -> None:
+        """Update heartbeat only if last_seen_at is stale (>HEARTBEAT_THROTTLE_SECONDS).
+
+        Accepts None for the same reason as _check_is_host: no room means no link to
+        refresh, which is already this method's no-op path."""
         link = (
             await self.session.exec(
                 select(RoomUserLink).where(RoomUserLink.room_id == room_id).where(RoomUserLink.user_id == user_id)

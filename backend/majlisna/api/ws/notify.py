@@ -107,7 +107,7 @@ async def notify_chat_message(room_id: str, message_data: dict) -> None:
 
 
 async def notify_game_changed(game_id: str, room_id: str | None = None) -> None:
-    """Broadcast game_updated signal to all clients in the game room.
+    """Broadcast the game_updated signal to the game room AND the room itself.
 
     Awaited in route handlers to guarantee delivery before the HTTP response.
 
@@ -116,15 +116,32 @@ async def notify_game_changed(game_id: str, room_id: str | None = None) -> None:
     signal. Each client receives it and invalidates its TanStack Query cache,
     triggering a REST re-fetch of its own role-aware state.
 
-    Always also notifies the room (looks up room_id if not provided).
+    **Why both rooms.** Membership of ``game:{game_id}`` is built either by the
+    client's own ``join_game`` or by ``auto_join_game_room``, and the latter walks a
+    process-local SID map — so with 4 uvicorn workers it only reaches the players
+    whose socket happens to live on the worker handling the request. The very first
+    ``game_updated`` of a game (emitted by the start route, before clients have
+    navigated and called ``join_game``) could therefore miss most of the table.
+    ``room:{room_id}`` membership is established at connect for every member, so
+    adding it closes that gap without depending on which worker serves what.
+
+    Passing both rooms to a single emit rather than emitting twice is deliberate:
+    ``get_participants`` merges a list of rooms into one recipient dict, so a client
+    sitting in both — everyone on a game page — is delivered to exactly once.
     """
+    # Resolve the room first: it is now part of the recipient set, not just a
+    # follow-up notification.
+    if not room_id:
+        room_id = await _get_room_id_for_game(game_id)
+
+    targets = [f"game:{game_id}"]
+    if room_id:
+        targets.append(f"room:{room_id}")
+
     try:
-        await sio.emit("game_updated", {"game_id": game_id}, to=f"game:{game_id}")
+        await sio.emit("game_updated", {"game_id": game_id}, to=targets)
     except Exception:
         logger.opt(exception=True).error("notify_game_changed FAILED for game={}", game_id)
 
-    # Always notify room — look up room_id if not provided
-    if not room_id:
-        room_id = await _get_room_id_for_game(game_id)
     if room_id:
         await notify_room_changed(room_id)

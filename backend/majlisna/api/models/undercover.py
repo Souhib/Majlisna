@@ -17,7 +17,7 @@ class WordBase(DBModel):
 
 
 class Word(WordBase, table=True):
-    id: UUID | None = Field(default_factory=uuid4, primary_key=True, unique=True)
+    id: UUID = Field(default_factory=uuid4, primary_key=True, unique=True)
 
 
 class WordCreate(WordBase):

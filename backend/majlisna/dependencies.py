@@ -149,7 +149,7 @@ async def get_current_admin_user(
     current_user: Annotated[User, Depends(get_current_user)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> User:
-    """Require the caller to be listed in ADMIN_EMAILS.
+    """Require the caller to be a verified account listed in ADMIN_EMAILS.
 
     Guards the game-content endpoints (undercover words / term pairs, codenames
     word packs). Those used to require nothing beyond a valid login, which meant
@@ -159,9 +159,29 @@ async def get_current_admin_user(
 
     Fails closed: with ADMIN_EMAILS unset nobody passes. Game content is loaded
     by ``scripts/generate_fake_data.py``, not through the API.
+
+    Two things this has to get right, both of which the first cut got wrong:
+
+    **The address match is case-insensitive.** Email domains are case-insensitive
+    by definition and every provider treats the local part that way in practice,
+    so a configured ``Admin@Example.com`` silently denied the account registered
+    as ``admin@example.com`` — a failure that looks like a broken deploy.
+
+    **The account must have a verified email.** Naming an address in config makes
+    that address a credential, and registration is open with
+    ``require_email_verification`` off by default: if the configured admin had not
+    yet registered, anyone who guessed the address (a project owner's email is
+    rarely secret) could register it and inherit content-management rights.
+    Requiring ``email_verified`` means squatting the address buys nothing without
+    access to the mailbox — and if you have that, you own the account anyway.
+    Keying on user ids instead would sidestep the squat entirely, but ids are not
+    knowable when writing a deploy config; a verified address is.
     """
-    if current_user.email_address not in settings.admin_emails:
+    admin_emails = {email.casefold() for email in settings.admin_emails}
+    if current_user.email_address.casefold() not in admin_emails:
         raise ForbiddenError(f"User {current_user.id} is not an administrator")
+    if not current_user.email_verified:
+        raise ForbiddenError(f"Admin {current_user.id} has not verified their email address")
     return current_user
 
 

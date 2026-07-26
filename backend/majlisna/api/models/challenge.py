@@ -16,7 +16,7 @@ class ChallengeType(StrEnum):
 class ChallengeDefinition(BaseTable, table=True):
     """Challenge template definitions."""
 
-    id: UUID | None = Field(default_factory=uuid4, primary_key=True)
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
     code: str = Field(unique=True, index=True)
     description: str
     challenge_type: ChallengeType
@@ -31,7 +31,7 @@ class UserChallenge(BaseTable, table=True):
 
     __table_args__ = (UniqueConstraint("user_id", "challenge_id", "assigned_at"),)
 
-    id: UUID | None = Field(default_factory=uuid4, primary_key=True)
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
     user_id: UUID = Field(foreign_key="user.id", index=True)
     challenge_id: UUID = Field(foreign_key="challengedefinition.id", index=True)
     progress: int = 0
