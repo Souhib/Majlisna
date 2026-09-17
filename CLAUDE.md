@@ -258,14 +258,15 @@ suite is green. Two consequences worth knowing:
 It costs little wall-clock: `e2e` runs in parallel with `backend`, on a different
 runner, so the deploy waits for max(backend, e2e) rather than their sum.
 
-**The known risk.** The self-hosted runner lives **on the production VPS**, so the
-stack it starts competes with production for resources, and a browser flake now
-blocks a deploy. This is the shape that forced LaTabdhir to delete its own browser
-job: Chrome reacts to co-tenant Docker veth churn with `net::ERR_NETWORK_CHANGED`,
-producing large failure counts against clean server logs. Majlisna's suite is
-loopback against a local isolated stack, which is the safer profile — but if those
-flakes appear, switch the job's `runs-on` to `ubuntu-latest`: a GitHub-hosted
-runner has its own network namespace, so co-tenant churn cannot reach Chromium.
+**Runner isolation (18 September 2026).** E2E remains on the existing VPS by
+owner preference, using the `ci-majlisna` account and its own rootless Docker daemon.
+The runner has no sudo, host Docker access, or access to Dokploy's files; egress to
+private/admin/metadata networks is denied. Its user slice limits CPU to one core
+and memory to 4 GiB, including containers. Browser OS libraries are installed by
+an administrator; CI only installs the Playwright browser. The `isolated-rootless`
+label prevents scheduling onto an old privileged runner. The kernel is shared,
+and runner state persists between jobs: this is not VM isolation. Keep fork workflow
+approval enabled and do not grant this account production credentials.
 
 **E2E is the layer that catches what nothing else can.** The audit of 2026-07-25
 found room join/leave returning 422 for every client: the request schemas had

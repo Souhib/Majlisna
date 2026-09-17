@@ -170,14 +170,9 @@ jobs:
   # ── E2E (blocking) ──────────────────────────────────────────
 
   e2e:
-    # Self-hosted, because it needs Docker to bring the whole stack up. Note this
-    # runner lives ON the production VPS: the stack it starts competes for
-    # resources with production. Loopback against a local isolated stack keeps it
-    # away from the veth-churn flakiness that forced LaTabdhir to delete its own
-    # browser job (net::ERR_NETWORK_CHANGED from co-tenant Docker churn). If those
-    # flakes ever show up here, switch to `ubuntu-latest` — a GitHub-hosted runner
-    # has its own network namespace.
-    runs-on: self-hosted
+    # Dedicated unprivileged account + rootless Docker on the existing VPS.
+    # It cannot access the host Docker socket, deploy secrets, or private services.
+    runs-on: [self-hosted, isolated-rootless]
     timeout-minutes: 40
     needs: changes
     if: needs.changes.outputs.e2e == 'true' || github.event_name == 'workflow_dispatch'
@@ -198,7 +193,9 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Install Playwright browsers
-        run: bunx playwright install chromium --with-deps
+        # OS libraries are provisioned by the host administrator. The CI account
+        # deliberately has no sudo or package-manager privileges.
+        run: bunx playwright install chromium
 
       # Runs the same run-local.sh developers use, so CI and local cannot drift:
       # one place brings the stack up, waits for BOTH services, reseeds before the
