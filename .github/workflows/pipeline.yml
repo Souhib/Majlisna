@@ -201,6 +201,9 @@ jobs:
       # one place brings the stack up, waits for BOTH services, reseeds before the
       # run, and decides pass/fail. CI=true switches playwright to retries:2 and
       # the github reporter.
+      - name: Verify E2E gate exit propagation
+        run: bash test-run-local.sh
+
       - name: E2E suite
         run: ./run-local.sh -n 1
         env:

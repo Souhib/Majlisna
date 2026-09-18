@@ -110,10 +110,9 @@ for run in $(seq 1 "$RUNS"); do
 
   step "Playwright run $run/$RUNS"
   out=$(mktemp)
-  if "${PW[@]}" test "${PW_ARGS[@]+"${PW_ARGS[@]}"}" 2>&1 | tee "$out"; then
-    :
-  fi
-  # Trust playwright's exit code via PIPESTATUS, not the tee.
+  "${PW[@]}" test "${PW_ARGS[@]+"${PW_ARGS[@]}"}" 2>&1 | tee "$out"
+  # Capture immediately: an enclosing `if` overwrites PIPESTATUS and can turn
+  # failed Playwright runs into a green deployment gate.
   status=${PIPESTATUS[0]}
 
   # Belt and braces: `flaky` only appears when retries are enabled, but if

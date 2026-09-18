@@ -684,3 +684,10 @@ bypassing Cloudflare (WAF) and Traefik — and because uvicorn runs with
 every slowapi rate limit. Traefik reaches the containers over `dokploy-network`, so
 no public host port is needed. This is the same class of hole already documented
 for the monitoring stack ("direct IP:31xxx access bypassed authentication").
+
+### E2E gate exit status
+
+`e2e/run-local.sh` must capture `PIPESTATUS[0]` immediately after the Playwright/tee
+pipeline. An enclosing `if` resets that array and previously let a failed browser
+suite return success. `e2e/test-run-local.sh` checks clean, failed and flaky outcomes
+with mock executables; CI runs it before the real full suite. Do not weaken either.
