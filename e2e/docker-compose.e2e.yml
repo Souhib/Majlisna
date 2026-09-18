@@ -13,7 +13,7 @@ services:
       POSTGRES_PASSWORD: majlisna
       POSTGRES_DB: majlisna
     ports:
-      - "54339:5432"
+      - "127.0.0.1:54339:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U majlisna"]
       interval: 5s
@@ -70,7 +70,7 @@ services:
         INSTALL_DEV: "true"
     container_name: majlisna-e2e-backend
     ports:
-      - "5049:5000"
+      - "127.0.0.1:5049:5000"
     environment:
       DATABASE_URL: postgresql+asyncpg://majlisna:majlisna@pgbouncer:6432/majlisna
       # Bypasses PgBouncer for scripts/generate_fake_data.py, which runs DDL. See
@@ -112,7 +112,7 @@ services:
         VITE_GOOGLE_CLIENT_ID: "000000000000-placeholder.apps.googleusercontent.com"
     container_name: majlisna-e2e-frontend
     ports:
-      - "3049:80"
+      - "127.0.0.1:3049:80"
     depends_on:
       backend:
         condition: service_healthy
