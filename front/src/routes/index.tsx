@@ -13,7 +13,7 @@ const charities = [
     color: "from-emerald-500/15 to-teal-500/15",
     borderColor: "border-emerald-500/20 hover:border-emerald-500/40",
     textColor: "text-emerald-700 dark:text-emerald-400",
-    btnColor: "bg-emerald-600 hover:bg-emerald-700 text-white",
+    btnColor: "bg-emerald-700 hover:bg-emerald-800 text-white",
   },
   {
     name: "Ummah Charity",
@@ -22,7 +22,7 @@ const charities = [
     color: "from-sky-500/15 to-indigo-500/15",
     borderColor: "border-sky-500/20 hover:border-sky-500/40",
     textColor: "text-sky-700 dark:text-sky-400",
-    btnColor: "bg-sky-600 hover:bg-sky-700 text-white",
+    btnColor: "bg-sky-700 hover:bg-sky-800 text-white",
   },
 ] as const
 
@@ -251,7 +251,7 @@ function HomePage() {
         <div className="text-center mb-10">
           <div className="inline-flex items-center gap-2 rounded-full border border-accent/20 bg-accent/10 px-4 py-1.5 mb-4">
             <Heart className="h-3.5 w-3.5 text-accent" />
-            <span className="text-xs font-semibold text-accent tracking-wide">{t("home.charity.badge")}</span>
+            <span className="text-xs font-semibold text-foreground tracking-wide">{t("home.charity.badge")}</span>
           </div>
           <h2 className="text-3xl font-extrabold tracking-tight gradient-text sm:text-4xl">
             {t("home.charity.title")}
