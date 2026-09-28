@@ -577,5 +577,59 @@
   "footer": {
     "madeWithLove": "Made with <heart/> for the Ummah",
     "copyright": "\u00a9 {{year}} Majlisna"
+  },
+  "privacy": {
+    "link": "Privacy policy",
+    "title": "Privacy policy",
+    "updated": "Last updated: 28 September 2026",
+    "intro": "Majlisna (majlisna.app) is a free online platform for Islamic party games, run by Souhib Trabelsi. This page explains what data we collect, why, and how you can control it.",
+    "sections": [
+      {
+        "title": "Data we collect",
+        "body": [
+          "Account: your username, email address and password (stored only as a hash). Optionally your country, a short bio and a profile picture.",
+          "Google sign-in: if you choose \"Continue with Google\", we receive your Google account identifier, email address, name and profile picture. We never receive your Google password.",
+          "Gameplay: rooms you join, games played, scores, statistics, achievements, challenges, friends and the chat messages you send in game rooms.",
+          "Technical data: server logs (such as IP address and browser type) for security and troubleshooting, and error reports when the app crashes."
+        ]
+      },
+      {
+        "title": "How we use it",
+        "body": [
+          "To create and secure your account, run multiplayer games, show leaderboards and statistics, send account emails (verification and password reset) and keep the service working and safe. We do not sell your data and we do not show advertising."
+        ]
+      },
+      {
+        "title": "Service providers",
+        "body": [
+          "Google (sign-in with Google and web fonts), Resend (sending account emails), Cloudflare (network and security proxy) and Oracle Cloud (server hosting). Audience statistics use a self-hosted Umami instance without advertising cookies; error reports go to a self-hosted error tracker."
+        ]
+      },
+      {
+        "title": "Retention",
+        "body": [
+          "Your account data is kept until you delete your account. Server logs and error reports are kept for a limited period for security and debugging."
+        ]
+      },
+      {
+        "title": "Your rights",
+        "body": [
+          "You can edit your profile at any time and delete your account from your profile page; deletion removes your account and the data linked to it. If you signed up with Google, or for any other request (access, correction, deletion, objection), contact us by email."
+        ]
+      },
+      {
+        "title": "Children",
+        "body": [
+          "Majlisna is intended for a general audience. Children should use it with the permission of a parent or guardian."
+        ]
+      },
+      {
+        "title": "Changes",
+        "body": [
+          "We may update this policy. The date at the top of this page shows the latest version."
+        ]
+      }
+    ],
+    "contact": "Questions about your data:"
   }
 }

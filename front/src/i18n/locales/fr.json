@@ -568,5 +568,59 @@
   "footer": {
     "madeWithLove": "Fait avec <heart/> pour la Oumma",
     "copyright": "\u00a9 {{year}} Majlisna"
+  },
+  "privacy": {
+    "link": "Politique de confidentialité",
+    "title": "Politique de confidentialité",
+    "updated": "Dernière mise à jour : 28 septembre 2026",
+    "intro": "Majlisna (majlisna.app) est une plateforme gratuite de jeux de société islamiques en ligne, éditée par Souhib Trabelsi. Cette page explique quelles données nous collectons, pourquoi, et comment vous pouvez les contrôler.",
+    "sections": [
+      {
+        "title": "Données collectées",
+        "body": [
+          "Compte : votre pseudo, votre adresse e-mail et votre mot de passe (conservé uniquement sous forme chiffrée). En option : votre pays, une courte bio et une photo de profil.",
+          "Connexion Google : si vous choisissez « Continuer avec Google », nous recevons l'identifiant de votre compte Google, votre adresse e-mail, votre nom et votre photo de profil. Nous ne recevons jamais votre mot de passe Google.",
+          "Jeu : salons rejoints, parties jouées, scores, statistiques, succès, défis, amis et messages envoyés dans le chat des salons.",
+          "Données techniques : journaux du serveur (adresse IP, type de navigateur) pour la sécurité et le dépannage, et rapports d'erreur en cas de plantage."
+        ]
+      },
+      {
+        "title": "Utilisation",
+        "body": [
+          "Créer et sécuriser votre compte, faire fonctionner les parties multijoueurs, afficher classements et statistiques, envoyer les e-mails du compte (vérification, réinitialisation du mot de passe) et assurer le bon fonctionnement et la sécurité du service. Nous ne vendons pas vos données et n'affichons aucune publicité."
+        ]
+      },
+      {
+        "title": "Prestataires",
+        "body": [
+          "Google (connexion Google et polices web), Resend (envoi des e-mails du compte), Cloudflare (réseau et protection) et Oracle Cloud (hébergement du serveur). La mesure d'audience utilise une instance Umami hébergée par nos soins, sans cookie publicitaire ; les rapports d'erreur vont vers un outil de suivi d'erreurs hébergé par nos soins."
+        ]
+      },
+      {
+        "title": "Durée de conservation",
+        "body": [
+          "Les données de votre compte sont conservées jusqu'à la suppression du compte. Les journaux et rapports d'erreur sont conservés pendant une durée limitée, pour la sécurité et le dépannage."
+        ]
+      },
+      {
+        "title": "Vos droits",
+        "body": [
+          "Vous pouvez modifier votre profil à tout moment et supprimer votre compte depuis votre page de profil ; la suppression efface votre compte et les données qui y sont liées. Si vous vous êtes inscrit avec Google, ou pour toute autre demande (accès, rectification, suppression, opposition), écrivez-nous."
+        ]
+      },
+      {
+        "title": "Enfants",
+        "body": [
+          "Majlisna s'adresse à tous les publics. Les enfants doivent l'utiliser avec l'accord d'un parent ou d'un tuteur."
+        ]
+      },
+      {
+        "title": "Modifications",
+        "body": [
+          "Cette politique peut évoluer. La date en haut de la page indique la dernière version."
+        ]
+      }
+    ],
+    "contact": "Questions sur vos données :"
   }
 }

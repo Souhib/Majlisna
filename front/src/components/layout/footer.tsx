@@ -71,6 +71,7 @@ export function Footer() {
                 { to: "/rooms" as const, label: t("nav.rooms") },
                 { to: "/challenges" as const, label: t("nav.challenges") },
                 { to: "/about" as const, label: t("nav.about") },
+                { to: "/privacy" as const, label: t("privacy.link") },
               ].map((link) => (
                 <Link
                   key={link.to}
