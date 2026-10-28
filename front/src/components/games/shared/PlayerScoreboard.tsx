@@ -31,12 +31,7 @@ interface PlayerScoreboardProps {
  * its question is open (each total as it stood before the round), so the table's order
  * never tells who was right before the reveal.
  */
-export const PlayerScoreboard = memo(function PlayerScoreboard({
-  players,
-  currentUserId,
-  showAnswered = false,
-  className,
-}: PlayerScoreboardProps) {
+export const PlayerScoreboard = memo(function PlayerScoreboard({ players, currentUserId, showAnswered = false, className }: PlayerScoreboardProps) {
   const { t } = useTranslation()
   const sorted = [...players].sort((a, b) => b.total_score - a.total_score)
   const ranks = competitionRanks(sorted.map((p) => p.total_score))
@@ -46,11 +41,7 @@ export const PlayerScoreboard = memo(function PlayerScoreboard({
     <Panel className={className} aria-labelledby="quiz-scores-title">
       <PanelHeader
         title={<span id="quiz-scores-title">{t("game.quiz.scores")}</span>}
-        sub={
-          showAnswered && players.length > 0
-            ? t("game.quiz.answeredCount", { answered, total: players.length })
-            : undefined
-        }
+        sub={showAnswered && players.length > 0 ? t("game.quiz.answeredCount", { answered, total: players.length }) : undefined}
         className="mb-2"
       />
       <ol data-testid="quiz-scoreboard">
@@ -71,9 +62,7 @@ export const PlayerScoreboard = memo(function PlayerScoreboard({
                     label={player.current_round_answered ? t("game.quiz.hasAnswered") : t("game.quiz.stillThinking")}
                   />
                 ) : null}
-                <span className={cn("truncate text-[15px] font-medium", isMe && "text-brass")}>
-                  {player.username}
-                </span>
+                <span className={cn("truncate text-[15px] font-medium", isMe && "text-brass")}>{player.username}</span>
                 {isMe ? <span className="shrink-0 text-[13px] text-muted-foreground">{t("game.quiz.you")}</span> : null}
               </span>
               <Figure className={cn("text-[15px] font-medium", isMe && "text-brass")}>{player.total_score}</Figure>

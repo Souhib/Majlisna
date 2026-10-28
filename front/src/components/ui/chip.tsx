@@ -23,8 +23,7 @@ export const chipVariants = cva(
       tone: {
         neutral: "border-line bg-surface-2 text-foreground",
         brass: "border-line-brass-strong bg-[color-mix(in_oklch,var(--brass)_10%,var(--surface))] text-primary-on-tint",
-        ember:
-          "border-[color-mix(in_oklch,var(--ember)_55%,transparent)] bg-[color-mix(in_oklch,var(--ember)_8%,var(--surface))] text-destructive-on-tint",
+        ember: "border-[color-mix(in_oklch,var(--ember)_55%,transparent)] bg-[color-mix(in_oklch,var(--ember)_8%,var(--surface))] text-destructive-on-tint",
         outline: "border-line-brass bg-transparent text-foreground",
       },
     },
@@ -41,11 +40,7 @@ export interface ChipProps extends ComponentProps<"span">, VariantProps<typeof c
 
 export function Chip({ tone, mark, swatch, className, children, ...props }: ChipProps) {
   return (
-    <span
-      data-slot="chip"
-      className={cn(chipVariants({ tone }), swatch ? "ps-1 pe-2.5" : "px-2.5", className)}
-      {...props}
-    >
+    <span data-slot="chip" className={cn(chipVariants({ tone }), swatch ? "ps-1 pe-2.5" : "px-2.5", className)} {...props}>
       {swatch ? (
         <i
           aria-hidden="true"

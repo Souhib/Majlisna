@@ -126,10 +126,7 @@ function ExampleCard({ onTakeSeat }: { onTakeSeat: () => void }) {
 function LiveCard({ roomId, code }: { roomId: string; code: string }) {
   const { t } = useTranslation()
   const { user } = useAuth()
-  const { data: room } = useGetRoomStateApiV1RoomsRoomIdStateGet(
-    { room_id: roomId },
-    { query: { refetchOnWindowFocus: true, staleTime: 5_000, retry: 1 } },
-  )
+  const { data: room } = useGetRoomStateApiV1RoomsRoomIdStateGet({ room_id: roomId }, { query: { refetchOnWindowFocus: true, staleTime: 5_000, retry: 1 } })
   const players = Array.isArray(room?.players) ? room.players : []
   const gameType = room?.game_type ?? null
   const seating = seatRoom(players, gameType, user?.id, { host: t("home.halqa.host"), you: t("home.halqa.you") })

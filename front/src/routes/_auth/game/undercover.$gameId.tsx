@@ -158,9 +158,7 @@ function UndercoverGamePage() {
   const listsSeats = phase === "describing" || phase === "playing" || phase === "round_over"
   const table = (
     <>
-      {listsSeats ? null : (
-        <UndercoverPlayerList players={gameState.players} eliminated={serverState?.eliminated_players} currentUserId={user?.id} />
-      )}
+      {listsSeats ? null : <UndercoverPlayerList players={gameState.players} eliminated={serverState?.eliminated_players} currentUserId={user?.id} />}
       <VoteHistory history={voteHistory} expandAll={phase === "game_over"} />
     </>
   )
@@ -173,13 +171,7 @@ function UndercoverGamePage() {
       {/* While the game is paused for the prayer everything under the veil is inert. */}
       <div ref={gameRef} inert={isPaused} tabIndex={-1} className="outline-none">
         {adhan.prayer ? (
-          <AdhanSuggestion
-            prayerKey={adhan.prayer.key}
-            onPause={pauseFromStrip}
-            onDismiss={adhan.answer}
-            pausing={prayerPause.isPausing}
-            className="mb-4"
-          />
+          <AdhanSuggestion prayerKey={adhan.prayer.key} onPause={pauseFromStrip} onDismiss={adhan.answer} pausing={prayerPause.isPausing} className="mb-4" />
         ) : null}
 
         <UndercoverGameHeader
@@ -321,7 +313,9 @@ function UndercoverGamePage() {
 
               {table}
 
-              {phase !== "role_reveal" ? <UndercoverLeaveButton onLeave={handleLeaveRoom} isSpectator={isSpectator} isEliminated={!isAlive && !isSpectator} /> : null}
+              {phase !== "role_reveal" ? (
+                <UndercoverLeaveButton onLeave={handleLeaveRoom} isSpectator={isSpectator} isEliminated={!isAlive && !isSpectator} />
+              ) : null}
             </div>
           </div>
         )}

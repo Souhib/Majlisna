@@ -153,24 +153,13 @@ describe("GameDetailModal", () => {
 
 describe("RoleDistributionChart", () => {
   it("draws nothing before a role has been played", () => {
-    const { container } = render(
-      <RoleDistributionChart timesCivilian={0} timesUndercover={0} timesMrWhite={0} timesSpymaster={0} timesOperative={0} />,
-    )
+    const { container } = render(<RoleDistributionChart timesCivilian={0} timesUndercover={0} timesMrWhite={0} timesSpymaster={0} timesOperative={0} />)
     expect(container).toBeEmptyDOMElement()
   })
 
   it("lists every role with its count as text", () => {
     // Act
-    render(
-      <RoleDistributionChart
-        timesCivilian={4}
-        timesUndercover={2}
-        timesMrWhite={1}
-        timesSpymaster={0}
-        timesOperative={3}
-        civilianWins={3}
-      />,
-    )
+    render(<RoleDistributionChart timesCivilian={4} timesUndercover={2} timesMrWhite={1} timesSpymaster={0} timesOperative={3} civilianWins={3} />)
 
     // Assert
     const row = screen.getByRole("row", { name: /games.undercover.roles.civilian/ })

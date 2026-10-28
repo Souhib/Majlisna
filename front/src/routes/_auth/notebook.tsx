@@ -135,10 +135,7 @@ function NotebookPage() {
                 const headingId = `${idPrefix}-${index}`
                 return (
                   <section key={group.key} aria-labelledby={headingId}>
-                    <h2
-                      id={headingId}
-                      className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 border-b border-line-brass pb-2.5"
-                    >
+                    <h2 id={headingId} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 border-b border-line-brass pb-2.5">
                       <span aria-hidden="true" className="loz -translate-y-px bg-brass [--loz:7px]" />
                       <span className="type-panel">{gameName(group.gameType, t)}</span>
                       <span className="type-meta">
@@ -164,9 +161,7 @@ function NotebookPage() {
 
             {hasNextPage ? (
               <div ref={sentinelRef} className="mt-10 grid justify-items-center gap-3">
-                {isFetchNextPageError ? (
-                  <Alert tone="error">{getApiErrorMessage(list.error, t("notebook.loadMoreFailed"))}</Alert>
-                ) : null}
+                {isFetchNextPageError ? <Alert tone="error">{getApiErrorMessage(list.error, t("notebook.loadMoreFailed"))}</Alert> : null}
                 <Button variant="secondary" loading={isFetchingNextPage} onClick={() => void fetchNextPage()}>
                   {t("notebook.more")}
                 </Button>

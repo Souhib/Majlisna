@@ -16,10 +16,7 @@ export function QueryProvider({ children }: QueryProviderProps) {
         }),
         mutationCache: new MutationCache({
           onError: (error, _variables, _context, mutation) => {
-            console.error(
-              `Mutation failed [${mutation.options.mutationKey ? JSON.stringify(mutation.options.mutationKey) : "unknown"}]:`,
-              error,
-            )
+            console.error(`Mutation failed [${mutation.options.mutationKey ? JSON.stringify(mutation.options.mutationKey) : "unknown"}]:`, error)
           },
         }),
         defaultOptions: {

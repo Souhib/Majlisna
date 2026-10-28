@@ -75,8 +75,7 @@ export function VoteLines({ votes, className }: { votes: VoteEntry[]; className?
     <ul className={cn("uc-votes", className)}>
       {groups.map((g) => (
         <li key={g.targetId}>
-          <b>{formatNames(g.voters, i18n.language)}</b>{" "}
-          {t("game.undercover.verdict.votedFor", { count: g.voters.length, target: g.target })}
+          <b>{formatNames(g.voters, i18n.language)}</b> {t("game.undercover.verdict.votedFor", { count: g.voters.length, target: g.target })}
         </li>
       ))}
     </ul>
@@ -123,27 +122,20 @@ export function Verdict({
       : t("game.undercover.verdict.chose", { name: out.username })
 
   return (
-    <section
-      className={cn("uc-verdict", className)}
-      data-compact={compact ? "" : undefined}
-      data-testid={testId}
-      aria-labelledby={titleId}
-    >
+    <section className={cn("uc-verdict", className)} data-compact={compact ? "" : undefined} data-testid={testId} aria-labelledby={titleId}>
       <div className="uc-verdict-text">
         <Heading id={titleId} className="type-title text-[26px] sm:text-[30px]">
           {title}
         </Heading>
-        {out ? <p className={cn("mt-1.5 max-w-[42ch] text-[15px] leading-normal text-muted-foreground", !compact && "mx-auto lg:mx-0")}>{t("game.undercover.verdict.sub")}</p> : null}
+        {out ? (
+          <p className={cn("mt-1.5 max-w-[42ch] text-[15px] leading-normal text-muted-foreground", !compact && "mx-auto lg:mx-0")}>
+            {t("game.undercover.verdict.sub")}
+          </p>
+        ) : null}
         {round.mr_white_guess ? <MrWhiteGuessLine guess={round.mr_white_guess} className={cn("mt-2 max-w-[42ch]", !compact && "mx-auto lg:mx-0")} /> : null}
       </div>
       {out ? (
-        <TurnedLawh
-          name={isMe ? t("game.undercover.you") : out.username}
-          round={round.round}
-          role={out.role}
-          word={isMe ? myWord : null}
-          band={!compact}
-        />
+        <TurnedLawh name={isMe ? t("game.undercover.you") : out.username} round={round.round} role={out.role} word={isMe ? myWord : null} band={!compact} />
       ) : null}
       <VoteLines votes={round.votes} />
       {action ? <div className="uc-verdict-act">{action}</div> : null}

@@ -64,9 +64,7 @@ export function PrayerTimesNav({
   }, [coordinates])
 
   const timezone = coordinates?.timezone
-  const { prayers, tahajjud, nextPrayer, countdown } = usePrayerTimes(
-    coordinates ? { lat: coordinates.lat, lng: coordinates.lng } : null,
-  )
+  const { prayers, tahajjud, nextPrayer, countdown } = usePrayerTimes(coordinates ? { lat: coordinates.lat, lng: coordinates.lng } : null)
 
   const handleCitySelect = useCallback((data: CityCoordinates) => {
     setCoordinates(data)

@@ -45,12 +45,7 @@ export function hasStoredSession(): boolean {
   return !!(localStorage.getItem(TOKEN_KEY) || localStorage.getItem(REFRESH_TOKEN_KEY))
 }
 
-export function storeAuthData(
-  accessToken: string,
-  refreshToken: string,
-  expiresIn: number,
-  userData?: unknown,
-): void {
+export function storeAuthData(accessToken: string, refreshToken: string, expiresIn: number, userData?: unknown): void {
   const expiryTime = Date.now() + expiresIn * 1000
   localStorage.setItem(TOKEN_KEY, accessToken)
   localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken)

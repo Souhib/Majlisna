@@ -36,8 +36,7 @@ export const buttonVariants = cva(
         primary: "bg-primary text-primary-foreground hover:bg-[color-mix(in_oklch,var(--primary),var(--text)_14%)]",
         secondary: "border-line-brass-strong text-foreground hover:bg-[color-mix(in_oklch,var(--brass)_12%,transparent)]",
         ghost: "text-foreground hover:bg-[color-mix(in_oklch,var(--brass)_10%,transparent)]",
-        danger:
-          "border-[color-mix(in_oklch,var(--ember)_70%,transparent)] text-ember hover:bg-[color-mix(in_oklch,var(--ember)_10%,transparent)]",
+        danger: "border-[color-mix(in_oklch,var(--ember)_70%,transparent)] text-ember hover:bg-[color-mix(in_oklch,var(--ember)_10%,transparent)]",
         link: "h-auto! px-0! text-foreground underline decoration-line-brass-strong decoration-1 underline-offset-[6px] hover:decoration-brass",
       },
       size: {

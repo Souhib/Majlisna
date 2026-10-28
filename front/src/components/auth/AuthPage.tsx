@@ -72,11 +72,7 @@ export function AuthPage({ title, description, footer, children }: AuthPageProps
   return (
     <div className="page-wrap grid min-h-[calc(100svh-var(--navh))] content-start py-6 sm:content-center sm:py-[clamp(40px,6vw,88px)]">
       <div className="mx-auto grid w-full max-w-[64rem] items-center gap-12 lg:grid-cols-[minmax(0,1fr)_minmax(0,28rem)] lg:gap-[clamp(56px,7vw,112px)]">
-        <Panel
-          flush
-          aria-labelledby="auth-title"
-          className="w-full max-w-[28rem] justify-self-center overflow-hidden lg:col-start-2 lg:row-start-1"
-        >
+        <Panel flush aria-labelledby="auth-title" className="w-full max-w-[28rem] justify-self-center overflow-hidden lg:col-start-2 lg:row-start-1">
           <div className="grid gap-7 px-5 pt-7 pb-8 sm:px-9 sm:pt-9 sm:pb-9">
             <header className="grid gap-2.5">
               <h1 id="auth-title" className="type-title">

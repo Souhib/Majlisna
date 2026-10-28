@@ -2,8 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import { roomErrorMessage } from "./errors"
 
 vi.mock("@/api/client", () => ({
-  getApiErrorMessage: (err: { response?: { data?: { frontend_message?: string } } }, fallback: string) =>
-    err.response?.data?.frontend_message ?? fallback,
+  getApiErrorMessage: (err: { response?: { data?: { frontend_message?: string } } }, fallback: string) => err.response?.data?.frontend_message ?? fallback,
 }))
 
 describe("roomErrorMessage", () => {

@@ -1,16 +1,5 @@
 import { describe, expect, it } from "vitest"
-import {
-  awayCountdown,
-  awayLabel,
-  isGameType,
-  type LobbyMember,
-  ringName,
-  rosterEvents,
-  seatLobby,
-  stableOrder,
-  tableState,
-  toMembers,
-} from "./lobby"
+import { awayCountdown, awayLabel, isGameType, type LobbyMember, ringName, rosterEvents, seatLobby, stableOrder, tableState, toMembers } from "./lobby"
 
 const labels = { you: "you", host: "host", youHost: "you · host", away: "away" }
 
@@ -47,12 +36,7 @@ describe("toMembers", () => {
 describe("seatLobby", () => {
   it("puts the host at the sadr, keeps spectators off the ring and labels the seats", () => {
     // Prepare
-    const members = [
-      member("b"),
-      member("a", { isHost: true }),
-      member("c", { isAway: true }),
-      member("d", { isSpectator: true }),
-    ]
+    const members = [member("b"), member("a", { isHost: true }), member("c", { isAway: true }), member("d", { isSpectator: true })]
 
     // Act
     const seating = seatLobby(members, "undercover", "b", labels)

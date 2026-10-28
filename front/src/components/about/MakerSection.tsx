@@ -121,9 +121,7 @@ export function MakerSection() {
                 <bdi>{t(`about.${key}Title`)}</bdi>
               </p>
               <p className="num text-[13.5px] text-muted-foreground">{t(`about.${key}Period`)}</p>
-              <p className="mt-1.5 max-w-[60ch] text-[15.5px] leading-relaxed text-pretty text-muted-foreground">
-                {t(`about.${key}Desc`)}
-              </p>
+              <p className="mt-1.5 max-w-[60ch] text-[15.5px] leading-relaxed text-pretty text-muted-foreground">{t(`about.${key}Desc`)}</p>
             </li>
           ))}
         </ol>

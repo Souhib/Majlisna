@@ -33,11 +33,9 @@ function StatsPage() {
     { query: { enabled: !!user?.id } },
   ) as { data: UserStats | undefined; isLoading: boolean }
 
-  const { data: games = [], isLoading: gamesLoading } = useGetGamesByUserApiV1GamesUserUserIdGet(
-    { user_id: user?.id ?? "" },
-    undefined,
-    { query: { enabled: !!user?.id } },
-  ) as { data: GameHistoryEntry[] | undefined; isLoading: boolean }
+  const { data: games = [], isLoading: gamesLoading } = useGetGamesByUserApiV1GamesUserUserIdGet({ user_id: user?.id ?? "" }, undefined, {
+    query: { enabled: !!user?.id },
+  }) as { data: GameHistoryEntry[] | undefined; isLoading: boolean }
 
   const header = (
     <PageHeader

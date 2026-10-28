@@ -47,11 +47,19 @@ function handshake(): Record<string, unknown> {
 
 // Mock generated API hooks
 vi.mock("@/api/generated", () => ({
-  getRoomStateApiV1RoomsRoomIdStateGetQueryKey: ({ room_id }: { room_id: string }) => [{ url: '/api/v1/rooms/:room_id/state', params: { room_id } }],
-  getUndercoverStateApiV1UndercoverGamesGameIdStateGetQueryKey: ({ game_id }: { game_id: string }) => [{ url: '/api/v1/undercover/games/:game_id/state', params: { game_id } }],
-  getCodenamesBoardApiV1CodenamesGamesGameIdBoardGetQueryKey: ({ game_id }: { game_id: string }) => [{ url: '/api/v1/codenames/games/:game_id/board', params: { game_id } }],
-  getWordquizStateApiV1WordquizGamesGameIdStateGetQueryKey: ({ game_id }: { game_id: string }) => [{ url: '/api/v1/wordquiz/games/:game_id/state', params: { game_id } }],
-  getMcqquizStateApiV1McqquizGamesGameIdStateGetQueryKey: ({ game_id }: { game_id: string }) => [{ url: '/api/v1/mcqquiz/games/:game_id/state', params: { game_id } }],
+  getRoomStateApiV1RoomsRoomIdStateGetQueryKey: ({ room_id }: { room_id: string }) => [{ url: "/api/v1/rooms/:room_id/state", params: { room_id } }],
+  getUndercoverStateApiV1UndercoverGamesGameIdStateGetQueryKey: ({ game_id }: { game_id: string }) => [
+    { url: "/api/v1/undercover/games/:game_id/state", params: { game_id } },
+  ],
+  getCodenamesBoardApiV1CodenamesGamesGameIdBoardGetQueryKey: ({ game_id }: { game_id: string }) => [
+    { url: "/api/v1/codenames/games/:game_id/board", params: { game_id } },
+  ],
+  getWordquizStateApiV1WordquizGamesGameIdStateGetQueryKey: ({ game_id }: { game_id: string }) => [
+    { url: "/api/v1/wordquiz/games/:game_id/state", params: { game_id } },
+  ],
+  getMcqquizStateApiV1McqquizGamesGameIdStateGetQueryKey: ({ game_id }: { game_id: string }) => [
+    { url: "/api/v1/mcqquiz/games/:game_id/state", params: { game_id } },
+  ],
 }))
 
 // Mock TanStack Query
@@ -165,7 +173,7 @@ describe("useSocket", () => {
     })
 
     expect(mockSetQueryData).toHaveBeenCalledWith(
-      [{ url: '/api/v1/rooms/:room_id/state', params: { room_id: "room-1" } }],
+      [{ url: "/api/v1/rooms/:room_id/state", params: { room_id: "room-1" } }],
       expect.objectContaining({
         id: "room-1",
         players: [{ user_id: "u1", username: "Alice", is_spectator: false }],
@@ -196,7 +204,7 @@ describe("useSocket", () => {
     const gameStateHandler = mockOn.mock.calls.find((c: unknown[]) => c[0] === "game_state")?.[1]
     gameStateHandler({ phase: "description" })
     expect(mockSetQueriesData).toHaveBeenCalledWith(
-      { queryKey: [{ url: '/api/v1/undercover/games/:game_id/state', params: { game_id: "game-1" } }, { lang: "ar" }] },
+      { queryKey: [{ url: "/api/v1/undercover/games/:game_id/state", params: { game_id: "game-1" } }, { lang: "ar" }] },
       { phase: "description" },
     )
   })
@@ -209,7 +217,7 @@ describe("useSocket", () => {
     gameUpdatedHandler({ game_id: "game-1" })
 
     expect(mockInvalidateQueries).toHaveBeenCalledWith({
-      queryKey: [{ url: '/api/v1/undercover/games/:game_id/state', params: { game_id: "game-1" } }],
+      queryKey: [{ url: "/api/v1/undercover/games/:game_id/state", params: { game_id: "game-1" } }],
     })
   })
 
@@ -229,11 +237,15 @@ describe("useSocket", () => {
 
     const connectHandler = mockOn.mock.calls.find((c: unknown[]) => c[0] === "connect")?.[1]
     const { act } = await import("@testing-library/react")
-    await act(() => { connectHandler() })
+    await act(() => {
+      connectHandler()
+    })
     expect(result.current.connected).toBe(true)
 
     const disconnectHandler = mockOn.mock.calls.find((c: unknown[]) => c[0] === "disconnect")?.[1]
-    await act(() => { disconnectHandler() })
+    await act(() => {
+      disconnectHandler()
+    })
     expect(result.current.connected).toBe(false)
   })
 
@@ -247,13 +259,13 @@ describe("useSocket", () => {
     // Should invalidate room state query
     expect(mockInvalidateQueries).toHaveBeenCalledWith(
       expect.objectContaining({
-        queryKey: [{ url: '/api/v1/rooms/:room_id/state', params: { room_id: "room-1" } }],
+        queryKey: [{ url: "/api/v1/rooms/:room_id/state", params: { room_id: "room-1" } }],
       }),
     )
     // Should invalidate game state query
     expect(mockInvalidateQueries).toHaveBeenCalledWith(
       expect.objectContaining({
-        queryKey: [{ url: '/api/v1/undercover/games/:game_id/state', params: { game_id: "game-1" } }],
+        queryKey: [{ url: "/api/v1/undercover/games/:game_id/state", params: { game_id: "game-1" } }],
       }),
     )
   })
@@ -290,7 +302,7 @@ describe("useSocket", () => {
     gameStateHandler({ phase: "description", players: [] })
 
     expect(mockSetQueriesData).toHaveBeenCalledWith(
-      { queryKey: [{ url: '/api/v1/undercover/games/:game_id/state', params: { game_id: "game-1" } }, { lang: "en" }] },
+      { queryKey: [{ url: "/api/v1/undercover/games/:game_id/state", params: { game_id: "game-1" } }, { lang: "en" }] },
       { phase: "description", players: [] },
     )
   })

@@ -39,10 +39,7 @@ function AboutPage() {
               // not <link>: that is a void element in HTML, and the parser would drop its text
               components={{
                 page: (
-                  <Link
-                    to="/credits"
-                    className="font-medium text-brass underline decoration-line-brass-strong underline-offset-[5px] hover:decoration-brass"
-                  />
+                  <Link to="/credits" className="font-medium text-brass underline decoration-line-brass-strong underline-offset-[5px] hover:decoration-brass" />
                 ),
               }}
             />

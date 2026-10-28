@@ -6,12 +6,9 @@ describe("safeRedirect", () => {
     expect(safeRedirect("/rooms/join?code=ABCDE&pin=1234")).toBe("/rooms/join?code=ABCDE&pin=1234")
   })
 
-  it.each(["//evil.example", "https://evil.example", "/\\evil.example", "javascript:alert(1)", "rooms", ""])(
-    "rejects %s",
-    (value) => {
-      expect(safeRedirect(value)).toBeUndefined()
-    },
-  )
+  it.each(["//evil.example", "https://evil.example", "/\\evil.example", "javascript:alert(1)", "rooms", ""])("rejects %s", (value) => {
+    expect(safeRedirect(value)).toBeUndefined()
+  })
 
   it("rejects non-strings", () => {
     expect(safeRedirect(undefined)).toBeUndefined()

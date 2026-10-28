@@ -1,15 +1,5 @@
 import { BookOpen } from "lucide-react"
-import {
-  type CSSProperties,
-  type KeyboardEvent,
-  type MouseEvent,
-  type PointerEvent,
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react"
+import { type CSSProperties, type KeyboardEvent, type MouseEvent, type PointerEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Lozenge, SaduBand, Seal } from "@/components/brand"
 import { Button } from "@/components/ui/button"
@@ -67,15 +57,7 @@ function prefersReducedMotion() {
 }
 
 /** The face of a word: Arabic in Amiri, the transliteration under it (not in the Arabic UI). */
-export function LawhWordFace({
-  word,
-  meaning,
-  arabicUi,
-}: {
-  word: LawhWord
-  meaning?: string | null
-  arabicUi: boolean
-}) {
+export function LawhWordFace({ word, meaning, arabicUi }: { word: LawhWord; meaning?: string | null; arabicUi: boolean }) {
   const arabic = word.arabic?.trim() || null
   const shown = arabic ?? word.latin
   return (
@@ -232,11 +214,7 @@ export function Lawh({ round, word, reads, onRead, hint, meaningShown = false, o
   }
 
   const state = shown ? "shown" : progress > 0 ? "pressing" : "rest"
-  const act = pinned
-    ? t("game.undercover.lawh.pinnedAct")
-    : held
-      ? t("game.undercover.lawh.holding")
-      : t("game.undercover.lawh.hold")
+  const act = pinned ? t("game.undercover.lawh.pinnedAct") : held ? t("game.undercover.lawh.holding") : t("game.undercover.lawh.hold")
   const readsLabel = reads === 0 ? t("game.undercover.lawh.notRead") : t("game.undercover.lawh.reads", { count: reads })
   // the ink follows the reading direction of what is written: the word's own script, or
   // (Mr. White's page) the interface's
@@ -340,13 +318,7 @@ function MeaningPopover({ text, note, onOpen }: { text: string; note: string | n
   return (
     <Popover onOpenChange={(open) => (open ? onOpen?.() : undefined)}>
       <PopoverTrigger asChild>
-        <Button
-          variant="link"
-          size="sm"
-          className={TOOL}
-          aria-label={t("game.hintButton")}
-          iconStart={<BookOpen aria-hidden="true" />}
-        >
+        <Button variant="link" size="sm" className={TOOL} aria-label={t("game.hintButton")} iconStart={<BookOpen aria-hidden="true" />}>
           {t("game.hintButton")}
         </Button>
       </PopoverTrigger>

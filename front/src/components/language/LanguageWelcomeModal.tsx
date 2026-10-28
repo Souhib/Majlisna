@@ -118,10 +118,7 @@ export function LanguageWelcomeModal() {
                   isChecked ? "border-line-brass-strong bg-surface-2" : "border-line",
                 )}
               >
-                <span
-                  aria-hidden="true"
-                  className={cn("loz [--loz:9px]", isChecked ? "bg-brass" : "border border-line-brass-strong")}
-                />
+                <span aria-hidden="true" className={cn("loz [--loz:9px]", isChecked ? "bg-brass" : "border border-line-brass-strong")} />
                 <span className={cn("flex-1 font-medium", lang.code === "ar" ? "text-[20px]" : "text-[17px]")}>{lang.name}</span>
               </button>
             )

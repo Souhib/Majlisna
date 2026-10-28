@@ -53,10 +53,7 @@ function ResetPasswordPage() {
     mutation: {
       onSuccess: () => setSuccess(true),
       // a refused link is said in the page's language (the server's key has no translation)
-      onError: (err) =>
-        setError(
-          apiErrorKey(err) === TOKEN_REJECTED_KEY ? t("auth.invalidOrExpiredToken") : getApiErrorMessage(err, t("common.error")),
-        ),
+      onError: (err) => setError(apiErrorKey(err) === TOKEN_REJECTED_KEY ? t("auth.invalidOrExpiredToken") : getApiErrorMessage(err, t("common.error"))),
     },
   })
 
@@ -117,12 +114,7 @@ function ResetPasswordPage() {
             </Link>
           </Alert>
         ) : null}
-        <Field
-          id="password"
-          label={t("auth.newPassword")}
-          hint={t("auth.passwordHint")}
-          error={fieldErrors.password ? t(fieldErrors.password) : undefined}
-        >
+        <Field id="password" label={t("auth.newPassword")} hint={t("auth.passwordHint")} error={fieldErrors.password ? t(fieldErrors.password) : undefined}>
           <PasswordInput
             autoComplete="new-password"
             minLength={PASSWORD_MIN_LENGTH}
@@ -134,11 +126,7 @@ function ResetPasswordPage() {
             required
           />
         </Field>
-        <Field
-          id="confirmPassword"
-          label={t("auth.confirmPassword")}
-          error={fieldErrors.confirmPassword ? t(fieldErrors.confirmPassword) : undefined}
-        >
+        <Field id="confirmPassword" label={t("auth.confirmPassword")} error={fieldErrors.confirmPassword ? t(fieldErrors.confirmPassword) : undefined}>
           <PasswordInput
             autoComplete="new-password"
             minLength={PASSWORD_MIN_LENGTH}

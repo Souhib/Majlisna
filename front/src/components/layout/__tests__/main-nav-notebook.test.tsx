@@ -46,7 +46,9 @@ describe("MainNav: the Kunnash entry", () => {
 
     // Assert
     const menu = await screen.findByRole("menu")
-    const items = within(menu).getAllByRole("menuitem").map((i) => [i.textContent, i.getAttribute("href")])
+    const items = within(menu)
+      .getAllByRole("menuitem")
+      .map((i) => [i.textContent, i.getAttribute("href")])
     expect(items).toEqual([
       ["nav.profile", "/profile"],
       ["notebook.nav", "/notebook"],

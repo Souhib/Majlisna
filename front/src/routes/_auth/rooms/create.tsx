@@ -179,9 +179,7 @@ function CreateRoomPage() {
                             <span className="font-display text-[21px] leading-tight text-foreground sm:text-[24px]">{name}</span>
                           </>
                         )}
-                        <span className="mt-1 text-[14px] leading-snug text-muted-foreground text-pretty sm:text-[15px]">
-                          {t(`room.createPage.${key}`)}
-                        </span>
+                        <span className="mt-1 text-[14px] leading-snug text-muted-foreground text-pretty sm:text-[15px]">{t(`room.createPage.${key}`)}</span>
                       </span>
                       <span className="col-start-2 flex items-baseline gap-1.5 sm:col-start-3 sm:row-start-1 sm:grid sm:justify-items-end sm:gap-0 sm:text-end">
                         <span dir="ltr" className="num bidi-isolate text-[15px] font-medium text-foreground sm:text-[19px]">

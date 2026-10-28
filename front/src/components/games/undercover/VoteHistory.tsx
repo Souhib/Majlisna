@@ -76,7 +76,10 @@ export const VoteHistory = memo(function VoteHistory({ history, expandAll = fals
                   {summary}
                   <ChevronDown
                     aria-hidden="true"
-                    className={cn("size-4 shrink-0 text-muted-foreground transition-transform duration-(--dur-state) motion-reduce:transition-none", open && "rotate-180")}
+                    className={cn(
+                      "size-4 shrink-0 text-muted-foreground transition-transform duration-(--dur-state) motion-reduce:transition-none",
+                      open && "rotate-180",
+                    )}
                   />
                 </button>
               )}

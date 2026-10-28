@@ -76,21 +76,7 @@ function documentDir(): "ltr" | "rtl" {
   return document.documentElement.dir === "rtl" ? "rtl" : "ltr"
 }
 
-export function Halqa({
-  seats,
-  capacity,
-  quorum,
-  center,
-  openLabel,
-  dir,
-  label,
-  fontSize = 12,
-  radius = 104,
-  padX,
-  padY,
-  className,
-  style,
-}: HalqaProps) {
+export function Halqa({ seats, capacity, quorum, center, openLabel, dir, label, fontSize = 12, radius = 104, padX, padY, className, style }: HalqaProps) {
   const { t } = useTranslation()
   const uid = useId().replace(/:/g, "")
   const rtl = (dir ?? documentDir()) === "rtl"
@@ -140,12 +126,7 @@ export function Halqa({
     const end = pt(seated - 1)
     const large = step * (seated - 1) > 180 ? 1 : 0
     const sweep = rtl ? 0 : 1
-    thread = (
-      <path
-        className="thread"
-        d={`M${cx} ${cy - R} A${R} ${R} 0 ${large} ${sweep} ${end.x.toFixed(1)} ${end.y.toFixed(1)}`}
-      />
-    )
+    thread = <path className="thread" d={`M${cx} ${cy - R} A${R} ${R} 0 ${large} ${sweep} ${end.x.toFixed(1)} ${end.y.toFixed(1)}`} />
   }
 
   const a11y = label ? { role: "img" as const, "aria-label": label } : { "aria-hidden": true as const }

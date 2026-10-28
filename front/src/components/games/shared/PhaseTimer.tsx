@@ -55,8 +55,7 @@ export const PhaseTimer = memo(function PhaseTimer({
     const elapsedSec = (now - startMs) / 1000
     return Math.max(0, Math.ceil(durationSeconds - elapsedSec))
   }, [timerStartedAt, durationSeconds, now])
-  const remaining =
-    paused && frozenRemaining != null ? Math.max(0, Math.min(durationSeconds, Math.ceil(frozenRemaining))) : running
+  const remaining = paused && frozenRemaining != null ? Math.max(0, Math.min(durationSeconds, Math.ceil(frozenRemaining))) : running
 
   // Fire onExpired ONCE per timer window (identified by start + duration).
   //

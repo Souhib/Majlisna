@@ -11,28 +11,12 @@ import { cn } from "@/lib/utils"
  */
 
 /** The page's one title (Marcellus) with an optional lede and actions at the inline end. */
-export function PageHeader({
-  title,
-  lede,
-  end,
-  className,
-}: {
-  title: ReactNode
-  lede?: ReactNode
-  end?: ReactNode
-  className?: string
-}) {
+export function PageHeader({ title, lede, end, className }: { title: ReactNode; lede?: ReactNode; end?: ReactNode; className?: string }) {
   return (
-    <header
-      className={cn("mb-[clamp(24px,3.5vw,44px)] flex flex-wrap items-end justify-between gap-x-8 gap-y-4", className)}
-    >
+    <header className={cn("mb-[clamp(24px,3.5vw,44px)] flex flex-wrap items-end justify-between gap-x-8 gap-y-4", className)}>
       <div className="min-w-0 max-w-[46rem]">
-        <h1 className="font-display text-[clamp(34px,3.2vw,50px)] leading-[1.06] text-balance [overflow-wrap:anywhere] rtl:leading-[1.35]">
-          {title}
-        </h1>
-        {lede ? (
-          <p className="mt-3 max-w-[56ch] text-[16px] leading-relaxed text-muted-foreground text-pretty">{lede}</p>
-        ) : null}
+        <h1 className="font-display text-[clamp(34px,3.2vw,50px)] leading-[1.06] text-balance [overflow-wrap:anywhere] rtl:leading-[1.35]">{title}</h1>
+        {lede ? <p className="mt-3 max-w-[56ch] text-[16px] leading-relaxed text-muted-foreground text-pretty">{lede}</p> : null}
       </div>
       {end ? <div className="flex flex-wrap items-center gap-2.5">{end}</div> : null}
     </header>
@@ -52,25 +36,9 @@ export interface Figure {
  * the outer hairline when the figures stand alone on the page; inside a Panel leave it
  * off so nothing is boxed twice. Give it a count of items that fills its columns.
  */
-export function Figures({
-  items,
-  className,
-  framed = true,
-  size = "lg",
-}: {
-  items: Figure[]
-  className?: string
-  framed?: boolean
-  size?: "lg" | "md"
-}) {
+export function Figures({ items, className, framed = true, size = "lg" }: { items: Figure[]; className?: string; framed?: boolean; size?: "lg" | "md" }) {
   return (
-    <dl
-      className={cn(
-        "grid gap-px overflow-hidden bg-line",
-        framed && "rounded-lg border border-line",
-        className ?? "grid-cols-2 md:grid-cols-4",
-      )}
-    >
+    <dl className={cn("grid gap-px overflow-hidden bg-line", framed && "rounded-lg border border-line", className ?? "grid-cols-2 md:grid-cols-4")}>
       {items.map((item, i) => (
         <div key={item.key ?? i} className={cn("min-w-0 bg-surface", framed ? "px-4 py-4 sm:px-5" : "px-4 py-3.5 sm:px-[22px]")}>
           <dt className="type-label">{item.label}</dt>
@@ -115,11 +83,7 @@ export function Segmented<V extends string>({
   className?: string
 }) {
   return (
-    <div
-      role="group"
-      aria-label={label}
-      className={cn("grid auto-cols-fr grid-flow-col overflow-hidden rounded-sm border border-line-brass", className)}
-    >
+    <div role="group" aria-label={label} className={cn("grid auto-cols-fr grid-flow-col overflow-hidden rounded-sm border border-line-brass", className)}>
       {options.map((o) => (
         <button
           key={o.value}
@@ -160,11 +124,7 @@ export function ResultChip({ won, finished }: { won: boolean | null | undefined;
     )
   }
   if (won === false) {
-    return (
-      <Chip mark={<Lozenge state="away" size={8} />}>
-        {t("stats.lost")}
-      </Chip>
-    )
+    return <Chip mark={<Lozenge state="away" size={8} />}>{t("stats.lost")}</Chip>
   }
   return null
 }

@@ -176,13 +176,7 @@ export function CodeTilesInput({
         </label>
       ) : null}
       {split ? (
-        <div
-          role="group"
-          aria-labelledby={label ? labelId : undefined}
-          className="code-tiles"
-          data-size={size}
-          data-kind={kind}
-        >
+        <div role="group" aria-labelledby={label ? labelId : undefined} className="code-tiles" data-size={size} data-kind={kind}>
           {chars.map((c, i) => (
             <input
               key={i}

@@ -49,17 +49,18 @@ function PlayerProfilePage() {
   const isOwnProfile = user?.id === userId
   const signedIn = Boolean(user?.id)
 
-  const { data: profile, isLoading, error: queryError } = useGetPublicProfileApiV1ProfilesUsersUserIdGet({ user_id: userId }) as {
+  const {
+    data: profile,
+    isLoading,
+    error: queryError,
+  } = useGetPublicProfileApiV1ProfilesUsersUserIdGet({ user_id: userId }) as {
     data: PublicProfile | undefined
     isLoading: boolean
     error: Error | null
   }
   // country and photo live on the user record, which only a signed-in visitor may read
   const { data: details } = useGetUserByIdApiV1UsersUserIdGet({ user_id: userId }, { query: { enabled: signedIn } })
-  const { data: friendshipStatus } = useGetFriendshipStatusApiV1FriendsStatusUserIdGet(
-    { user_id: userId },
-    { query: { enabled: signedIn && !isOwnProfile } },
-  )
+  const { data: friendshipStatus } = useGetFriendshipStatusApiV1FriendsStatusUserIdGet({ user_id: userId }, { query: { enabled: signedIn && !isOwnProfile } })
   const { data: h2h } = useGetHeadToHeadApiV1StatsUsersUserIdVsOpponentIdGet(
     { user_id: user?.id ?? "", opponent_id: userId },
     { query: { enabled: signedIn && !isOwnProfile } },
@@ -219,10 +220,7 @@ function PlayerProfilePage() {
 
         {h2h && h2h.total_games > 0 ? (
           <Panel aria-labelledby="h2h-title">
-            <PanelHeader
-              title={<span id="h2h-title">{t("stats.headToHead")}</span>}
-              sub={t("stats.totalGames", { count: h2h.total_games })}
-            />
+            <PanelHeader title={<span id="h2h-title">{t("stats.headToHead")}</span>} sub={t("stats.totalGames", { count: h2h.total_games })} />
             <Figures
               framed={false}
               size="md"

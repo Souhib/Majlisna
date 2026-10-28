@@ -56,9 +56,7 @@ function LeaderboardPage() {
 
         <Panel flush>
           <table data-testid="leaderboard" className="w-full border-collapse text-[15px]">
-            <caption className="sr-only">
-              {t("leaderboard.caption", { sort: columns.find((c) => c.key === sortedOn)?.label })}
-            </caption>
+            <caption className="sr-only">{t("leaderboard.caption", { sort: columns.find((c) => c.key === sortedOn)?.label })}</caption>
             <thead>
               <tr className="type-meta border-b border-line">
                 <th scope="col" className="py-3 pe-3 ps-4 text-start font-normal whitespace-nowrap sm:ps-[22px]">
@@ -113,10 +111,7 @@ function LeaderboardPage() {
                     <tr
                       key={entry.user_id}
                       aria-current={me ? "true" : undefined}
-                      className={cn(
-                        "border-t border-line first:border-t-0",
-                        me && "bg-[color-mix(in_oklch,var(--brass)_9%,var(--surface))]",
-                      )}
+                      className={cn("border-t border-line first:border-t-0", me && "bg-[color-mix(in_oklch,var(--brass)_9%,var(--surface))]")}
                     >
                       <td className="py-3 pe-3 ps-4 align-middle sm:ps-[22px]">
                         <span

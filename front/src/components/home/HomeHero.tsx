@@ -24,13 +24,7 @@ function Sky({ name }: { name: string }) {
   return (
     <div className="home-sky" aria-hidden="true">
       <picture>
-        <source
-          media="(max-width: 760px)"
-          srcSet={`${base}.800.webp 800w, ${base}.1000.webp 1000w`}
-          sizes="100vw"
-          width={1000}
-          height={800}
-        />
+        <source media="(max-width: 760px)" srcSet={`${base}.800.webp 800w, ${base}.1000.webp 1000w`} sizes="100vw" width={1000} height={800} />
         <source media="(max-width: 1100px)" srcSet={`${base}.tab1600.webp`} width={1600} height={800} />
         <img
           src={`${base}.1600.webp`}

@@ -59,9 +59,7 @@ export function NotebookEntryRow({ entry, arabicUi, removed, onRemove, onUndo }:
   if (removed) {
     return (
       <li data-notebook-entry={entry.id} className="flex min-h-[5.5rem] flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-line py-4">
-        <p className="text-[1rem] leading-[1.5] text-muted-foreground">
-          {t("notebook.removed", { word: label })}
-        </p>
+        <p className="text-[1rem] leading-[1.5] text-muted-foreground">{t("notebook.removed", { word: label })}</p>
         <Button
           ref={undoRef}
           variant="secondary"

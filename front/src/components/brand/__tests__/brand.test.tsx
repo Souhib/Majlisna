@@ -13,17 +13,7 @@ function SingleInput({ initial = "" }: { initial?: string }) {
 
 function SplitInput() {
   const [value, setValue] = useState("")
-  return (
-    <CodeTilesInput
-      split
-      label="PIN"
-      length={4}
-      charset="digits"
-      value={value}
-      onChange={setValue}
-      cellLabel={(i) => `Password digit ${i + 1}`}
-    />
-  )
+  return <CodeTilesInput split label="PIN" length={4} charset="digits" value={value} onChange={setValue} cellLabel={(i) => `Password digit ${i + 1}`} />
 }
 
 describe("CodeTilesInput (single)", () => {

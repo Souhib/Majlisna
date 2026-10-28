@@ -9,12 +9,5 @@ import { cn } from "@/lib/utils"
  * <Skeleton className="h-5 w-40" />
  */
 export function Skeleton({ className, ...props }: ComponentProps<"div">) {
-  return (
-    <div
-      data-slot="skeleton"
-      aria-hidden="true"
-      className={cn("rounded-sm bg-surface-2 warp-threads", className)}
-      {...props}
-    />
-  )
+  return <div data-slot="skeleton" aria-hidden="true" className={cn("rounded-sm bg-surface-2 warp-threads", className)} {...props} />
 }

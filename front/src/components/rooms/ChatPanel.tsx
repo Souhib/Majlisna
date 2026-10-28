@@ -126,7 +126,10 @@ export function ChatPanel({ roomId, currentUserId, incomingMessage, className }:
             </Badge>
           )}
           <ChevronDown
-            className={cn("ms-auto size-4 shrink-0 text-muted-foreground transition-transform duration-(--dur-state) motion-reduce:transition-none", isOpen && "rotate-180")}
+            className={cn(
+              "ms-auto size-4 shrink-0 text-muted-foreground transition-transform duration-(--dur-state) motion-reduce:transition-none",
+              isOpen && "rotate-180",
+            )}
             aria-hidden="true"
           />
         </button>
@@ -134,12 +137,7 @@ export function ChatPanel({ roomId, currentUserId, incomingMessage, className }:
 
       {isOpen ? (
         <div id={bodyId} className="border-t border-line">
-          <div
-            ref={messagesContainerRef}
-            role="log"
-            aria-label={t("chat.title")}
-            className="max-h-[280px] min-h-[120px] overflow-y-auto px-4 py-3 sm:px-5"
-          >
+          <div ref={messagesContainerRef} role="log" aria-label={t("chat.title")} className="max-h-[280px] min-h-[120px] overflow-y-auto px-4 py-3 sm:px-5">
             {messages.length === 0 ? (
               <p className="py-6 text-center text-[14px] leading-normal text-muted-foreground">{t("chat.noMessages")}</p>
             ) : (
@@ -157,9 +155,7 @@ export function ChatPanel({ roomId, currentUserId, incomingMessage, className }:
                         dir="auto"
                         className={cn(
                           "max-w-[85%] rounded-sm border px-3 py-2 text-[15px] leading-normal break-words whitespace-pre-wrap text-foreground",
-                          isOwn
-                            ? "border-line-brass bg-[color-mix(in_oklch,var(--brass)_12%,var(--surface))]"
-                            : "border-line bg-surface-2",
+                          isOwn ? "border-line-brass bg-[color-mix(in_oklch,var(--brass)_12%,var(--surface))]" : "border-line bg-surface-2",
                         )}
                       >
                         {msg.message}
@@ -183,12 +179,7 @@ export function ChatPanel({ roomId, currentUserId, incomingMessage, className }:
               dir="auto"
               className="h-11 min-w-0 flex-1 text-[15px]"
             />
-            <Button
-              type="submit"
-              size="icon"
-              disabled={isSending || !newMessage.trim()}
-              aria-label={t("chat.send")}
-            >
+            <Button type="submit" size="icon" disabled={isSending || !newMessage.trim()} aria-label={t("chat.send")}>
               <Send className="rtl-flip" aria-hidden="true" />
             </Button>
           </form>

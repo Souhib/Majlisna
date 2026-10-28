@@ -18,7 +18,7 @@ bun run generate            # Requires backend running on :5111
 # Code quality
 bun run lint                # oxlint
 bun run lint:fix            # Auto-fix
-bun run format              # oxfmt
+bun run format              # oxfmt (pinned, config in .oxfmtrc.json; CI runs format:check)
 bun run format:check        # Check only
 bun run typecheck           # TypeScript strict
 

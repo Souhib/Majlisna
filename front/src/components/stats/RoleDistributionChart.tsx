@@ -95,16 +95,11 @@ export function RoleDistributionChart(props: RoleDistributionProps) {
                   </th>
                   <td className="w-full py-2.5" aria-hidden="true">
                     <span className="block h-1.5 w-full rounded-[1px] bg-line">
-                      <span
-                        className={cn("block h-full rounded-[1px] bg-brass", r.times === 0 && "hidden")}
-                        style={{ width: `${(r.times / max) * 100}%` }}
-                      />
+                      <span className={cn("block h-full rounded-[1px] bg-brass", r.times === 0 && "hidden")} style={{ width: `${(r.times / max) * 100}%` }} />
                     </span>
                   </td>
                   <td className="num py-2.5 ps-4 text-end font-medium">{r.times}</td>
-                  {showWins ? (
-                    <td className="num py-2.5 ps-4 text-end text-muted-foreground">{r.wins ?? 0}</td>
-                  ) : null}
+                  {showWins ? <td className="num py-2.5 ps-4 text-end text-muted-foreground">{r.wins ?? 0}</td> : null}
                 </tr>
               )
             })}

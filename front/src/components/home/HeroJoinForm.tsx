@@ -48,7 +48,10 @@ export function HeroJoinForm({ className }: { className?: string }) {
     <div className={className}>
       <form
         className="home-join [&_label]:text-[12px] [&_label]:font-normal max-[760px]:[&_label]:text-[13px] min-[2200px]:[&_label]:text-[13.5px]"
-        onSubmit={onSubmit} aria-label={t("home.join.label")} noValidate>
+        onSubmit={onSubmit}
+        aria-label={t("home.join.label")}
+        noValidate
+      >
         <CodeTilesInput
           id={CODE_INPUT_ID}
           label={t("home.join.code")}

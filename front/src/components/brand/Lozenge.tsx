@@ -22,18 +22,7 @@ import { cn } from "@/lib/utils"
  *
  * <Lozenge state="host" />  <Lozenge state="open" size={9} />
  */
-export type LozengeState =
-  | "host"
-  | "ready"
-  | "brass"
-  | "ink"
-  | "away"
-  | "spectator"
-  | "open"
-  | "you"
-  | "madder"
-  | "undyed"
-  | "seal"
+export type LozengeState = "host" | "ready" | "brass" | "ink" | "away" | "spectator" | "open" | "you" | "madder" | "undyed" | "seal"
 
 export interface LozengeProps {
   state?: LozengeState

@@ -71,10 +71,7 @@ export const ClueHistory = memo(function ClueHistory({ history }: ClueHistoryPro
                         <span lang={arabicUi && ar ? "ar" : undefined} className={arabicUi && ar ? "font-nass text-[15px]" : undefined}>
                           {shown}
                         </span>
-                        <span className="sr-only">
-                          {" "}
-                          ({guess.correct ? t("game.codenames.correct") : t("game.codenames.wrong")})
-                        </span>
+                        <span className="sr-only"> ({guess.correct ? t("game.codenames.correct") : t("game.codenames.wrong")})</span>
                       </li>
                     )
                   })}

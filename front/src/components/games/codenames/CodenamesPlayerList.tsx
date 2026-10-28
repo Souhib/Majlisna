@@ -19,12 +19,7 @@ interface CodenamesPlayerListProps {
  * word. Brass stays for what is yours: "your turn" on your team, never another team's
  * spymaster. Operatives carry no lozenge (the hollow "away" one read as disconnected).
  */
-export const CodenamesPlayerList = memo(function CodenamesPlayerList({
-  players,
-  currentTeam,
-  currentUserId,
-  isFinished = false,
-}: CodenamesPlayerListProps) {
+export const CodenamesPlayerList = memo(function CodenamesPlayerList({ players, currentTeam, currentUserId, isFinished = false }: CodenamesPlayerListProps) {
   const { t } = useTranslation()
   if (players.length === 0) return null
 

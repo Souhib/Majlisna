@@ -1,6 +1,6 @@
-import { cleanup } from '@testing-library/react'
-import { afterEach } from 'vitest'
-import '@testing-library/jest-dom/vitest'
+import { cleanup } from "@testing-library/react"
+import { afterEach } from "vitest"
+import "@testing-library/jest-dom/vitest"
 
 // Node >= 25 ships its own Web Storage globals. Without --localstorage-file its
 // `localStorage` getter returns undefined, and because it already exists on the
@@ -29,8 +29,8 @@ class MemoryStorage implements Storage {
   }
 }
 
-if (typeof globalThis.localStorage === 'undefined') {
-  Object.defineProperty(globalThis, 'localStorage', { value: new MemoryStorage(), configurable: true, writable: true })
+if (typeof globalThis.localStorage === "undefined") {
+  Object.defineProperty(globalThis, "localStorage", { value: new MemoryStorage(), configurable: true, writable: true })
 }
 
 // Ensure DOM cleanup after each test (happy-dom does not auto-cleanup)
@@ -39,11 +39,11 @@ afterEach(() => {
 })
 
 // Mock react-i18next to return keys as translations
-vi.mock('react-i18next', () => ({
+vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string) => key,
-    i18n: { language: 'en', changeLanguage: vi.fn() },
+    i18n: { language: "en", changeLanguage: vi.fn() },
   }),
   Trans: ({ children }: { children: React.ReactNode }) => children,
-  initReactI18next: { type: '3rdParty', init: vi.fn() },
+  initReactI18next: { type: "3rdParty", init: vi.fn() },
 }))

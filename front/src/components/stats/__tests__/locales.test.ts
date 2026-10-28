@@ -90,9 +90,19 @@ describe("auth, About and player's space copy", () => {
     const all = (lang: "en" | "fr" | "ar") => strings(locales[lang] as unknown as Tree)
 
     // Act
-    const straightApostrophe = (["en", "fr"] as const).flatMap((lang) => all(lang).filter(([, v]) => /\p{L}'\p{L}/u.test(v)).map(([k]) => `${lang}:${k}`))
-    const threeDots = (["en", "fr", "ar"] as const).flatMap((lang) => all(lang).filter(([, v]) => v.includes("...")).map(([k]) => `${lang}:${k}`))
-    const breakableFrench = all("fr").filter(([, v]) => / [:;?!]/.test(v)).map(([k]) => k)
+    const straightApostrophe = (["en", "fr"] as const).flatMap((lang) =>
+      all(lang)
+        .filter(([, v]) => /\p{L}'\p{L}/u.test(v))
+        .map(([k]) => `${lang}:${k}`),
+    )
+    const threeDots = (["en", "fr", "ar"] as const).flatMap((lang) =>
+      all(lang)
+        .filter(([, v]) => v.includes("..."))
+        .map(([k]) => `${lang}:${k}`),
+    )
+    const breakableFrench = all("fr")
+      .filter(([, v]) => / [:;?!]/.test(v))
+      .map(([k]) => k)
 
     // Assert
     expect(straightApostrophe).toEqual([])
@@ -104,8 +114,14 @@ describe("auth, About and player's space copy", () => {
     const reference = new Set(keys(locales.en as unknown as Tree))
     for (const lang of ["fr", "ar"] as const) {
       const other = new Set(keys(locales[lang] as unknown as Tree))
-      expect([...reference].filter((k) => !other.has(k)), `missing in ${lang}`).toEqual([])
-      expect([...other].filter((k) => !reference.has(k)), `only in ${lang}`).toEqual([])
+      expect(
+        [...reference].filter((k) => !other.has(k)),
+        `missing in ${lang}`,
+      ).toEqual([])
+      expect(
+        [...other].filter((k) => !reference.has(k)),
+        `only in ${lang}`,
+      ).toEqual([])
     }
   })
 })

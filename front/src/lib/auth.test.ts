@@ -1,14 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest"
-import {
-  hasStoredSession,
-  onTokenStored,
-  getStoredToken,
-  getStoredRefreshToken,
-  getStoredUserData,
-  storeAuthData,
-  clearAuthData,
-  getTokenExpiry,
-} from "./auth"
+import { hasStoredSession, onTokenStored, getStoredToken, getStoredRefreshToken, getStoredUserData, storeAuthData, clearAuthData, getTokenExpiry } from "./auth"
 
 describe("auth token storage", () => {
   beforeEach(() => {

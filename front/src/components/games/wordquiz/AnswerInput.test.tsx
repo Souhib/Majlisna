@@ -1,6 +1,6 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
-import { AnswerInput } from './AnswerInput'
+import { act, fireEvent, render, screen } from "@testing-library/react"
+import { describe, expect, it, vi } from "vitest"
+import { AnswerInput } from "./AnswerInput"
 
 function defaultProps(overrides: Record<string, unknown> = {}) {
   return {
@@ -12,74 +12,74 @@ function defaultProps(overrides: Record<string, unknown> = {}) {
   }
 }
 
-const field = () => screen.getByLabelText('game.quiz.kalimat.answerLabel')
-const answerButton = () => screen.getByRole('button', { name: 'game.quiz.kalimat.answer' })
+const field = () => screen.getByLabelText("game.quiz.kalimat.answerLabel")
+const answerButton = () => screen.getByRole("button", { name: "game.quiz.kalimat.answer" })
 
-describe('AnswerInput', () => {
-  it('renders a labelled text field with the existing placeholder, and the Answer button', () => {
+describe("AnswerInput", () => {
+  it("renders a labelled text field with the existing placeholder, and the Answer button", () => {
     render(<AnswerInput {...defaultProps()} />)
-    expect(field()).toHaveAttribute('type', 'text')
-    expect(field()).toHaveAttribute('placeholder', 'game.wordQuiz.typeYourAnswer')
+    expect(field()).toHaveAttribute("type", "text")
+    expect(field()).toHaveAttribute("placeholder", "game.wordQuiz.typeYourAnswer")
     expect(answerButton()).toBeInTheDocument()
   })
 
-  it('says that every spelling counts', () => {
+  it("says that every spelling counts", () => {
     render(<AnswerInput {...defaultProps()} />)
-    expect(screen.getByText('game.quiz.kalimat.spellings')).toBeInTheDocument()
+    expect(screen.getByText("game.quiz.kalimat.spellings")).toBeInTheDocument()
   })
 
-  it('keeps the button disabled while the field is empty', () => {
+  it("keeps the button disabled while the field is empty", () => {
     render(<AnswerInput {...defaultProps()} />)
     expect(answerButton()).toBeDisabled()
-    fireEvent.change(field(), { target: { value: 'Quran' } })
+    fireEvent.change(field(), { target: { value: "Quran" } })
     expect(answerButton()).not.toBeDisabled()
   })
 
-  it('submits the trimmed answer', async () => {
+  it("submits the trimmed answer", async () => {
     const onSubmit = vi.fn().mockResolvedValue({ correct: true, points_earned: 5 })
     render(<AnswerInput {...defaultProps({ onSubmit })} />)
-    fireEvent.change(field(), { target: { value: '  Quran  ' } })
+    fireEvent.change(field(), { target: { value: "  Quran  " } })
     await act(async () => {
-      fireEvent.submit(field().closest('form')!)
+      fireEvent.submit(field().closest("form")!)
     })
-    expect(onSubmit).toHaveBeenCalledWith('Quran')
+    expect(onSubmit).toHaveBeenCalledWith("Quran")
   })
 
-  it('names a wrong guess in an alert, clears the field, and drops the alert when typing again', async () => {
+  it("names a wrong guess in an alert, clears the field, and drops the alert when typing again", async () => {
     const onSubmit = vi.fn().mockResolvedValue({ correct: false, points_earned: 0 })
     render(<AnswerInput {...defaultProps({ onSubmit })} />)
-    fireEvent.change(field(), { target: { value: 'Zakari' } })
+    fireEvent.change(field(), { target: { value: "Zakari" } })
     await act(async () => {
-      fireEvent.submit(field().closest('form')!)
+      fireEvent.submit(field().closest("form")!)
     })
-    expect(screen.getByRole('alert')).toHaveTextContent('game.quiz.kalimat.wrongGuess')
-    expect(field()).toHaveValue('')
-    expect(field()).toHaveAttribute('aria-invalid', 'true')
-    fireEvent.change(field(), { target: { value: 'Z' } })
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.getByRole("alert")).toHaveTextContent("game.quiz.kalimat.wrongGuess")
+    expect(field()).toHaveValue("")
+    expect(field()).toHaveAttribute("aria-invalid", "true")
+    fireEvent.change(field(), { target: { value: "Z" } })
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
   })
 
-  it('does not submit twice while the first answer is in flight', async () => {
+  it("does not submit twice while the first answer is in flight", async () => {
     let resolve: (v: { correct: boolean; points_earned: number }) => void = () => {}
     const onSubmit = vi.fn().mockReturnValue(new Promise((r) => (resolve = r)))
     render(<AnswerInput {...defaultProps({ onSubmit })} />)
-    fireEvent.change(field(), { target: { value: 'Musa' } })
-    fireEvent.submit(field().closest('form')!)
-    fireEvent.submit(field().closest('form')!)
+    fireEvent.change(field(), { target: { value: "Musa" } })
+    fireEvent.submit(field().closest("form")!)
+    fireEvent.submit(field().closest("form")!)
     expect(onSubmit).toHaveBeenCalledOnce()
     await act(async () => resolve({ correct: true, points_earned: 4 }))
   })
 
-  it('locks once found: a status with the points, and no field', () => {
-    render(<AnswerInput {...defaultProps({ answered: true, pointsEarned: 5, answeredNote: '2 of 5 answered' })} />)
-    const status = screen.getByRole('status')
-    expect(status).toHaveTextContent('game.quiz.kalimat.found')
-    expect(status).toHaveTextContent('+5')
-    expect(status).toHaveTextContent('2 of 5 answered')
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+  it("locks once found: a status with the points, and no field", () => {
+    render(<AnswerInput {...defaultProps({ answered: true, pointsEarned: 5, answeredNote: "2 of 5 answered" })} />)
+    const status = screen.getByRole("status")
+    expect(status).toHaveTextContent("game.quiz.kalimat.found")
+    expect(status).toHaveTextContent("+5")
+    expect(status).toHaveTextContent("2 of 5 answered")
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument()
   })
 
-  it('disables the field when disabled', () => {
+  it("disables the field when disabled", () => {
     render(<AnswerInput {...defaultProps({ disabled: true })} />)
     expect(field()).toBeDisabled()
   })

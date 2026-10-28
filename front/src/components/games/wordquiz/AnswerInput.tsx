@@ -22,14 +22,7 @@ interface AnswerInputProps {
  * it") and the field is cleared for the next try, focus kept. Once you have found it,
  * the row locks: a brass seal, the points, and how many have found it so far.
  */
-export const AnswerInput = memo(function AnswerInput({
-  onSubmit,
-  disabled,
-  answered,
-  pointsEarned,
-  answeredNote,
-  placeholder,
-}: AnswerInputProps) {
+export const AnswerInput = memo(function AnswerInput({ onSubmit, disabled, answered, pointsEarned, answeredNote, placeholder }: AnswerInputProps) {
   const { t } = useTranslation()
   const [input, setInput] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)

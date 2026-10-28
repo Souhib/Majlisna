@@ -1,23 +1,7 @@
-import {
-  createContext,
-  type ReactNode,
-  useCallback,
-  useContext,
-  useEffect,
-  useRef,
-  useState,
-} from "react"
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useRef, useState } from "react"
 import { getMeApiV1AuthMeGet, refreshTokenApiV1AuthRefreshPost, logoutApiV1AuthLogoutPost } from "@/api/generated"
 import type { UserView } from "@/api/generated"
-import {
-  clearAuthData,
-  getStoredRefreshToken,
-  getStoredToken,
-  getStoredUserData,
-  getTokenExpiry,
-  hasStoredSession,
-  storeAuthData,
-} from "@/lib/auth"
+import { clearAuthData, getStoredRefreshToken, getStoredToken, getStoredUserData, getTokenExpiry, hasStoredSession, storeAuthData } from "@/lib/auth"
 
 /**
  * The shape the app actually gets back from the API.
@@ -83,9 +67,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     try {
       let data: unknown
       try {
-        data = await refreshTokenApiV1AuthRefreshPost(
-          storedRefreshToken ? { refresh_token: storedRefreshToken } : undefined,
-        )
+        data = await refreshTokenApiV1AuthRefreshPost(storedRefreshToken ? { refresh_token: storedRefreshToken } : undefined)
       } catch (bodyTokenError) {
         // The backend prefers the token in the body over the httpOnly cookie, so
         // a stale localStorage value shadows a perfectly good refresh cookie.

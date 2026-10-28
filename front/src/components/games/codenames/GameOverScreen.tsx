@@ -8,17 +8,7 @@ import { KeepWordToggle } from "@/components/notebook/KeepWords"
 import { useRouteNotebookGameId } from "@/components/notebook/route-game"
 import { useColophonNotebook } from "@/components/notebook/use-colophon-notebook"
 import { cn } from "@/lib/utils"
-import {
-  arabicForm,
-  cardGlyph,
-  type ClueHistoryEntry,
-  type CodenamesCard,
-  type CodenamesPlayer,
-  endReason,
-  otherTeam,
-  playedWords,
-  type TeamId,
-} from "./model"
+import { arabicForm, cardGlyph, type ClueHistoryEntry, type CodenamesCard, type CodenamesPlayer, endReason, otherTeam, playedWords, type TeamId } from "./model"
 
 export interface UnlockedAchievements {
   user_id: string
@@ -172,9 +162,7 @@ export const GameOverScreen = memo(function GameOverScreen({
               {rest.map((card) => {
                 const ar = arabicForm(card)
                 const glyph = cardGlyph(card.card_type)
-                const keep = notebook.find(card.word) ? (
-                  <KeepWordToggle notebook={notebook} word={card.word} label={arabicUi && ar ? ar : card.word} />
-                ) : null
+                const keep = notebook.find(card.word) ? <KeepWordToggle notebook={notebook} word={card.word} label={arabicUi && ar ? ar : card.word} /> : null
                 return (
                   <li
                     key={card.word}
@@ -184,7 +172,14 @@ export const GameOverScreen = memo(function GameOverScreen({
                     )}
                   >
                     <span className="flex items-center gap-1.5 self-center">
-                      {glyph ? <TeamGlyph team={glyph} size={10} className={glyph === "assassin" ? undefined : "text-muted-foreground"} label={t(`game.codenames.card.${glyph}`)} /> : null}
+                      {glyph ? (
+                        <TeamGlyph
+                          team={glyph}
+                          size={10}
+                          className={glyph === "assassin" ? undefined : "text-muted-foreground"}
+                          label={t(`game.codenames.card.${glyph}`)}
+                        />
+                      ) : null}
                     </span>
                     <span className="min-w-0">
                       <span className="flex flex-wrap items-baseline gap-x-2">

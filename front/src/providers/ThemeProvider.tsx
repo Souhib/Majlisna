@@ -27,8 +27,7 @@ export function ThemeProvider({ children, defaultTheme = "system" }: ThemeProvid
   // index.html applies the same rule before first paint, so there is no flash.
   const applyTheme = useCallback((t: Theme) => {
     const root = document.documentElement
-    const resolved: "light" | "dark" =
-      t === "system" ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light") : t
+    const resolved: "light" | "dark" = t === "system" ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light") : t
     root.classList.remove("light", "dark")
     root.classList.add(resolved)
     root.dataset.theme = resolved

@@ -14,23 +14,10 @@ import { cn } from "@/lib/utils"
  * palette, a hairline, the thread clock. `relative` on purpose: a page-level veil (the
  * prayer pause, a later stage) positions itself against this frame.
  */
-export function QuizFrame({
-  children,
-  aside,
-  className,
-}: {
-  children: ReactNode
-  aside?: ReactNode
-  className?: string
-}) {
+export function QuizFrame({ children, aside, className }: { children: ReactNode; aside?: ReactNode; className?: string }) {
   return (
     <div data-slot="quiz-frame" className={cn("page-wrap relative pt-5 pb-14 sm:pt-8 lg:pt-10", className)}>
-      <div
-        className={cn(
-          "mx-auto grid w-full items-start gap-5",
-          aside ? "max-w-[1040px] lg:grid-cols-[minmax(0,1fr)_300px] lg:gap-8" : "max-w-[640px]",
-        )}
-      >
+      <div className={cn("mx-auto grid w-full items-start gap-5", aside ? "max-w-[1040px] lg:grid-cols-[minmax(0,1fr)_300px] lg:gap-8" : "max-w-[640px]")}>
         <div className="min-w-0">{children}</div>
         {aside ? <aside className="grid min-w-0 gap-3 lg:sticky lg:top-[calc(var(--navh)+24px)]">{aside}</aside> : null}
       </div>

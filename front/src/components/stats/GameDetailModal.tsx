@@ -42,7 +42,11 @@ interface GameDetailModalProps {
 export function GameDetailModal({ gameId, gameType, onClose }: GameDetailModalProps) {
   const { t, i18n } = useTranslation()
   // the words' meanings (`*_hint`, `guesses[].hint`) come resolved in this language
-  const { data: summary, isLoading, error } = useGetGameSummaryApiV1GamesGameIdSummaryGet({ game_id: gameId }, { lang: i18n.language }) as {
+  const {
+    data: summary,
+    isLoading,
+    error,
+  } = useGetGameSummaryApiV1GamesGameIdSummaryGet({ game_id: gameId }, { lang: i18n.language }) as {
     data: GameSummary | undefined
     isLoading: boolean
     error: unknown
@@ -272,10 +276,7 @@ function Clues({ clues }: { clues: ClueHistoryEntry[] }) {
                 {/* what the spymaster wrote: their hand when it is Arabic, Marcellus caps otherwise */}
                 <span
                   dir="auto"
-                  className={cn(
-                    "bidi-isolate",
-                    ARABIC.test(clue.clue_word) ? "type-hand text-[22px]" : "font-display text-[20px] uppercase tracking-[0.04em]",
-                  )}
+                  className={cn("bidi-isolate", ARABIC.test(clue.clue_word) ? "type-hand text-[22px]" : "font-display text-[20px] uppercase tracking-[0.04em]")}
                 >
                   {clue.clue_word}
                 </span>
@@ -286,19 +287,16 @@ function Clues({ clues }: { clues: ClueHistoryEntry[] }) {
                   {clue.guesses.map((g, j) => {
                     const glyph = cardGlyph(g.card_type)
                     return (
-                      <li
-                        key={j}
-                        className="inline-flex h-[30px] items-center gap-2 rounded-sm border border-line bg-surface-2 px-2.5 text-[13.5px]"
-                      >
-                          <TeamGlyph team={glyph} size={10} label={cardLabel[glyph]} />
-                          <span lang="en" dir="ltr" className="bidi-isolate font-medium">
-                            {g.word}
+                      <li key={j} className="inline-flex h-[30px] items-center gap-2 rounded-sm border border-line bg-surface-2 px-2.5 text-[13.5px]">
+                        <TeamGlyph team={glyph} size={10} label={cardLabel[glyph]} />
+                        <span lang="en" dir="ltr" className="bidi-isolate font-medium">
+                          {g.word}
+                        </span>
+                        {g.word_ar ? (
+                          <span lang="ar" dir="rtl" className="font-nass text-[16px] leading-none">
+                            {g.word_ar_vocalized ?? g.word_ar}
                           </span>
-                          {g.word_ar ? (
-                            <span lang="ar" dir="rtl" className="font-nass text-[16px] leading-none">
-                              {g.word_ar_vocalized ?? g.word_ar}
-                            </span>
-                          ) : null}
+                        ) : null}
                       </li>
                     )
                   })}

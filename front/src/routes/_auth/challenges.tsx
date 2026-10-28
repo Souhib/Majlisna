@@ -31,10 +31,7 @@ function ChallengesPage() {
 
   return (
     <div className="page-wrap py-[clamp(32px,5vw,72px)]">
-      <PageHeader
-        title={t("challenges.title")}
-        lede={challenges.length > 0 ? t("challenges.doneCount", { done, total: challenges.length }) : undefined}
-      />
+      <PageHeader title={t("challenges.title")} lede={challenges.length > 0 ? t("challenges.doneCount", { done, total: challenges.length }) : undefined} />
 
       {isLoading ? (
         <div className="grid gap-[clamp(16px,2vw,24px)] lg:grid-cols-2" aria-busy="true">
@@ -94,9 +91,7 @@ function ChallengeRow({ c, showExpiry }: { c: ActiveChallenge; showExpiry: boole
   const { t } = useTranslation()
   const text = t(`challenges.items.${c.code}`, { defaultValue: c.description })
   const current = Math.min(c.progress, c.target_count)
-  const meta = [c.game_type ? gameName(c.game_type, t) : t("challenges.anyGame"), showExpiry ? timeLeft(c.expires_at, t) : null]
-    .filter(Boolean)
-    .join(" · ")
+  const meta = [c.game_type ? gameName(c.game_type, t) : t("challenges.anyGame"), showExpiry ? timeLeft(c.expires_at, t) : null].filter(Boolean).join(" · ")
 
   return (
     <li className="grid gap-2.5 border-t border-line py-3.5 first:border-t-0">

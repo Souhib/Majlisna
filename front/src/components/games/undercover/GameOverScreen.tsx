@@ -124,11 +124,7 @@ export const GameOverScreen = memo(function GameOverScreen({
           ? t("game.undercover.colophon.youMrWhite")
           : null
   const result =
-    winner === "civilians"
-      ? t("game.undercover.colophon.civiliansWin")
-      : winner === "undercovers"
-        ? t("game.undercover.colophon.impostorsWin")
-        : null
+    winner === "civilians" ? t("game.undercover.colophon.civiliansWin") : winner === "undercovers" ? t("game.undercover.colophon.impostorsWin") : null
   const summary = [result, youHeld].filter(Boolean).join(" ") || undefined
 
   // "Undercover · Yusuf’s majlis · 3 rounds · 21:40" (sketch H)
@@ -159,9 +155,7 @@ export const GameOverScreen = memo(function GameOverScreen({
       },
     ]
     for (const w of pair) {
-      const keep = notebook.find(w.latin) ? (
-        <KeepWordToggle notebook={notebook} word={w.latin} label={arabicUi && w.arabic ? w.arabic : w.latin} />
-      ) : undefined
+      const keep = notebook.find(w.latin) ? <KeepWordToggle notebook={notebook} word={w.latin} label={arabicUi && w.arabic ? w.arabic : w.latin} /> : undefined
       words.push({
         word: w.arabic || undefined,
         // no transliteration in the Arabic interface, unless there is nothing else to show

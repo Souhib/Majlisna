@@ -37,9 +37,7 @@ export function storeCity(data: CityCoordinates) {
 
 async function fetchTimezone(lat: number, lng: number): Promise<string | undefined> {
   try {
-    const res = await fetch(
-      `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&timezone=auto&forecast_days=1`,
-    )
+    const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&timezone=auto&forecast_days=1`)
     const data = await res.json()
     if (data.timezone) return data.timezone as string
   } catch {
@@ -70,9 +68,7 @@ interface OpenMeteoGeoResult {
 async function searchCitiesFree(query: string): Promise<OpenMeteoGeoResult[]> {
   if (query.length < 2) return []
   try {
-    const res = await fetch(
-      `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=5&language=en&format=json`,
-    )
+    const res = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=5&language=en&format=json`)
     const data = await res.json()
     return (data.results || []) as OpenMeteoGeoResult[]
   } catch {
@@ -83,10 +79,7 @@ async function searchCitiesFree(query: string): Promise<OpenMeteoGeoResult[]> {
 // Free reverse geocoding via Nominatim (OpenStreetMap)
 async function reverseGeocodeFree(lat: number, lng: number): Promise<string> {
   try {
-    const res = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&zoom=10`,
-      { headers: { "Accept-Language": "en" } },
-    )
+    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&zoom=10`, { headers: { "Accept-Language": "en" } })
     const data = await res.json()
     return data.address?.city || data.address?.town || data.address?.village || data.address?.county || "My Location"
   } catch {
@@ -137,24 +130,21 @@ export function CitySelector({ onSelect, initialCity }: CitySelectorProps) {
     return () => document.removeEventListener("mousedown", handler)
   }, [])
 
-  const handleSearch = useCallback(
-    (input: string) => {
-      setQuery(input)
-      if (input.length < 2) {
-        setPredictions([])
-        setShowDropdown(false)
-        return
-      }
+  const handleSearch = useCallback((input: string) => {
+    setQuery(input)
+    if (input.length < 2) {
+      setPredictions([])
+      setShowDropdown(false)
+      return
+    }
 
-      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
-      searchTimeoutRef.current = setTimeout(async () => {
-        const results = await searchCitiesFree(input)
-        setPredictions(results)
-        setShowDropdown(true)
-      }, 300)
-    },
-    [],
-  )
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
+    searchTimeoutRef.current = setTimeout(async () => {
+      const results = await searchCitiesFree(input)
+      setPredictions(results)
+      setShowDropdown(true)
+    }, 300)
+  }, [])
 
   const selectPrediction = useCallback(
     async (result: OpenMeteoGeoResult) => {
@@ -216,21 +206,11 @@ export function CitySelector({ onSelect, initialCity }: CitySelectorProps) {
         </div>
       ) : (
         <div className="grid gap-2">
-          <Button
-            variant="secondary"
-            size="sm"
-            block
-            onClick={detectLocation}
-            loading={detecting}
-            iconStart={<MapPin aria-hidden="true" />}
-          >
+          <Button variant="secondary" size="sm" block onClick={detectLocation} loading={detecting} iconStart={<MapPin aria-hidden="true" />}>
             {t("prayer.useMyLocation")}
           </Button>
           <div className="relative">
-            <Search
-              className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-              aria-hidden="true"
-            />
+            <Search className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
             <input
               ref={inputRef}
               type="search"
@@ -257,9 +237,7 @@ export function CitySelector({ onSelect, initialCity }: CitySelectorProps) {
                       className="flex min-h-10 w-full flex-col items-start justify-center rounded-sm px-3 py-1.5 text-start text-[14px] hover:bg-[color-mix(in_oklch,var(--brass)_12%,transparent)] focus-visible:bg-[color-mix(in_oklch,var(--brass)_12%,transparent)] pointer-coarse:min-h-11"
                     >
                       <span className="font-medium text-foreground">{r.name}</span>
-                      <span className="text-[12.5px] text-muted-foreground">
-                        {[r.admin1, r.country].filter(Boolean).join(", ")}
-                      </span>
+                      <span className="text-[12.5px] text-muted-foreground">{[r.admin1, r.country].filter(Boolean).join(", ")}</span>
                     </button>
                   </li>
                 ))}

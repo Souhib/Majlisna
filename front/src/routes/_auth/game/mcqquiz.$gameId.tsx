@@ -163,7 +163,11 @@ function McqQuizGamePage() {
   const [lockIn, setLockIn] = useState<LockIn | null>(null)
 
   // Poll game state
-  const { data: serverState, isLoading, error: queryError } = useGetMcqquizStateApiV1McqquizGamesGameIdStateGet(
+  const {
+    data: serverState,
+    isLoading,
+    error: queryError,
+  } = useGetMcqquizStateApiV1McqquizGamesGameIdStateGet(
     { game_id: gameId },
     { lang: i18n.language },
     {
@@ -287,16 +291,7 @@ function McqQuizGamePage() {
         setSelectedChoice(null)
       }
     }
-  }, [
-    gameId,
-    queryClient,
-    answerMutation,
-    selectedChoice,
-    state?.my_answered,
-    state?.is_spectator,
-    state?.round_started_at,
-    state?.current_round,
-  ])
+  }, [gameId, queryClient, answerMutation, selectedChoice, state?.my_answered, state?.is_spectator, state?.round_started_at, state?.current_round])
 
   const timerExpiredRef = useRef(false)
   const seals = useAchievementSeals(state?.newly_unlocked_achievements, state?.leaderboard, user?.id)
@@ -503,24 +498,14 @@ function McqQuizGamePage() {
         aside={
           // the scores are under the veil too (display: contents keeps the column's gaps)
           <div inert={isPaused} className="contents">
-            <PlayerScoreboard
-              players={view.players}
-              currentUserId={user?.id}
-              showAnswered={phase === "playing"}
-            />
+            <PlayerScoreboard players={view.players} currentUserId={user?.id} showAnswered={phase === "playing"} />
             <QuizLeaveButton onLeave={handleLeaveRoom} />
           </div>
         }
       >
         <div ref={gameRef} inert={isPaused} tabIndex={-1} className="outline-none">
           {adhan.prayer ? (
-            <AdhanSuggestion
-              prayerKey={adhan.prayer.key}
-              onPause={pauseFromStrip}
-              onDismiss={adhan.answer}
-              pausing={prayerPause.isPausing}
-              className="mb-4"
-            />
+            <AdhanSuggestion prayerKey={adhan.prayer.key} onPause={pauseFromStrip} onDismiss={adhan.answer} pausing={prayerPause.isPausing} className="mb-4" />
           ) : null}
           <Panel>
             <QuizHeader
@@ -561,16 +546,10 @@ function McqQuizGamePage() {
 
             {phase === "playing" && !view.is_spectator && !view.my_answered ? (
               <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">
-                <Button
-                  onClick={handleConfirmChoice}
-                  disabled={selectedChoice === null || isPaused}
-                  loading={answerMutation.isPending}
-                >
+                <Button onClick={handleConfirmChoice} disabled={selectedChoice === null || isPaused} loading={answerMutation.isPending}>
                   {t("game.quiz.mcq.lockIn")}
                 </Button>
-                {selectedChoice === null ? (
-                  <p className="text-[13px] text-muted-foreground">{t("game.quiz.mcq.chooseFirst")}</p>
-                ) : null}
+                {selectedChoice === null ? <p className="text-[13px] text-muted-foreground">{t("game.quiz.mcq.chooseFirst")}</p> : null}
               </div>
             ) : null}
 
@@ -580,9 +559,7 @@ function McqQuizGamePage() {
               </p>
             ) : null}
 
-            {phase === "playing" && view.is_spectator ? (
-              <p className="mt-4 text-[14px] text-muted-foreground">{t("game.spectatorView")}</p>
-            ) : null}
+            {phase === "playing" && view.is_spectator ? <p className="mt-4 text-[14px] text-muted-foreground">{t("game.spectatorView")}</p> : null}
 
             {showResults ? (
               <McqRoundResults

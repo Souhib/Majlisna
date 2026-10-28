@@ -83,7 +83,12 @@ function CodenamesGamePage() {
     return (
       <div className="page-wrap py-10">
         <Panel className="mx-auto max-w-xl">
-          <EmptyState titleAs="h2" title={t("game.gameOver")} description={cancelMessage} action={<p className="type-meta">{t("game.codenames.redirecting")}</p>} />
+          <EmptyState
+            titleAs="h2"
+            title={t("game.gameOver")}
+            description={cancelMessage}
+            action={<p className="type-meta">{t("game.codenames.redirecting")}</p>}
+          />
         </Panel>
       </div>
     )
@@ -136,13 +141,7 @@ function CodenamesGamePage() {
 
       <div ref={gameRef} inert={isPaused} tabIndex={-1} className="outline-none">
         {adhan.prayer ? (
-          <AdhanSuggestion
-            prayerKey={adhan.prayer.key}
-            onPause={pauseFromStrip}
-            onDismiss={adhan.answer}
-            pausing={prayerPause.isPausing}
-            className="mb-4"
-          />
+          <AdhanSuggestion prayerKey={adhan.prayer.key} onPause={pauseFromStrip} onDismiss={adhan.answer} pausing={prayerPause.isPausing} className="mb-4" />
         ) : null}
 
         <div className="cn-layout" data-finished={isFinished ? "true" : undefined}>

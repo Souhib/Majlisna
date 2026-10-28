@@ -34,15 +34,7 @@ export function choiceLetter(index: number, arabic: boolean): string | null {
  * first), the arrow keys move between choices and choose (Left/Right mirrored in the
  * Arabic interface), Home/End jump to the first/last.
  */
-export const ChoiceButtons = memo(function ChoiceButtons({
-  choices,
-  onSelect,
-  disabled,
-  selectedIndex,
-  correctIndex,
-  roundPhase,
-  tags,
-}: ChoiceButtonsProps) {
+export const ChoiceButtons = memo(function ChoiceButtons({ choices, onSelect, disabled, selectedIndex, correctIndex, roundPhase, tags }: ChoiceButtonsProps) {
   const { t, i18n } = useTranslation()
   const arabic = currentLanguage(i18n.language) === "ar"
   const letters = arabic ? ABJAD : LATIN
@@ -55,7 +47,10 @@ export const ChoiceButtons = memo(function ChoiceButtons({
     if (n === 0 || disabled) return
     const forward = arabic ? "ArrowLeft" : "ArrowRight"
     const backward = arabic ? "ArrowRight" : "ArrowLeft"
-    const from = Math.max(0, radios.current.findIndex((el) => el === document.activeElement))
+    const from = Math.max(
+      0,
+      radios.current.findIndex((el) => el === document.activeElement),
+    )
     let next: number | null = null
     if (e.key === "ArrowDown" || e.key === forward) next = (from + 1) % n
     else if (e.key === "ArrowUp" || e.key === backward) next = (from - 1 + n) % n

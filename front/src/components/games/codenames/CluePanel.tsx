@@ -19,14 +19,7 @@ export const CLUE_COUNTS = [1, 2, 3, 4, 0] as const
  * The spymaster's composer (sketch D): one word, how many cards it covers (1–4 or no
  * limit), "Give clue". Under the board, so the key stays in view while typing.
  */
-export const CluePanel = memo(function CluePanel({
-  clueWord,
-  clueNumber,
-  isSubmitting,
-  onClueWordChange,
-  onClueNumberChange,
-  onSubmit,
-}: CluePanelProps) {
+export const CluePanel = memo(function CluePanel({ clueWord, clueNumber, isSubmitting, onClueWordChange, onClueNumberChange, onSubmit }: CluePanelProps) {
   const { t } = useTranslation()
   const empty = !clueWord.trim()
 

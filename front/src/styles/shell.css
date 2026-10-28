@@ -54,12 +54,7 @@
     inset-inline: var(--gutter);
     bottom: 0;
     height: 1px;
-    background: linear-gradient(
-      90deg,
-      var(--line-brass) calc(50% - 12px),
-      transparent calc(50% - 12px) calc(50% + 12px),
-      var(--line-brass) calc(50% + 12px)
-    );
+    background: linear-gradient(90deg, var(--line-brass) calc(50% - 12px), transparent calc(50% - 12px) calc(50% + 12px), var(--line-brass) calc(50% + 12px));
     pointer-events: none;
   }
   .samar-nav-row::before {
@@ -476,12 +471,7 @@
     inset-inline: var(--gutter);
     top: 0;
     height: 1px;
-    background: linear-gradient(
-      90deg,
-      var(--line-brass) calc(50% - 12px),
-      transparent calc(50% - 12px) calc(50% + 12px),
-      var(--line-brass) calc(50% + 12px)
-    );
+    background: linear-gradient(90deg, var(--line-brass) calc(50% - 12px), transparent calc(50% - 12px) calc(50% + 12px), var(--line-brass) calc(50% + 12px));
   }
   .samar-footer-inner::after {
     content: "";

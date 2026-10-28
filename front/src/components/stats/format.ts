@@ -182,10 +182,7 @@ export function orderAchievements(list: AchievementWithProgress[]): AchievementW
   const ratio = (a: AchievementWithProgress) => (a.threshold > 0 ? Math.min(a.progress / a.threshold, 1) : 0)
   return list
     .map((a, i) => ({ a, i }))
-    .sort(
-      (x, y) =>
-        Number(y.a.unlocked) - Number(x.a.unlocked) || ratio(y.a) - ratio(x.a) || x.a.tier - y.a.tier || x.i - y.i,
-    )
+    .sort((x, y) => Number(y.a.unlocked) - Number(x.a.unlocked) || ratio(y.a) - ratio(x.a) || x.a.tier - y.a.tier || x.i - y.i)
     .map(({ a }) => a)
 }
 

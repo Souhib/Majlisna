@@ -78,15 +78,7 @@ function ProfilePage() {
   )
 }
 
-function IdentityPanel({
-  details,
-  editing,
-  setEditing,
-}: {
-  details: PublicUserView | undefined
-  editing: Editing
-  setEditing: (e: Editing) => void
-}) {
+function IdentityPanel({ details, editing, setEditing }: { details: PublicUserView | undefined; editing: Editing; setEditing: (e: Editing) => void }) {
   const { t, i18n } = useTranslation()
   const { user } = useAuth()
   if (!user) return null
@@ -103,11 +95,7 @@ function IdentityPanel({
             {/* the display role, like every page title and the lobby's "Yusuf’s majlis": its
                 figures are Readex (Samar Figures, first in the stack), and an Arabic name
                 falls to Amiri */}
-            <h1
-              id="profile-name"
-              dir="auto"
-              className="type-title min-w-0 break-words text-[clamp(28px,2.6vw,40px)] leading-[1.15]"
-            >
+            <h1 id="profile-name" dir="auto" className="type-title min-w-0 break-words text-[clamp(28px,2.6vw,40px)] leading-[1.15]">
               {user.username}
             </h1>
             {editing === "name" ? null : (
@@ -157,13 +145,7 @@ function IdentityPanel({
           )}
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
             {/* the form starts from the saved values, so it opens once they are here */}
-            <Button
-              variant="secondary"
-              size="sm"
-              iconStart={<Pencil aria-hidden="true" />}
-              disabled={!details}
-              onClick={() => setEditing("details")}
-            >
+            <Button variant="secondary" size="sm" iconStart={<Pencil aria-hidden="true" />} disabled={!details} onClick={() => setEditing("details")}>
               {t("profile.editDetails")}
             </Button>
             <Button asChild variant="link" size="sm" className="pointer-coarse:min-h-11">
@@ -219,11 +201,7 @@ function UsernameForm({ onDone }: { onDone: () => void }) {
 
   return (
     <form onSubmit={submit} onKeyDown={escapeTo(onDone)} className="mt-5 grid gap-3" noValidate>
-      <Field
-        label={t("profile.username")}
-        hint={t("profile.usernameHint", { min: USERNAME_MIN, max: USERNAME_MAX })}
-        error={error}
-      >
+      <Field label={t("profile.username")} hint={t("profile.usernameHint", { min: USERNAME_MIN, max: USERNAME_MAX })} error={error}>
         <Input
           type="text"
           value={value}

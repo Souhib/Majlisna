@@ -26,10 +26,7 @@ export function AdhanSuggestion({ prayerKey, onPause, onDismiss, pausing = false
     <section
       aria-label={t("pause.suggestLabel")}
       data-testid="adhan-suggestion"
-      className={cn(
-        "flex animate-fade-in flex-wrap items-center gap-x-4 gap-y-2.5 rounded-lg border border-line-brass bg-surface px-4 py-3",
-        className,
-      )}
+      className={cn("flex animate-fade-in flex-wrap items-center gap-x-4 gap-y-2.5 rounded-lg border border-line-brass bg-surface px-4 py-3", className)}
     >
       <p role="status" className="flex min-w-0 flex-[1_1_16rem] items-baseline gap-2.5 text-[15px] leading-snug">
         <Lozenge state="brass" size={7} className="relative -top-px" />

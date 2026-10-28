@@ -84,13 +84,7 @@ export function DialogHeader({ className, ...props }: ComponentProps<"div">) {
 }
 
 export function DialogFooter({ className, ...props }: ComponentProps<"div">) {
-  return (
-    <div
-      data-slot="dialog-footer"
-      className={cn("mt-2 flex flex-col-reverse gap-2.5 sm:flex-row sm:justify-end", className)}
-      {...props}
-    />
-  )
+  return <div data-slot="dialog-footer" className={cn("mt-2 flex flex-col-reverse gap-2.5 sm:flex-row sm:justify-end", className)} {...props} />
 }
 
 export function DialogTitle({ className, ...props }: ComponentProps<typeof DialogPrimitive.Title>) {
@@ -98,13 +92,7 @@ export function DialogTitle({ className, ...props }: ComponentProps<typeof Dialo
 }
 
 export function DialogDescription({ className, ...props }: ComponentProps<typeof DialogPrimitive.Description>) {
-  return (
-    <DialogPrimitive.Description
-      data-slot="dialog-description"
-      className={cn("text-[15px] leading-normal text-muted-foreground", className)}
-      {...props}
-    />
-  )
+  return <DialogPrimitive.Description data-slot="dialog-description" className={cn("text-[15px] leading-normal text-muted-foreground", className)} {...props} />
 }
 
 /* ---------------------------------------------------------------------------

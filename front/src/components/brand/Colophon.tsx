@@ -109,9 +109,7 @@ export function ColophonWordList({ words, className }: { words: ColophonWord[]; 
             ) : (
               <span className={cn(placed && "col-start-2 row-start-2 @max-sm:hidden")} />
             )}
-            {placed ? (
-              <span className="col-start-3 row-span-2 row-start-1 self-center @max-sm:col-start-2 @max-sm:row-span-1">{w.action}</span>
-            ) : null}
+            {placed ? <span className="col-start-3 row-span-2 row-start-1 self-center @max-sm:col-start-2 @max-sm:row-span-1">{w.action}</span> : null}
           </li>
         )
       })}
@@ -139,26 +137,11 @@ export interface ColophonProps extends Omit<ComponentProps<"article">, "title"> 
   arch?: boolean
 }
 
-export function Colophon({
-  title,
-  titleAs: Title = "h2",
-  summary,
-  meta,
-  words,
-  seals,
-  actions,
-  children,
-  arch = true,
-  className,
-  ...props
-}: ColophonProps) {
+export function Colophon({ title, titleAs: Title = "h2", summary, meta, words, seals, actions, children, arch = true, className, ...props }: ColophonProps) {
   const card = (
     <article
       data-slot="colophon"
-      className={cn(
-        "relative z-[1] overflow-hidden rounded-sm border border-line-brass-strong bg-surface px-5 pt-[22px] text-foreground sm:px-6",
-        className,
-      )}
+      className={cn("relative z-[1] overflow-hidden rounded-sm border border-line-brass-strong bg-surface px-5 pt-[22px] text-foreground sm:px-6", className)}
       {...props}
     >
       <Title className="type-title">{title}</Title>

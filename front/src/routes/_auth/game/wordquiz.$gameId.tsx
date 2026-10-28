@@ -36,13 +36,7 @@ import { QuizFrame, QuizGoneNotice, QuizHeader, QuizLeaveButton, QuizLoading } f
 import { useHeldForPhase } from "@/components/games/shared/quiz-utils"
 import { AnswerInput } from "@/components/games/wordquiz/AnswerInput"
 import { HintDisplay } from "@/components/games/wordquiz/HintDisplay"
-import {
-  type LastRound,
-  LastRoundCard,
-  lastRoundFrom,
-  recallLastRound,
-  rememberLastRound,
-} from "@/components/games/wordquiz/LastRoundCard"
+import { type LastRound, LastRoundCard, lastRoundFrom, recallLastRound, rememberLastRound } from "@/components/games/wordquiz/LastRoundCard"
 import { RoundResults } from "@/components/games/wordquiz/RoundResults"
 import { Panel } from "@/components/ui/panel"
 import { useLeaveAfterKick } from "@/hooks/use-leave-after-kick"
@@ -190,7 +184,11 @@ function WordQuizGamePage() {
   const [lastRound, setLastRound] = useState<LastRound | null>(() => recallLastRound(gameId))
 
   // Poll game state
-  const { data: serverState, isLoading, error: queryError } = useGetWordquizStateApiV1WordquizGamesGameIdStateGet(
+  const {
+    data: serverState,
+    isLoading,
+    error: queryError,
+  } = useGetWordquizStateApiV1WordquizGamesGameIdStateGet(
     { game_id: gameId },
     { lang: i18n.language },
     {
@@ -337,10 +335,7 @@ function WordQuizGamePage() {
     if (!last) return
     rememberLastRound(gameId, last)
     setLastRound((prev) =>
-      prev?.round === last.round &&
-      prev.answer === last.answer &&
-      prev.finder?.username === last.finder?.username &&
-      prev.finder?.wrote === last.finder?.wrote
+      prev?.round === last.round && prev.answer === last.answer && prev.finder?.username === last.finder?.username && prev.finder?.wrote === last.finder?.wrote
         ? prev
         : last,
     )
@@ -546,13 +541,7 @@ function WordQuizGamePage() {
       >
         <div ref={gameRef} inert={isPaused} tabIndex={-1} className="outline-none">
           {adhan.prayer ? (
-            <AdhanSuggestion
-              prayerKey={adhan.prayer.key}
-              onPause={pauseFromStrip}
-              onDismiss={adhan.answer}
-              pausing={prayerPause.isPausing}
-              className="mb-4"
-            />
+            <AdhanSuggestion prayerKey={adhan.prayer.key} onPause={pauseFromStrip} onDismiss={adhan.answer} pausing={prayerPause.isPausing} className="mb-4" />
           ) : null}
           <Panel>
             <QuizHeader
@@ -573,11 +562,7 @@ function WordQuizGamePage() {
               <>
                 <div className="mb-3.5 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
                   <p className="text-[14px] leading-snug text-muted-foreground">
-                    <Trans
-                      i18nKey="game.quiz.kalimat.worthNow"
-                      count={worth}
-                      components={{ b: <b className="font-medium text-foreground" /> }}
-                    />
+                    <Trans i18nKey="game.quiz.kalimat.worthNow" count={worth} components={{ b: <b className="font-medium text-foreground" /> }} />
                   </p>
                   {view.round_started_at && view.turn_duration_seconds > 0 ? (
                     <PhaseTimer
@@ -590,12 +575,7 @@ function WordQuizGamePage() {
                     />
                   ) : null}
                 </div>
-                <HintDisplay
-                  hints={view.hints}
-                  hintsRevealed={effectiveHintsRevealed}
-                  maxHints={maxHints}
-                  nextHintIn={hintClock.nextIn}
-                />
+                <HintDisplay hints={view.hints} hintsRevealed={effectiveHintsRevealed} maxHints={maxHints} nextHintIn={hintClock.nextIn} />
                 {view.is_spectator ? (
                   <p className="mt-4 text-[14px] text-muted-foreground">{t("game.spectatorView")}</p>
                 ) : (

@@ -32,7 +32,13 @@ export const RoleRevealPhase = memo(function RoleRevealPhase({ onDismiss }: Role
           {(["civilian", "undercover", "mr_white"] as const).map((role) => (
             <li key={role}>
               <Chip mark={<RoleMark role={role} size={11} />}>
-                {t(role === "civilian" ? "games.undercover.roles.civilian" : role === "undercover" ? "games.undercover.roles.undercover" : "games.undercover.roles.mrWhite")}
+                {t(
+                  role === "civilian"
+                    ? "games.undercover.roles.civilian"
+                    : role === "undercover"
+                      ? "games.undercover.roles.undercover"
+                      : "games.undercover.roles.mrWhite",
+                )}
               </Chip>
             </li>
           ))}

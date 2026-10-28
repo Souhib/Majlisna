@@ -71,7 +71,11 @@ function RoomsPage() {
     joinMutation.mutate({ data: { public_room_id: roomCode, password: pin } })
   }
 
-  const { data: activeRoom, isLoading: activeLoading, refetch: refetchActiveRoom } = useGetActiveRoomApiV1RoomsActiveGet({
+  const {
+    data: activeRoom,
+    isLoading: activeLoading,
+    refetch: refetchActiveRoom,
+  } = useGetActiveRoomApiV1RoomsActiveGet({
     query: { staleTime: 10_000 },
   })
 
@@ -160,12 +164,7 @@ function RoomsPage() {
                   {t("room.indexPage.joinHint")}
                 </p>
               )}
-              <Button
-                type="submit"
-                block
-                loading={joinMutation.isPending}
-                iconEnd={<ArrowRight className="rtl-flip" aria-hidden="true" />}
-              >
+              <Button type="submit" block loading={joinMutation.isPending} iconEnd={<ArrowRight className="rtl-flip" aria-hidden="true" />}>
                 {t("room.indexPage.joinSubmit")}
               </Button>
             </form>

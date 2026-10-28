@@ -27,9 +27,7 @@ export function lastRoundFrom(state: {
   return {
     round: state.current_round,
     answer: state.correct_answer,
-    finder: first
-      ? { username: first.username, hint: first.answered_at_hint ?? 0, points: first.points, wrote: first.typed_answer ?? null }
-      : undefined,
+    finder: first ? { username: first.username, hint: first.answered_at_hint ?? 0, points: first.points, wrote: first.typed_answer ?? null } : undefined,
   }
 }
 
@@ -70,10 +68,7 @@ export const LastRoundCard = memo(function LastRoundCard({ last }: { last: LastR
   const arabic = isArabicScript(shown)
 
   return (
-    <section
-      aria-label={t("game.quiz.kalimat.lastRound")}
-      className="mt-5 flex items-center gap-4 rounded-sm border border-line bg-surface px-4 py-3"
-    >
+    <section aria-label={t("game.quiz.kalimat.lastRound")} className="mt-5 flex items-center gap-4 rounded-sm border border-line bg-surface px-4 py-3">
       <div className="min-w-0 flex-1">
         <p className="text-[13px] leading-snug text-muted-foreground">
           {t("game.quiz.kalimat.lastRound")}
@@ -86,19 +81,14 @@ export const LastRoundCard = memo(function LastRoundCard({ last }: { last: LastR
         </p>
         <p
           {...(arabic ? { lang: "ar", dir: "rtl" } : { dir: "auto" })}
-          className={cn(
-            "break-words text-foreground",
-            arabic ? "type-hand text-[30px]" : "font-nass text-[22px] leading-[1.4] font-bold",
-          )}
+          className={cn("break-words text-foreground", arabic ? "type-hand text-[30px]" : "font-nass text-[22px] leading-[1.4] font-bold")}
         >
           {shown}
         </p>
       </div>
       {last.finder ? (
         <p className="shrink-0 text-end text-[13px] leading-snug text-muted-foreground">
-          {wrote
-            ? t("game.quiz.kalimat.rightAtHint", { number: last.finder.hint })
-            : t("game.quiz.kalimat.atHint", { number: last.finder.hint })}
+          {wrote ? t("game.quiz.kalimat.rightAtHint", { number: last.finder.hint }) : t("game.quiz.kalimat.atHint", { number: last.finder.hint })}
           <Figure className="block text-[18px] leading-tight font-medium text-brass">+{last.finder.points}</Figure>
         </p>
       ) : null}

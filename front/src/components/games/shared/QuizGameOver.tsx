@@ -86,7 +86,12 @@ export const QuizGameOver = memo(function QuizGameOver({
   if (solo) {
     sentence = t("game.quiz.soloScore", { count: sorted[0].total_score })
   } else if (leaders.length > 1) {
-    sentence = t("game.quiz.tie", { names: listFormat(leaders.map((e) => e.username), i18n.language) })
+    sentence = t("game.quiz.tie", {
+      names: listFormat(
+        leaders.map((e) => e.username),
+        i18n.language,
+      ),
+    })
     summary = t("game.quiz.tieSummary", { count: leaders[0].total_score })
   } else if (winner) {
     sentence = t(winnerI18nKey, { username: leaders[0]?.username ?? winner })
@@ -141,9 +146,7 @@ export const QuizGameOver = memo(function QuizGameOver({
                 <span className={cn("truncate text-[15px] font-medium", isMe && "text-brass")}>{entry.username}</span>
                 {isMe ? <span className="shrink-0 text-[13px] text-muted-foreground">{t("game.quiz.you")}</span> : null}
               </span>
-              <Figure className={cn("text-[17px] font-medium", (first || isMe) && "text-brass")}>
-                {entry.total_score}
-              </Figure>
+              <Figure className={cn("text-[17px] font-medium", (first || isMe) && "text-brass")}>{entry.total_score}</Figure>
             </li>
           )
         })}
@@ -159,4 +162,3 @@ export const QuizGameOver = memo(function QuizGameOver({
     </Colophon>
   )
 })
-

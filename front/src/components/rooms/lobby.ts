@@ -140,15 +140,7 @@ export function seatLobby(
   const seated = host ? [host, ...seatedAll.filter((m) => m !== host)] : seatedAll
   const seats: HalqaSeat[] = seated.map((m) => {
     const me = m.id === myId
-    const sub = m.isHost
-      ? me
-        ? labels.youHost
-        : labels.host
-      : m.isAway
-        ? awayLabel(labels.away, awayLeft?.get(m.id))
-        : me
-          ? labels.you
-          : undefined
+    const sub = m.isHost ? (me ? labels.youHost : labels.host) : m.isAway ? awayLabel(labels.away, awayLeft?.get(m.id)) : me ? labels.you : undefined
     return {
       id: m.id,
       name: ringName(m.username),

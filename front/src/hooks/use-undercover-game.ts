@@ -99,7 +99,11 @@ export function useUndercoverGame(gameId: string) {
   const [isStartingNextRound, setIsStartingNextRound] = useState(false)
   const [eliminationData, setEliminationData] = useState<EliminationData | null>(null)
 
-  const { data: serverState, isLoading, error: queryError } = useGetUndercoverStateApiV1UndercoverGamesGameIdStateGet(
+  const {
+    data: serverState,
+    isLoading,
+    error: queryError,
+  } = useGetUndercoverStateApiV1UndercoverGamesGameIdStateGet(
     { game_id: gameId },
     { lang: i18n.language },
     {
@@ -111,55 +115,57 @@ export function useUndercoverGame(gameId: string) {
       },
     },
   ) as {
-    data: {
-      my_role: string
-      my_word: string
-      my_word_ar?: string | null
-      my_word_ar_vocalized?: string | null
-      my_word_hint: string | null
-      is_alive: boolean
-      players: { user_id: string; username: string; is_alive: boolean; is_mayor?: boolean }[]
-      eliminated_players: { user_id: string; username: string; role: string }[]
-      turn_number: number
-      has_voted: boolean
-      room_id?: string
-      is_host?: boolean
-      votes?: Record<string, string>
-      winner?: string | null
-      turn_phase?: string
-      round_resolved?: boolean
-      mr_white_guesser?: string | null
-      description_order?: DescriptionOrderEntry[]
-      current_describer_index?: number
-      descriptions?: Record<string, string>
-      vote_history?: {
-        round: number
-        votes: { voter: string; voter_id: string; target: string; target_id: string }[]
-        eliminated: { username: string; role: string; user_id: string } | null
-        mr_white_guess?: { word?: string | null; correct: boolean } | null
-      }[]
-      timer_config?: { description_seconds: number; voting_seconds: number }
-      timer_started_at?: string | null
-      /** The prayer pause (null while the game runs) and what this caller may do about it. */
-      paused?: GamePause | null
-      can_pause?: boolean
-      can_resume?: boolean
-      newly_unlocked_achievements?: { user_id: string; achievements: { code: string; name: string; icon: string; tier: number }[] }[]
-      /** The colophon: the host who started the game, and when it ran (UTC). */
-      host_username?: string | null
-      started_at?: string | null
-      ended_at?: string | null
-      word_explanations?: {
-        civilian_word: string
-        civilian_word_ar?: string | null
-        civilian_word_ar_vocalized?: string | null
-        civilian_word_hint: string | null
-        undercover_word: string
-        undercover_word_ar?: string | null
-        undercover_word_ar_vocalized?: string | null
-        undercover_word_hint: string | null
-      } | null
-    } | undefined
+    data:
+      | {
+          my_role: string
+          my_word: string
+          my_word_ar?: string | null
+          my_word_ar_vocalized?: string | null
+          my_word_hint: string | null
+          is_alive: boolean
+          players: { user_id: string; username: string; is_alive: boolean; is_mayor?: boolean }[]
+          eliminated_players: { user_id: string; username: string; role: string }[]
+          turn_number: number
+          has_voted: boolean
+          room_id?: string
+          is_host?: boolean
+          votes?: Record<string, string>
+          winner?: string | null
+          turn_phase?: string
+          round_resolved?: boolean
+          mr_white_guesser?: string | null
+          description_order?: DescriptionOrderEntry[]
+          current_describer_index?: number
+          descriptions?: Record<string, string>
+          vote_history?: {
+            round: number
+            votes: { voter: string; voter_id: string; target: string; target_id: string }[]
+            eliminated: { username: string; role: string; user_id: string } | null
+            mr_white_guess?: { word?: string | null; correct: boolean } | null
+          }[]
+          timer_config?: { description_seconds: number; voting_seconds: number }
+          timer_started_at?: string | null
+          /** The prayer pause (null while the game runs) and what this caller may do about it. */
+          paused?: GamePause | null
+          can_pause?: boolean
+          can_resume?: boolean
+          newly_unlocked_achievements?: { user_id: string; achievements: { code: string; name: string; icon: string; tier: number }[] }[]
+          /** The colophon: the host who started the game, and when it ran (UTC). */
+          host_username?: string | null
+          started_at?: string | null
+          ended_at?: string | null
+          word_explanations?: {
+            civilian_word: string
+            civilian_word_ar?: string | null
+            civilian_word_ar_vocalized?: string | null
+            civilian_word_hint: string | null
+            undercover_word: string
+            undercover_word_ar?: string | null
+            undercover_word_ar_vocalized?: string | null
+            undercover_word_hint: string | null
+          } | null
+        }
+      | undefined
     isLoading: boolean
     error: Error | null
   }

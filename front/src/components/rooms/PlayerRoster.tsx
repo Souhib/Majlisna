@@ -59,7 +59,12 @@ export function PlayerRoster({ players, myId, canKick, kickingId, onKick, awayLe
   const removable = players.filter((p) => p.id !== myId)
   return (
     <Panel flush aria-labelledby={headingId} className={className}>
-      <h2 id={headingId} ref={headingRef} tabIndex={-1} className="type-panel px-4 pt-4 pb-3 outline-none focus-visible:outline-2 focus-visible:outline-focus sm:px-5">
+      <h2
+        id={headingId}
+        ref={headingRef}
+        tabIndex={-1}
+        className="type-panel px-4 pt-4 pb-3 outline-none focus-visible:outline-2 focus-visible:outline-focus sm:px-5"
+      >
         {t("room.players")} <span className="num">({players.length})</span>
       </h2>
       {players.length === 0 ? (
@@ -90,16 +95,11 @@ export function PlayerRoster({ players, myId, canKick, kickingId, onKick, awayLe
                 <div className="flex min-h-12 items-center justify-between gap-3 py-1">
                   <div className="flex min-w-0 flex-1 items-baseline gap-2.5">
                     <Lozenge state={state} size={9} className="-translate-y-px self-center" />
-                    <span
-                      dir="auto"
-                      className={cn("min-w-0 truncate text-[15px] leading-tight", me ? "font-medium text-foreground" : "text-foreground")}
-                    >
+                    <span dir="auto" className={cn("min-w-0 truncate text-[15px] leading-tight", me ? "font-medium text-foreground" : "text-foreground")}>
                       {player.username}
                     </span>
                     {me ? <span className="type-meta shrink-0">{t("room.lobbyPage.rosterYou")}</span> : null}
-                    {note ? (
-                      <span className={cn("type-meta shrink-0", player.isHost && "text-brass")}>{note}</span>
-                    ) : null}
+                    {note ? <span className={cn("type-meta shrink-0", player.isHost && "text-brass")}>{note}</span> : null}
                   </div>
                   {canKick && !me ? (
                     <Button

@@ -78,9 +78,7 @@ export const RoundResults = memo(function RoundResults({
         <p {...scriptAttrs(correctAnswer)} className="ink mt-1 type-word text-[clamp(34px,6vw,44px)] text-foreground">
           {correctAnswer}
         </p>
-        {explanation ? (
-          <p className="quiz-why mt-1 max-w-[62ch] border-t-0 px-0 pt-1">{explanation}</p>
-        ) : null}
+        {explanation ? <p className="quiz-why mt-1 max-w-[62ch] border-t-0 px-0 pt-1">{explanation}</p> : null}
       </section>
 
       <h2 className="sr-only">{t("game.quiz.kalimat.whoFound")}</h2>

@@ -49,15 +49,12 @@ export const exit = (d: number = dur.state): Transition => ({ duration: d * 0.66
 /** Delay for item `i` of a list: 30 ms steps, capped at 240 ms in total. */
 export const stagger = (i: number, step = 0.03, cap = 0.24) => Math.min(i * step, cap)
 
-const graphemes =
-  typeof Intl !== "undefined" && "Segmenter" in Intl ? new Intl.Segmenter(undefined, { granularity: "grapheme" }) : null
+const graphemes = typeof Intl !== "undefined" && "Segmenter" in Intl ? new Intl.Segmenter(undefined, { granularity: "grapheme" }) : null
 
 /** Writing time in seconds: a word (55 ms per grapheme) or a line (15 ms per grapheme). */
 export function inkDuration(text: string, kind: "word" | "line" = "word") {
   const n = graphemes ? [...graphemes.segment(text)].length : text.length
-  return kind === "word"
-    ? Math.min(0.88, Math.max(0.36, 0.2 + n * 0.055))
-    : Math.min(0.9, Math.max(0.42, 0.3 + n * 0.015))
+  return kind === "word" ? Math.min(0.88, Math.max(0.36, 0.2 + n * 0.055)) : Math.min(0.9, Math.max(0.42, 0.3 + n * 0.015))
 }
 
 /** Re-reading a secret already read: always quick, even the tenth glance. */

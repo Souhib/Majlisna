@@ -41,9 +41,7 @@ export const EliminationOverlay = memo(function EliminationOverlay({
         round={{
           round,
           votes: votes ?? [],
-          eliminated: eliminatedUsername
-            ? { username: eliminatedUsername, role: eliminatedRole ?? "civilian", user_id: eliminatedUserId ?? "" }
-            : null,
+          eliminated: eliminatedUsername ? { username: eliminatedUsername, role: eliminatedRole ?? "civilian", user_id: eliminatedUserId ?? "" } : null,
         }}
         currentUserId={currentUserId}
         myWord={myWord}

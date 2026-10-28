@@ -62,12 +62,7 @@ export function ThreadClock({ remaining, total, label, hideTime = false, classNa
     >
       {phase === "done" ? (
         <svg className="knot" viewBox="0 0 14 14" aria-hidden="true">
-          <path
-            d="M1 7h3.2M9.8 7H13M4.2 7c0-2 1.2-3.2 2.8-3.2S9.8 5 9.8 7 8.6 10.2 7 10.2 4.2 9 4.2 7z"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.4"
-          />
+          <path d="M1 7h3.2M9.8 7H13M4.2 7c0-2 1.2-3.2 2.8-3.2S9.8 5 9.8 7 8.6 10.2 7 10.2 4.2 9 4.2 7z" fill="none" stroke="currentColor" strokeWidth="1.4" />
         </svg>
       ) : null}
       <div className="track" aria-hidden="true">

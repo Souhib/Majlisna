@@ -30,10 +30,7 @@ export function Alert({ tone = "error", className, children, role, ...props }: A
       )}
       {...props}
     >
-      <span
-        aria-hidden="true"
-        className={cn("loz -translate-y-px [--loz:6px]", tone === "error" ? "bg-ember" : "bg-brass")}
-      />
+      <span aria-hidden="true" className={cn("loz -translate-y-px [--loz:6px]", tone === "error" ? "bg-ember" : "bg-brass")} />
       <div className="min-w-0">{children}</div>
     </div>
   )

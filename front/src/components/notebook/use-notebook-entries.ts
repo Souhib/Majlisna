@@ -5,14 +5,7 @@ import { toast } from "sonner"
 import { getApiErrorMessage } from "@/api/client"
 import { listNotebookEntriesApiV1NotebookGet, type NotebookPage } from "@/api/generated"
 import { uniqueEntries } from "./entries"
-import {
-  deleteNotebookEntry,
-  NOTEBOOK_GAME_WORDS_URL_KEY,
-  NOTEBOOK_LIST_URL_KEY,
-  NOTEBOOK_PAGE_SIZE,
-  notebookListKey,
-  retryUnlessClientError,
-} from "./queries"
+import { deleteNotebookEntry, NOTEBOOK_GAME_WORDS_URL_KEY, NOTEBOOK_LIST_URL_KEY, NOTEBOOK_PAGE_SIZE, notebookListKey, retryUnlessClientError } from "./queries"
 
 type Pages = InfiniteData<NotebookPage, string | null>
 

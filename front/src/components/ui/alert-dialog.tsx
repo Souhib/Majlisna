@@ -58,9 +58,7 @@ export function AlertDialogTitle({ className, ...props }: ComponentProps<typeof 
 }
 
 export function AlertDialogDescription({ className, ...props }: ComponentProps<typeof AlertDialogPrimitive.Description>) {
-  return (
-    <AlertDialogPrimitive.Description className={cn("text-[15px] leading-normal text-muted-foreground", className)} {...props} />
-  )
+  return <AlertDialogPrimitive.Description className={cn("text-[15px] leading-normal text-muted-foreground", className)} {...props} />
 }
 
 export function AlertDialogAction({

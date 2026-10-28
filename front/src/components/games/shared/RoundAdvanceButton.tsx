@@ -56,13 +56,7 @@ export const RoundAdvanceButton = memo(function RoundAdvanceButton({
     )
   }
 
-  const note = isHost
-    ? count
-      ? t("game.quiz.hostNote", { status: count })
-      : null
-    : isReady
-      ? t("game.quiz.readyNote")
-      : t("game.quiz.notReadyNote")
+  const note = isHost ? (count ? t("game.quiz.hostNote", { status: count }) : null) : isReady ? t("game.quiz.readyNote") : t("game.quiz.notReadyNote")
 
   return (
     <div className={cn("grid gap-2", className)}>

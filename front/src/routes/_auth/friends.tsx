@@ -86,8 +86,7 @@ function FriendsPage() {
     },
   })
 
-  const busyFor = (m: { isPending: boolean; variables?: { friendship_id: string } }, id: string) =>
-    m.isPending && m.variables?.friendship_id === id
+  const busyFor = (m: { isPending: boolean; variables?: { friendship_id: string } }, id: string) => m.isPending && m.variables?.friendship_id === id
 
   const query = searchQuery.trim().toLowerCase()
   const filteredFriends = friends.filter((f) => f.username.toLowerCase().includes(query))
@@ -127,10 +126,7 @@ function FriendsPage() {
             {friends.length > 0 ? (
               <Field label={t("friends.searchLabel")} hideLabel className="mb-4">
                 <div className="relative">
-                  <Search
-                    className="pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-                    aria-hidden="true"
-                  />
+                  <Search className="pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
                   <Input
                     type="search"
                     value={searchQuery}
@@ -145,12 +141,7 @@ function FriendsPage() {
               {isLoading ? (
                 <ListSkeleton />
               ) : friends.length === 0 ? (
-                <EmptyState
-                  titleAs="h2"
-                  title={t("friends.noFriends")}
-                  description={t("friends.noFriendsBody")}
-                  action={findPlayers}
-                />
+                <EmptyState titleAs="h2" title={t("friends.noFriends")} description={t("friends.noFriendsBody")} action={findPlayers} />
               ) : filteredFriends.length === 0 ? (
                 <p className="px-4 py-10 text-center text-muted-foreground" role="status">
                   {t("friends.noResults")}

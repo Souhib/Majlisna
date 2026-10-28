@@ -69,12 +69,7 @@ export function Footer() {
             <ul className="footer-row">
               {CHARITIES.map((c) => (
                 <li key={c.org}>
-                  <a
-                    href={c.href}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={() => trackEvent("charity-click", { org: c.org })}
-                  >
+                  <a href={c.href} target="_blank" rel="noopener noreferrer" onClick={() => trackEvent("charity-click", { org: c.org })}>
                     {c.name}
                     <ArrowUpRight className="size-3.5 rtl-flip" aria-hidden="true" />
                     <span className="sr-only">{t("ui.opensInNewTab")}</span>

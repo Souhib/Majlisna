@@ -353,7 +353,9 @@
     font: inherit;
     text-align: start;
     cursor: pointer;
-    transition: border-color var(--dur-state) var(--ease-out), background-color var(--dur-state) var(--ease-out);
+    transition:
+      border-color var(--dur-state) var(--ease-out),
+      background-color var(--dur-state) var(--ease-out);
   }
   .uc-seat:hover {
     border-color: var(--line-brass-strong);

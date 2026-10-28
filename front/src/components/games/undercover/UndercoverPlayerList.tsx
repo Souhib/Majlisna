@@ -45,12 +45,15 @@ export const UndercoverPlayerList = memo(function UndercoverPlayerList({ players
           return (
             <li
               key={player.id}
-              className={cn(
-                "flex min-h-11 items-center gap-3 border-b border-line py-2 text-[14.5px]",
-                !player.is_alive && "text-muted-foreground",
-              )}
+              className={cn("flex min-h-11 items-center gap-3 border-b border-line py-2 text-[14.5px]", !player.is_alive && "text-muted-foreground")}
             >
-              {player.is_alive ? <Lozenge state={player.id === currentUserId ? "brass" : "ready"} size={9} /> : role ? <RoleMark role={role} size={9} /> : <Lozenge state="away" size={9} />}
+              {player.is_alive ? (
+                <Lozenge state={player.id === currentUserId ? "brass" : "ready"} size={9} />
+              ) : role ? (
+                <RoleMark role={role} size={9} />
+              ) : (
+                <Lozenge state="away" size={9} />
+              )}
               <span className={cn("min-w-0 flex-1 truncate", player.is_alive && "font-medium")}>
                 {player.username}
                 {player.id === currentUserId ? <span className="font-normal text-muted-foreground"> · {t("game.undercover.youLower")}</span> : null}

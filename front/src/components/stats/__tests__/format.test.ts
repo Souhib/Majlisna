@@ -147,12 +147,7 @@ describe("orderAchievements", () => {
 
   it("puts earned seals first, then the nearest to earning, then the lower tier", () => {
     // Prepare
-    const list = [
-      a("far", { progress: 1 }),
-      a("earned", { unlocked: true, progress: 10 }),
-      a("near", { progress: 8 }),
-      a("hard", { progress: 1, tier: 3 }),
-    ]
+    const list = [a("far", { progress: 1 }), a("earned", { unlocked: true, progress: 10 }), a("near", { progress: 8 }), a("hard", { progress: 1, tier: 3 })]
 
     // Act
     const order = orderAchievements(list).map((x) => x.code)

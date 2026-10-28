@@ -55,10 +55,7 @@ function VerifyEmailPage() {
 
   if (status === "success") {
     return (
-      <AuthPage
-        title={t("auth.emailVerified")}
-        description={t("auth.emailVerifiedDescription")}
-      >
+      <AuthPage title={t("auth.emailVerified")} description={t("auth.emailVerifiedDescription")}>
         <Button asChild block iconEnd={<ArrowRight className="rtl-flip" aria-hidden="true" />}>
           <Link to="/auth/login">{t("auth.login")}</Link>
         </Button>

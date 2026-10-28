@@ -41,13 +41,7 @@ export function Seal({ size = 22, pressed = true, progress, ground, title, capti
       {progress !== undefined ? (
         <svg viewBox="0 0 64 64">
           <circle cx="32" cy="32" r={r} stroke="var(--line-brass)" />
-          <circle
-            cx="32"
-            cy="32"
-            r={r}
-            stroke="var(--brass)"
-            strokeDasharray={`${Math.max(0, Math.min(1, progress)) * c} ${c}`}
-          />
+          <circle cx="32" cy="32" r={r} stroke="var(--brass)" strokeDasharray={`${Math.max(0, Math.min(1, progress)) * c} ${c}`} />
         </svg>
       ) : null}
     </span>

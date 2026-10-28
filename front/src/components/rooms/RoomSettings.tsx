@@ -52,13 +52,7 @@ function OptionGroup<T extends string | number>({
       <div className="flex flex-wrap gap-1.5">
         {options.map((o) => (
           <label key={String(o.value)} className="relative cursor-pointer">
-            <input
-              type="radio"
-              name={name}
-              className="peer sr-only"
-              checked={value === o.value}
-              onChange={() => onChange(o.value)}
-            />
+            <input type="radio" name={name} className="peer sr-only" checked={value === o.value} onChange={() => onChange(o.value)} />
             <span
               className={cn(
                 "inline-flex h-10 min-w-12 items-center justify-center rounded-sm border border-line bg-surface px-3 text-[14px] font-medium leading-none text-muted-foreground num pointer-coarse:h-11",
@@ -159,7 +153,24 @@ export const RoomSettings = memo(function RoomSettings({ roomId, settings, gameT
     } catch (err) {
       toast.error(roomErrorMessage(err, t("room.settingsPanel.saveFailed")))
     }
-  }, [roomId, gameType, descriptionTimer, votingTimer, codenamesClueTimer, codenamesGuessTimer, enableMrWhite, wordQuizTurnDuration, wordQuizRounds, wordQuizHintInterval, wordQuizDifficulty, mcqQuizTurnDuration, mcqQuizRounds, mcqQuizDifficulty, t, settingsMutation])
+  }, [
+    roomId,
+    gameType,
+    descriptionTimer,
+    votingTimer,
+    codenamesClueTimer,
+    codenamesGuessTimer,
+    enableMrWhite,
+    wordQuizTurnDuration,
+    wordQuizRounds,
+    wordQuizHintInterval,
+    wordQuizDifficulty,
+    mcqQuizTurnDuration,
+    mcqQuizRounds,
+    mcqQuizDifficulty,
+    t,
+    settingsMutation,
+  ])
 
   return (
     <Panel flush className={cn("overflow-hidden", className)}>
@@ -174,7 +185,10 @@ export const RoomSettings = memo(function RoomSettings({ roomId, settings, gameT
           <SlidersHorizontal className="size-[18px] shrink-0 text-brass" aria-hidden="true" />
           <span>{t("room.settingsPanel.title", { game: t(GAME_NAME_KEY[gameType]) })}</span>
           <ChevronDown
-            className={cn("ms-auto size-4 shrink-0 text-muted-foreground transition-transform duration-(--dur-state) motion-reduce:transition-none", isOpen && "rotate-180")}
+            className={cn(
+              "ms-auto size-4 shrink-0 text-muted-foreground transition-transform duration-(--dur-state) motion-reduce:transition-none",
+              isOpen && "rotate-180",
+            )}
             aria-hidden="true"
           />
         </button>
@@ -214,15 +228,40 @@ export const RoomSettings = memo(function RoomSettings({ roomId, settings, gameT
           ) : gameType === "word_quiz" ? (
             <>
               <OptionGroup legend={t("room.difficulty")} value={wordQuizDifficulty} options={difficultyOptions} onChange={setWordQuizDifficulty} />
-              <OptionGroup legend={t("room.settingsPanel.wordQuizTurn")} value={wordQuizTurnDuration} options={secondsOptions([30, 45, 60, 90, 120, 180])} onChange={setWordQuizTurnDuration} />
-              <OptionGroup legend={t("room.settingsPanel.wordQuizRounds")} value={wordQuizRounds} options={countOptions([3, 5, 7, 10, 15, 20])} onChange={setWordQuizRounds} />
-              <OptionGroup legend={t("room.settingsPanel.wordQuizHintInterval")} value={wordQuizHintInterval} options={secondsOptions([5, 10, 15, 20, 30])} onChange={setWordQuizHintInterval} />
+              <OptionGroup
+                legend={t("room.settingsPanel.wordQuizTurn")}
+                value={wordQuizTurnDuration}
+                options={secondsOptions([30, 45, 60, 90, 120, 180])}
+                onChange={setWordQuizTurnDuration}
+              />
+              <OptionGroup
+                legend={t("room.settingsPanel.wordQuizRounds")}
+                value={wordQuizRounds}
+                options={countOptions([3, 5, 7, 10, 15, 20])}
+                onChange={setWordQuizRounds}
+              />
+              <OptionGroup
+                legend={t("room.settingsPanel.wordQuizHintInterval")}
+                value={wordQuizHintInterval}
+                options={secondsOptions([5, 10, 15, 20, 30])}
+                onChange={setWordQuizHintInterval}
+              />
             </>
           ) : (
             <>
               <OptionGroup legend={t("room.difficulty")} value={mcqQuizDifficulty} options={difficultyOptions} onChange={setMcqQuizDifficulty} />
-              <OptionGroup legend={t("room.settingsPanel.mcqQuizTurn")} value={mcqQuizTurnDuration} options={secondsOptions([10, 15, 20, 30, 45, 60])} onChange={setMcqQuizTurnDuration} />
-              <OptionGroup legend={t("room.settingsPanel.mcqQuizRounds")} value={mcqQuizRounds} options={countOptions([5, 10, 15, 20, 30])} onChange={setMcqQuizRounds} />
+              <OptionGroup
+                legend={t("room.settingsPanel.mcqQuizTurn")}
+                value={mcqQuizTurnDuration}
+                options={secondsOptions([10, 15, 20, 30, 45, 60])}
+                onChange={setMcqQuizTurnDuration}
+              />
+              <OptionGroup
+                legend={t("room.settingsPanel.mcqQuizRounds")}
+                value={mcqQuizRounds}
+                options={countOptions([5, 10, 15, 20, 30])}
+                onChange={setMcqQuizRounds}
+              />
             </>
           )}
 

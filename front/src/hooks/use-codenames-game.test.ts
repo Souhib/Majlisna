@@ -97,9 +97,7 @@ vi.mock("@/api/generated", () => ({
   getCodenamesBoardApiV1CodenamesGamesGameIdBoardGetQueryKey: ({ game_id }: { game_id: string }) => [
     { url: "/api/v1/codenames/games/:game_id/board", params: { game_id } },
   ],
-  getRoomStateApiV1RoomsRoomIdStateGetQueryKey: ({ room_id }: { room_id: string }) => [
-    { url: "/api/v1/rooms/:room_id/state", params: { room_id } },
-  ],
+  getRoomStateApiV1RoomsRoomIdStateGetQueryKey: ({ room_id }: { room_id: string }) => [{ url: "/api/v1/rooms/:room_id/state", params: { room_id } }],
   getUndercoverStateApiV1UndercoverGamesGameIdStateGetQueryKey: ({ game_id }: { game_id: string }) => [
     { url: "/api/v1/undercover/games/:game_id/state", params: { game_id } },
   ],
@@ -122,8 +120,7 @@ const { toast } = await import("sonner")
 
 function createWrapper() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return ({ children }: { children: React.ReactNode }) =>
-    createElement(QueryClientProvider, { client: queryClient }, children)
+  return ({ children }: { children: React.ReactNode }) => createElement(QueryClientProvider, { client: queryClient }, children)
 }
 
 describe("useCodenamesGame", () => {

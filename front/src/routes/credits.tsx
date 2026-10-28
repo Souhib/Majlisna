@@ -31,8 +31,7 @@ const WORKS: Work[] = [
     key: "sky",
     title: "SHIMM Astronomical System at AlUla Manara Site in Northwestern Saudi Arabia (2025)",
     author: "Saudi Press Agency (SPA), via the Saudi Photos platform",
-    source:
-      "https://commons.wikimedia.org/wiki/File:SHIMM_Astronomical_System_at_AlUla_Manara_Site_in_Northwestern_Saudi_Arabia_(2025).jpg",
+    source: "https://commons.wikimedia.org/wiki/File:SHIMM_Astronomical_System_at_AlUla_Manara_Site_in_Northwestern_Saudi_Arabia_(2025).jpg",
     licence: { name: "CC BY-SA 4.0", href: "https://creativecommons.org/licenses/by-sa/4.0/" },
     thumb: (light) => (light === "dark" ? "/sky/sky-maghrib.800.webp" : "/sky/sky-asr.800.webp"),
   },
@@ -91,10 +90,7 @@ function CreditsPage() {
           </h2>
           <ol className="mt-6 grid gap-[clamp(32px,4vw,56px)]">
             {WORKS.map((w) => (
-              <li
-                key={w.key}
-                className="grid gap-5 border-t border-line-brass pt-6 md:grid-cols-[minmax(0,15rem)_minmax(0,1fr)] md:gap-10"
-              >
+              <li key={w.key} className="grid gap-5 border-t border-line-brass pt-6 md:grid-cols-[minmax(0,15rem)_minmax(0,1fr)] md:gap-10">
                 <img
                   src={w.thumb(light)}
                   alt={t(w.key === "sky" ? (light === "dark" ? "credits.sky.altNight" : "credits.sky.altDay") : "credits.jabreen.alt")}

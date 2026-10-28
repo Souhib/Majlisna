@@ -22,7 +22,10 @@ export interface AvatarProps extends Omit<ComponentProps<typeof AvatarPrimitive.
 }
 
 export function initialsOf(name: string) {
-  const words = name.trim().split(/[\s_.-]+/u).filter(Boolean)
+  const words = name
+    .trim()
+    .split(/[\s_.-]+/u)
+    .filter(Boolean)
   const chars = (s: string) => Array.from(s)
   if (words.length >= 2) return (chars(words[0])[0] + chars(words[1])[0]).toUpperCase()
   return chars(words[0] ?? "?")
@@ -44,9 +47,7 @@ export function Avatar({ name, src, size = 36, ring = false, decorative = false,
       style={{ width: size, height: size, ...style }}
       {...props}
     >
-      {src ? (
-        <AvatarPrimitive.Image src={src} alt="" referrerPolicy="no-referrer" className="size-full object-cover" />
-      ) : null}
+      {src ? <AvatarPrimitive.Image src={src} alt="" referrerPolicy="no-referrer" className="size-full object-cover" /> : null}
       <AvatarPrimitive.Fallback
         delayMs={src ? 400 : 0}
         className="grid size-full place-items-center font-medium text-muted-foreground num"

@@ -74,23 +74,10 @@ export const McqRoundResults = memo(function McqRoundResults({
           const isMe = result.user_id === currentUserId
           // null: they did not answer; undefined: a state from before picks were sent
           const noAnswer = result.choice_index === null && !result.chose_correct
-          const letter =
-            result.choice_index != null && choices && result.choice_index < choices.length
-              ? choiceLetter(result.choice_index, arabic)
-              : null
+          const letter = result.choice_index != null && choices && result.choice_index < choices.length ? choiceLetter(result.choice_index, arabic) : null
           return (
-            <li
-              key={result.user_id}
-              data-you={isMe || undefined}
-              className="flex items-center gap-3 border-b border-line py-2.5"
-            >
-              <span
-                aria-hidden="true"
-                className={cn(
-                  "loz [--loz:8px]",
-                  result.chose_correct ? "bg-foreground" : "border border-line-field",
-                )}
-              />
+            <li key={result.user_id} data-you={isMe || undefined} className="flex items-center gap-3 border-b border-line py-2.5">
+              <span aria-hidden="true" className={cn("loz [--loz:8px]", result.chose_correct ? "bg-foreground" : "border border-line-field")} />
               <span className={cn("min-w-0 flex-1 truncate text-[15px] font-medium", isMe && "text-brass")}>
                 {result.username}
                 {isMe ? <span className="ms-2 text-[13px] font-normal text-muted-foreground">{t("game.quiz.you")}</span> : null}
@@ -103,11 +90,7 @@ export const McqRoundResults = memo(function McqRoundResults({
                     {" · "}
                   </>
                 ) : null}
-                {noAnswer
-                  ? t("game.quiz.mcq.noAnswer")
-                  : result.chose_correct
-                    ? t("game.quiz.mcq.right")
-                    : t("game.quiz.mcq.missed")}
+                {noAnswer ? t("game.quiz.mcq.noAnswer") : result.chose_correct ? t("game.quiz.mcq.right") : t("game.quiz.mcq.missed")}
               </span>
               <Figure
                 className={cn(

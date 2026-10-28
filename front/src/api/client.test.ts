@@ -75,9 +75,7 @@ describe("getApiErrorMessage", () => {
     const error = {
       response: {
         data: {
-          detail: [
-            { type: "value_error", loc: ["body", "email"], msg: "Invalid email format" },
-          ],
+          detail: [{ type: "value_error", loc: ["body", "email"], msg: "Invalid email format" }],
         },
       },
     }

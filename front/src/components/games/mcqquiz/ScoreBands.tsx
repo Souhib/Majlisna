@@ -38,13 +38,7 @@ interface ScoreBandsProps {
  * with a lozenge on it, and the band says "locked in at 0:09". The bands are a picture
  * of the rule: the sentence for screen readers says the same thing in words.
  */
-export const ScoreBands = memo(function ScoreBands({
-  elapsedRatio,
-  lockedRatio,
-  lockedRemaining,
-  band,
-  missed = false,
-}: ScoreBandsProps) {
+export const ScoreBands = memo(function ScoreBands({ elapsedRatio, lockedRatio, lockedRemaining, band, missed = false }: ScoreBandsProps) {
   const { t } = useTranslation()
   const locked = lockedRatio != null
   const lockedBand = locked ? bandFor(lockedRatio) : null
@@ -60,12 +54,7 @@ export const ScoreBands = memo(function ScoreBands({
         {t("game.quiz.mcq.bandsRule")}
         {locked && lockedRemaining != null ? ` ${t("game.quiz.mcq.lockedSr", { count: Math.ceil(lockedRemaining) })}` : null}
       </p>
-      <div
-        className="score-bands"
-        aria-hidden="true"
-        style={at != null ? ({ "--at": at } as CSSProperties) : undefined}
-        data-testid="quiz-score-bands"
-      >
+      <div className="score-bands" aria-hidden="true" style={at != null ? ({ "--at": at } as CSSProperties) : undefined} data-testid="quiz-score-bands">
         {BANDS.map((value) => {
           const isHit = hit === value
           const wide = value === 2

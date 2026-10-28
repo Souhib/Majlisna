@@ -149,11 +149,7 @@ function MenuSheet({ pathname }: { pathname: string }) {
           <ul className="menu-links">
             {LINKS.map((link, i) => (
               <li key={link.to}>
-                <Link
-                  ref={i === 0 ? firstLinkRef : undefined}
-                  to={link.to}
-                  aria-current={isCurrent(pathname, link.to) ? "page" : undefined}
-                >
+                <Link ref={i === 0 ? firstLinkRef : undefined} to={link.to} aria-current={isCurrent(pathname, link.to) ? "page" : undefined}>
                   {t(link.key)}
                 </Link>
               </li>
@@ -273,12 +269,7 @@ export function MainNav() {
               <Link to="/auth/login" className="nav-login max-[1180px]:hidden">
                 {t("nav.login")}
               </Link>
-              <Button
-                asChild
-                size="sm"
-                variant={resolved === "dark" ? "secondary" : "primary"}
-                className="max-[1180px]:hidden"
-              >
+              <Button asChild size="sm" variant={resolved === "dark" ? "secondary" : "primary"} className="max-[1180px]:hidden">
                 <Link to="/auth/register">{t("nav.register")}</Link>
               </Button>
             </>

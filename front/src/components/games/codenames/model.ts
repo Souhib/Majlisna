@@ -103,11 +103,62 @@ const DIGRAPHS = new Set(["sh", "kh", "th", "dh", "gh", "ch", "ph", "zh"])
 
 /** Advance widths of Readex Pro 600 in em (measured in the browser); 0.62 for the rest. */
 const READEX_600_EM: Record<string, number> = {
-  a: 0.56, b: 0.65, c: 0.54, d: 0.65, e: 0.59, f: 0.39, g: 0.66, h: 0.62, i: 0.31, j: 0.3, k: 0.61, l: 0.29, m: 0.95,
-  n: 0.62, o: 0.63, p: 0.65, q: 0.65, r: 0.44, s: 0.49, t: 0.39, u: 0.63, v: 0.6, w: 0.82, x: 0.59, y: 0.61, z: 0.53,
-  A: 0.7, B: 0.69, C: 0.69, D: 0.76, E: 0.63, F: 0.61, G: 0.78, H: 0.77, I: 0.53, J: 0.66, K: 0.74, L: 0.61, M: 0.87,
-  N: 0.8, O: 0.8, P: 0.65, Q: 0.8, R: 0.7, S: 0.63, T: 0.63, U: 0.76, V: 0.72, W: 1, X: 0.7, Y: 0.68, Z: 0.68,
-  "'": 0.24, "’": 0.26, "-": 0.43, " ": 0.25,
+  a: 0.56,
+  b: 0.65,
+  c: 0.54,
+  d: 0.65,
+  e: 0.59,
+  f: 0.39,
+  g: 0.66,
+  h: 0.62,
+  i: 0.31,
+  j: 0.3,
+  k: 0.61,
+  l: 0.29,
+  m: 0.95,
+  n: 0.62,
+  o: 0.63,
+  p: 0.65,
+  q: 0.65,
+  r: 0.44,
+  s: 0.49,
+  t: 0.39,
+  u: 0.63,
+  v: 0.6,
+  w: 0.82,
+  x: 0.59,
+  y: 0.61,
+  z: 0.53,
+  A: 0.7,
+  B: 0.69,
+  C: 0.69,
+  D: 0.76,
+  E: 0.63,
+  F: 0.61,
+  G: 0.78,
+  H: 0.77,
+  I: 0.53,
+  J: 0.66,
+  K: 0.74,
+  L: 0.61,
+  M: 0.87,
+  N: 0.8,
+  O: 0.8,
+  P: 0.65,
+  Q: 0.8,
+  R: 0.7,
+  S: 0.63,
+  T: 0.63,
+  U: 0.76,
+  V: 0.72,
+  W: 1,
+  X: 0.7,
+  Y: 0.68,
+  Z: 0.68,
+  "'": 0.24,
+  "’": 0.26,
+  "-": 0.43,
+  " ": 0.25,
 }
 
 /** The width of a Latin text in Readex Pro 600, in em. */
@@ -147,8 +198,7 @@ export function fitLatin(word: string): { text: string; em: number } {
       const a = letters[i - 1]
       const b = letters[i]
       const camel = /\p{Lu}/u.test(b) && /[\p{Ll}'’]/u.test(a)
-      const consonants =
-        /\p{L}/u.test(a) && /\p{L}/u.test(b) && !VOWELS.test(a) && !VOWELS.test(b) && !DIGRAPHS.has((a + b).toLowerCase())
+      const consonants = /\p{L}/u.test(a) && /\p{L}/u.test(b) && !VOWELS.test(a) && !VOWELS.test(b) && !DIGRAPHS.has((a + b).toLowerCase())
       if (!camel && !consonants) continue
       const longer = Math.max(latinEm(`${letters.slice(0, i).join("")}-`), latinEm(letters.slice(i).join("")))
       if (longer < bestEm) {
@@ -175,10 +225,7 @@ export function fitLatin(word: string): { text: string; em: number } {
  */
 export type CardFace = "wool" | "key" | "bare"
 
-export function cardFace(
-  card: Pick<CodenamesCard, "revealed" | "card_type">,
-  opts: { isSpymaster: boolean; isFinished: boolean; played?: boolean },
-): CardFace {
+export function cardFace(card: Pick<CodenamesCard, "revealed" | "card_type">, opts: { isSpymaster: boolean; isFinished: boolean; played?: boolean }): CardFace {
   // At the end the server marks every card revealed; the ones nobody turned read
   // as the key, so the table can see what was left on the board.
   if (card.revealed && !(opts.isFinished && opts.played === false)) return "wool"
@@ -225,16 +272,10 @@ export function guessStatus(turn: Pick<CodenamesTurn, "clue_number" | "guesses_m
 /** How a finished game was decided. */
 export type EndReason = "all-found" | "assassin" | "forfeit"
 
-export function endReason(
-  winner: TeamId,
-  remaining: { red: number; blue: number },
-  history: ClueHistoryEntry[] | null | undefined,
-): EndReason {
+export function endReason(winner: TeamId, remaining: { red: number; blue: number }, history: ClueHistoryEntry[] | null | undefined): EndReason {
   if (remaining[winner] === 0) return "all-found"
   const loser = otherTeam(winner)
-  const hitAssassin = (history ?? []).some(
-    (entry) => entry.team === loser && entry.guesses.some((g) => g.card_type === "assassin"),
-  )
+  const hitAssassin = (history ?? []).some((entry) => entry.team === loser && entry.guesses.some((g) => g.card_type === "assassin"))
   return hitAssassin ? "assassin" : "forfeit"
 }
 

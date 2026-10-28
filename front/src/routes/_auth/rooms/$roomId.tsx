@@ -143,7 +143,13 @@ function RoomLobbyPage() {
   })
 
   // Poll room state as fallback when Socket.IO is disconnected
-  const { data: rawRoomData, dataUpdatedAt, isLoading, error: queryError, failureCount } = useGetRoomStateApiV1RoomsRoomIdStateGet(
+  const {
+    data: rawRoomData,
+    dataUpdatedAt,
+    isLoading,
+    error: queryError,
+    failureCount,
+  } = useGetRoomStateApiV1RoomsRoomIdStateGet(
     { room_id: roomId },
     {
       query: {
@@ -312,9 +318,7 @@ function RoomLobbyPage() {
       // the push (or the next poll) brings it back for everyone; write it now so the
       // host's own screen does not step back to the old game in between
       queryClient.setQueryData(queryKeys.room.state(roomId), (old: unknown) =>
-        old && typeof old === "object"
-          ? { ...old, game_type: next, settings: { ...(old as { settings?: object }).settings, game_type: next } }
-          : old,
+        old && typeof old === "object" ? { ...old, game_type: next, settings: { ...(old as { settings?: object }).settings, game_type: next } } : old,
       )
     } catch (err) {
       toast.error(roomErrorMessage(err, t("room.lobbyPage.pickFailed")))
@@ -359,9 +363,7 @@ function RoomLobbyPage() {
         <div className="mx-auto grid max-w-[34rem] justify-items-start gap-4">
           <h1 className="type-title">{t("room.lobbyPage.errorTitle")}</h1>
           <p className="type-body text-muted-foreground">{t("room.lobbyPage.errorBody")}</p>
-          {roomErrorMessage(queryError, "") ? (
-            <p className="text-[14px] text-muted-foreground">{roomErrorMessage(queryError, "")}</p>
-          ) : null}
+          {roomErrorMessage(queryError, "") ? <p className="text-[14px] text-muted-foreground">{roomErrorMessage(queryError, "")}</p> : null}
           <Button asChild className="mt-2" iconStart={<ChevronLeft className="rtl-flip" aria-hidden="true" />}>
             <Link to="/rooms">{t("room.lobbyPage.backToRooms")}</Link>
           </Button>
@@ -405,11 +407,7 @@ function RoomLobbyPage() {
         ? t("room.lobbyPage.overBody", { game: gameName, count: table.max })
         : null
   const awayNote =
-    awayPlayers.length === 1
-      ? t("room.lobbyPage.awayOne", { name: awayPlayers[0].username })
-      : awayPlayers.length > 1
-        ? t("room.lobbyPage.awayMany")
-        : null
+    awayPlayers.length === 1 ? t("room.lobbyPage.awayOne", { name: awayPlayers[0].username }) : awayPlayers.length > 1 ? t("room.lobbyPage.awayMany") : null
 
   const startLabel = isStartingGame
     ? t("room.lobbyPage.starting")
@@ -433,7 +431,10 @@ function RoomLobbyPage() {
         />
       </div>
 
-      <ul aria-label={t("room.lobbyPage.legendLabel")} className="flex flex-wrap justify-center gap-x-3.5 gap-y-1.5 text-[12.5px] leading-tight text-muted-foreground">
+      <ul
+        aria-label={t("room.lobbyPage.legendLabel")}
+        className="flex flex-wrap justify-center gap-x-3.5 gap-y-1.5 text-[12.5px] leading-tight text-muted-foreground"
+      >
         {legend.map((item) => (
           <li key={item.state} className="inline-flex items-center gap-1.5 num">
             <Lozenge state={item.state} size={8} />
@@ -516,9 +517,7 @@ function RoomLobbyPage() {
       <div className="mx-auto grid max-w-[1180px] gap-x-[clamp(32px,4.5vw,80px)] gap-y-6 lg:grid-cols-[minmax(0,1fr)_minmax(340px,400px)] lg:gap-y-10 min-[2200px]:max-w-[1360px] min-[2200px]:grid-cols-[minmax(0,1fr)_minmax(400px,460px)]">
         {/* The roster below is stale: the room state stopped refreshing. Say so rather
             than let the player act on data that no longer matches the server. */}
-        {queryError && failureCount > 2 ? (
-          <Alert className="lg:col-span-2">{roomErrorMessage(queryError, t("room.staleState"))}</Alert>
-        ) : null}
+        {queryError && failureCount > 2 ? <Alert className="lg:col-span-2">{roomErrorMessage(queryError, t("room.staleState"))}</Alert> : null}
 
         <header className="lobby-head lg:col-span-2">
           <Button
@@ -582,17 +581,8 @@ function RoomLobbyPage() {
         </section>
 
         <aside className="grid min-w-0 content-start gap-4" aria-label={t("room.players")}>
-          <PlayerRoster
-            players={players}
-            myId={user?.id}
-            canKick={isHost}
-            kickingId={kickingId}
-            onKick={handleKickPlayer}
-            awayLeft={awayLeft}
-          />
-          {isHost && !isSpectator ? (
-            <RoomSettings roomId={room.id} settings={room.settings} gameType={gameType} playerCount={players.length} />
-          ) : null}
+          <PlayerRoster players={players} myId={user?.id} canKick={isHost} kickingId={kickingId} onKick={handleKickPlayer} awayLeft={awayLeft} />
+          {isHost && !isSpectator ? <RoomSettings roomId={room.id} settings={room.settings} gameType={gameType} playerCount={players.length} /> : null}
           {user ? <ChatPanel roomId={roomId} currentUserId={user.id} incomingMessage={lastChatMessage} /> : null}
         </aside>
       </div>

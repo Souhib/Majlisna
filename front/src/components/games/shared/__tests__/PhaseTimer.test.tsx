@@ -99,9 +99,7 @@ describe("PhaseTimer", () => {
     // parent. Each re-render used to re-arm the effect and fire another POST.
     const startedAt = pastIso(120)
     const calls: number[] = []
-    const { rerender } = render(
-      <PhaseTimer timerStartedAt={startedAt} durationSeconds={30} onExpired={() => calls.push(1)} />,
-    )
+    const { rerender } = render(<PhaseTimer timerStartedAt={startedAt} durationSeconds={30} onExpired={() => calls.push(1)} />)
 
     for (let i = 0; i < 8; i++) {
       rerender(<PhaseTimer timerStartedAt={startedAt} durationSeconds={30} onExpired={() => calls.push(1)} />)
@@ -149,9 +147,7 @@ describe("PhaseTimer", () => {
 
     it("continues from the frozen value on resume (the server moved the start forward)", () => {
       const onExpired = vi.fn()
-      const { rerender } = render(
-        <PhaseTimer timerStartedAt={pastIso(600)} durationSeconds={30} onExpired={onExpired} paused frozenRemaining={25} />,
-      )
+      const { rerender } = render(<PhaseTimer timerStartedAt={pastIso(600)} durationSeconds={30} onExpired={onExpired} paused frozenRemaining={25} />)
       tick(5_000)
 
       // Resume: the anchor is shifted by the paused duration, 5 s into the 30 s phase.
@@ -169,9 +165,7 @@ describe("PhaseTimer", () => {
   it("re-arms for a new timer window", () => {
     const onExpired = vi.fn()
     const firstWindow = pastIso(120)
-    const { rerender } = render(
-      <PhaseTimer timerStartedAt={firstWindow} durationSeconds={30} onExpired={onExpired} />,
-    )
+    const { rerender } = render(<PhaseTimer timerStartedAt={firstWindow} durationSeconds={30} onExpired={onExpired} />)
     tick(1_000)
     expect(onExpired).toHaveBeenCalledTimes(1)
 

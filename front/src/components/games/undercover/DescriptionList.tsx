@@ -115,7 +115,11 @@ export const DescriptionList = memo(function DescriptionList({
         const hasVoted = !!voted && voted.includes(row.id)
 
         const mark = !row.alive ? (
-          role ? <RoleMark role={role} size={8} /> : <Lozenge state="away" size={8} />
+          role ? (
+            <RoleMark role={role} size={8} />
+          ) : (
+            <Lozenge state="away" size={8} />
+          )
         ) : candidate ? (
           <Lozenge state={chosen ? "brass" : "open"} size={9} />
         ) : (
@@ -179,12 +183,7 @@ export const DescriptionList = memo(function DescriptionList({
         )
 
         return (
-          <li
-            key={row.id}
-            data-current={isCurrent ? "" : undefined}
-            data-out={!row.alive ? "" : undefined}
-            data-candidate={candidate ? "" : undefined}
-          >
+          <li key={row.id} data-current={isCurrent ? "" : undefined} data-out={!row.alive ? "" : undefined} data-candidate={candidate ? "" : undefined}>
             {candidate ? (
               <button
                 type="button"

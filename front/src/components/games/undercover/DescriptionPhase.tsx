@@ -46,10 +46,7 @@ export const DescriptionPhase = memo(function DescriptionPhase({
 }: DescriptionPhaseProps) {
   const { t } = useTranslation()
 
-  const currentDescriber =
-    descriptionOrder.length > 0 && currentDescriberIndex < descriptionOrder.length
-      ? descriptionOrder[currentDescriberIndex]
-      : null
+  const currentDescriber = descriptionOrder.length > 0 && currentDescriberIndex < descriptionOrder.length ? descriptionOrder[currentDescriberIndex] : null
 
   const title = isMyTurnToDescribe
     ? t("game.undercover.yourTurnToDescribe")

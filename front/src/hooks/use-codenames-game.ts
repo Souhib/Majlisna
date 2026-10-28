@@ -23,12 +23,7 @@ import { trackEvent } from "@/lib/analytics"
 import { useAuth } from "@/providers/AuthProvider"
 import { retrieveRoomIdForGame } from "@/lib/room-session"
 
-import type {
-  ClueHistoryEntry,
-  CodenamesCard,
-  CodenamesPlayer,
-  CodenamesTurn,
-} from "@/components/games/codenames/model"
+import type { ClueHistoryEntry, CodenamesCard, CodenamesPlayer, CodenamesTurn } from "@/components/games/codenames/model"
 
 export interface CodenamesGameState {
   board: CodenamesCard[]
@@ -97,7 +92,11 @@ export function useCodenamesGame(gameId: string) {
   const previousStatusRef = useRef<string | null>(null)
 
   // Poll game state via REST only when Socket.IO is disconnected (safety net)
-  const { data: serverState, isLoading, error: queryError } = useGetCodenamesBoardApiV1CodenamesGamesGameIdBoardGet(
+  const {
+    data: serverState,
+    isLoading,
+    error: queryError,
+  } = useGetCodenamesBoardApiV1CodenamesGamesGameIdBoardGet(
     { game_id: gameId },
     { lang: i18n.language },
     {
@@ -226,7 +225,11 @@ export function useCodenamesGame(gameId: string) {
     async (index: number) => {
       if (pausedRef.current) return
       try {
-        const data = await guessMutation.mutateAsync({ game_id: gameId, data: { card_index: index } }) as { all_voted?: boolean; vote_changed?: boolean; tied?: boolean }
+        const data = (await guessMutation.mutateAsync({ game_id: gameId, data: { card_index: index } })) as {
+          all_voted?: boolean
+          vote_changed?: boolean
+          tied?: boolean
+        }
         if (data.all_voted === false) {
           toast.info(data.vote_changed ? t("game.codenames.voteChanged") : t("game.codenames.voteSubmitted"))
         } else if (data.tied) {

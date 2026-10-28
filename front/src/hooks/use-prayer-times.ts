@@ -1,11 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import {
-  Coordinates,
-  PrayerTimes,
-  Prayer,
-  CalculationMethod,
-  SunnahTimes,
-} from "adhan"
+import { Coordinates, PrayerTimes, Prayer, CalculationMethod, SunnahTimes } from "adhan"
 
 type PrayerValue = (typeof Prayer)[keyof typeof Prayer]
 
@@ -69,9 +63,7 @@ export function recentAdhan(coordinates: { lat: number; lng: number }, now: Date
   return null
 }
 
-export function usePrayerTimes(
-  coordinates: { lat: number; lng: number } | null,
-): UsePrayerTimesResult {
+export function usePrayerTimes(coordinates: { lat: number; lng: number } | null): UsePrayerTimesResult {
   const [countdown, setCountdown] = useState("--:--:--")
   const [dateKey, setDateKey] = useState(() => getDateKey(new Date()))
   const [nextPrayerVersion, setNextPrayerVersion] = useState(0)

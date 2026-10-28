@@ -128,19 +128,10 @@ function AchievementTile({ a, t }: { a: AchievementWithProgress; t: T }) {
     .join(" · ")
 
   return (
-    <li
-      className={cn(
-        "flex gap-4 rounded-lg border bg-surface p-4",
-        a.unlocked ? "border-line-brass" : "border-line",
-      )}
-    >
+    <li className={cn("flex gap-4 rounded-lg border bg-surface p-4", a.unlocked ? "border-line-brass" : "border-line")}>
       <span className="grid size-11 shrink-0 place-items-center">
         {/* the seal's ring reaches past its box (a rotated square in a ring): 34 keeps it inside the 44 px slot */}
-        {a.unlocked ? (
-          <Seal size={34} pressed={false} />
-        ) : (
-          <Lozenge state="open" size={22} className="opacity-90" />
-        )}
+        {a.unlocked ? <Seal size={34} pressed={false} /> : <Lozenge state="open" size={22} className="opacity-90" />}
       </span>
       <div className="grid min-w-0 flex-1 content-start gap-1">
         <h3 className="text-[16px] font-medium leading-snug">{name}</h3>

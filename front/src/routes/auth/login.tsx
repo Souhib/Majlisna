@@ -105,11 +105,7 @@ function LoginPage() {
           label's first baseline (the labels are short enough to never meet it, even at 390 px).
         */}
         <div className="grid items-baseline [&>*]:[grid-area:1/1]">
-          <Field
-            id="password"
-            label={t("auth.password")}
-            error={fieldErrors.password ? t(fieldErrors.password) : undefined}
-          >
+          <Field id="password" label={t("auth.password")} error={fieldErrors.password ? t(fieldErrors.password) : undefined}>
             <PasswordInput
               autoComplete="current-password"
               value={password}

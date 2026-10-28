@@ -161,9 +161,7 @@ const kyInstance = ky.create({
 
 let clientConfig: Partial<RequestConfig<unknown>> = {}
 
-async function client<TData, _TError = unknown, TVariables = unknown>(
-  config: RequestConfig<TVariables>,
-): Promise<ResponseConfig<TData>> {
+async function client<TData, _TError = unknown, TVariables = unknown>(config: RequestConfig<TVariables>): Promise<ResponseConfig<TData>> {
   const { url = "", method = "GET", params, data, signal, headers } = config
 
   const searchParams = params ? serializeParams(params) : undefined

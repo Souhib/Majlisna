@@ -28,22 +28,10 @@ export function Separator({ variant = "brass", orientation = "horizontal", decor
     )
   }
   if (variant === "line") {
-    return (
-      <SeparatorPrimitive.Root
-        data-slot="separator"
-        decorative={decorative}
-        className={cn("h-px w-full bg-line", className)}
-        {...props}
-      />
-    )
+    return <SeparatorPrimitive.Root data-slot="separator" decorative={decorative} className={cn("h-px w-full bg-line", className)} {...props} />
   }
   return (
-    <SeparatorPrimitive.Root
-      data-slot="separator"
-      decorative={decorative}
-      className={cn("relative flex h-[9px] w-full items-center", className)}
-      {...props}
-    >
+    <SeparatorPrimitive.Root data-slot="separator" decorative={decorative} className={cn("relative flex h-[9px] w-full items-center", className)} {...props}>
       <span aria-hidden="true" className="h-px flex-1 bg-line-brass" />
       <span aria-hidden="true" className="mx-[9px] size-[7px] rotate-45 bg-brass" />
       <span aria-hidden="true" className="h-px flex-1 bg-line-brass" />

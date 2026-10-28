@@ -92,10 +92,7 @@ describe("/notebook (the Kunnash)", () => {
     expect(within(title).getByText("كُنّاش")).toHaveAttribute("lang", "ar")
     expect(await screen.findByText("notebook.count(count=3)")).toBeInTheDocument()
     const groups = screen.getAllByRole("heading", { level: 2 })
-    expect(groups.map((h) => h.textContent)).toEqual([
-      expect.stringContaining("games.undercover.name"),
-      expect.stringContaining("games.codenames.name"),
-    ])
+    expect(groups.map((h) => h.textContent)).toEqual([expect.stringContaining("games.undercover.name"), expect.stringContaining("games.codenames.name")])
     expect(groups[0]).toHaveTextContent("notebook.keptOn(count=2,date=October 28, 2026)")
     expect(screen.getByText("صَبْر")).toHaveAttribute("lang", "ar")
     expect(screen.getByText("Sabr")).toBeInTheDocument()

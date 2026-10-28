@@ -33,7 +33,5 @@ export function countryName(alpha3: string | null | undefined, lang: string): st
 export function countryOptions(lang: string): { code: string; name: string }[] {
   const names = displayNames(lang)
   const collator = new Intl.Collator(lang)
-  return COUNTRY_CODES.map((code) => ({ code, name: names?.of(ALPHA2.get(code) as string) ?? code })).sort((a, b) =>
-    collator.compare(a.name, b.name),
-  )
+  return COUNTRY_CODES.map((code) => ({ code, name: names?.of(ALPHA2.get(code) as string) ?? code })).sort((a, b) => collator.compare(a.name, b.name))
 }

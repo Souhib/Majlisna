@@ -7,13 +7,7 @@ describe("ColophonMeta", () => {
     // Act
     const { container } = render(
       <p>
-        <ColophonMeta
-          game="Undercover"
-          host="Yusuf"
-          count="3 rounds"
-          startedAt="2026-10-28T20:00:00+00:00"
-          endedAt="2026-10-28T20:21:40+00:00"
-        />
+        <ColophonMeta game="Undercover" host="Yusuf" count="3 rounds" startedAt="2026-10-28T20:00:00+00:00" endedAt="2026-10-28T20:21:40+00:00" />
       </p>,
     )
 

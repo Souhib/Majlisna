@@ -67,9 +67,7 @@ export const VotingPhase = memo(function VotingPhase({
           {t("game.undercover.discussAndVote")}
         </h2>
         {/* the instruction is for those who vote; the eliminated and spectators get their own line below */}
-        {canVote && !hasVoted ? (
-          <p className="mt-1.5 text-[15px] leading-normal text-muted-foreground">{t("game.undercover.selectPlayerToVote")}</p>
-        ) : null}
+        {canVote && !hasVoted ? <p className="mt-1.5 text-[15px] leading-normal text-muted-foreground">{t("game.undercover.selectPlayerToVote")}</p> : null}
       </div>
 
       <DescriptionList

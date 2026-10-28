@@ -265,7 +265,6 @@
   --animate-seal-press: seal-press 330ms var(--ease-press) both;
   --animate-fade-in: fade-in var(--dur-state) var(--ease-out) both;
   --animate-loz-stamp: loz-stamp 220ms var(--ease-press) both;
-
 }
 
 /* Keyframes live outside @theme so they are emitted even when only a component
@@ -474,12 +473,7 @@
     inset-inline: 0;
     bottom: 0;
     height: 1px;
-    background: linear-gradient(
-      90deg,
-      var(--line-brass) calc(50% - 12px),
-      transparent calc(50% - 12px) calc(50% + 12px),
-      var(--line-brass) calc(50% + 12px)
-    );
+    background: linear-gradient(90deg, var(--line-brass) calc(50% - 12px), transparent calc(50% - 12px) calc(50% + 12px), var(--line-brass) calc(50% + 12px));
     pointer-events: none;
   }
   &::before {

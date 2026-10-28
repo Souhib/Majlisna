@@ -166,6 +166,11 @@ jobs:
       - name: Lint (oxlint)
         run: bun run lint
 
+      # oxfmt is pinned in package.json and configured in front/.oxfmtrc.json, so
+      # this check and a developer's `bun run format` cannot disagree.
+      - name: Format check (oxfmt)
+        run: bun run format:check
+
       - name: Type check (tsc)
         run: bun run typecheck
 

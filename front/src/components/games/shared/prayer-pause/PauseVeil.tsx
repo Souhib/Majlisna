@@ -167,11 +167,7 @@ export function PauseVeil({
   const isArabic = i18n.language?.startsWith("ar")
 
   return (
-    <div
-      className="absolute inset-0 z-30 animate-fade-in bg-[color-mix(in_oklch,var(--bg)_90%,transparent)]"
-      data-testid="pause-veil"
-      data-pause-veil=""
-    >
+    <div className="absolute inset-0 z-30 animate-fade-in bg-[color-mix(in_oklch,var(--bg)_90%,transparent)]" data-testid="pause-veil" data-pause-veil="">
       <div className="sticky top-[calc(var(--navh)+16px)] px-4 pt-6 pb-8 sm:pt-12">
         <div
           ref={dialogRef}

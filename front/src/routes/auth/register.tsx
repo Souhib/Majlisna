@@ -7,15 +7,7 @@ import { AuthPage, authLinkClass } from "@/components/auth/AuthPage"
 import { GoogleLoginButton } from "@/components/auth/GoogleLoginButton"
 import { PasswordInput } from "@/components/auth/PasswordInput"
 import { useFieldErrors } from "@/components/auth/use-field-errors"
-import {
-  type AuthField,
-  compactErrors,
-  emailError,
-  focusFirstError,
-  newPasswordError,
-  PASSWORD_MIN_LENGTH,
-  usernameError,
-} from "@/components/auth/validation"
+import { type AuthField, compactErrors, emailError, focusFirstError, newPasswordError, PASSWORD_MIN_LENGTH, usernameError } from "@/components/auth/validation"
 import { Alert } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Field, Input } from "@/components/ui/field"
@@ -115,12 +107,7 @@ function RegisterPage() {
           </Alert>
         ) : null}
 
-        <Field
-          id="username"
-          label={t("auth.username")}
-          hint={t("auth.usernameHint")}
-          error={fieldErrors.username ? t(fieldErrors.username) : undefined}
-        >
+        <Field id="username" label={t("auth.username")} hint={t("auth.usernameHint")} error={fieldErrors.username ? t(fieldErrors.username) : undefined}>
           <Input
             type="text"
             autoComplete="username"
@@ -153,12 +140,7 @@ function RegisterPage() {
           />
         </Field>
 
-        <Field
-          id="password"
-          label={t("auth.password")}
-          hint={t("auth.passwordHint")}
-          error={fieldErrors.password ? t(fieldErrors.password) : undefined}
-        >
+        <Field id="password" label={t("auth.password")} hint={t("auth.passwordHint")} error={fieldErrors.password ? t(fieldErrors.password) : undefined}>
           <PasswordInput
             autoComplete="new-password"
             minLength={PASSWORD_MIN_LENGTH}
