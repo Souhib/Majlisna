@@ -267,6 +267,46 @@ export interface UndercoverGameState {
   description_order?: { user_id: string; username: string }[];
   current_describer_index?: number;
   descriptions?: Record<string, string>;
+  my_word_hint?: string | null;
+  timer_started_at?: string | null;
+  word_explanations?: {
+    civilian_word: string;
+    undercover_word: string;
+  } | null;
+  paused?: GamePause | null;
+  can_pause?: boolean;
+  can_resume?: boolean;
+}
+
+// ─── Prayer Pause API (all four games) ──────────────────────
+
+/** A game the host paused for the prayer (GamePause in the backend). */
+export interface GamePause {
+  by_user_id: string;
+  by_username: string;
+  since: string;
+  reason: string;
+  remaining_seconds: number | null;
+  paused_for_seconds: number;
+  anyone_can_resume_at: string;
+}
+
+export type PausableGame = "undercover" | "codenames" | "wordquiz" | "mcqquiz";
+
+export async function apiPauseGame(
+  game: PausableGame,
+  gameId: string,
+  token: string,
+): Promise<Record<string, unknown>> {
+  return postJSON(`/api/v1/${game}/games/${gameId}/pause`, {}, token);
+}
+
+export async function apiResumeGame(
+  game: PausableGame,
+  gameId: string,
+  token: string,
+): Promise<Record<string, unknown>> {
+  return postJSON(`/api/v1/${game}/games/${gameId}/resume`, {}, token);
 }
 
 export async function apiGetUndercoverState(
@@ -611,6 +651,46 @@ export async function rawPatch(
     headers,
     body: JSON.stringify(body),
   });
+}
+
+// ─── Kunnash (notebook) API ─────────────────────────────────
+
+export interface NotebookGameWord {
+  word: string;
+  word_display: string;
+  word_ar: string | null;
+  word_ar_vocalized: string | null;
+  hint: string | null;
+  kept: boolean;
+  entry_id: string | null;
+}
+
+export interface NotebookEntry {
+  id: string;
+  word: string;
+  word_display: string;
+  game_type: string;
+  word_ar: string | null;
+  word_ar_vocalized: string | null;
+  hint: string | null;
+  source_game_id: string | null;
+}
+
+/** Every word a finished game dealt, with whether the caller kept it. */
+export async function apiGetNotebookGameWords(
+  gameId: string,
+  token: string,
+  lang = "en",
+): Promise<{ game_id: string; game_type: string; words: NotebookGameWord[] }> {
+  return getJSON(`/api/v1/notebook/games/${gameId}?lang=${lang}`, token);
+}
+
+/** The caller's notebook, newest first (the first page). */
+export async function apiListNotebook(
+  token: string,
+  lang = "en",
+): Promise<{ entries: NotebookEntry[]; total: number; next_cursor: string | null }> {
+  return getJSON(`/api/v1/notebook?lang=${lang}&limit=50`, token);
 }
 
 // ─── Friend API ─────────────────────────────────────────────

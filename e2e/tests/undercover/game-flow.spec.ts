@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { generateTestAccounts } from "../../helpers/test-setup";
 import {
   setupRoomWithPlayers,
@@ -10,58 +10,66 @@ import {
   waitForEliminationOrGameOver,
   isPageAlive,
 } from "../../helpers/ui-game-setup";
+import { apiGetUndercoverState } from "../../helpers/api-client";
+
+function extractGameId(page: Page): string {
+  const id = page.url().match(/\/game\/undercover\/([a-f0-9-]+)/)?.[1];
+  if (!id) throw new Error(`not on an Undercover game page: ${page.url()}`);
+  return id;
+}
 
 test.describe("Undercover Game Flow", () => {
-  test("3-player game: role reveal shows role and word", async ({ browser }) => {
+  test("3-player game: the first reading gives each player a word, never a side", async ({ browser }) => {
     const accounts = await generateTestAccounts(3);
     const setup = await setupRoomWithPlayers(browser, accounts);
     await startGameViaAPI(setup.players, "undercover", setup.roomId);
+    const gameId = extractGameId(setup.players[0].page);
 
-    // All players should see role reveal
     for (const player of setup.players) {
-      await expect(player.page.locator("text=Your Role")).toBeVisible({ timeout: 15_000 });
-      // Should show either Civilian, Undercover, or Mr. White
-      const roleLabel = player.page
-        .locator("text=Civilian")
-        .or(player.page.locator("text=Undercover"))
-        .or(player.page.locator("text=Mr. White"));
-      await expect(roleLabel.first()).toBeVisible({ timeout: 5_000 });
+      const page = player.page;
+      const state = await apiGetUndercoverState(gameId, player.login.access_token);
+
+      // The same first reading for every role: nobody's screen gives their side away
+      await expect(page.getByRole("heading", { name: "Your role is in your word." })).toBeVisible({ timeout: 15_000 });
+
+      // The tablet holds the word, covered until the player reads it
+      const tablet = page.locator("button.lawh");
+      await expect(tablet).toBeVisible();
+      await expect(tablet).toHaveAttribute("data-state", "rest");
+      await page.getByRole("button", { name: "I can’t hold: show until I hide it" }).click();
+      await expect(tablet).toHaveAttribute("data-state", "shown");
+
+      // A 3-player table has no Mr. White: everyone holds a word
+      expect(state.my_role).not.toBe("mr_white");
+      await expect(tablet.locator(".lawh-face")).toContainText(state.my_word);
+      // ...and no side is written on it
+      await expect(tablet).not.toContainText("Civilian");
+      await expect(tablet).not.toContainText("Undercover");
     }
 
     await setup.cleanup();
   });
 
-  test("role reveal shows hint button for non-Mr.White players", async ({ browser }) => {
+  test("every tablet offers the word's explanation", async ({ browser }) => {
     const accounts = await generateTestAccounts(3);
     const setup = await setupRoomWithPlayers(browser, accounts);
     await startGameViaAPI(setup.players, "undercover", setup.roomId);
+    const gameId = extractGameId(setup.players[0].page);
 
-    // During role reveal, non-Mr.White players should see a hint button next to their word
-    let hintButtonFound = false;
+    // Offered on every tablet (a button only some players had would point at Mr. White)
     for (const player of setup.players) {
-      await expect(player.page.locator("text=Your Role")).toBeVisible({ timeout: 15_000 });
+      const page = player.page;
+      const state = await apiGetUndercoverState(gameId, player.login.access_token);
+      await expect(page.getByRole("heading", { name: "Your role is in your word." })).toBeVisible({ timeout: 15_000 });
 
-      // Check if this player has a word displayed (Mr. White won't)
-      const hasWord = await player.page.locator("text=Your Word").isVisible().catch(() => false);
-      if (hasWord) {
-        // The hint button should be visible (aria-label="Show explanation")
-        const hintButton = player.page.locator('button[aria-label="Show explanation"]');
-        const isVisible = await hintButton.isVisible().catch(() => false);
-        if (isVisible) {
-          hintButtonFound = true;
+      const hintButton = page.getByRole("button", { name: "Show explanation" });
+      await expect(hintButton).toBeVisible();
+      await hintButton.click();
 
-          // Click the hint button and verify popover shows text
-          await hintButton.click();
-          // The popover should contain some text (the hint)
-          const popoverContent = player.page.locator('[data-radix-popper-content-wrapper]');
-          await expect(popoverContent).toBeVisible({ timeout: 3_000 });
-        }
-      }
+      const popover = page.locator("[data-radix-popper-content-wrapper]");
+      await expect(popover).toBeVisible({ timeout: 3_000 });
+      await expect(popover).toContainText(state.my_word_hint || "This word has no explanation yet.");
     }
-
-    // At least one player should have seen the hint button
-    // (in a 3-player game, at least 2 are civilians with words)
-    expect(hintButtonFound).toBe(true);
 
     await setup.cleanup();
   });

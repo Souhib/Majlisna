@@ -8,7 +8,7 @@ import {
   voteForPlayer,
   verifyAllPlayersVoted,
   waitForEliminationOrGameOver,
-  clickNextRound,
+  startNextRoundAsHost,
   isPageAlive,
 } from "../../helpers/ui-game-setup";
 import {
@@ -60,6 +60,8 @@ test.describe("Undercover Game Completion", () => {
       for (const voter of activePlayers) {
         if (!isPageAlive(voter.page)) continue;
         if (voter.login.user.id === voteTarget.user_id) continue;
+        // an eliminated player watches the vote: they have no ballot
+        if (!alivePlayers.some((p) => p.user_id === voter.login.user.id)) continue;
         await voteForPlayer(voter.page, voteTarget.username);
       }
       await verifyAllPlayersVoted(
@@ -75,14 +77,8 @@ test.describe("Undercover Game Completion", () => {
       const result = await waitForEliminationOrGameOver(observerPage);
       if (result.type === "game_over") { gameOver = true; break; }
 
-      // Click next round on all pages
-      for (const player of activePlayers) {
-        if (!isPageAlive(player.page)) continue;
-        await clickNextRound(player.page);
-      }
-
-      // Wait briefly for state propagation after clickNextRound
-      await activePlayers[0].page.waitForTimeout(500);
+      // The host starts the next round (only the host has "Next round")
+      await startNextRoundAsHost(setup.players[0].page, activePlayers);
     }
 
     // Verify game ended — check UI for "Game Over"
@@ -218,17 +214,11 @@ test.describe("Undercover Game Completion", () => {
         observerPage.locator('h2:has-text("Game Over")')
       ).toBeVisible({ timeout: 30_000 });
 
-      // Check for "Back to Room" button and click it
-      const backBtn = observerPage.locator('button:has-text("Back to Room")');
-      const hasBackBtn = await backBtn
-        .waitFor({ state: "visible", timeout: 10_000 })
-        .then(() => true)
-        .catch(() => false);
-
-      if (hasBackBtn) {
-        await backBtn.click();
-        await expect(observerPage).toHaveURL(/\/rooms\//, { timeout: 15_000 });
-      }
+      // The colophon's way back: "Back to the room" returns to the lobby
+      const backBtn = observerPage.getByRole("button", { name: "Back to the room" });
+      await expect(backBtn).toBeVisible({ timeout: 10_000 });
+      await backBtn.click();
+      await expect(observerPage).toHaveURL(/\/rooms\//, { timeout: 15_000 });
     }
 
     await setup.cleanup();

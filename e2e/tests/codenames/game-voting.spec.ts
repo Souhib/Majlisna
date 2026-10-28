@@ -212,7 +212,7 @@ test.describe("Codenames Voting (6-player)", () => {
     // On an operative's page, check for vote badge visibility
     const operativePage = operatives[0].page;
     if (isPageAlive(operativePage)) {
-      const cardButtons = operativePage.locator(".grid-cols-5 button");
+      const cardButtons = operativePage.locator('[data-testid="codenames-card"]');
       const targetCard = cardButtons.nth(teamCardIndex);
       const badge = targetCard.locator("span");
       await expect(badge.first()).toBeVisible({ timeout: 10_000 });

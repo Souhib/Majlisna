@@ -25,9 +25,9 @@ test.describe("MCQ Quiz Game Features", () => {
 
     // Wait for question to be visible
     await expect(
-      player.page.locator("h1:has-text('MCQ Quiz')")
-        .or(player.page.locator("h1:has-text('اختبار')"))
-        .or(player.page.locator("h1:has-text('QCM')")),
+      player.page.locator("h1:has-text('The Quiz')")
+        .or(player.page.locator("h1:has-text('Le Quiz')"))
+        .or(player.page.locator("h1:has-text('مسائل')")),
     ).toBeVisible({ timeout: 15_000 });
 
     // Verify we're in playing phase
@@ -74,9 +74,9 @@ test.describe("MCQ Quiz Game Features", () => {
 
     // Wait for question
     await expect(
-      player.page.locator("h1:has-text('MCQ Quiz')")
-        .or(player.page.locator("h1:has-text('اختبار')"))
-        .or(player.page.locator("h1:has-text('QCM')")),
+      player.page.locator("h1:has-text('The Quiz')")
+        .or(player.page.locator("h1:has-text('Le Quiz')"))
+        .or(player.page.locator("h1:has-text('مسائل')")),
     ).toBeVisible({ timeout: 15_000 });
 
     // Get the game state to know the correct answer
@@ -139,9 +139,9 @@ test.describe("MCQ Quiz Game Features", () => {
 
     // Wait for question
     await expect(
-      player.page.locator("h1:has-text('MCQ Quiz')")
-        .or(player.page.locator("h1:has-text('اختبار')"))
-        .or(player.page.locator("h1:has-text('QCM')")),
+      player.page.locator("h1:has-text('The Quiz')")
+        .or(player.page.locator("h1:has-text('Le Quiz')"))
+        .or(player.page.locator("h1:has-text('مسائل')")),
     ).toBeVisible({ timeout: 15_000 });
 
     // Submit answer
@@ -206,9 +206,9 @@ test.describe("MCQ Quiz Game Features", () => {
 
     // Wait for question to appear
     await expect(
-      player.page.locator("h1:has-text('MCQ Quiz')")
-        .or(player.page.locator("h1:has-text('اختبار')"))
-        .or(player.page.locator("h1:has-text('QCM')")),
+      player.page.locator("h1:has-text('The Quiz')")
+        .or(player.page.locator("h1:has-text('Le Quiz')"))
+        .or(player.page.locator("h1:has-text('مسائل')")),
     ).toBeVisible({ timeout: 15_000 });
 
     // Verify we're in playing phase

@@ -22,18 +22,20 @@ test.describe("Word Quiz Single Player", () => {
 
     // Should see game header
     await expect(
-      player.page.locator("h1:has-text('Word Quiz')"),
+      player.page.locator("h1:has-text('Kalimat')"),
     ).toBeVisible({ timeout: 15_000 });
 
     // Should see round 1
     await expect(
-      player.page.locator("text=Round 1/"),
+      player.page.locator("text=Round 1 of"),
     ).toBeVisible({ timeout: 5_000 });
 
     // Should see hints
     await expect(
-      player.page.locator("text=#1"),
-    ).toBeVisible({ timeout: 5_000 });
+      player.page
+        .getByRole("list", { name: "Hints, from the vaguest to the most specific" })
+        .locator('li[aria-current="step"]'),
+    ).toContainText("Hint 1 of", { timeout: 5_000 });
 
     // Should see answer input
     await expect(

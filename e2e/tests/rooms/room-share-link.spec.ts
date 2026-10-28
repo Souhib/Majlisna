@@ -99,10 +99,12 @@ test.describe("Room Share Link", () => {
     // Act — navigate to an invalid share link
     await page.goto(`${FRONTEND_URL}/rooms/join?code=ZZZZZ&pin=9999`);
 
-    // Assert — should show an error toast
-    await expect(
-      page.locator('[data-sonner-toast][data-type="error"]'),
-    ).toBeVisible({ timeout: 15_000 });
+    // Assert — the page says the link failed, once and in place (no toast)
+    const joinError = page.getByTestId("join-error");
+    await expect(joinError).toBeVisible({ timeout: 15_000 });
+    await expect(joinError).toHaveAttribute("role", "alert");
+    await expect(page.locator('[data-sonner-toast][data-type="error"]')).toHaveCount(0);
+    await expect(page).toHaveURL(/\/rooms\/join/);
 
     await page.context().close();
   });

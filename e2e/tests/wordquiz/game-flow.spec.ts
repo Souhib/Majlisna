@@ -21,18 +21,20 @@ test.describe("Word Quiz Game Flow", () => {
     // All players should see the game header
     for (const player of setup.players) {
       await expect(
-        player.page.locator("h1:has-text('Word Quiz')"),
+        player.page.locator("h1:has-text('Kalimat')"),
       ).toBeVisible({ timeout: 15_000 });
 
       // Should see round info
       await expect(
-        player.page.locator("text=Round 1/"),
+        player.page.locator("text=Round 1 of"),
       ).toBeVisible({ timeout: 5_000 });
 
       // Should see at least the first hint
       await expect(
-        player.page.locator("text=#1"),
-      ).toBeVisible({ timeout: 5_000 });
+        player.page
+          .getByRole("list", { name: "Hints, from the vaguest to the most specific" })
+          .locator('li[aria-current="step"]'),
+      ).toContainText("Hint 1 of", { timeout: 5_000 });
     }
 
     await setup.cleanup();
@@ -137,7 +139,7 @@ test.describe("Word Quiz Game Flow", () => {
 
     // Host should see round 2
     await expect(
-      hostPage.locator("text=Round 2/"),
+      hostPage.locator("text=Round 2 of"),
     ).toBeVisible({ timeout: 10_000 });
 
     await setup.cleanup();

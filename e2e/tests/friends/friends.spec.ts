@@ -137,10 +137,8 @@ test.describe("Friends Page", () => {
     await authenticatedPage.waitForLoadState("domcontentloaded");
 
     // Friends link is inside the user dropdown menu
-    // Open the user menu button (rounded-full avatar button with username)
-    const userMenuBtn = authenticatedPage.locator(
-      'button.rounded-full',
-    );
+    // Open the user menu (avatar button with username)
+    const userMenuBtn = authenticatedPage.locator('[data-testid="user-menu-trigger"]');
     await expect(userMenuBtn).toBeVisible({ timeout: 10_000 });
     await userMenuBtn.click();
 

@@ -54,8 +54,10 @@ test.describe("Room Management", () => {
     await expect(joinBtn).toBeEnabled({ timeout: 10_000 });
     await joinBtn.click();
 
-    // Should show error toast
-    await expect(page.locator('[data-sonner-toast][data-type="error"]')).toBeVisible({ timeout: 10_000 });
+    // The wrong PIN is said in the line under the tiles (no toast), and nobody moves
+    await expect(page.getByTestId("join-error")).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('[data-sonner-toast][data-type="error"]')).toHaveCount(0);
+    await expect(page).toHaveURL(/\/rooms$/);
 
     await page.context().close();
   });

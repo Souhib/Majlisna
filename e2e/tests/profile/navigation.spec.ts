@@ -67,7 +67,7 @@ test.describe("Leaderboard — Public Page", () => {
 
     // Should see table headers or empty state
     const hasTable = await authenticatedPage
-      .locator("table, .bg-muted\\/50")
+      .locator('[data-testid="leaderboard"]')
       .first()
       .isVisible()
       .catch(() => false);

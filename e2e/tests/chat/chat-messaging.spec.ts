@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { generateTestAccounts } from "../../helpers/test-setup";
 import { setupRoomWithPlayers } from "../../helpers/ui-game-setup";
 
-const CHAT_INPUT_SELECTOR = 'input[placeholder="Type a message..."]';
+const CHAT_INPUT_SELECTOR = 'input[placeholder="Type a message…"]';
 
 /**
  * The ChatPanel is inline in the room lobby and starts open by default.

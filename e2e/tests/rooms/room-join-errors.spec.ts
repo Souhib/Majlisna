@@ -72,10 +72,12 @@ test.describe("Room Join Errors", () => {
     await expect(joinBtn).toBeEnabled({ timeout: 10_000 });
     await joinBtn.click();
 
-    // Should show error toast
-    await expect(
-      page.locator('[data-sonner-toast][data-type="error"]'),
-    ).toBeVisible({ timeout: 10_000 });
+    // The refusal is said once, in the line under the tiles (no toast on top of it)
+    const joinError = page.getByTestId("join-error");
+    await expect(joinError).toBeVisible({ timeout: 10_000 });
+    await expect(joinError).toHaveAttribute("role", "alert");
+    await expect(page.locator('[data-sonner-toast][data-type="error"]')).toHaveCount(0);
+    await expect(page).toHaveURL(/\/rooms$/);
 
     await page.context().close();
   });

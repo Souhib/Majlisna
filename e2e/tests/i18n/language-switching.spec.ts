@@ -1,7 +1,16 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { generateTestAccounts } from "../../helpers/test-setup";
 import { createPlayerPage } from "../../fixtures/auth.fixture";
 import { FRONTEND_URL, ROUTES } from "../../helpers/constants";
+
+/**
+ * The nav's language switch (a group of EN / FR / ع buttons). Its own label is
+ * translated ("Switch language", « Changer de langue », «تغيير اللغة»), so it is found
+ * by the French button it holds, whatever the current language.
+ */
+function languageSwitch(page: Page) {
+  return page.getByRole("banner").locator('[role="group"]:has(button[lang="fr"])');
+}
 
 test.describe("i18n Language Switching", () => {
   test("switching to French updates UI text", async ({ browser }) => {
@@ -17,15 +26,12 @@ test.describe("i18n Language Switching", () => {
     await page.goto(FRONTEND_URL);
     await page.waitForLoadState("domcontentloaded");
 
-    // Click the language switcher button
-    const langButton = page.locator('button[aria-label="Switch language"]');
-    await expect(langButton).toBeVisible({ timeout: 10_000 });
-    await langButton.click();
-
-    // Select French from the dropdown
-    const frenchOption = page.locator('button:has-text("Fran")').first();
-    await expect(frenchOption).toBeVisible({ timeout: 5_000 });
+    // The nav's language switch: three always-visible buttons, one tap each
+    const frenchOption = languageSwitch(page).getByRole("button", { name: "Français" });
+    await expect(frenchOption).toBeVisible({ timeout: 10_000 });
+    await expect(frenchOption).toHaveAttribute("aria-pressed", "false");
     await frenchOption.click();
+    await expect(frenchOption).toHaveAttribute("aria-pressed", "true");
 
     // Verify French text appears — "Salons" is French for "Rooms"
     await expect(
@@ -48,18 +54,11 @@ test.describe("i18n Language Switching", () => {
     await page.goto(FRONTEND_URL);
     await page.waitForLoadState("domcontentloaded");
 
-    // Click the language switcher button
-    const langButton = page.locator('button[aria-label="Switch language"]');
-    await expect(langButton).toBeVisible({ timeout: 10_000 });
-    await langButton.click();
-
-    // Select Arabic from the dropdown
-    const arabicOption = page.locator('button:has-text("العربية")');
-    await expect(arabicOption).toBeVisible({ timeout: 5_000 });
+    // The nav's language switch: three always-visible buttons, one tap each
+    const arabicOption = languageSwitch(page).getByRole("button", { name: "العربية" });
+    await expect(arabicOption).toBeVisible({ timeout: 10_000 });
     await arabicOption.click();
-
-    // Wait for the language to apply
-    await page.waitForTimeout(1000);
+    await expect(arabicOption).toHaveAttribute("aria-pressed", "true");
 
     // Verify the HTML element has dir="rtl"
     await expect.poll(
@@ -84,13 +83,10 @@ test.describe("i18n Language Switching", () => {
     await page.waitForLoadState("domcontentloaded");
 
     // Switch to French
-    const langButton = page.locator('button[aria-label="Switch language"]');
-    await expect(langButton).toBeVisible({ timeout: 10_000 });
-    await langButton.click();
-
-    const frenchOption = page.locator('button:has-text("Fran")').first();
-    await expect(frenchOption).toBeVisible({ timeout: 5_000 });
+    const frenchOption = languageSwitch(page).getByRole("button", { name: "Français" });
+    await expect(frenchOption).toBeVisible({ timeout: 10_000 });
     await frenchOption.click();
+    await expect(frenchOption).toHaveAttribute("aria-pressed", "true");
 
     // Verify French is active
     await expect(

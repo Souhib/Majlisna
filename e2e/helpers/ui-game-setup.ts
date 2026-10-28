@@ -279,15 +279,15 @@ export async function startGameViaAPI(
     await expect(player.page).toHaveURL(urlPattern, { timeout: 15_000 });
     if (gameType === "codenames") {
       await expect(
-        player.page.locator(".grid-cols-5 button").first(),
+        player.page.locator('[data-testid="codenames-card"]').first(),
       ).toBeVisible({ timeout: 15_000 });
     } else if (gameType === "word_quiz") {
       await expect(
-        player.page.locator("h1:has-text('Word Quiz')").or(player.page.locator("h1:has-text('مسابقة الكلمات')")),
+        player.page.locator("h1:has-text('Kalimat')").or(player.page.locator("h1:has-text('كلمات')")),
       ).toBeVisible({ timeout: 15_000 });
     } else if (gameType === "mcq_quiz") {
       await expect(
-        player.page.locator("h1:has-text('MCQ Quiz')").or(player.page.locator("h1:has-text('اختبار')")).or(player.page.locator("h1:has-text('QCM')")),
+        player.page.locator("h1:has-text('The Quiz')").or(player.page.locator("h1:has-text('Le Quiz')")).or(player.page.locator("h1:has-text('مسائل')")),
       ).toBeVisible({ timeout: 15_000 });
     } else {
       await expect(
@@ -318,14 +318,19 @@ export async function startGameViaUI(
     hostPage.locator(`text=${playerCountText}`),
   ).toBeVisible({ timeout: 30_000 });
 
-  // Select game type (undercover is default)
-  if (gameType === "codenames") {
-    await hostPage.locator('button:has-text("Codenames")').click();
-  } else if (gameType === "word_quiz") {
-    await hostPage.locator('button:has-text("Word Quiz")').click();
-  } else if (gameType === "mcq_quiz") {
-    await hostPage.locator('button:has-text("MCQ Quiz")').click();
+  // Select game type in the lobby's game picker (a tab list; undercover is default).
+  // Picking a tab also saves the room's game type on the server (PATCH settings).
+  const tabNames: Record<string, string> = {
+    undercover: "Undercover",
+    codenames: "Codenames",
+    word_quiz: "Kalimat",
+    mcq_quiz: "The Quiz",
+  };
+  const gameTab = hostPage.getByRole("tab", { name: tabNames[gameType], exact: true });
+  if ((await gameTab.getAttribute("aria-selected")) !== "true") {
+    await gameTab.click();
   }
+  await expect(gameTab).toHaveAttribute("aria-selected", "true");
 
   // Click start game
   const startButton = hostPage.locator('button:has-text("Start")');
@@ -381,29 +386,23 @@ export async function dismissRoleRevealAll(
   for (const player of players) {
     if (!isPageAlive(player.page)) continue;
 
-    try {
-      // Wait for role reveal UI (the "I understand" button)
-      const dismissBtn = player.page.locator('button:has-text("I understand")');
-      await dismissBtn.waitFor({ state: "visible", timeout: 15_000 });
-      await dismissBtn.click();
+    // The first reading ("Your role is in your word.") ends with "I understand".
+    const dismissBtn = player.page.getByRole("button", { name: "I understand" });
+    await expect(dismissBtn).toBeVisible({ timeout: 15_000 });
+    await dismissBtn.click();
 
-      // Wait for describing or playing phase to appear (best-effort —
-      // the player is confirmed active after clicking "I understand")
-      await player.page
-        .locator('text=turn to describe')
-        .or(player.page.locator('text=is describing'))
-        .or(player.page.locator('text=Describe your word'))
-        .or(player.page.locator('text=Discuss and vote'))
+    // The player is now at the table: the describing phase's heading ("Your turn to
+    // describe" / "<name> is describing"), or a later phase if the table moved on.
+    await expect(
+      player.page
+        .locator('h2:has-text("turn to describe")')
+        .or(player.page.locator('h2:has-text("is describing")'))
+        .or(player.page.locator('h2:has-text("Discuss and vote")'))
         .or(player.page.locator('h2:has-text("Game Over")'))
-        .waitFor({ state: "visible", timeout: 10_000 })
-        .catch(() => {
-          // Phase text may not appear instantly — player is still active
-        });
+        .first(),
+    ).toBeVisible({ timeout: 15_000 });
 
-      activePlayers.push(player);
-    } catch {
-      // Player page may have disconnected — skip
-    }
+    activePlayers.push(player);
   }
 
   return activePlayers;
@@ -615,7 +614,7 @@ export async function voteForPlayer(
     page
       .locator("text=Waiting for")
       .or(page.locator('h2:has-text("Game Over")'))
-      .or(page.locator(".lucide-skull"))
+      .or(page.locator('[data-testid="elimination-overlay"], [data-testid="you-are-eliminated"]'))
   ).toBeVisible({ timeout: 10_000 });
 }
 
@@ -634,7 +633,7 @@ export async function verifyAllPlayersVoted(
     const done = await player.page
       .locator("text=Waiting for")
       .or(player.page.locator('h2:has-text("Game Over")'))
-      .or(player.page.locator(".lucide-skull"))
+      .or(player.page.locator('[data-testid="elimination-overlay"], [data-testid="you-are-eliminated"]'))
       .isVisible()
       .catch(() => false);
 
@@ -664,7 +663,7 @@ export async function waitForEliminationOrGameOver(
   page: Page,
 ): Promise<{ type: "elimination" | "game_over"; playerName?: string }> {
   await page
-    .locator(".lucide-skull")
+    .locator('[data-testid="elimination-overlay"]')
     .or(page.locator('h2:has-text("Game Over")'))
     .waitFor({ state: "visible", timeout: 30_000 });
 
@@ -681,18 +680,27 @@ export async function waitForEliminationOrGameOver(
 }
 
 /**
- * Click "Continue" button on elimination overlay to dismiss it.
+ * Start the next round from the round-over screen. Only the host has "Next round"
+ * (the others read "The host starts the next round"), so this clicks it on the host's
+ * page and waits until every player is back at the describing table.
  */
-export async function clickNextRound(page: Page): Promise<void> {
-  const continueBtn = page.locator('button:has-text("Continue")')
-    .or(page.locator('button:has-text("Next Round")'));
-  const visible = await continueBtn
-    .waitFor({ state: "visible", timeout: 5_000 })
-    .then(() => true)
-    .catch(() => false);
+export async function startNextRoundAsHost(
+  hostPage: Page,
+  players: PlayerContext[],
+): Promise<void> {
+  const nextRound = hostPage.getByRole("button", { name: "Next round" });
+  await expect(nextRound).toBeEnabled({ timeout: 15_000 });
+  await nextRound.click();
 
-  if (visible) {
-    await continueBtn.click();
+  for (const player of players) {
+    if (!isPageAlive(player.page)) continue;
+    await expect(player.page.locator('[data-testid="elimination-overlay"]')).toBeHidden({ timeout: 15_000 });
+    await expect(
+      player.page
+        .locator('h2:has-text("turn to describe")')
+        .or(player.page.locator('h2:has-text("is describing")'))
+        .first(),
+    ).toBeVisible({ timeout: 15_000 });
   }
 }
 
@@ -711,10 +719,15 @@ export async function giveClue(
   await clueInput.waitFor({ state: "visible", timeout });
   await clueInput.fill(clue);
 
-  const numberInput = spymasterPage.locator('input[type="number"]');
-  await numberInput.fill(String(count));
+  // The count is a group of toggles: 1-4, or "No limit" for 0 (1 is pressed by default).
+  const countButton = spymasterPage
+    .getByRole("group", { name: "How many cards it points to" })
+    .getByRole("button", { name: count === 0 ? "No limit" : String(count), exact: true });
+  await countButton.click();
+  await expect(countButton).toHaveAttribute("aria-pressed", "true");
 
-  const submitBtn = spymasterPage.locator('button:has-text("Submit")').first();
+  const submitBtn = spymasterPage.getByRole("button", { name: "Give clue" });
+  await expect(submitBtn).toBeEnabled({ timeout: 5_000 });
   await submitBtn.click();
 }
 
@@ -729,7 +742,7 @@ export async function guessCard(
   // The button name includes vote badge/hint text, so use regex for word boundary.
   // Escape special regex chars in the word to prevent matching issues.
   const escaped = cardWord.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const card = operativePage.locator(`.grid-cols-5`).getByRole("button", { name: new RegExp(`^${escaped}\\b`), disabled: false }).first();
+  const card = operativePage.locator('[data-testid="codenames-board"]').getByRole("button", { name: new RegExp(`^${escaped}\\b`), disabled: false }).first();
   await expect(card).toBeEnabled({ timeout: 30_000 });
   await card.click({ timeout: 15_000 });
 }

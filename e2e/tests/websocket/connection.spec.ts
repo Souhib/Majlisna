@@ -139,17 +139,17 @@ test.describe("WebSocket Real-time Updates", () => {
       timeout: 15_000,
     });
 
-    // Should see the game UI — after reload, role reveal dialog reappears
-    // because roleRevealed is local React state that resets on reload
+    // Should be back at the table: the first reading is remembered in the tab, so the
+    // player returns to the phase the table is in (describing, or later)
     await expect(
       refreshPlayer.page
-        .locator('h2:has-text("Your Role")')
-        .or(refreshPlayer.page.locator("text=turn to describe"))
-        .or(refreshPlayer.page.locator("text=is describing"))
-        .or(refreshPlayer.page.locator("text=Describe your word"))
-        .or(refreshPlayer.page.locator("text=Discuss and vote"))
+        .locator('h2:has-text("turn to describe")')
+        .or(refreshPlayer.page.locator('h2:has-text("is describing")'))
+        .or(refreshPlayer.page.locator('h2:has-text("Discuss and vote")'))
         .or(refreshPlayer.page.locator('h2:has-text("Game Over")'))
+        .first(),
     ).toBeVisible({ timeout: 15_000 });
+    await expect(refreshPlayer.page.getByRole("button", { name: "I understand" })).toBeHidden();
 
     await setup.cleanup();
   });

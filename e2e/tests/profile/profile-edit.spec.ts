@@ -9,9 +9,7 @@ test.describe("Profile — Edit Username", () => {
     await authenticatedPage.waitForLoadState("domcontentloaded");
 
     // Edit button (pencil icon) should be visible
-    const editButton = authenticatedPage.locator(
-      'button[aria-label="Edit Username"]',
-    );
+    const editButton = authenticatedPage.getByRole("button", { name: "Edit username" });
     await expect(editButton).toBeVisible({ timeout: 10_000 });
   });
 
@@ -21,9 +19,7 @@ test.describe("Profile — Edit Username", () => {
     await authenticatedPage.goto(ROUTES.profile);
     await authenticatedPage.waitForLoadState("domcontentloaded");
 
-    const editButton = authenticatedPage.locator(
-      'button[aria-label="Edit Username"]',
-    );
+    const editButton = authenticatedPage.getByRole("button", { name: "Edit username" });
     await expect(editButton).toBeVisible({ timeout: 10_000 });
     await editButton.click();
 
@@ -37,9 +33,7 @@ test.describe("Profile — Edit Username", () => {
     await authenticatedPage.goto(ROUTES.profile);
     await authenticatedPage.waitForLoadState("domcontentloaded");
 
-    const editButton = authenticatedPage.locator(
-      'button[aria-label="Edit Username"]',
-    );
+    const editButton = authenticatedPage.getByRole("button", { name: "Edit username" });
     await expect(editButton).toBeVisible({ timeout: 10_000 });
     await editButton.click();
 
@@ -81,10 +75,10 @@ test.describe("Profile — Change Password", () => {
     // input[type="password"] elements and a bare locator on that selector is a
     // Playwright strict-mode violation.
     await expect(
-      authenticatedPage.locator('input[placeholder="Current Password"]'),
+      authenticatedPage.getByPlaceholder("Current password", { exact: true }),
     ).toBeVisible();
     await expect(
-      authenticatedPage.locator('input[placeholder="New Password"]'),
+      authenticatedPage.getByPlaceholder("New password", { exact: true }),
     ).toBeVisible();
   });
 });

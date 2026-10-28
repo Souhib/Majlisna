@@ -22,14 +22,14 @@ test.describe("MCQ Quiz Single Player", () => {
 
     // Should see game header
     await expect(
-      player.page.locator("h1:has-text('MCQ Quiz')")
-        .or(player.page.locator("h1:has-text('اختبار')"))
-        .or(player.page.locator("h1:has-text('QCM')")),
+      player.page.locator("h1:has-text('The Quiz')")
+        .or(player.page.locator("h1:has-text('Le Quiz')"))
+        .or(player.page.locator("h1:has-text('مسائل')")),
     ).toBeVisible({ timeout: 15_000 });
 
-    // Should see question counter (uses "Question X/Y" from i18n)
+    // Should see question counter ("Question X of Y" in the header)
     await expect(
-      player.page.locator("text=/Question \\d+\\/\\d+/").first(),
+      player.page.locator("text=/Question \\d+ of \\d+/").first(),
     ).toBeVisible({ timeout: 5_000 });
 
     // Should see 4 choice buttons (labels A, B, C, D without period)
@@ -55,9 +55,9 @@ test.describe("MCQ Quiz Single Player", () => {
 
     // Wait for question to be visible
     await expect(
-      player.page.locator("h1:has-text('MCQ Quiz')")
-        .or(player.page.locator("h1:has-text('اختبار')"))
-        .or(player.page.locator("h1:has-text('QCM')")),
+      player.page.locator("h1:has-text('The Quiz')")
+        .or(player.page.locator("h1:has-text('Le Quiz')"))
+        .or(player.page.locator("h1:has-text('مسائل')")),
     ).toBeVisible({ timeout: 15_000 });
 
     // Get game state to verify we're in playing phase

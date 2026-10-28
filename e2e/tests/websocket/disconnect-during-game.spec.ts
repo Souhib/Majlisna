@@ -35,7 +35,8 @@ test.describe("Disconnect During Active Game", () => {
   test("player closing browser during undercover game marks them dead", async ({
     browser,
   }) => {
-    test.setTimeout(180_000);
+    // stale 20 s + the in-game grace GRACE_PERIOD_SECONDS (180 s) + checker 5 s ≈ 205 s
+    test.setTimeout(300_000);
 
     const accounts = await generateTestAccounts(4);
     const setup = await setupRoomWithPlayers(browser, accounts, "undercover");
@@ -72,18 +73,24 @@ test.describe("Disconnect During Active Game", () => {
     const leavingPlayer = activePlayers[activePlayers.length - 1];
     await leavingPlayer.page.context().close();
 
-    // Remaining players should see the disconnect reflected in the UI:
-    // either "Eliminated" text (player marked dead) or "Game Over" screen
+    // Remaining players should see the disconnect reflected in the UI: the leaver's
+    // seat reads "Eliminated · <role>", or the game is over (the leaver decided it)
     const remainingPlayers = activePlayers.slice(0, -1);
     const remainingPage = remainingPlayers[0].page;
+    const leavingUsername = leavingPlayer.login.user.username;
+    const leaverSeat = remainingPage
+      .getByRole("list", { name: "Who said what, in speaking order" })
+      .getByRole("listitem")
+      .filter({ hasText: leavingUsername });
+    await expect(leaverSeat).toBeVisible({ timeout: 15_000 });
+    await expect(leaverSeat).not.toContainText("Eliminated");
 
-    // Wait for UI to reflect the disconnect (stale 20s + grace 60s + checker 5s ≈ 85s)
+    // stale 20 s + grace 180 s + checker 5 s ≈ 205 s
     await expect(
-      remainingPage
-        .locator('text=Eliminated')
-        .or(remainingPage.locator('h2:has-text("Game Over")'))
-        .first(),
-    ).toBeVisible({ timeout: 120_000 });
+      leaverSeat
+        .filter({ hasText: "Eliminated" })
+        .or(remainingPage.locator('h2:has-text("Game Over")')),
+    ).toBeVisible({ timeout: 250_000 });
 
     // Remaining players should still be on the game page
     for (const player of remainingPlayers) {
@@ -197,13 +204,19 @@ test.describe("Disconnect During Active Game", () => {
       timeout: 15_000,
     });
 
-    // Host should see the kicked player as "Eliminated" or "Game Over" in the UI
+    // ...where the rooms page says why, in place (not a toast)
+    await expect(kickedPlayer.page.getByTestId("room-notice")).toBeVisible({ timeout: 10_000 });
+
+    // Host should see the kicked player's seat as "Eliminated", or the game over
     const hostPage = activePlayers[0].page;
+    const kickedSeat = hostPage
+      .getByRole("list", { name: "Who said what, in speaking order" })
+      .getByRole("listitem")
+      .filter({ hasText: kickedPlayer.login.user.username });
     await expect(
-      hostPage
-        .locator('text=Eliminated')
-        .or(hostPage.locator('h2:has-text("Game Over")'))
-        .first(),
+      kickedSeat
+        .filter({ hasText: "Eliminated" })
+        .or(hostPage.locator('h2:has-text("Game Over")')),
     ).toBeVisible({ timeout: 15_000 });
 
     await setup.cleanup();

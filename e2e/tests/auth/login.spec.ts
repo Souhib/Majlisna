@@ -52,7 +52,7 @@ test.describe("Auth — Login", () => {
     await page.locator('button[type="submit"]').click();
 
     // Should show error message
-    const errorDiv = page.locator(".bg-destructive\\/10");
+    const errorDiv = page.locator('[data-testid="form-error"]');
     await expect(errorDiv).toBeVisible({ timeout: 10_000 });
   });
 
@@ -62,7 +62,7 @@ test.describe("Auth — Login", () => {
     await page.locator('button[type="submit"]').click();
 
     // Should show error message
-    const errorDiv = page.locator(".bg-destructive\\/10");
+    const errorDiv = page.locator('[data-testid="form-error"]');
     await expect(errorDiv).toBeVisible({ timeout: 10_000 });
   });
 

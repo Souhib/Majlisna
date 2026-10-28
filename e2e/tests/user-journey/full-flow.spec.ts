@@ -67,18 +67,13 @@ test.describe("Full User Journey", () => {
 
     // ─── Step 2: Create room via UI ───────────────────────────
     await page1.goto(`${FRONTEND_URL}/rooms/create`);
-    // Retry if auth redirect happens (async auth init on page load)
-    const onCreatePage = await page1
-      .waitForURL(/\/rooms\/create/, { timeout: 5_000 })
-      .then(() => true)
-      .catch(() => false);
-    if (!onCreatePage) {
-      await page1.goto(`${FRONTEND_URL}/rooms/create`);
-      await expect(page1).toHaveURL(/\/rooms\/create/, { timeout: 15_000 });
-    }
+    // A signed-in player stays on the page they asked for (the auth gate lets them through)
+    await expect(page1).toHaveURL(/\/rooms\/create$/, { timeout: 15_000 });
 
-    // Select "Undercover" game type (it may be default, click to be sure)
-    await page1.locator('button:has-text("Undercover")').click();
+    // Choose Undercover (it may be the default, pick it to be sure)
+    const undercoverChoice = page1.getByRole("radio", { name: /^Undercover/ });
+    await undercoverChoice.click();
+    await expect(undercoverChoice).toHaveAttribute("aria-checked", "true");
 
     // Wait for submit button to be enabled (it shows "Loading..." while form initializes)
     const createSubmit = page1.locator('button[type="submit"]');
@@ -91,26 +86,15 @@ test.describe("Full User Journey", () => {
     // ─── Step 3: Extract room code + PIN from lobby ───────────
     // Wait for lobby to fully load with room data
     await page1.waitForLoadState("domcontentloaded");
-    await page1.locator('text=Room Code').waitFor({ state: "visible", timeout: 15_000 });
-
-    // Extract room code and password from the lobby page
-    // The room code is displayed near "Room Code" label and the password near "Password" label
-    const roomCode = await page1.evaluate(() => {
-      // Find the Room Code section and get the code text
-      const body = document.body.innerText;
-      // Room code is a 5-char alphanumeric string shown after "Room Code"
-      const codeMatch = body.match(/Room Code[\s\S]*?([A-Z0-9]{5})/);
-      return codeMatch ? codeMatch[1] : null;
-    });
-    expect(roomCode).toBeTruthy();
-
-    const roomPassword = await page1.evaluate(() => {
-      const body = document.body.innerText;
-      // Password is a 4-digit PIN shown after "Password"
-      const pinMatch = body.match(/Password[\s\S]*?(\d{4})/);
-      return pinMatch ? pinMatch[1] : null;
-    });
-    expect(roomPassword).toBeTruthy();
+    // The lobby shows the code and the PIN as tiles, one character per tile
+    const codeTiles = page1.getByRole("group", { name: "Room code" }).locator(".code-tile");
+    const pinTiles = page1.getByRole("group", { name: "PIN" }).locator(".code-tile");
+    await expect(codeTiles).toHaveCount(5, { timeout: 15_000 });
+    await expect(pinTiles).toHaveCount(4);
+    const roomCode = (await codeTiles.allTextContents()).join("");
+    const roomPassword = (await pinTiles.allTextContents()).join("");
+    expect(roomCode).toMatch(/^[A-Z0-9]{5}$/);
+    expect(roomPassword).toMatch(/^\d{4}$/);
 
     // ─── Step 4: Login players 2-3 via UI ─────────────────────
     // Use pre-seeded test accounts
@@ -159,14 +143,7 @@ test.describe("Full User Journey", () => {
     // ─── Step 5: Players 2-3 join room via UI ─────────────────
     for (const page of otherPages) {
       await page.goto(`${FRONTEND_URL}/rooms`);
-      // Retry if auth redirect happens
-      const onRooms = await page
-        .waitForURL(/\/rooms/, { timeout: 5_000 })
-        .then(() => true)
-        .catch(() => false);
-      if (!onRooms) {
-        await page.goto(`${FRONTEND_URL}/rooms`);
-      }
+      await expect(page).toHaveURL(/\/rooms$/, { timeout: 15_000 });
       await page.waitForLoadState("domcontentloaded");
 
       // Fill room code
@@ -212,10 +189,10 @@ test.describe("Full User Journey", () => {
     }
 
     // ─── Step 8: Verify game UI visible ───────────────────────
-    // All players should see the role reveal screen
+    // All players should see the first reading (the word, never the side)
     for (const page of allPages) {
       await expect(
-        page.locator("text=Your Role"),
+        page.getByRole("heading", { name: "Your role is in your word." }),
       ).toBeVisible({ timeout: 15_000 });
     }
 

@@ -45,9 +45,22 @@ test.describe("Leaderboard — Data Display", () => {
       name: "Win Rate",
     });
     await expect(winRateTab).toBeVisible({ timeout: 10_000 });
+    const ranked = authenticatedPage.waitForResponse(
+      (r) => r.url().includes("/api/v1/stats/leaderboard") && r.url().includes("stat_field=win_rate"),
+    );
     await winRateTab.click();
 
-    // After clicking, the Win Rate tab should have the active style
-    await expect(winRateTab).toHaveClass(/from-primary/);
+    // After clicking, Win Rate is the pressed sort (and Wins no longer is)
+    await expect(winRateTab).toHaveAttribute("aria-pressed", "true");
+    await expect(authenticatedPage.getByRole("button", { name: "Wins" })).toHaveAttribute("aria-pressed", "false");
+
+    // ...and the server ranks by it (win rate is computed, not a column: it used to answer 500)
+    const response = await ranked;
+    expect(response.status()).toBe(200);
+    const entries = (await response.json()) as { win_rate: number }[];
+    expect(entries.length).toBeGreaterThan(0);
+    const rates = entries.map((e) => e.win_rate);
+    expect(rates).toEqual([...rates].sort((a, b) => b - a));
+    await expect(authenticatedPage.locator("table tbody tr")).toHaveCount(entries.length);
   });
 });

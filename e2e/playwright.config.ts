@@ -91,6 +91,16 @@ export default defineConfig({
       testMatch: ["**/user-journey/**"],
       timeout: 120_000,
     },
+    {
+      name: "notebook",
+      testMatch: ["**/notebook/**"],
+      timeout: 120_000,
+    },
+    {
+      name: "pause",
+      testMatch: ["**/pause/**"],
+      timeout: 120_000,
+    },
     // Mobile viewport projects — run existing tests at iPhone 14 size (Chromium)
     {
       name: "mobile-smoke",

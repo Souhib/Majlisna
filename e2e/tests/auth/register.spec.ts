@@ -29,7 +29,7 @@ test.describe("Auth — Register", () => {
     await page.locator('button[type="submit"]').click();
 
     // Should show error (duplicate email)
-    const errorDiv = page.locator(".bg-destructive\\/10");
+    const errorDiv = page.locator('[data-testid="form-error"]');
     await expect(errorDiv).toBeVisible({ timeout: 10_000 });
   });
 

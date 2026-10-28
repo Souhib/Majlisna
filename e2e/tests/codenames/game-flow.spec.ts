@@ -15,7 +15,7 @@ test.describe("Codenames Game Flow", () => {
     // All players should see the 5x5 board
     for (const player of setup.players) {
       if (!isPageAlive(player.page)) continue;
-      const cards = player.page.locator(".grid-cols-5 > button");
+      const cards = player.page.locator('[data-testid="codenames-card"]');
       await expect(cards.first()).toBeVisible({ timeout: 15_000 });
       const count = await cards.count();
       expect(count).toBe(25);
@@ -46,7 +46,7 @@ test.describe("Codenames Game Flow", () => {
 
     // Verify player 1 sees the board
     await expect(
-      setup.players[0].page.locator(".grid-cols-5 > button").first(),
+      setup.players[0].page.locator('[data-testid="codenames-card"]').first(),
     ).toBeVisible({ timeout: 15_000 });
 
     // Reload player 1
@@ -55,11 +55,11 @@ test.describe("Codenames Game Flow", () => {
 
     // Board should be recovered via polling
     await expect(
-      setup.players[0].page.locator(".grid-cols-5 > button").first(),
+      setup.players[0].page.locator('[data-testid="codenames-card"]').first(),
     ).toBeVisible({ timeout: 15_000 });
 
     // Should still show 25 cards
-    const count = await setup.players[0].page.locator(".grid-cols-5 > button").count();
+    const count = await setup.players[0].page.locator('[data-testid="codenames-card"]').count();
     expect(count).toBe(25);
 
     await setup.cleanup();
