@@ -6,8 +6,9 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn>=0.30.0",
-    # Upper bound: the Dockerfile installs from pyproject (not uv.lock), and sqlmodel 0.0.47
-    # rejects naive datetimes, which the disconnect checker and room writes still pass (28/09/2026).
+    # Upper bound: sqlmodel 0.0.47 rejects naive datetimes, which the disconnect checker and
+    # room writes pass on purpose (28/09/2026). The Dockerfile now installs from uv.lock
+    # (`uv sync --frozen`); the cap stays so a `uv lock --upgrade` cannot pick it up either.
     "sqlmodel>=0.0.22,<0.0.36",
     "sqlalchemy[asyncio]>=2.0.35",
     "asyncpg>=0.30.0",
