@@ -6,6 +6,7 @@ from uuid import UUID
 
 from fastapi import status
 from loguru import logger
+from starlette.responses import JSONResponse
 
 from majlisna.api.constants import CODENAMES_BOARD_SIZE
 
@@ -172,6 +173,24 @@ class UserAlreadyExistsError(BaseError):
         )
 
 
+class UsernameAlreadyTakenError(BaseError):
+    """Another account already uses this username (compared case-insensitively).
+
+    Raised by registration and by a profile rename. ``user.username`` carries no
+    unique constraint (and there are no migrations to add one), so the controllers
+    enforce it — see ``username_is_taken``.
+    """
+
+    def __init__(self, username: str):
+        super().__init__(
+            message=f"Username {username} is already taken",
+            frontend_message="This username is already taken. Please choose another one.",
+            status_code=status.HTTP_409_CONFLICT,
+            error_params={"username": username},
+            details={"username": username},
+        )
+
+
 class UserNotInRoomError(BaseError):
     """User is not in the specified room."""
 
@@ -255,7 +274,7 @@ class GameStillInProgressError(BaseError):
 
     def __init__(self, game_id: UUID | str):
         super().__init__(
-            message=f"Game {game_id} is still in progress; its summary is only available once it ends",
+            message=f"Game {game_id} is still in progress; this is only available once it ends",
             frontend_message="This game is still in progress.",
             status_code=status.HTTP_403_FORBIDDEN,
             details={"game_id": str(game_id)},
@@ -486,6 +505,17 @@ class GameNotInProgressError(BaseError):
         )
 
 
+class GameAlreadyOverError(BaseError):
+    """Raised when a move or timer reaches a game that has already ended."""
+
+    def __init__(self, message: str):
+        super().__init__(
+            message=message,
+            frontend_message="This game is already over.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+
 class NotEnoughPlayersError(BaseError):
     """Raised when there are not enough players to start a game.
 
@@ -627,3 +657,534 @@ class InvalidChoiceIndexError(BaseError):
             status_code=status.HTTP_400_BAD_REQUEST,
             details={"choice_index": choice_index},
         )
+
+
+# ========== Notebook (Kunnash) Errors ==========
+
+
+class NotebookGameTypeNotSupportedError(BaseError):
+    """The game's words cannot be kept: an MCQ round is a question, not a word."""
+
+    def __init__(self, game_id: UUID | str, game_type: str):
+        super().__init__(
+            message=f"Words from game {game_id} ({game_type}) cannot be kept in the notebook",
+            frontend_message="Words from this game can't be kept in your notebook.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            details={"game_id": str(game_id), "game_type": game_type},
+        )
+
+
+class TermNotInGameError(BaseError):
+    """A word was asked to be kept from a game that never dealt it."""
+
+    def __init__(self, game_id: UUID | str, term: str):
+        super().__init__(
+            message=f"Term {term!r} was not part of game {game_id}",
+            frontend_message="That word was not part of this game.",
+            status_code=status.HTTP_404_NOT_FOUND,
+            details={"game_id": str(game_id), "term": term},
+        )
+
+
+class NotebookEntryNotFoundError(BaseError):
+    """No notebook entry with this id belongs to the caller.
+
+    Also what another user's entry answers — a 403 would confirm the id exists.
+    """
+
+    def __init__(self, entry_id: UUID | str):
+        super().__init__(
+            message=f"Notebook entry {entry_id} not found",
+            frontend_message="This word is not in your notebook.",
+            status_code=status.HTTP_404_NOT_FOUND,
+            details={"entry_id": str(entry_id)},
+        )
+
+
+class InvalidNotebookCursorError(BaseError):
+    """The `cursor` of a notebook page is not one the server handed out."""
+
+    def __init__(self, cursor: str):
+        super().__init__(
+            message=f"Invalid notebook cursor {cursor!r}",
+            frontend_message="This page of your notebook could not be loaded.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            details={"cursor": cursor},
+        )
+
+
+class InvalidLeaderboardSortError(BaseError):
+    """The leaderboard was asked to rank by something it does not rank by."""
+
+    def __init__(self, stat_field: str):
+        super().__init__(
+            message=f"Invalid leaderboard sort {stat_field!r}",
+            frontend_message="The leaderboard cannot be sorted that way.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            details={"stat_field": stat_field},
+        )
+
+
+# ========== Rate limiting ==========
+
+
+class RateLimitExceededError(BaseError):
+    """Too many requests for one endpoint in its window (slowapi's RateLimitExceeded).
+
+    Raised by nothing: the 429 handler builds one so the body carries the same
+    envelope — and an ``error_key`` the client translates — as every other error.
+    """
+
+    def __init__(self, limit: str):
+        super().__init__(
+            message=f"Rate limit exceeded: {limit}",
+            frontend_message="Too many requests. Please wait a moment and try again.",
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            details={"limit": limit},
+        )
+
+
+# ========== Prayer pause (وقفة الصلاة) Errors ==========
+
+
+class GamePausedError(BaseError):
+    """A move was attempted while the host has paused the game for the prayer."""
+
+    def __init__(self, game_id: UUID | str):
+        super().__init__(
+            message=f"Game {game_id} is paused; no move is accepted until the host resumes it",
+            frontend_message="The game is paused for the prayer.",
+            status_code=status.HTTP_409_CONFLICT,
+            details={"game_id": str(game_id)},
+        )
+
+
+class GameAlreadyPausedError(BaseError):
+    """The host asked to pause a game that is already paused."""
+
+    def __init__(self, game_id: UUID | str):
+        super().__init__(
+            message=f"Game {game_id} is already paused",
+            frontend_message="The game is already paused.",
+            status_code=status.HTTP_409_CONFLICT,
+            details={"game_id": str(game_id)},
+        )
+
+
+class GameNotPausedError(BaseError):
+    """The host asked to resume a game that is not paused."""
+
+    def __init__(self, game_id: UUID | str):
+        super().__init__(
+            message=f"Game {game_id} is not paused",
+            frontend_message="The game is not paused.",
+            status_code=status.HTTP_409_CONFLICT,
+            details={"game_id": str(game_id)},
+        )
+
+
+class OnlyHostCanPauseError(BaseError):
+    """Someone other than the room's current host tried to pause or resume."""
+
+    def __init__(self, user_id: UUID | str, game_id: UUID | str):
+        super().__init__(
+            message=f"User {user_id} is not the host of game {game_id} and cannot pause or resume it",
+            frontend_message="Only the host can pause or resume the game.",
+            status_code=status.HTTP_403_FORBIDDEN,
+            details={"user_id": str(user_id), "game_id": str(game_id)},
+        )
+
+
+class SpectatorCannotPauseError(BaseError):
+    """A spectator tried to pause a game they are only watching."""
+
+    def __init__(self, user_id: UUID | str, game_id: UUID | str):
+        super().__init__(
+            message=f"Spectator {user_id} cannot pause game {game_id}",
+            frontend_message="Spectators cannot pause the game.",
+            status_code=status.HTTP_403_FORBIDDEN,
+            details={"user_id": str(user_id), "game_id": str(game_id)},
+        )
+
+
+# ─── Errors that used to be raised as a bare BaseError ──────────────────────────
+#
+# A bare `BaseError(...)` carries the key `errors.api.base`, which no locale can
+# translate (its message varies), so Arabic and French players read the English
+# `frontend_message`. Each of these keeps the old `message` (what logs and tests
+# match on) and `frontend_message` (the client's fallback), and adds its own key.
+
+
+class RoomHasActiveGameError(BaseError):
+    """A game is started in a room that already has one running."""
+
+    def __init__(self, room_id: UUID | str):
+        super().__init__(
+            message=f"Room {room_id} already has an active game",
+            frontend_message="A game is already in progress.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            details={"room_id": str(room_id)},
+        )
+
+
+class NotRoomHostError(BaseError):
+    """A host-only action (start, kick, settings, rematch, delete) by someone else."""
+
+    def __init__(self, message: str = "Only the host can do this.", frontend_message: str | None = None):
+        super().__init__(
+            message=message,
+            frontend_message=frontend_message or "Only the host can do this.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
+
+
+class NotAGamePlayerError(BaseError):
+    """The caller (or the player named) is not one of the game's players."""
+
+    def __init__(self, message: str, status_code: int = status.HTTP_403_FORBIDDEN):
+        super().__init__(
+            message=message,
+            frontend_message="You are not a player in this game.",
+            status_code=status_code,
+        )
+
+
+class RoundNotInResultsError(BaseError):
+    """A quiz round is advanced (or marked ready) before its results are shown."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            message="Can only advance from results phase.",
+            frontend_message="Can only advance from results phase.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+class GameNotInRoomError(BaseError):
+    """An Undercover next-round names a room the game does not belong to."""
+
+    def __init__(self, game_id: UUID | str, room_id: UUID | str):
+        super().__init__(
+            message=f"Game {game_id} does not belong to room {room_id}",
+            frontend_message="This game does not belong to this room.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            details={"game_id": str(game_id), "room_id": str(room_id)},
+        )
+
+
+class RoundNotResolvedError(BaseError):
+    """The next Undercover round is requested before the current one has its elimination."""
+
+    def __init__(self, game_id: UUID | str):
+        super().__init__(
+            message=f"Game {game_id}: the current round is not resolved yet",
+            frontend_message="The current round is not over yet.",
+            status_code=status.HTTP_409_CONFLICT,
+            details={"game_id": str(game_id)},
+        )
+
+
+class NotDescribingPhaseError(BaseError):
+    """A description arrives outside the describing phase."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            message="Not in description phase.",
+            frontend_message="Not in description phase.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+class AllDescriptionsSubmittedError(BaseError):
+    """A description arrives after everyone has described."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            message="All descriptions already submitted.",
+            frontend_message="All descriptions already submitted.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+class NotYourTurnToDescribeError(BaseError):
+    """A description from a player whose turn it is not."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            message="Not your turn to describe.",
+            frontend_message="Not your turn to describe.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+class InvalidDescriptionWordError(BaseError):
+    """An Undercover description that is not one word of at most ``max_length`` characters."""
+
+    def __init__(self, max_length: int):
+        super().__init__(
+            message=f"Word must be a single word (no spaces), max {max_length} characters.",
+            frontend_message=f"Word must be a single word (no spaces), max {max_length} characters.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            error_params={"max": max_length},
+        )
+
+
+class DescriptionsNotCompleteError(BaseError):
+    """A vote arrives before everyone has described."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            message="Descriptions are not complete yet.",
+            frontend_message="Descriptions are not complete yet.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+class VoteTargetNotInGameError(BaseError):
+    """A vote for someone who is not a player of this game."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            message="Voted player not in game.",
+            frontend_message="Voted player not in game.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+class AlreadyVotedError(BaseError):
+    """A second vote in the same round."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            message="You have already voted this round.",
+            frontend_message="You have already voted this round.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+class NotMrWhiteGuessingPhaseError(BaseError):
+    """A Mr. White guess outside the guessing phase."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            message="Not in Mr. White guessing phase.",
+            frontend_message="Not in Mr. White guessing phase.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+class NotTheMrWhiteGuesserError(BaseError):
+    """A guess from anyone but the eliminated Mr. White who owes it."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            message="Only the eliminated Mr. White can guess.",
+            frontend_message="Only the eliminated Mr. White can guess.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
+
+
+class ClueAlreadyGivenError(BaseError):
+    """A second Codenames clue in the same turn."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            message="A clue has already been given this turn.",
+            frontend_message="A clue has already been given this turn.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+class RoomCodeUnavailableError(BaseError):
+    """No free room code was found (503: try again)."""
+
+    def __init__(self, attempts: int):
+        super().__init__(
+            message=f"Could not allocate a free room code after {attempts} attempts",
+            frontend_message="Couldn't create a room right now. Please try again.",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
+
+class PlayerCannotSpectateError(BaseError):
+    """A player of the running game asks to become a spectator (see backend/CLAUDE.md)."""
+
+    def __init__(self, user_id: UUID | str, room_id: UUID | str):
+        super().__init__(
+            message=f"User {user_id} is an active player in room {room_id} and cannot switch to spectator",
+            frontend_message="You're playing this game — leave the room to stop playing.",
+            status_code=status.HTTP_409_CONFLICT,
+            details={"user_id": str(user_id), "room_id": str(room_id)},
+        )
+
+
+class CannotKickYourselfError(BaseError):
+    """The host tries to kick themself."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            message="You cannot kick yourself.",
+            frontend_message="You cannot kick yourself.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+class InviterNotInRoomError(BaseError):
+    """A room invite from someone not (connected) in the room."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            message="You must be in the room to invite friends.",
+            frontend_message="You must be in the room to invite friends.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+class CanOnlyInviteFriendsError(BaseError):
+    """A room invite to someone who is not a friend."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            message="You can only invite friends.",
+            frontend_message="You can only invite friends.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+class FriendAlreadyInRoomError(BaseError):
+    """A room invite to someone already in the room."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            message="User is already in the room.",
+            frontend_message="This user is already in the room.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+class CannotFriendYourselfError(BaseError):
+    """A friend request to oneself."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            message="Cannot friend yourself",
+            frontend_message="You cannot send a friend request to yourself.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+class FriendRequestBlockedError(BaseError):
+    """A friend request across a blocked friendship (deliberately unspecific)."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            message="Cannot send request",
+            frontend_message="Cannot send friend request.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+class AlreadyFriendsError(BaseError):
+    """A friend request to someone already a friend."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            message="Already friends",
+            frontend_message="You are already friends.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+class FriendRequestAlreadySentError(BaseError):
+    """A second friend request while the first is pending."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            message="Request already sent",
+            frontend_message="Friend request already sent.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+class FriendRequestFailedError(BaseError):
+    """A friend request lost a race on the friendship's unique constraint."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            message="Friend request failed",
+            frontend_message="Friend request failed.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+class NotYourFriendRequestError(BaseError):
+    """Accepting or rejecting a request that was sent to someone else."""
+
+    def __init__(self, action: str):
+        super().__init__(
+            message="Not your request",
+            frontend_message=f"You can only {action} requests sent to you.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
+
+
+class FriendRequestNotPendingError(BaseError):
+    """Accepting a request that is no longer pending."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            message="Request not pending",
+            frontend_message="This request is not pending.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+class NotYourFriendshipError(BaseError):
+    """Removing a friendship one is not part of."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            message="Not your friendship",
+            frontend_message="You are not part of this friendship.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
+
+
+class FriendshipNotFoundError(BaseError):
+    """No friendship (or request) with this id."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            message="Friendship not found",
+            frontend_message="Friend request not found.",
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+
+
+# Statuses whose body carries the error's `details` (validation-style errors the
+# client may act on); every other status answers an empty `details`.
+_DETAILED_STATUS_CODES = {400, 409, 422, 429}
+
+
+def error_response(exc: BaseError) -> JSONResponse:
+    """The JSON envelope every ``BaseError`` is answered with.
+
+    ``{error, error_key, message, error_params, details, timestamp}`` — ``error_key``
+    is what the client translates; ``message`` is the English fallback.
+    """
+    should_include_details = exc.status_code in _DETAILED_STATUS_CODES
+    serializable_details = {}
+    if should_include_details and exc.details:
+        serializable_details = {k: str(v) if isinstance(v, UUID) else v for k, v in exc.details.items()}
+
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": exc.error_code,
+            "error_key": exc.error_key,
+            "message": exc.frontend_message,
+            "error_params": exc.error_params,
+            "details": serializable_details if should_include_details else {},
+            "timestamp": exc.timestamp.isoformat(),
+        },
+    )

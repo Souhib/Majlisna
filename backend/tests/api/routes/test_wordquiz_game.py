@@ -39,7 +39,10 @@ def _mock_game_state(game_id: str, room_id: str) -> WordQuizGameState:
         total_rounds=5,
         round_phase="playing",
         hints_revealed=2,
+        # A prefix of the ladder, not the ladder: the server only releases the
+        # hints earned so far, and `max_hints` carries its real length.
         hints=["It is a pillar of Islam", "Performed 5 times a day"],
+        max_hints=6,
         turn_duration_seconds=60,
         hint_interval_seconds=10,
         players=[],
@@ -244,7 +247,7 @@ def test_timer_expired_success(mock_notify: AsyncMock, test_app: FastAPI, client
     user = _mock_user()
     mock_controller = Mock(spec=WordQuizGameController)
     mock_controller.handle_timer_expired = AsyncMock(
-        return_value=TimerExpiredResponse(game_id=str(game_id), action="show_results")
+        return_value=TimerExpiredResponse(game_id=str(game_id), action="results")
     )
     test_app.dependency_overrides[get_current_user] = lambda: user
     test_app.dependency_overrides[get_wordquiz_game_controller] = lambda: mock_controller
@@ -256,7 +259,7 @@ def test_timer_expired_success(mock_notify: AsyncMock, test_app: FastAPI, client
         # Assert
         assert response.status_code == 200
         data = response.json()
-        assert data["action"] == "show_results"
+        assert data["action"] == "results"
         mock_controller.handle_timer_expired.assert_awaited_once_with(game_id, user.id)
         mock_notify.assert_awaited_once()
     finally:

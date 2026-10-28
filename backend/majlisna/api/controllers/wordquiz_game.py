@@ -1,5 +1,3 @@
-import re
-import unicodedata
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -13,7 +11,10 @@ from majlisna.api.constants import (
     DEFAULT_WORD_QUIZ_MAX_HINTS,
     DEFAULT_WORD_QUIZ_ROUNDS,
     DEFAULT_WORD_QUIZ_TURN_DURATION,
+    HOST_USERNAME_STATE_KEY,
     TIMER_EXPIRATION_TOLERANCE_SECONDS,
+    WORD_QUIZ_CATEGORY_KEYS,
+    WORD_QUIZ_TYPED_ANSWER_MAX_LENGTH,
 )
 from majlisna.api.controllers.base_game import BaseGameController
 from majlisna.api.controllers.game_end_stats import record_game_end, top_score_winners
@@ -34,21 +35,25 @@ from majlisna.api.schemas.common import (
     AdvanceRoundResponse,
     GameStartResponse,
     HintRecordResponse,
+    PhaseTimer,
+    TimerExpiredAction,
     TimerExpiredResponse,
 )
-from majlisna.api.schemas.error import BaseError
+from majlisna.api.schemas.error import (
+    NotAGamePlayerError,
+    RoundNotInResultsError,
+)
 from majlisna.api.schemas.wordquiz import (
     SubmitAnswerResponse,
+    WordQuizCategory,
     WordQuizGameState,
     WordQuizPlayerState,
     WordQuizRoundResult,
     WordQuizTimerConfig,
 )
-
-# Arabic diacritics regex for normalization
+from majlisna.api.utils.game_pause import clock_now, is_paused, parse_instant
 from majlisna.api.utils.game_state import require_state
-
-_ARABIC_DIACRITICS = re.compile("[\u0610-\u061a\u064b-\u065f\u0670\u06d6-\u06dc\u06df-\u06e8\u06ea-\u06ed]")
+from majlisna.api.utils.text_match import answers_match, normalize_answer, strip_article
 
 
 class WordQuizGameController(BaseGameController):
@@ -58,43 +63,26 @@ class WordQuizGameController(BaseGameController):
     Uses advisory locks per game_id for concurrency control.
     """
 
+    GAME_TYPE = GameType.WORD_QUIZ
+
     def __init__(self, session: AsyncSession):
         super().__init__(session)
         self._wordquiz_controller = WordQuizController(session)
 
     @staticmethod
     def _normalize_answer(answer: str) -> str:
-        """Normalize an answer for comparison: strip diacritics, lowercase, collapse whitespace, remove hyphens/prefixes."""
-        text = answer.strip()
-        text = _ARABIC_DIACRITICS.sub("", text)
-        # NFD decomposition splits accented Latin chars: ï → i + combining diaeresis, é → e + combining acute
-        text = unicodedata.normalize("NFD", text)
-        # Strip only Latin combining diacritical marks (U+0300–U+036F), preserving Arabic combining chars
-        text = re.sub(r"[\u0300-\u036f]", "", text)
-        # NFC recompose remaining characters (Arabic: alef + hamza → alef-with-hamza)
-        text = unicodedata.normalize("NFC", text)
-        text = text.lower()
-        # Remove hyphens so "Al-Aqsa" matches "Al Aqsa" and vice versa
-        text = text.replace("-", " ")
-        text = re.sub(r"\s+", " ", text).strip()
-        return text
+        """Normalize an answer for comparison. See ``utils.text_match.normalize_answer``."""
+        return normalize_answer(answer)
 
     @staticmethod
     def _strip_article(text: str) -> str:
         """Strip common Arabic article prefix 'al ' for fuzzy matching."""
-        if text.startswith("al "):
-            return text[3:]
-        return text
+        return strip_article(text)
 
     @staticmethod
     def _answers_match(a: str, b: str) -> bool:
         """Compare two normalized answers, also trying without the 'al ' prefix."""
-        if a == b:
-            return True
-        # Try stripping "al " from both sides for flexible matching
-        a_stripped = WordQuizGameController._strip_article(a)
-        b_stripped = WordQuizGameController._strip_article(b)
-        return a_stripped == b_stripped
+        return answers_match(a, b)
 
     @staticmethod
     def _check_answer(answer: str, word: dict) -> bool:
@@ -165,6 +153,7 @@ class WordQuizGameController(BaseGameController):
                     "accepted_answers": first_word.accepted_answers,
                 },
                 "difficulty": first_word.difficulty,
+                "category": first_word.category,
                 "hints": first_word.hints,
                 "explanation": first_word.explanation,
                 "hints_revealed": 1,
@@ -173,11 +162,15 @@ class WordQuizGameController(BaseGameController):
                 "turn_duration_seconds": turn_duration,
                 "round_phase": "playing",
                 "answers": {},
+                # Every answer typed this round, right or wrong, per player — shown in
+                # the round's results, never before (see _record_attempt).
+                "attempts": {},
                 "round_results": [],
                 "used_word_ids": [str(first_word.id)],
                 "game_over": False,
                 "winner": None,
                 "hint_usage": {},
+                HOST_USERNAME_STATE_KEY: await self._host_username_at_start(db_room, player_users),
             }
 
             db_game = await self._game_controller.create_game(
@@ -213,7 +206,12 @@ class WordQuizGameController(BaseGameController):
 
     @staticmethod
     def _calculate_hints_revealed(state: dict) -> int:
-        """Calculate how many hints should be revealed based on elapsed time."""
+        """Calculate how many hints should be revealed based on elapsed time.
+
+        Elapsed time is read on the game's clock (``clock_now``), which stands still
+        while the host has paused the game: a round paused for the prayer must not
+        come back with the ladder five rungs further down.
+        """
         max_hints = DEFAULT_WORD_QUIZ_MAX_HINTS
         if state["round_phase"] != "playing" or not state.get("round_started_at"):
             return state.get("hints_revealed", 1)
@@ -223,19 +221,28 @@ class WordQuizGameController(BaseGameController):
         started = datetime.fromisoformat(state["round_started_at"])
         if started.tzinfo is None:
             started = started.replace(tzinfo=UTC)
-        elapsed = (datetime.now(UTC) - started).total_seconds()
+        elapsed = (clock_now(state) - started).total_seconds()
         return min(max_hints, int(elapsed / hint_interval) + 1)
 
     @staticmethod
-    def _resolve_hints(state: dict, lang: str) -> list[str]:
-        """Resolve ALL hint dicts to strings in the requested language.
+    def _resolve_hints(state: dict, lang: str, limit: int) -> list[str]:
+        """Resolve the hints released so far, in the requested language.
 
-        Returns all hints so the client can control display timing locally
-        using round_started_at and hint_interval_seconds.
+        ``limit`` is the server's own ``_calculate_hints_revealed`` count, and it
+        is load-bearing rather than cosmetic. This used to return the whole
+        ladder "so the client can control display timing locally": every player
+        received all six hints the instant a round began, while the score for a
+        correct answer is ``max_hints - hint_number + 1`` computed from elapsed
+        *server* time. Opening the network tab therefore showed the most specific
+        hint at t=0 and paid 6 points for answering immediately — the same class
+        of leak that got the raw game-state endpoints removed.
+
+        The client still animates locally between hints; it just has to come back
+        for each one (see the wordquiz page's hint effect).
         """
         hints_dict = state.get("hints", {})
         resolved = []
-        for i in range(1, DEFAULT_WORD_QUIZ_MAX_HINTS + 1):
+        for i in range(1, min(limit, DEFAULT_WORD_QUIZ_MAX_HINTS) + 1):
             hint_data = hints_dict.get(str(i), {})
             if not hint_data:
                 break
@@ -244,7 +251,8 @@ class WordQuizGameController(BaseGameController):
             else:
                 text = str(hint_data)
             resolved.append(text)
-        return resolved
+        # Hints come out of a JSON column — see McqQuizGameController._resolve_choices.
+        return resolved  # ty: ignore[invalid-return-type]
 
     @staticmethod
     def _build_player_states(state: dict) -> list[WordQuizPlayerState]:
@@ -278,9 +286,10 @@ class WordQuizGameController(BaseGameController):
         if update_heartbeat:
             await self._update_heartbeat_throttled(game.room_id, user_id)
 
-        is_host = await self._check_is_host(game.room_id, user_id)
+        host_id, host_username = await self._get_room_host(game.room_id)
+        is_host = host_id == user_id
         hints_revealed = self._calculate_hints_revealed(state)
-        resolved_hints = self._resolve_hints(state, lang)
+        resolved_hints = self._resolve_hints(state, lang, hints_revealed)
         player_states = self._build_player_states(state)
 
         # Current player state
@@ -291,6 +300,7 @@ class WordQuizGameController(BaseGameController):
 
         # Round results, correct answer, and explanation — only visible during results/game_over
         round_results, correct_answer, explanation = self._build_round_results(state, lang)
+        colophon = self._build_colophon(game, state, host_username)
 
         leaderboard = sorted(player_states, key=lambda p: p.total_score, reverse=True)
 
@@ -304,11 +314,16 @@ class WordQuizGameController(BaseGameController):
             round_phase=state["round_phase"],
             hints_revealed=hints_revealed,
             hints=resolved_hints,
+            max_hints=DEFAULT_WORD_QUIZ_MAX_HINTS,
             difficulty=state.get("difficulty"),
+            category=self._category_key(state.get("category")),
             turn_duration_seconds=state.get("turn_duration_seconds", DEFAULT_WORD_QUIZ_TURN_DURATION),
             hint_interval_seconds=state.get("hint_interval_seconds", DEFAULT_WORD_QUIZ_HINT_INTERVAL),
             round_started_at=state.get("round_started_at"),
             newly_unlocked_achievements=state.get("newly_unlocked_achievements"),
+            paused=self._build_pause(game, state),
+            can_pause=self._can_pause(game, state, user_id, host_id, is_spectator=is_spectator),
+            can_resume=self._can_resume(game, state, user_id, host_id),
             players=player_states,
             my_answered=my_answered,
             my_points=my_points,
@@ -324,8 +339,28 @@ class WordQuizGameController(BaseGameController):
             ),
             ready_players=state.get("ready_players", []),
             ready_count=len(state.get("ready_players", [])),
-            total_players=len(state["players"]),
+            total_players=self._ready_quorum(state, host_id),
+            host_username=colophon.host_username,
+            started_at=colophon.started_at,
+            ended_at=colophon.ended_at,
         )
+
+    @staticmethod
+    def _category_key(category: object) -> WordQuizCategory | None:
+        """The stored ``QuizWord.category`` label as its stable key (None when unknown)."""
+        key = WORD_QUIZ_CATEGORY_KEYS.get(category) if isinstance(category, str) else None
+        return WordQuizCategory(key) if key else None
+
+    @staticmethod
+    def _record_attempt(state: dict, user_id: str, typed: str, hint_number: int) -> None:
+        """Count one submitted answer and keep it as the player's latest try this round."""
+        attempts = state.setdefault("attempts", {})
+        previous = attempts.get(user_id) or {}
+        attempts[user_id] = {
+            "count": int(previous.get("count", 0)) + 1,
+            "last_text": typed,
+            "last_hint": hint_number,
+        }
 
     async def submit_answer(self, game_id: UUID, user_id: UUID, answer: str) -> SubmitAnswerResponse:
         """Submit an answer for the current round."""
@@ -333,6 +368,7 @@ class WordQuizGameController(BaseGameController):
         async with get_game_lock(str(game_id), self.session):
             game = await self._get_game(game_id)
             state = require_state(game)
+            self._ensure_not_paused(game, state)
 
             if state["round_phase"] != "playing":
                 raise RoundNotPlayingError()
@@ -370,6 +406,8 @@ class WordQuizGameController(BaseGameController):
 
             correct = self._check_answer(answer, state["current_word"])
             points = 0
+            typed = answer.strip()[:WORD_QUIZ_TYPED_ANSWER_MAX_LENGTH]
+            self._record_attempt(state, str(user_id), typed, current_hint)
 
             if correct:
                 points = max_hints - current_hint + 1
@@ -378,10 +416,12 @@ class WordQuizGameController(BaseGameController):
                     "points": points,
                     "hint_number": current_hint,
                     "answer_time_ms": int(elapsed * 1000),
+                    "answer_text": typed,
                 }
                 player["total_score"] += points
             else:
-                # Wrong answer — don't record, allow retry
+                # Wrong answer — not an answer (the player may retry), but kept as their
+                # latest try for the round's results.
                 game.live_state = state
                 flag_modified(game, "live_state")
                 self.session.add(game)
@@ -400,6 +440,19 @@ class WordQuizGameController(BaseGameController):
 
         return SubmitAnswerResponse(correct=True, points_earned=points, hint_number=current_hint)
 
+    def _phase_timer(self, state: dict) -> PhaseTimer | None:
+        """The round's timer while it is being played; between rounds there is none.
+
+        Same duration as ``_is_timer_actually_expired``.
+        """
+        started_at = state.get("round_started_at")
+        if state.get("round_phase") != "playing" or not started_at:
+            return None
+        seconds = state.get("turn_duration_seconds", DEFAULT_WORD_QUIZ_TURN_DURATION)
+        if not seconds:
+            return None
+        return PhaseTimer(started_at=parse_instant(started_at), duration_seconds=seconds)
+
     async def handle_timer_expired(self, game_id: UUID, user_id: UUID) -> TimerExpiredResponse:
         """Handle timer expiration — transition to results phase."""
         async with get_game_lock(str(game_id), self.session):
@@ -407,12 +460,17 @@ class WordQuizGameController(BaseGameController):
             self._check_game_in_progress(game)
             state = require_state(game)
 
+            # No clock runs while the host has paused the game for the prayer. Not an
+            # error: clients fire this from their own local timers.
+            if is_paused(state):
+                return TimerExpiredResponse(game_id=str(game_id), action=TimerExpiredAction.PAUSED)
+
             if state["round_phase"] != "playing":
-                return TimerExpiredResponse(game_id=str(game_id), action="not_playing")
+                return TimerExpiredResponse(game_id=str(game_id), action=TimerExpiredAction.NOT_PLAYING)
 
             # Verify timer actually expired server-side
             if not self._is_timer_actually_expired(state):
-                return TimerExpiredResponse(game_id=str(game_id), action="timer_not_expired")
+                return TimerExpiredResponse(game_id=str(game_id), action=TimerExpiredAction.TIMER_NOT_EXPIRED)
 
             self._transition_to_results(state)
 
@@ -421,7 +479,7 @@ class WordQuizGameController(BaseGameController):
             self.session.add(game)
             await self.session.commit()
 
-        return TimerExpiredResponse(game_id=str(game_id), action="results")
+        return TimerExpiredResponse(game_id=str(game_id), action=TimerExpiredAction.RESULTS)
 
     async def advance_to_next_round(self, game_id: UUID, user_id: UUID) -> AdvanceRoundResponse:
         """Advance to the next round or finalize the game.
@@ -433,25 +491,21 @@ class WordQuizGameController(BaseGameController):
             game = await self._get_game(game_id)
             self._check_game_in_progress(game)
             state = require_state(game)
+            self._ensure_not_paused(game, state)
 
             if state["round_phase"] != "results":
-                raise BaseError(
-                    message="Can only advance from results phase.",
-                    frontend_message="Can only advance from results phase.",
-                    status_code=400,
-                )
+                raise RoundNotInResultsError()
 
             # Non-host must be a player in this game
-            is_host = await self._check_is_host(game.room_id, user_id)
+            host_id = await self._get_room_owner_id(game.room_id)
+            is_host = host_id == user_id
             if not is_host:
                 player = next((p for p in state["players"] if p["user_id"] == str(user_id)), None)
                 if not player:
-                    raise BaseError(
-                        message=f"User {user_id} is not a player in this game.",
-                        frontend_message="You are not a player in this game.",
-                        status_code=403,
-                    )
-            total_players = len(state["players"])
+                    raise NotAGamePlayerError(message=f"User {user_id} is not a player in this game.")
+            # Paired with ready_count, so it reports what readiness is measured
+            # against — everyone but the host. See BaseGameController._ready_quorum.
+            total_players = self._ready_quorum(state, host_id)
 
             # Non-host: mark as ready
             if not is_host:
@@ -536,12 +590,14 @@ class WordQuizGameController(BaseGameController):
                 "accepted_answers": new_word.accepted_answers,
             }
             state["difficulty"] = new_word.difficulty
+            state["category"] = new_word.category
             state["hints"] = new_word.hints
             state["explanation"] = new_word.explanation
             state["hints_revealed"] = 1
             state["round_started_at"] = datetime.now(UTC).isoformat()
             state["round_phase"] = "playing"
             state["answers"] = {}
+            state["attempts"] = {}
             state["round_results"] = []
             state["used_word_ids"].append(str(new_word.id))
 
@@ -578,10 +634,12 @@ class WordQuizGameController(BaseGameController):
         """Transition from playing to results phase. Build round_results."""
         state["round_phase"] = "results"
         answers = state.get("answers", {})
+        attempts = state.get("attempts", {})
 
-        round_results = []
+        round_results: list[dict] = []
         for p in state["players"]:
             p_answer = answers.get(p["user_id"])
+            p_attempts = attempts.get(p["user_id"]) or {}
             if p_answer:
                 round_results.append(
                     {
@@ -590,6 +648,9 @@ class WordQuizGameController(BaseGameController):
                         "answered_at_hint": p_answer["hint_number"],
                         "points": p_answer["points"],
                         "answer_time_ms": p_answer.get("answer_time_ms"),
+                        "typed_answer": p_answer.get("answer_text"),
+                        # Rows from before attempts were counted still found it once.
+                        "attempts": p_attempts.get("count", 1),
                     }
                 )
             else:
@@ -600,10 +661,13 @@ class WordQuizGameController(BaseGameController):
                         "answered_at_hint": None,
                         "points": 0,
                         "answer_time_ms": None,
+                        "typed_answer": p_attempts.get("last_text"),
+                        "attempts": p_attempts.get("count", 0),
                     }
                 )
 
-        # Sort by points desc, then by answer_time_ms asc
+        # Sort by points desc, then by answer_time_ms asc. `round_results` is a
+        # `list[dict]` of live_state JSON; `points` is an int written just above.
         round_results.sort(key=lambda r: (-r["points"], r.get("answer_time_ms") or float("inf")))
         state["round_results"] = round_results
 
@@ -641,6 +705,8 @@ class WordQuizGameController(BaseGameController):
                 answered_at_hint=rr.get("answered_at_hint"),
                 points=rr["points"],
                 answer_time_ms=rr.get("answer_time_ms"),
+                typed_answer=rr.get("typed_answer"),
+                attempts=rr.get("attempts", 0),
             )
             for rr in state.get("round_results", [])
         ]

@@ -327,3 +327,145 @@ async def test_get_games_by_user_hides_in_progress_games_from_others(
     assert as_other == []
     assert len(as_self) == 1
     assert as_self[0].user_role == "undercover"
+
+
+# ========== get_game_summary — Arabic term forms ==========
+
+
+async def test_get_game_summary_includes_both_undercover_words_in_arabic(
+    sample_owner: User, sample_game, game_controller: GameController, session: AsyncSession, create_term_scripts
+):
+    """A finished game's summary names both words, so it carries both Arabic forms."""
+    # Arrange
+    await create_term_scripts({"mosque": ("مسجد", "مَسْجِد"), "church": ("كنيسة", None)})
+    sample_game.game_status = GameStatus.FINISHED
+    sample_game.live_state = {
+        "players": [{"user_id": str(sample_owner.id), "username": "owner", "role": "undercover"}],
+        "civilian_word": "mosque",
+        "undercover_word": "church",
+        "winner": "civilians",
+    }
+    session.add(sample_game)
+    await session.commit()
+
+    # Act
+    summary = await game_controller.get_game_summary(sample_game.id, sample_owner.id)
+
+    # Assert
+    explanations = summary.word_explanations
+    assert explanations is not None
+    assert (explanations.civilian_word_ar, explanations.civilian_word_ar_vocalized) == ("مسجد", "مَسْجِد")
+    assert (explanations.undercover_word_ar, explanations.undercover_word_ar_vocalized) == ("كنيسة", None)
+
+
+async def test_get_game_summary_resolves_the_meanings_in_the_requested_language(
+    sample_owner: User, sample_game, game_controller: GameController, session: AsyncSession
+):
+    """Both Undercover meanings, and each Codenames guess's, come back in `lang` (fallback chain: lang, en, any)."""
+    # Arrange
+    sample_game.game_status = GameStatus.FINISHED
+    sample_game.live_state = {
+        "players": [{"user_id": str(sample_owner.id), "username": "owner", "role": "civilian"}],
+        "civilian_word": "Sabr",
+        "undercover_word": "Shukr",
+        "civilian_word_hint": {"en": "Patience", "ar": "الصبر", "fr": "La patience"},
+        "undercover_word_hint": {"en": "Gratitude"},  # no Arabic → English
+        "winner": "civilians",
+    }
+    session.add(sample_game)
+    await session.commit()
+
+    # Act
+    summary_ar = await game_controller.get_game_summary(sample_game.id, sample_owner.id, lang="ar")
+    summary_default = await game_controller.get_game_summary(sample_game.id, sample_owner.id)
+
+    # Assert
+    assert summary_ar.word_explanations is not None
+    assert summary_ar.word_explanations.civilian_word_hint == "الصبر"
+    assert summary_ar.word_explanations.undercover_word_hint == "Gratitude"
+    assert summary_default.word_explanations is not None
+    assert summary_default.word_explanations.civilian_word_hint == "Patience"
+
+
+async def test_get_game_summary_gives_each_codenames_guess_its_meaning(
+    sample_owner: User, sample_game, game_controller: GameController, session: AsyncSession
+):
+    """A guessed card's hint is in the clue history, in the requested language."""
+    # Arrange
+    sample_game.type = GameType.CODENAMES
+    sample_game.game_status = GameStatus.FINISHED
+    sample_game.live_state = {
+        "players": [{"user_id": str(sample_owner.id), "username": "owner", "role": "operative", "team": "red"}],
+        "winner": "red",
+        "word_hints": {"Sabr": {"en": "Patience", "fr": "La patience"}},
+        "clue_history": [
+            {
+                "team": "red",
+                "clue_word": "virtue",
+                "clue_number": 1,
+                "guesses": [
+                    {"word": "Sabr", "card_type": "red", "correct": True},
+                    {"word": "Hajj", "card_type": "neutral", "correct": False},
+                ],
+            }
+        ],
+    }
+    session.add(sample_game)
+    await session.commit()
+
+    # Act
+    summary = await game_controller.get_game_summary(sample_game.id, sample_owner.id, lang="fr")
+
+    # Assert
+    assert summary.clue_history is not None
+    assert [(g.word, g.hint) for g in summary.clue_history[0].guesses] == [("Sabr", "La patience"), ("Hajj", None)]
+
+
+async def test_get_game_summary_includes_codenames_guesses_in_arabic(
+    sample_owner: User,
+    sample_game,
+    game_controller: GameController,
+    session: AsyncSession,
+    create_term_scripts,
+    count_statements,
+):
+    """Every guessed word in the clue history gets its Arabic forms (bare + vocalised), in one lookup."""
+    # Arrange
+    await create_term_scripts({"Sabr": ("صبر", "صَبْر"), "Hajj": ("حج", "حَجّ"), "Uhud": ("أحد", None)})
+    sample_game.type = GameType.CODENAMES
+    sample_game.game_status = GameStatus.FINISHED
+    sample_game.live_state = {
+        "players": [{"user_id": str(sample_owner.id), "username": "owner", "role": "operative", "team": "red"}],
+        "winner": "red",
+        "clue_history": [
+            {
+                "team": "red",
+                "clue_word": "virtue",
+                "clue_number": 2,
+                "guesses": [
+                    {"word": "Sabr", "card_type": "red", "correct": True},
+                    {"word": "NoArabic", "card_type": "neutral", "correct": False},
+                    {"word": "Uhud", "card_type": "red", "correct": True},
+                ],
+            },
+            {
+                "team": "blue",
+                "clue_word": "pilgrim",
+                "clue_number": 1,
+                "guesses": [{"word": "Hajj", "card_type": "blue", "correct": True}],
+            },
+        ],
+    }
+    session.add(sample_game)
+    await session.commit()
+    counter = count_statements("term_script")
+
+    # Act
+    summary = await game_controller.get_game_summary(sample_game.id, sample_owner.id)
+
+    # Assert
+    assert counter.count == 1
+    assert summary.clue_history is not None
+    guesses = [(g.word, g.word_ar, g.word_ar_vocalized) for clue in summary.clue_history for g in clue.guesses]
+    assert guesses == [("Sabr", "صبر", "صَبْر"), ("NoArabic", None, None), ("Uhud", "أحد", None), ("Hajj", "حج", "حَجّ")]
+    assert summary.word_explanations is None

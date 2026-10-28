@@ -169,7 +169,37 @@ async def test_get_game_summary_success(test_app: FastAPI, client: TestClient):
         assert data["winner"] == "civilians"
         assert len(data["players"]) == 2
         assert data["players"][0]["username"] == "alice"
-        mock_controller.get_game_summary.assert_awaited_once_with(game_id, user.id)
+        mock_controller.get_game_summary.assert_awaited_once_with(game_id, user.id, lang="en")
+    finally:
+        test_app.dependency_overrides.clear()
+
+
+def test_get_game_summary_forwards_the_language(test_app: FastAPI, client: TestClient):
+    """`?lang=` reaches the controller, which resolves the words' meanings in it."""
+    # Arrange
+    user = _mock_user()
+    game_id = uuid4()
+    mock_controller = Mock(spec=GameController)
+    mock_controller.get_game_summary = AsyncMock(
+        return_value=GameSummary(
+            id=game_id,
+            type=GameType.UNDERCOVER,
+            start_time=datetime.now(),
+            end_time=None,
+            number_of_players=3,
+            players=[],
+        )
+    )
+    test_app.dependency_overrides[get_current_user] = lambda: user
+    test_app.dependency_overrides[get_game_controller] = lambda: mock_controller
+
+    try:
+        # Act
+        response = client.get(f"/api/v1/games/{game_id}/summary?lang=ar")
+
+        # Assert
+        assert response.status_code == 200
+        mock_controller.get_game_summary.assert_awaited_once_with(game_id, user.id, lang="ar")
     finally:
         test_app.dependency_overrides.clear()
 

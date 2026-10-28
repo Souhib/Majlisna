@@ -8,7 +8,18 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from majlisna.api.models.friendship import Friendship, FriendshipStatus
 from majlisna.api.models.table import User
-from majlisna.api.schemas.error import BaseError, UserNotFoundError
+from majlisna.api.schemas.error import (
+    AlreadyFriendsError,
+    CannotFriendYourselfError,
+    FriendRequestAlreadySentError,
+    FriendRequestBlockedError,
+    FriendRequestFailedError,
+    FriendRequestNotPendingError,
+    FriendshipNotFoundError,
+    NotYourFriendRequestError,
+    NotYourFriendshipError,
+    UserNotFoundError,
+)
 from majlisna.api.schemas.friend import FriendEntry, FriendshipStatusEnum, FriendshipStatusResponse
 
 
@@ -19,11 +30,7 @@ class FriendController:
     async def send_request(self, requester_id: UUID, addressee_id: UUID) -> Friendship:
         """Send a friend request."""
         if requester_id == addressee_id:
-            raise BaseError(
-                message="Cannot friend yourself",
-                frontend_message="You cannot send a friend request to yourself.",
-                status_code=400,
-            )
+            raise CannotFriendYourselfError()
 
         # Check addressee exists
         addressee = (await self.session.exec(select(User).where(User.id == addressee_id))).first()
@@ -44,17 +51,9 @@ class FriendController:
 
         if existing:
             if existing.status == FriendshipStatus.BLOCKED:
-                raise BaseError(
-                    message="Cannot send request",
-                    frontend_message="Cannot send friend request.",
-                    status_code=400,
-                )
+                raise FriendRequestBlockedError()
             if existing.status == FriendshipStatus.ACCEPTED:
-                raise BaseError(
-                    message="Already friends",
-                    frontend_message="You are already friends.",
-                    status_code=400,
-                )
+                raise AlreadyFriendsError()
             if existing.status == FriendshipStatus.PENDING:
                 # If they sent us a request, auto-accept
                 if existing.requester_id == addressee_id:
@@ -64,11 +63,7 @@ class FriendController:
                     await self.session.commit()
                     await self.session.refresh(existing)
                     return existing
-                raise BaseError(
-                    message="Request already sent",
-                    frontend_message="Friend request already sent.",
-                    status_code=400,
-                )
+                raise FriendRequestAlreadySentError()
 
         try:
             friendship = Friendship(requester_id=requester_id, addressee_id=addressee_id)
@@ -77,27 +72,15 @@ class FriendController:
             await self.session.refresh(friendship)
             return friendship
         except IntegrityError:
-            raise BaseError(
-                message="Friend request failed",
-                frontend_message="Friend request failed.",
-                status_code=400,
-            ) from None
+            raise FriendRequestFailedError() from None
 
     async def accept_request(self, friendship_id: UUID, user_id: UUID) -> Friendship:
         """Accept a pending friend request."""
         friendship = await self._get_friendship(friendship_id)
         if friendship.addressee_id != user_id:
-            raise BaseError(
-                message="Not your request",
-                frontend_message="You can only accept requests sent to you.",
-                status_code=403,
-            )
+            raise NotYourFriendRequestError(action="accept")
         if friendship.status != FriendshipStatus.PENDING:
-            raise BaseError(
-                message="Request not pending",
-                frontend_message="This request is not pending.",
-                status_code=400,
-            )
+            raise FriendRequestNotPendingError()
         friendship.status = FriendshipStatus.ACCEPTED
         friendship.updated_at = datetime.now(UTC)
         self.session.add(friendship)
@@ -109,11 +92,7 @@ class FriendController:
         """Reject and delete a pending friend request."""
         friendship = await self._get_friendship(friendship_id)
         if friendship.addressee_id != user_id:
-            raise BaseError(
-                message="Not your request",
-                frontend_message="You can only reject requests sent to you.",
-                status_code=403,
-            )
+            raise NotYourFriendRequestError(action="reject")
         await self.session.delete(friendship)
         await self.session.commit()
 
@@ -121,11 +100,7 @@ class FriendController:
         """Remove an existing friendship."""
         friendship = await self._get_friendship(friendship_id)
         if user_id not in {friendship.requester_id, friendship.addressee_id}:
-            raise BaseError(
-                message="Not your friendship",
-                frontend_message="You are not part of this friendship.",
-                status_code=403,
-            )
+            raise NotYourFriendshipError()
         await self.session.delete(friendship)
         await self.session.commit()
 
@@ -142,7 +117,7 @@ class FriendController:
 
         # Batch-fetch friend usernames in a single query to avoid N+1.
         friend_uids = [f.addressee_id if f.requester_id == user_id else f.requester_id for f in results]
-        users = (await self.session.exec(select(User).where(User.id.in_(friend_uids)))).all() if friend_uids else []  # type: ignore[attr-defined]
+        users = (await self.session.exec(select(User).where(User.id.in_(friend_uids)))).all() if friend_uids else []  # ty: ignore[unresolved-attribute]
         username_by_id = {u.id: u.username for u in users}
 
         friends: list[FriendEntry] = []
@@ -173,7 +148,7 @@ class FriendController:
 
         # Batch-fetch requester usernames in a single query to avoid N+1.
         requester_ids = [f.requester_id for f in results]
-        users = (await self.session.exec(select(User).where(User.id.in_(requester_ids)))).all() if requester_ids else []  # type: ignore[attr-defined]
+        users = (await self.session.exec(select(User).where(User.id.in_(requester_ids)))).all() if requester_ids else []  # ty: ignore[unresolved-attribute]
         username_by_id = {u.id: u.username for u in users}
 
         entries: list[FriendEntry] = []
@@ -220,9 +195,5 @@ class FriendController:
         """Get a friendship by ID or raise."""
         result = (await self.session.exec(select(Friendship).where(Friendship.id == friendship_id))).first()
         if not result:
-            raise BaseError(
-                message="Friendship not found",
-                frontend_message="Friend request not found.",
-                status_code=404,
-            )
+            raise FriendshipNotFoundError()
         return result

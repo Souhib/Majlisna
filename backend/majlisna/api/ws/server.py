@@ -6,7 +6,7 @@ from majlisna.settings import Settings
 def _get_redis_url() -> str:
     """Get Redis URL from settings, falling back to default for test environments."""
     try:
-        return Settings().redis_url  # type: ignore
+        return Settings().redis_url
     except (OSError, ValueError):
         return "redis://localhost:6379/0"
 

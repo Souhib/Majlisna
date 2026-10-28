@@ -11,6 +11,7 @@ from majlisna.api.constants import (
     CODENAMES_BOARD_SIZE,
     DEFAULT_CODENAMES_CLUE_TIMER_SECONDS,
     DEFAULT_CODENAMES_GUESS_TIMER_SECONDS,
+    HOST_USERNAME_STATE_KEY,
     MAX_PLAYERS_CODENAMES,
     TIMER_EXPIRATION_TOLERANCE_SECONDS,
 )
@@ -44,15 +45,29 @@ from majlisna.api.models.relationship import RoomUserLink
 from majlisna.api.models.table import Game, Room
 from majlisna.api.schemas.codenames import (
     CodenamesBoardState,
+    CodenamesClueGuess,
+    CodenamesClueHistoryEntry,
     CodenamesPlayerView,
     EndTurnResponse,
     GiveClueResponse,
     GuessCardResponse,
 )
-from majlisna.api.schemas.common import GameStartResponse, HintRecordResponse, TimerExpiredResponse
-from majlisna.api.schemas.error import BaseError
+from majlisna.api.schemas.common import (
+    GameStartResponse,
+    HintRecordResponse,
+    PhaseTimer,
+    TimerExpiredAction,
+    TimerExpiredResponse,
+)
+from majlisna.api.schemas.error import (
+    BaseError,
+    ClueAlreadyGivenError,
+)
+from majlisna.api.schemas.term_script import TermScriptForms
+from majlisna.api.utils.game_pause import is_paused, parse_instant
 from majlisna.api.utils.game_state import require_state
 from majlisna.api.utils.rng import rng
+from majlisna.api.utils.text_match import matches_any
 
 
 class CodenamesGameController(BaseGameController):
@@ -61,6 +76,8 @@ class CodenamesGameController(BaseGameController):
     All game state stored in Game.live_state JSON column in PostgreSQL.
     Uses asyncio.Lock per game_id for concurrency control.
     """
+
+    GAME_TYPE = GameType.CODENAMES
 
     def __init__(self, session: AsyncSession):
         super().__init__(session)
@@ -138,6 +155,7 @@ class CodenamesGameController(BaseGameController):
                     ),
                 },
                 "timer_started_at": datetime.now(UTC).isoformat(),
+                HOST_USERNAME_STATE_KEY: await self._host_username_at_start(db_room, player_users),
             }
 
             db_game.live_state = live_state
@@ -164,6 +182,7 @@ class CodenamesGameController(BaseGameController):
 
             if state["status"] != CodenamesGameStatus.IN_PROGRESS.value:
                 raise GameNotInProgressError(game_id=str(game_id))
+            self._ensure_not_paused(game, state)
 
             player = get_player_from_game(state["players"], str(user_id))
 
@@ -173,15 +192,16 @@ class CodenamesGameController(BaseGameController):
                 raise NotSpymasterError(user_id=str(user_id))
 
             if state["current_turn"].get("clue_word") is not None:
-                raise BaseError(
-                    message="A clue has already been given this turn.",
-                    frontend_message="A clue has already been given this turn.",
-                    status_code=400,
-                )
+                raise ClueAlreadyGivenError()
 
             normalized_clue = unicodedata.normalize("NFKD", clue_word).lower()
             board_words_normalized = [unicodedata.normalize("NFKD", card["word"]).lower() for card in state["board"]]
             if normalized_clue in board_words_normalized:
+                raise ClueWordIsOnBoardError(clue_word=clue_word)
+            # Every card also shows its Arabic form, so that form is on the board
+            # too: "صبر" as a clue for the Sabr card is the card's own word.
+            board_scripts = await self._term_script_controller.get_forms(card["word"] for card in state["board"])
+            if matches_any(clue_word, (script.ar for script in board_scripts.values())):
                 raise ClueWordIsOnBoardError(clue_word=clue_word)
 
             state["current_turn"] = {
@@ -225,6 +245,7 @@ class CodenamesGameController(BaseGameController):
             game = await self._get_game(game_id)
             state = require_state(game)
 
+            self._ensure_not_paused(game, state)
             self._validate_guess(state, str(user_id), card_index)
 
             current_team = state["current_team"]
@@ -330,6 +351,7 @@ class CodenamesGameController(BaseGameController):
 
             if state["status"] != CodenamesGameStatus.IN_PROGRESS.value:
                 raise GameNotInProgressError(game_id=str(game_id))
+            self._ensure_not_paused(game, state)
 
             player = get_player_from_game(state["players"], str(user_id))
 
@@ -379,6 +401,10 @@ class CodenamesGameController(BaseGameController):
         word_hints = state.get("word_hints", {})
         is_spymaster = player["role"] == CodenamesRole.SPYMASTER.value if player else False
         is_finished = state["status"] == CodenamesGameStatus.FINISHED.value
+        # ONE lookup for the whole board. Every card's Latin word is visible to
+        # every viewer, so its Arabic form is too; the clue history only names
+        # board words, so the same map covers it.
+        scripts = await self._term_script_controller.get_forms(card["word"] for card in state["board"])
 
         # End-game board reveal or spectator view: show all card types when game is finished
         if is_finished:
@@ -386,6 +412,8 @@ class CodenamesGameController(BaseGameController):
                 {
                     "index": i,
                     "word": card["word"],
+                    "word_ar": self._script_ar(scripts, card["word"]),
+                    "word_ar_vocalized": self._script_ar_vocalized(scripts, card["word"]),
                     "revealed": True,
                     "card_type": card["card_type"],
                     "hint": self._resolve_multilingual(word_hints.get(card["word"]), lang),
@@ -398,6 +426,8 @@ class CodenamesGameController(BaseGameController):
                 {
                     "index": i,
                     "word": card["word"],
+                    "word_ar": self._script_ar(scripts, card["word"]),
+                    "word_ar_vocalized": self._script_ar_vocalized(scripts, card["word"]),
                     "revealed": card.get("revealed", False),
                     "card_type": card["card_type"] if card.get("revealed", False) else None,
                     "hint": self._resolve_multilingual(word_hints.get(card["word"]), lang)
@@ -416,14 +446,17 @@ class CodenamesGameController(BaseGameController):
             # Add hints: revealed cards and spymaster see hints, unrevealed cards for operatives get null
             for card_view in board_view:
                 word = card_view["word"]
+                card_view["word_ar"] = self._script_ar(scripts, word)
+                card_view["word_ar_vocalized"] = self._script_ar_vocalized(scripts, word)
                 if card_view.get("revealed") or is_spymaster:
                     card_view["hint"] = self._resolve_multilingual(word_hints.get(word), lang)
                 else:
                     card_view["hint"] = None
 
-        # Check host status
-        room = (await self.session.exec(select(Room).where(Room.id == game.room_id))).first()
-        is_host = bool(room and room.owner_id == user_id)
+        # Check host status (and the host's name, for the colophon — same query)
+        owner_id, host_username = await self._get_room_host(game.room_id)
+        is_host = owner_id is not None and owner_id == user_id
+        colophon = self._build_colophon(game, state, host_username)
 
         # Update heartbeat (throttled: skip if last_seen_at is recent to reduce write contention)
         if update_heartbeat:
@@ -443,10 +476,13 @@ class CodenamesGameController(BaseGameController):
             status=state["status"],
             current_turn=state["current_turn"],
             winner=state["winner"],
-            clue_history=state.get("clue_history", []),
+            clue_history=self._build_clue_history(state, scripts),
             timer_config=state.get("timer_config"),
             timer_started_at=state.get("timer_started_at"),
             newly_unlocked_achievements=state.get("newly_unlocked_achievements"),
+            paused=self._build_pause(game, state),
+            can_pause=self._can_pause(game, state, user_id, owner_id, is_spectator=is_spectator),
+            can_resume=self._can_resume(game, state, user_id, owner_id),
             players=[
                 CodenamesPlayerView(
                     user_id=p["user_id"],
@@ -456,7 +492,28 @@ class CodenamesGameController(BaseGameController):
                 )
                 for p in state["players"]
             ],
+            host_username=colophon.host_username,
+            started_at=colophon.started_at,
+            ended_at=colophon.ended_at,
         )
+
+    def _phase_timer(self, state: dict) -> PhaseTimer | None:
+        """The current turn's timer: the guess timer once a clue is given, else the clue timer.
+
+        Same durations as ``handle_timer_expired``.
+        """
+        started_at = state.get("timer_started_at")
+        if not started_at or state.get("status") != CodenamesGameStatus.IN_PROGRESS.value:
+            return None
+        timer_config = state.get("timer_config") or {}
+        current_turn = state.get("current_turn") or {}
+        if current_turn.get("clue_word"):
+            seconds = timer_config.get("guess_seconds", DEFAULT_CODENAMES_GUESS_TIMER_SECONDS)
+        else:
+            seconds = timer_config.get("clue_seconds", DEFAULT_CODENAMES_CLUE_TIMER_SECONDS)
+        if not seconds:
+            return None  # 0 means no time limit
+        return PhaseTimer(started_at=parse_instant(started_at), duration_seconds=seconds)
 
     async def handle_timer_expired(self, game_id: UUID, user_id: UUID) -> TimerExpiredResponse:
         """Handle timer expiration — auto end-turn. Validates timer actually expired."""
@@ -466,6 +523,11 @@ class CodenamesGameController(BaseGameController):
 
             if state["status"] != CodenamesGameStatus.IN_PROGRESS.value:
                 raise GameNotInProgressError(game_id=str(game_id))
+
+            # No clock runs while the host has paused the game for the prayer. Not an
+            # error: clients fire this from their own local timers.
+            if is_paused(state):
+                return TimerExpiredResponse(game_id=str(game_id), action=TimerExpiredAction.PAUSED)
 
             # Server-side validation: check the timer has actually expired
             timer_config = state.get("timer_config", {})
@@ -478,14 +540,14 @@ class CodenamesGameController(BaseGameController):
                 else:
                     allowed = timer_config.get("clue_seconds", DEFAULT_CODENAMES_CLUE_TIMER_SECONDS)
                 if allowed == 0:
-                    return TimerExpiredResponse(game_id=str(game_id), action="timer_not_expired")
+                    return TimerExpiredResponse(game_id=str(game_id), action=TimerExpiredAction.TIMER_NOT_EXPIRED)
                 started = datetime.fromisoformat(timer_started_at)
                 if started.tzinfo is None:
                     started = started.replace(tzinfo=UTC)
                 now = datetime.now(UTC)
                 elapsed = (now - started).total_seconds()
                 if elapsed < allowed - TIMER_EXPIRATION_TOLERANCE_SECONDS:
-                    return TimerExpiredResponse(game_id=str(game_id), action="timer_not_expired")
+                    return TimerExpiredResponse(game_id=str(game_id), action=TimerExpiredAction.TIMER_NOT_EXPIRED)
 
             self._switch_turn(state)
 
@@ -494,7 +556,44 @@ class CodenamesGameController(BaseGameController):
             self.session.add(game)
             await self.session.commit()
 
-        return TimerExpiredResponse(game_id=str(game_id), action="auto_end_turn")
+        return TimerExpiredResponse(game_id=str(game_id), action=TimerExpiredAction.AUTO_END_TURN)
+
+    @staticmethod
+    def _script_ar(scripts: dict[str, TermScriptForms], word: str) -> str | None:
+        """The Arabic form of a board word, or None when it has no TermScript row."""
+        script = scripts.get(word)
+        return script.ar if script else None
+
+    @staticmethod
+    def _script_ar_vocalized(scripts: dict[str, TermScriptForms], word: str) -> str | None:
+        """The vocalised Arabic form of a board word, or None when absent or not certain.
+
+        The bare form alone is ambiguous on a card: أحد is Uhud or "one", ثور is
+        Thawr or "a bull". The harakat disambiguate, from the same batched lookup.
+        """
+        script = scripts.get(word)
+        return script.ar_vocalized if script else None
+
+    def _build_clue_history(self, state: dict, scripts: dict[str, TermScriptForms]) -> list[CodenamesClueHistoryEntry]:
+        """The clue history with each guessed word's Arabic form attached."""
+        return [
+            CodenamesClueHistoryEntry(
+                team=entry["team"],
+                clue_word=entry["clue_word"],
+                clue_number=entry["clue_number"],
+                guesses=[
+                    CodenamesClueGuess(
+                        word=guess["word"],
+                        word_ar=self._script_ar(scripts, guess["word"]),
+                        word_ar_vocalized=self._script_ar_vocalized(scripts, guess["word"]),
+                        card_type=guess["card_type"],
+                        correct=guess["correct"],
+                    )
+                    for guess in entry.get("guesses", [])
+                ],
+            )
+            for entry in state.get("clue_history", [])
+        ]
 
     def _validate_guess(self, state: dict, user_id: str, card_index: int) -> None:
         """Validate that the guess is legal."""

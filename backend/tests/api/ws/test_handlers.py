@@ -184,6 +184,74 @@ async def test_join_game_awaits_enter_room(mock_sio):
     mock_sio.enter_room.assert_awaited_with("sid1", f"game:{game_id}")
 
 
+def _join_game_session(game_room_id: str) -> AsyncMock:
+    """A mocked DB session for join_game: the room link, then the game in that room."""
+    link_result = MagicMock()
+    link_result.first.return_value = MagicMock()
+    game = MagicMock()
+    game.room_id = game_room_id
+    game_result = MagicMock()
+    game_result.first.return_value = game
+    session = AsyncMock()
+    session.exec = AsyncMock(side_effect=[link_result, game_result])
+    session.__aenter__ = AsyncMock(return_value=session)
+    session.__aexit__ = AsyncMock(return_value=False)
+    return session
+
+
+@pytest.mark.parametrize(
+    ("payload_lang", "session_lang", "expected"),
+    [
+        ("ar", None, "ar"),  # the join_game payload names it
+        (None, "fr", "fr"),  # else the handshake's auth.lang, stored at connect
+        ("ar", "fr", "ar"),  # the payload wins: the player switched language since connecting
+        (None, None, "en"),  # an older client sends none
+        ("xx", None, "en"),  # never an arbitrary string
+    ],
+)
+async def test_join_game_sends_the_initial_state_in_the_players_language(
+    mock_sio, payload_lang: str | None, session_lang: str | None, expected: str
+):
+    """The initial game_state push is resolved in the client's language, not the English default."""
+    # Prepare
+    room_id = "00000000-0000-0000-0000-000000000001"
+    user_id = "00000000-0000-0000-0000-000000000002"
+    game_id = "00000000-0000-0000-0000-000000000003"
+    session_data = {"user_id": user_id, "room_id": room_id}
+    if session_lang:
+        session_data["lang"] = session_lang
+    mock_sio.get_session.return_value = session_data
+    payload = {"game_id": game_id}
+    if payload_lang:
+        payload["lang"] = payload_lang
+    fetch = AsyncMock(return_value={"game_id": game_id})
+
+    # Act
+    with (
+        patch("majlisna.api.ws.handlers.get_engine", new_callable=AsyncMock),
+        patch("majlisna.api.ws.handlers.AsyncSession", return_value=_join_game_session(room_id)),
+        patch("majlisna.api.ws.handlers.update_heartbeat", new_callable=AsyncMock),
+        patch("majlisna.api.ws.handlers.fetch_game_state", fetch),
+    ):
+        await join_game("sid1", payload)
+
+    # Assert
+    fetch.assert_awaited_once_with(game_id, user_id, lang=expected)
+    mock_sio.emit.assert_awaited_once_with("game_state", {"game_id": game_id}, to="sid1")
+    saved = mock_sio.save_session.await_args.args[1]
+    assert saved["lang"] == expected
+
+
+async def test_connect_stores_the_handshake_language(mock_sio, mock_connect_dependencies):  # noqa: ARG001
+    """auth.lang is kept in the Socket.IO session (normalised) for join_game to use."""
+    # Act
+    await connect("sid1", {}, {"token": "t", "room_id": "00000000-0000-0000-0000-000000000001", "lang": "ar"})
+
+    # Assert
+    saved = mock_sio.save_session.await_args.args[1]
+    assert saved["lang"] == "ar"
+
+
 # ========== disconnect ==========
 
 
@@ -247,6 +315,43 @@ async def test_old_tab_disconnect_does_not_remove_active_sid(mock_sio):
     assert _user_sids.get("user1:room1") == "new_sid"
 
 
+async def test_replaced_socket_disconnect_does_not_mark_the_player_away(mock_sio):
+    """A reload's old socket closing must not start the grace clock of a player still here."""
+    # Prepare: the reload's new socket already took the old one's place
+    _user_sids["user1:room1"] = "new_sid"
+    mock_sio.get_session.return_value = {"user_id": "user1", "room_id": "room1"}
+
+    with (
+        patch("majlisna.api.ws.handlers.get_engine", new_callable=AsyncMock),
+        patch("majlisna.api.ws.handlers.AsyncSession"),
+        patch("majlisna.api.ws.handlers.mark_user_disconnected", new_callable=AsyncMock) as mock_mark,
+        patch("majlisna.api.ws.handlers.fire_notify_room_changed") as mock_fire,
+    ):
+        # Act
+        await disconnect("old_sid")
+
+    # Assert
+    mock_mark.assert_not_awaited()
+    mock_fire.assert_not_called()
+    assert _user_sids.get("user1:room1") == "new_sid"
+
+
+async def test_connect_records_the_new_sid_before_closing_the_old_one(mock_sio, mock_connect_dependencies):  # noqa: ARG001
+    """The old socket's disconnect may run inside `sio.disconnect`: it must already see its replacement."""
+    # Prepare
+    key = f"{TEST_USER_ID}:{TEST_ROOM_ID}"
+    _user_sids[key] = "old_sid"
+    seen_during_disconnect: list[str | None] = []
+    mock_sio.disconnect.side_effect = lambda _sid: seen_during_disconnect.append(_user_sids.get(key))
+
+    # Act
+    await connect("new_sid", {}, {"token": "valid", "room_id": TEST_ROOM_ID})
+
+    # Assert
+    assert seen_during_disconnect == ["new_sid"]
+    assert _user_sids[key] == "new_sid"
+
+
 async def test_rapid_tab_switches_only_latest_survives(mock_sio):  # noqa: ARG001
     """Opening 5 tabs rapidly: only the last SID should survive."""
     for i in range(5):
@@ -288,14 +393,52 @@ async def test_auto_join_with_stale_sids_raises(mock_sio):
 
 async def test_connect_missing_token_rejected(mock_sio):  # noqa: ARG001
     """connect with no auth token raises ConnectionRefusedError."""
-    with pytest.raises(ConnectionRefusedError, match="Missing auth token or room_id"):
+    with pytest.raises(ConnectionRefusedError, match="Missing auth token"):
         await connect("sid1", {}, {"room_id": "room1"})
 
 
-async def test_connect_missing_room_id_rejected(mock_sio):  # noqa: ARG001
-    """connect with no room_id raises ConnectionRefusedError."""
-    with pytest.raises(ConnectionRefusedError, match="Missing auth token or room_id"):
-        await connect("sid1", {}, {"token": "valid"})
+async def test_connect_without_room_is_the_personal_channel(mock_sio, mock_connect_dependencies):
+    """No room_id: the player's own channel (room invites), nothing else.
+
+    It used to be refused, and socket.io-client never retries a refused connection,
+    so every room invite was "sent" and never arrived.
+    """
+    await connect("sid1", {}, {"token": "valid"})
+
+    user_id = mock_connect_dependencies["user"].id
+    mock_sio.enter_room.assert_awaited_once_with("sid1", f"user:{user_id}")
+    mock_sio.save_session.assert_awaited_once_with("sid1", {"user_id": user_id, "room_id": None, "lang": None})
+    # no room: no heartbeat, no room state, no membership lookup
+    mock_connect_dependencies["heartbeat"].assert_not_awaited()
+    mock_connect_dependencies["fetch_room"].assert_not_awaited()
+    mock_sio.emit.assert_not_awaited()
+    assert _user_sids == {}
+
+
+async def test_connect_personal_channel_refuses_a_bad_token(mock_sio):
+    """The personal channel authenticates like a room connection."""
+    mock_auth_controller = MagicMock()
+    mock_auth_controller.decode_token.side_effect = InvalidTokenError()
+    mock_session = AsyncMock()
+    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_session.__aexit__ = AsyncMock(return_value=False)
+
+    with (
+        patch("majlisna.api.ws.handlers.get_engine", new_callable=AsyncMock),
+        patch("majlisna.api.ws.handlers.AsyncSession", return_value=mock_session),
+        patch("majlisna.api.ws.handlers.AuthController", return_value=mock_auth_controller),
+        pytest.raises(ConnectionRefusedError, match="Invalid or expired token"),
+    ):
+        await connect("sid1", {}, {"token": "expired"})
+    mock_sio.enter_room.assert_not_awaited()
+
+
+async def test_join_game_ignored_on_the_personal_channel(mock_sio):
+    """A personal connection has no room, so it has no game to join."""
+    mock_sio.get_session.return_value = {"user_id": "u1", "room_id": None}
+    await join_game("sid1", {"game_id": "00000000-0000-0000-0000-000000000001"})
+    mock_sio.enter_room.assert_not_awaited()
+    mock_sio.emit.assert_not_awaited()
 
 
 async def test_connect_invalid_token_rejected(mock_sio):  # noqa: ARG001
@@ -313,7 +456,20 @@ async def test_connect_invalid_token_rejected(mock_sio):  # noqa: ARG001
         patch("majlisna.api.ws.handlers.AuthController", return_value=mock_auth_controller),
         pytest.raises(ConnectionRefusedError, match="Invalid or expired token"),
     ):
-        await connect("sid1", {}, {"token": "expired", "room_id": "room1"})
+        await connect("sid1", {}, {"token": "expired", "room_id": TEST_ROOM_ID})
+
+
+@pytest.mark.asyncio
+async def test_connect_malformed_room_id_is_refused_not_crashed(mock_sio):  # noqa: ARG001
+    """A client-supplied room_id that is not a UUID must be a clean refusal.
+
+    It is parsed with `UUID(...)` inside a block that only catches token errors, so
+    a malformed value escaped as an unhandled ValueError — and python-socketio only
+    special-cases ConnectionRefusedError, so anything else reaches the engine.io
+    layer as a server error.
+    """
+    with pytest.raises(ConnectionRefusedError, match="Invalid room_id"):
+        await connect("sid1", {}, {"token": "valid", "room_id": "not-a-uuid"})
 
 
 # ========== heartbeat ==========

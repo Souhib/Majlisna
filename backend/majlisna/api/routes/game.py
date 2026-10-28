@@ -45,6 +45,7 @@ async def get_games_by_user(
 async def get_game_summary(
     *,
     game_id: UUID,
+    lang: str = "en",
     current_user: Annotated[User, Depends(get_current_user)],
     game_controller: Annotated[GameController, Depends(get_game_controller)],
 ) -> GameSummary:
@@ -52,5 +53,6 @@ async def get_game_summary(
 
     Participants only, and only once the game is over — the payload contains
     every role and the secret words (see ``GameController.get_game_summary``).
+    The words' meanings (`*_hint`, `hint`) are resolved in `lang`.
     """
-    return await game_controller.get_game_summary(game_id, current_user.id)
+    return await game_controller.get_game_summary(game_id, current_user.id, lang=lang)

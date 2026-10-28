@@ -13,6 +13,8 @@ Handlers that would rather bail than raise (the disconnect paths) assign
 intervening calls, narrowing an attribute does not.
 """
 
+from datetime import UTC, datetime
+
 from majlisna.api.models.error import GameNotFoundError
 from majlisna.api.models.table import Game
 
@@ -28,3 +30,15 @@ def require_state(game: Game) -> dict:
     if not state:
         raise GameNotFoundError(game_id=game.id)
     return state
+
+
+def as_utc(instant: datetime | None) -> datetime | None:
+    """A ``Game.start_time`` / ``end_time`` as an aware UTC datetime (None stays None).
+
+    The columns are ``TIMESTAMP WITH TIME ZONE`` and always written with
+    ``datetime.now(UTC)``, but SQLite reads them back naive — and a naive ISO string
+    reaches the browser without an offset, where ``new Date()`` takes it as local time.
+    """
+    if instant is None:
+        return None
+    return instant.replace(tzinfo=UTC) if instant.tzinfo is None else instant.astimezone(UTC)

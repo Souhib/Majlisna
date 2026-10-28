@@ -10,7 +10,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from majlisna.api.constants import HEARTBEAT_THROTTLE_SECONDS, PUBLIC_ID_GENERATION_ATTEMPTS
-from majlisna.api.controllers.disconnect import _handle_permanent_disconnect
+from majlisna.api.controllers.disconnect import _handle_permanent_disconnect, away_seconds_left, member_grace_seconds
 from majlisna.api.controllers.friend import FriendController
 from majlisna.api.controllers.shared import create_random_public_id
 from majlisna.api.models.error import (
@@ -24,7 +24,15 @@ from majlisna.api.models.game import GameStatus, GameType
 from majlisna.api.models.relationship import RoomUserLink
 from majlisna.api.models.room import RoomCreate, RoomJoin, RoomStatus, RoomType
 from majlisna.api.models.table import Game, Room, User
-from majlisna.api.schemas.error import BaseError
+from majlisna.api.schemas.error import (
+    CannotKickYourselfError,
+    CanOnlyInviteFriendsError,
+    FriendAlreadyInRoomError,
+    InviterNotInRoomError,
+    NotRoomHostError,
+    PlayerCannotSpectateError,
+    RoomCodeUnavailableError,
+)
 from majlisna.api.schemas.room import (
     ActiveRoomResponse,
     KickPlayerResponse,
@@ -56,9 +64,21 @@ class RoomController:
         self.session = session
 
     async def create_room(self, owner_id: UUID, game_type: GameType) -> Room:
+        # Only membership of a LIVE room may block a new one. Without the join,
+        # a link to an INACTIVE room barred the user forever: a room is
+        # deactivated when its last *connected* member leaves, which leaves the
+        # links of anyone currently marked disconnected behind — and Socket.IO
+        # `connect` flips such a link back to connected on the next reconnect.
+        # The player then could not create a room, while
+        # `get_active_room_for_user` (which does filter on ACTIVE) reported no
+        # room to leave, so the UI offered no way out either.
         is_user_in_room = (
             await self.session.exec(
-                select(RoomUserLink).where(RoomUserLink.user_id == owner_id).where(RoomUserLink.connected == True)  # noqa: E712
+                select(RoomUserLink)
+                .join(Room, Room.id == RoomUserLink.room_id)  # ty: ignore[invalid-argument-type]
+                .where(RoomUserLink.user_id == owner_id)
+                .where(RoomUserLink.connected == True)  # noqa: E712
+                .where(Room.type == RoomType.ACTIVE)
             )
         ).first()
         if is_user_in_room:
@@ -80,7 +100,7 @@ class RoomController:
         # Re-fetch with relationships eagerly loaded for serialization
         room = (
             await self.session.exec(
-                select(Room).where(Room.id == new_room.id).options(selectinload(Room.users), selectinload(Room.games))  # type: ignore[arg-type]
+                select(Room).where(Room.id == new_room.id).options(selectinload(Room.users), selectinload(Room.games))  # ty: ignore[invalid-argument-type]
             )
         ).one()
         return room
@@ -98,11 +118,7 @@ class RoomController:
             taken = (await self.session.exec(select(Room.public_id).where(Room.public_id == candidate))).first()
             if not taken:
                 return candidate
-        raise BaseError(
-            message=f"Could not allocate a free room code after {PUBLIC_ID_GENERATION_ATTEMPTS} attempts",
-            frontend_message="Couldn't create a room right now. Please try again.",
-            status_code=503,
-        )
+        raise RoomCodeUnavailableError(attempts=PUBLIC_ID_GENERATION_ATTEMPTS)
 
     async def check_if_user_is_in_room(self, user_id: UUID, room_id: UUID) -> bool:
         # .first(), not .one(): duplicate links for the same (room, user) are
@@ -140,7 +156,7 @@ class RoomController:
         try:
             return (
                 await self.session.exec(
-                    select(Room).where(Room.id == room_id).options(selectinload(Room.users), selectinload(Room.games))  # type: ignore[arg-type]
+                    select(Room).where(Room.id == room_id).options(selectinload(Room.users), selectinload(Room.games))  # ty: ignore[invalid-argument-type]
                 )
             ).one()
         except NoResultFound:
@@ -171,10 +187,9 @@ class RoomController:
         except NoResultFound:
             raise RoomNotFoundError(room_id=room_id) from None
         if db_room.owner_id != user_id:
-            raise BaseError(
+            raise NotRoomHostError(
                 message="Only the room owner can delete the room.",
                 frontend_message="Only the room owner can delete the room.",
-                status_code=403,
             )
         links = (await self.session.exec(select(RoomUserLink).where(RoomUserLink.room_id == room_id))).all()
         for link in links:
@@ -229,7 +244,7 @@ class RoomController:
                 await self.session.exec(
                     select(Room)
                     .where(Room.id == db_room.id)
-                    .options(selectinload(Room.users), selectinload(Room.games))  # type: ignore[arg-type]
+                    .options(selectinload(Room.users), selectinload(Room.games))  # ty: ignore[invalid-argument-type]
                 )
             ).one()
             return room
@@ -261,7 +276,7 @@ class RoomController:
 
         room = (
             await self.session.exec(
-                select(Room).where(Room.id == db_room.id).options(selectinload(Room.users), selectinload(Room.games))  # type: ignore[arg-type]
+                select(Room).where(Room.id == db_room.id).options(selectinload(Room.users), selectinload(Room.games))  # ty: ignore[invalid-argument-type]
             )
         ).one()
         logger.info("Room join: user={} room={}", user_id, db_room.id)
@@ -280,7 +295,7 @@ class RoomController:
         """
         try:
             db_room = (
-                await self.session.exec(select(Room).where(Room.id == room_id).options(selectinload(Room.users)))  # type: ignore[arg-type]
+                await self.session.exec(select(Room).where(Room.id == room_id).options(selectinload(Room.users)))  # ty: ignore[invalid-argument-type]
             ).one()
         except NoResultFound:
             raise RoomNotFoundError(room_id=room_id) from None
@@ -296,14 +311,14 @@ class RoomController:
             )
         ).first()
         if not link:
-            raise UserNotInRoomError(user_id=db_user.id, room_id=room_id)  # type: ignore
+            raise UserNotInRoomError(user_id=db_user.id, room_id=room_id)
 
         await _handle_permanent_disconnect(self.session, link)
         logger.info("Room leave: user={} room={}", user_id, room_id)
 
         room = (
             await self.session.exec(
-                select(Room).where(Room.id == db_room.id).options(selectinload(Room.users), selectinload(Room.games))  # type: ignore[arg-type]
+                select(Room).where(Room.id == db_room.id).options(selectinload(Room.users), selectinload(Room.games))  # ty: ignore[invalid-argument-type]
             )
         ).one()
         return room
@@ -342,11 +357,7 @@ class RoomController:
             # treat them as a spectator — and nothing (not even the host) can
             # flip it back.
             if not existing_link.is_spectator and db_room.active_game_id:
-                raise BaseError(
-                    message=f"User {user_id} is an active player in room {room_id} and cannot switch to spectator",
-                    frontend_message="You're playing this game — leave the room to stop playing.",
-                    status_code=409,
-                )
+                raise PlayerCannotSpectateError(user_id=user_id, room_id=room_id)
             existing_link.connected = True
             existing_link.is_spectator = True
             existing_link.last_seen_at = datetime.now()
@@ -364,7 +375,7 @@ class RoomController:
 
         room = (
             await self.session.exec(
-                select(Room).where(Room.id == db_room.id).options(selectinload(Room.users), selectinload(Room.games))  # type: ignore[arg-type]
+                select(Room).where(Room.id == db_room.id).options(selectinload(Room.users), selectinload(Room.games))  # ty: ignore[invalid-argument-type]
             )
         ).one()
         logger.info("Room spectator join: user={} room={}", user_id, room_id)
@@ -388,7 +399,7 @@ class RoomController:
                 )
             ).first()
             if not link:
-                raise UserNotInRoomError(user_id=user_id, room_id=room_id)  # type: ignore
+                raise UserNotInRoomError(user_id=user_id, room_id=room_id)
             needs_update = (
                 link.disconnected_at is not None
                 or not link.connected
@@ -407,11 +418,30 @@ class RoomController:
         # Users are only removed from this list when permanently disconnected
         # (RoomUserLink deleted after grace period). This keeps the player count
         # stable during brief Socket.IO reconnections.
-        all_links = (await self.session.exec(select(RoomUserLink).where(RoomUserLink.room_id == room_id))).all()
+        #
+        # In the order people sat down (join time, then id for a tie). Without an
+        # ORDER BY the rows came back in heap order, which moves whenever a link row
+        # is updated (every heartbeat): two phones loaded at different moments seated
+        # the same table differently, and a reload reshuffled the halqa.
+        all_links = (
+            await self.session.exec(
+                select(RoomUserLink)
+                .where(RoomUserLink.room_id == room_id)
+                .order_by(RoomUserLink.joined_at, RoomUserLink.user_id)  # ty: ignore[invalid-argument-type]
+            )
+        ).all()
 
         user_ids = [rul.user_id for rul in all_links]
-        users = (await self.session.exec(select(User).where(User.id.in_(user_ids)))).all() if user_ids else []  # type: ignore[attr-defined]
+        users = (await self.session.exec(select(User).where(User.id.in_(user_ids)))).all() if user_ids else []  # ty: ignore[unresolved-attribute]
         user_map = {u.id: u for u in users}
+
+        # The active game decides both the game type and how long an away member is
+        # kept (lobby 10 min, running game 3 min, paused game 45 min).
+        game = None
+        if room.active_game_id:
+            game = (await self.session.exec(select(Game).where(Game.id == room.active_game_id))).first()
+        grace_seconds = member_grace_seconds(room, game)
+        now = datetime.now()  # naive, like every RoomUserLink timestamp
 
         players: list[RoomPlayerState] = []
         for rul in all_links:
@@ -427,15 +457,12 @@ class RoomController:
                         is_disconnected=not rul.connected,
                         is_host=room.owner_id == u.id,
                         is_spectator=rul.is_spectator,
+                        away_seconds_left=away_seconds_left(rul, grace_seconds, now),
                     )
                 )
 
         # Get game type from active game, or from room settings (set at creation)
-        game_type = None
-        if room.active_game_id:
-            game = (await self.session.exec(select(Game).where(Game.id == room.active_game_id))).first()
-            if game:
-                game_type = game.type.value
+        game_type = game.type.value if game else None
         if not game_type and room.settings and room.settings.get("game_type"):
             game_type = room.settings["game_type"]
 
@@ -455,17 +482,11 @@ class RoomController:
         """Kick a player from the room. Only the host can kick."""
         room = await self.get_room_without_relations(room_id)
         if room.owner_id != host_id:
-            raise BaseError(
-                message="Only the host can kick players.",
-                frontend_message="Only the host can kick players.",
-                status_code=403,
+            raise NotRoomHostError(
+                message="Only the host can kick players.", frontend_message="Only the host can kick players."
             )
         if target_id == host_id:
-            raise BaseError(
-                message="You cannot kick yourself.",
-                frontend_message="You cannot kick yourself.",
-                status_code=400,
-            )
+            raise CannotKickYourselfError()
 
         link = (
             await self.session.exec(
@@ -487,10 +508,9 @@ class RoomController:
         """Update room settings. Only the host can update."""
         room = await self.get_room_without_relations(room_id)
         if room.owner_id != user_id:
-            raise BaseError(
+            raise NotRoomHostError(
                 message="Only the host can update room settings.",
                 frontend_message="Only the host can update room settings.",
-                status_code=403,
             )
         # Merge non-None fields into existing settings
         existing = room.settings or {}
@@ -506,10 +526,8 @@ class RoomController:
         """Clear active game and return to lobby. Preserves room settings and connected players."""
         room = await self.get_room_without_relations(room_id)
         if room.owner_id != user_id:
-            raise BaseError(
-                message="Only the host can trigger a rematch.",
-                frontend_message="Only the host can trigger a rematch.",
-                status_code=403,
+            raise NotRoomHostError(
+                message="Only the host can trigger a rematch.", frontend_message="Only the host can trigger a rematch."
             )
         # Close the outgoing game before detaching it. Only clearing
         # active_game_id left the row IN_PROGRESS forever: it stayed mutable
@@ -532,12 +550,12 @@ class RoomController:
         link = (
             await self.session.exec(
                 select(RoomUserLink)
-                .join(Room, Room.id == RoomUserLink.room_id)  # type: ignore[arg-type]
+                .join(Room, Room.id == RoomUserLink.room_id)  # ty: ignore[invalid-argument-type]
                 .where(
                     RoomUserLink.user_id == user_id,
                     Room.type == RoomType.ACTIVE,
                 )
-                .order_by(RoomUserLink.joined_at.desc())  # type: ignore
+                .order_by(RoomUserLink.joined_at.desc())  # ty: ignore[unresolved-attribute]
             )
         ).first()
         if not link:
@@ -571,22 +589,14 @@ class RoomController:
             )
         ).first()
         if not inviter_link:
-            raise BaseError(
-                message="You must be in the room to invite friends.",
-                frontend_message="You must be in the room to invite friends.",
-                status_code=400,
-            )
+            raise InviterNotInRoomError()
 
         # Verify friendship exists
         friend_controller = FriendController(self.session)
         friends = await friend_controller.get_friends(inviter_id)
         is_friend = any(str(f.user_id) == str(friend_user_id) for f in friends)
         if not is_friend:
-            raise BaseError(
-                message="You can only invite friends.",
-                frontend_message="You can only invite friends.",
-                status_code=400,
-            )
+            raise CanOnlyInviteFriendsError()
 
         # Check if the friend is already in the room
         existing = (
@@ -599,11 +609,7 @@ class RoomController:
             )
         ).first()
         if existing:
-            raise BaseError(
-                message="User is already in the room.",
-                frontend_message="This user is already in the room.",
-                status_code=400,
-            )
+            raise FriendAlreadyInRoomError()
 
         return RoomInviteResponse(
             room_id=str(room_id),

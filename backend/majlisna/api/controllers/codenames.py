@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from typing import cast
 from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError, NoResultFound
@@ -85,7 +86,7 @@ class CodenamesController:
         """
         cached = cache.get(WORD_PACKS_CACHE_KEY)
         if cached is not None:
-            return cached  # type: ignore[return-value]
+            return cast(Sequence[CodenamesWordPack], cached)
         packs = (await self.session.exec(select(CodenamesWordPack))).all()
         cache.set(WORD_PACKS_CACHE_KEY, packs, CACHE_TTL_GAME_CONTENT_SECONDS)
         return packs
@@ -172,7 +173,7 @@ class CodenamesController:
         :raises NotEnoughWordsError: If there aren't enough words available.
         """
         if pack_ids:
-            query = select(CodenamesWord).where(CodenamesWord.word_pack_id.in_(pack_ids))  # type: ignore[attr-defined,union-attr]
+            query = select(CodenamesWord).where(CodenamesWord.word_pack_id.in_(pack_ids))  # ty: ignore[unresolved-attribute]
         else:
             # Get words from all active packs
             active_pack_ids_query = select(CodenamesWordPack.id).where(
@@ -181,7 +182,7 @@ class CodenamesController:
             active_pack_ids = (await self.session.exec(active_pack_ids_query)).all()
             if not active_pack_ids:
                 raise NotEnoughWordsError(requested=count, available=0)
-            query = select(CodenamesWord).where(CodenamesWord.word_pack_id.in_(active_pack_ids))  # type: ignore[attr-defined,union-attr]
+            query = select(CodenamesWord).where(CodenamesWord.word_pack_id.in_(active_pack_ids))  # ty: ignore[unresolved-attribute]
 
         all_words = list((await self.session.exec(query)).all())
 

@@ -3,9 +3,15 @@
 from datetime import datetime, timedelta
 
 import pytest
+from sqlalchemy.orm.attributes import flag_modified
 from sqlmodel import select
 
-from majlisna.api.constants import GRACE_PERIOD_SECONDS, HEARTBEAT_STALE_SECONDS
+from majlisna.api.constants import (
+    GRACE_PERIOD_SECONDS,
+    HEARTBEAT_STALE_SECONDS,
+    LOBBY_GRACE_PERIOD_SECONDS,
+    PAUSED_GAME_GRACE_PERIOD_SECONDS,
+)
 from majlisna.api.controllers.codenames_helpers import CodenamesGameStatus, CodenamesRole, CodenamesTeam
 from majlisna.api.controllers.disconnect import (
     _handle_codenames_disconnect,
@@ -14,7 +20,9 @@ from majlisna.api.controllers.disconnect import (
     _handle_wordquiz_disconnect,
     _mark_stale_users,
     _remove_expired_users,
+    away_seconds_left,
     mark_user_disconnected,
+    member_grace_seconds,
     update_heartbeat,
 )
 from majlisna.api.controllers.shared import get_password_hash
@@ -185,19 +193,25 @@ async def test_disconnect_transfers_ownership(session):
 
 @pytest.mark.asyncio
 async def test_disconnect_room_not_found(session):
-    """No crash when room is deleted before disconnect handler runs."""
-    # Prepare — create user, room, link, then delete the room
-    user = await _create_user(session)
-    room = await _create_room(session, user)
-    link = await _create_link(session, room.id, user.id)
+    """No crash, and the link is removed, when the link has no room to resolve.
 
-    # Delete the room to simulate it being gone
-    db_room = (await session.exec(select(Room).where(Room.id == room.id))).first()
-    await session.delete(db_room)
-    await session.commit()
+    A room cannot disappear from under a live link: the foreign key forbids it, and
+    deleting the Room through the ORM deletes its links with it (which is what this
+    test used to do, so the handler then deleted an already-deleted row and
+    SQLAlchemy warned "expected to delete 1 row(s); 0 were matched"). The reachable
+    case is an orphan link with no room id, which `_remove_expired_users` sends here.
+    """
+    # Prepare — a link that points at no room
+    user = await _create_user(session)
+    link = await _create_link(session, None, user.id)
+    link_id = link.id
 
     # Act — should not raise
     await _handle_permanent_disconnect(session, link)
+
+    # Assert
+    remaining = (await session.exec(select(RoomUserLink).where(RoomUserLink.id == link_id))).first()
+    assert remaining is None
 
 
 # ========== Undercover Disconnect Tests ==========
@@ -484,6 +498,30 @@ async def test_wq_disconnect_removes_answer(session):
     # Assert
     game = (await session.exec(select(Game).where(Game.id == game.id))).first()
     assert str(users[1].id) not in game.live_state.get("answers", {})
+
+
+@pytest.mark.asyncio
+async def test_wq_disconnect_drops_the_players_typed_tries(session):
+    """A departed player's typed tries leave with them; the others' stay for the round's results."""
+    # Prepare
+    users = [await _create_user(session, f"p{i}", f"p{i}@test.com") for i in range(3)]
+    room = await _create_room(session, users[0])
+    players_data = [{"user_id": str(u.id), "username": u.username, "score": 0} for u in users]
+    game = await _create_wordquiz_game(session, room, players_data)
+    game.live_state["attempts"] = {
+        str(users[1].id): {"count": 2, "last_text": "Musa", "last_hint": 2},
+        str(users[2].id): {"count": 1, "last_text": "Nuh", "last_hint": 1},
+    }
+    flag_modified(game, "live_state")
+    session.add(game)
+    await session.commit()
+
+    # Act
+    await _handle_wordquiz_disconnect(session, game, str(users[1].id), room)
+
+    # Assert
+    game = (await session.exec(select(Game).where(Game.id == game.id))).first()
+    assert list(game.live_state["attempts"]) == [str(users[2].id)]
 
 
 @pytest.mark.asyncio
@@ -1171,3 +1209,294 @@ async def test_codenames_disconnect_records_stats_for_the_winning_team(session):
     assert winner_stats is not None
     assert winner_stats.codenames_games_played == 1
     assert winner_stats.total_games_won == 1
+
+
+# ========== A drop-out must never wedge the round it was blocking ==========
+#
+# All four cases below used to leave a live game with no legal move left. None of
+# them were rescued by the timer: `description_timer` / `voting_timer` both default
+# to 0, which means "no time limit", so `handle_timer_expired` answers
+# `timer_not_expired` forever. The room's only escape was the host cancelling the
+# game through a rematch. See undercover_rules.repair_turn_after_dropout.
+
+
+def _uc_players(users, roles):
+    return [
+        {
+            "user_id": str(u.id),
+            "username": u.username,
+            "role": role,
+            "is_alive": True,
+            "is_mayor": i == 0,
+        }
+        for i, (u, role) in enumerate(zip(users, roles, strict=True))
+    ]
+
+
+@pytest.mark.asyncio
+async def test_dropout_of_the_last_outstanding_voter_resolves_the_round(session):
+    """A tally that becomes complete by subtraction must still be counted.
+
+    `all_voted` is only ever evaluated inside `submit_vote`. When the one player
+    everybody was waiting on left instead of voting, every remaining alive player
+    had already voted and no further vote could arrive — so the round sat complete
+    and uncounted, permanently.
+    """
+    # Prepare — 5 players; everyone but p3 has voted, and p3 is about to drop
+    users = [await _create_user(session, f"v{i}", f"v{i}@test.com") for i in range(5)]
+    room = await _create_room(session, users[0])
+    roles = [UndercoverRole.CIVILIAN.value] * 4 + [UndercoverRole.UNDERCOVER.value]
+    players_data = _uc_players(users, roles)
+    game = await _create_undercover_game(session, room, players_data)
+
+    votes = {str(users[i].id): str(users[4].id) for i in range(3)}
+    votes[str(users[4].id)] = str(users[0].id)
+    state = game.live_state
+    state["turns"][-1] = {
+        "votes": votes,
+        "words": {},
+        "description_order": [str(u.id) for u in users],
+        "current_describer_index": 5,
+        "phase": "voting",
+    }
+    game.live_state = state
+    flag_modified(game, "live_state")
+    session.add(game)
+    await session.commit()
+
+    # Act — the only player who had not voted leaves
+    await _handle_undercover_disconnect(session, game, str(users[3].id), room)
+
+    # Assert — the round resolved on the votes that were in, exactly once
+    game = (await session.exec(select(Game).where(Game.id == game.id))).first()
+    turn = game.live_state["turns"][-1]
+    assert turn["resolved"] is True
+    voted_out = [e for e in game.live_state["eliminated_players"] if e["round"] == 1]
+    assert len(voted_out) == 1
+    assert voted_out[0]["user_id"] == str(users[4].id)
+
+
+@pytest.mark.asyncio
+async def test_dropout_of_the_current_describer_hands_the_turn_on(session):
+    """`submit_description` only accepts the player at `current_describer_index`.
+
+    With that index pointing at someone who has left, nobody could describe and the
+    phase could never reach voting.
+    """
+    # Prepare — 4 players, it is p1's turn to describe
+    users = [await _create_user(session, f"d{i}", f"d{i}@test.com") for i in range(4)]
+    room = await _create_room(session, users[0])
+    roles = [UndercoverRole.CIVILIAN.value] * 3 + [UndercoverRole.UNDERCOVER.value]
+    game = await _create_undercover_game(session, room, _uc_players(users, roles))
+
+    state = game.live_state
+    state["turns"][-1] = {
+        "votes": {},
+        "words": {str(users[0].id): "dome"},
+        "description_order": [str(u.id) for u in users],
+        "current_describer_index": 1,
+        "phase": "describing",
+    }
+    game.live_state = state
+    flag_modified(game, "live_state")
+    session.add(game)
+    await session.commit()
+
+    # Act — the player everyone is waiting on leaves
+    await _handle_undercover_disconnect(session, game, str(users[1].id), room)
+
+    # Assert — the turn passes to the next describer, still in the describing phase
+    turn = (await session.exec(select(Game).where(Game.id == game.id))).first().live_state["turns"][-1]
+    assert turn["phase"] == "describing"
+    assert turn["description_order"][turn["current_describer_index"]] == str(users[2].id)
+    # The order keeps every entry: it is also what renders the descriptions already
+    # given, and p0's word is evidence the table still votes on.
+    assert turn["description_order"] == [str(u.id) for u in users]
+    assert turn["words"][str(users[0].id)] == "dome"
+
+
+@pytest.mark.asyncio
+async def test_dropout_of_the_last_describer_opens_the_vote(session):
+    """When the departure leaves nobody left to describe, the round moves to voting."""
+    # Prepare — 4 players, only the last one still owes a description. The undercover
+    # is p1, so p3 leaving does not decide the game on its own.
+    users = [await _create_user(session, f"l{i}", f"l{i}@test.com") for i in range(4)]
+    room = await _create_room(session, users[0])
+    roles = [
+        UndercoverRole.CIVILIAN.value,
+        UndercoverRole.UNDERCOVER.value,
+        UndercoverRole.CIVILIAN.value,
+        UndercoverRole.CIVILIAN.value,
+    ]
+    game = await _create_undercover_game(session, room, _uc_players(users, roles))
+
+    state = game.live_state
+    state["turns"][-1] = {
+        "votes": {},
+        "words": {str(u.id): "dome" for u in users[:3]},
+        "description_order": [str(u.id) for u in users],
+        "current_describer_index": 3,
+        "phase": "describing",
+    }
+    game.live_state = state
+    flag_modified(game, "live_state")
+    session.add(game)
+    await session.commit()
+
+    # Act
+    await _handle_undercover_disconnect(session, game, str(users[3].id), room)
+
+    # Assert
+    game = (await session.exec(select(Game).where(Game.id == game.id))).first()
+    assert game.game_status == GameStatus.IN_PROGRESS
+    assert game.live_state["turns"][-1]["phase"] == "voting"
+
+
+@pytest.mark.asyncio
+async def test_dropout_of_the_mr_white_guesser_leaves_a_playable_phase(session):
+    """Losing the guesser must not leave the turn stuck on `mr_white_guessing`.
+
+    Guessing 403s once nobody matches `mr_white_guesser`, and voting and describing
+    both reject the phase — the same wedge the guess *timeout* already fixed.
+    """
+    # Prepare — 5 players, Mr. White eliminated and owing a guess
+    users = [await _create_user(session, f"w{i}", f"w{i}@test.com") for i in range(5)]
+    room = await _create_room(session, users[0])
+    roles = [
+        UndercoverRole.CIVILIAN.value,
+        UndercoverRole.CIVILIAN.value,
+        UndercoverRole.CIVILIAN.value,
+        UndercoverRole.UNDERCOVER.value,
+        UndercoverRole.MR_WHITE.value,
+    ]
+    players_data = _uc_players(users, roles)
+    players_data[4]["is_alive"] = False
+    game = await _create_undercover_game(session, room, players_data)
+
+    state = game.live_state
+    state["mr_white_guesser"] = str(users[4].id)
+    state["turns"][-1]["phase"] = "mr_white_guessing"
+    state["turns"][-1]["resolved"] = True
+    game.live_state = state
+    flag_modified(game, "live_state")
+    session.add(game)
+    await session.commit()
+
+    # Act — the eliminated Mr. White closes their tab instead of guessing
+    await _handle_undercover_disconnect(session, game, str(users[4].id), room)
+
+    # Assert — the phase is one the game can leave, and no guesser is owed
+    state = (await session.exec(select(Game).where(Game.id == game.id))).first().live_state
+    assert "mr_white_guesser" not in state
+    assert state["turns"][-1]["phase"] == "voting"
+
+
+@pytest.mark.asyncio
+async def test_cn_disconnect_of_the_only_spymaster_ends_the_game(session):
+    """A team with operatives but no spymaster can never receive a clue.
+
+    `give_clue` requires a spymaster on the team to move, so `guess_card` answers
+    NoClueGivenError forever and the side can only ever pass its turn — and the
+    Codenames timers default to 0, so nothing switches the turn either.
+    """
+    # Prepare — the 4-player minimum: 1 spymaster + 1 operative per side
+    users = [await _create_user(session, f"s{i}", f"s{i}@test.com") for i in range(4)]
+    room = await _create_room(session, users[0])
+    players_data = [
+        {"user_id": str(users[0].id), "username": "s0", "team": "red", "role": CodenamesRole.SPYMASTER.value},
+        {"user_id": str(users[1].id), "username": "s1", "team": "red", "role": CodenamesRole.OPERATIVE.value},
+        {"user_id": str(users[2].id), "username": "s2", "team": "blue", "role": CodenamesRole.SPYMASTER.value},
+        {"user_id": str(users[3].id), "username": "s3", "team": "blue", "role": CodenamesRole.OPERATIVE.value},
+    ]
+    game = await _create_codenames_game(session, room, players_data)
+
+    # Act — blue loses its spymaster while still holding an operative
+    await _handle_codenames_disconnect(session, game, str(users[2].id), room)
+
+    # Assert — red wins rather than the game sitting unplayable
+    game = (await session.exec(select(Game).where(Game.id == game.id))).first()
+    assert game.live_state["status"] == CodenamesGameStatus.FINISHED.value
+    assert game.live_state["winner"] == CodenamesTeam.RED.value
+    assert game.game_status == GameStatus.FINISHED
+
+
+@pytest.mark.asyncio
+async def test_cn_disconnect_of_the_only_operative_ends_the_game(session):
+    """A team with a spymaster but no operative cannot guess and cannot end its turn."""
+    # Prepare
+    users = [await _create_user(session, f"o{i}", f"o{i}@test.com") for i in range(4)]
+    room = await _create_room(session, users[0])
+    players_data = [
+        {"user_id": str(users[0].id), "username": "o0", "team": "red", "role": CodenamesRole.SPYMASTER.value},
+        {"user_id": str(users[1].id), "username": "o1", "team": "red", "role": CodenamesRole.OPERATIVE.value},
+        {"user_id": str(users[2].id), "username": "o2", "team": "blue", "role": CodenamesRole.SPYMASTER.value},
+        {"user_id": str(users[3].id), "username": "o3", "team": "blue", "role": CodenamesRole.OPERATIVE.value},
+    ]
+    game = await _create_codenames_game(session, room, players_data)
+
+    # Act — red loses its only operative
+    await _handle_codenames_disconnect(session, game, str(users[1].id), room)
+
+    # Assert
+    game = (await session.exec(select(Game).where(Game.id == game.id))).first()
+    assert game.live_state["status"] == CodenamesGameStatus.FINISHED.value
+    assert game.live_state["winner"] == CodenamesTeam.BLUE.value
+    assert game.game_status == GameStatus.FINISHED
+
+
+# ========== The away countdown shown in the lobby (pure) ==========
+
+_NOW = datetime(2026, 10, 28, 12, 0, 0)  # naive, like every RoomUserLink timestamp
+
+
+@pytest.mark.parametrize(
+    ("connected", "seconds_ago", "grace", "expected"),
+    [
+        (True, None, 600, None),  # present: no countdown
+        (False, None, 600, None),  # away without a timestamp is never swept, so no countdown
+        (False, 0, 600, 600),  # just left: the whole grace ("away · 10:00")
+        (False, 2.2, 600, 598),  # rounded up: 597.8 reads 598 ("away · 9:58")
+        (False, 600, 600, 0),  # due
+        (False, 900, 180, 0),  # long past due: never negative
+        (False, -30, 180, 180),  # an anchor after `now` never reads more than the grace
+    ],
+)
+def test_away_seconds_left(connected: bool, seconds_ago: float | None, grace: int, expected: int | None):
+    """Whole seconds before the sweep removes an away member — null while they are present."""
+    # Prepare
+    link = RoomUserLink(
+        connected=connected,
+        disconnected_at=_NOW - timedelta(seconds=seconds_ago) if seconds_ago is not None else None,
+    )
+
+    # Act
+    left = away_seconds_left(link, grace, _NOW)
+
+    # Assert
+    assert left == expected
+
+
+def test_member_grace_matches_the_sweep():
+    """The lobby, a running game and a paused game each get the grace the sweep applies."""
+    # Prepare
+    lobby = Room(owner_id=None, public_id="AAAAA", password="1234", type=RoomType.ACTIVE)
+    running_game = Game(
+        number_of_players=3, type=GameType.UNDERCOVER, game_status=GameStatus.IN_PROGRESS, live_state={}
+    )
+    paused_game = Game(
+        number_of_players=3,
+        type=GameType.UNDERCOVER,
+        game_status=GameStatus.IN_PROGRESS,
+        live_state={"paused": {"by": "u", "by_username": "u", "at": "2026-10-28T12:00:00+00:00", "reason": "salah"}},
+    )
+    in_game = Room(
+        owner_id=None, public_id="BBBBB", password="1234", type=RoomType.ACTIVE, active_game_id=running_game.id
+    )
+    in_paused = Room(
+        owner_id=None, public_id="CCCCC", password="1234", type=RoomType.ACTIVE, active_game_id=paused_game.id
+    )
+
+    # Act / Assert
+    assert member_grace_seconds(lobby, None) == LOBBY_GRACE_PERIOD_SECONDS
+    assert member_grace_seconds(in_game, running_game) == GRACE_PERIOD_SECONDS
+    assert member_grace_seconds(in_paused, paused_game) == PAUSED_GAME_GRACE_PERIOD_SECONDS

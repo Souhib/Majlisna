@@ -67,7 +67,7 @@ class UserStats(BaseTable, table=True):
     # Only `.date()` arithmetic is done on this value, so awareness is safe here.
     last_played_at: datetime | None = Field(
         default=None,
-        sa_type=TIMESTAMP(timezone=True),  # type: ignore[call-overload]
+        sa_type=TIMESTAMP(timezone=True),  # ty: ignore[invalid-argument-type]
     )
 
     # Mr. White special
@@ -114,5 +114,5 @@ class UserAchievement(BaseTable, table=True):
     # be read as browser-local time.
     unlocked_at: datetime | None = Field(
         default=None,
-        sa_type=TIMESTAMP(timezone=True),  # type: ignore[call-overload]
+        sa_type=TIMESTAMP(timezone=True),  # ty: ignore[invalid-argument-type]
     )

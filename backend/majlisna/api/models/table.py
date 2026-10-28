@@ -12,6 +12,7 @@ from majlisna.api.models.event import TurnBase
 from majlisna.api.models.friendship import Friendship  # noqa: F401
 from majlisna.api.models.game import GameBase
 from majlisna.api.models.mcqquiz import McqQuestion  # noqa: F401
+from majlisna.api.models.notebook import NotebookEntry  # noqa: F401
 from majlisna.api.models.relationship import (
     GameTurnLink,
     RoomActivityLink,
@@ -36,7 +37,7 @@ class Room(RoomBase, table=True):
     owner_id: UUID | None = Field(default=None, foreign_key="user.id", index=True)
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(UTC),
-        sa_type=TIMESTAMP(timezone=True),  # type: ignore[call-overload]
+        sa_type=TIMESTAMP(timezone=True),  # ty: ignore[invalid-argument-type]
     )
     type: RoomType = RoomType.ACTIVE
     settings: dict | None = Field(default=None, sa_column=Column(JSON))
@@ -77,7 +78,7 @@ class Event(DBModel, table=True):
     user_id: UUID | None = Field(foreign_key="user.id")
     timestamp: datetime = Field(
         default_factory=lambda: datetime.now(UTC),
-        sa_type=TIMESTAMP(timezone=True),  # type: ignore[call-overload]
+        sa_type=TIMESTAMP(timezone=True),  # ty: ignore[invalid-argument-type]
     )
     turn: "Turn" = Relationship(back_populates="events", link_model=TurnEventLink)
 
@@ -90,7 +91,7 @@ class Activity(DBModel, table=True):
     data: dict[str, Any] = Field(sa_column=Column(JSON))
     timestamp: datetime = Field(
         default_factory=lambda: datetime.now(UTC),
-        sa_type=TIMESTAMP(timezone=True),  # type: ignore[call-overload]
+        sa_type=TIMESTAMP(timezone=True),  # ty: ignore[invalid-argument-type]
     )
     room: "Room" = Relationship(back_populates="activities", link_model=RoomActivityLink)
 

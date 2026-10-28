@@ -1029,7 +1029,7 @@ UNDERCOVER_WORDS = [
         "long_description": "Kufi is a short, rounded cap worn by Muslim men, often during prayer.",
         "hint": {
             "en": "A short, rounded cap worn by Muslim men, often during prayer",
-            "ar": "الكوفية — قبعة مستديرة قصيرة يرتديها الرجال المسلمون، غالباً أثناء الصلاة",
+            "ar": "الطاقية — قبعة مستديرة قصيرة يرتديها الرجال المسلمون، غالباً أثناء الصلاة",
             "fr": "Un bonnet court et arrondi porté par les hommes musulmans, souvent pendant la prière",
         },
     },

@@ -27,14 +27,15 @@ RUN apt-get update && apt-get install -y \
     python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy pyproject.toml and create minimal package structure for dependency resolution
-COPY pyproject.toml ./
-RUN mkdir -p majlisna && touch majlisna/__init__.py
-
-# Install dependencies using uv (from pyproject.toml)
+# Install exactly what uv.lock pins. `uv pip install .` used to re-resolve
+# pyproject's floors on every build, so an unrelated rebuild silently picked up
+# sqlmodel 0.0.48 — which rejects the deliberately naive RoomUserLink timestamps
+# and turned every room creation into a 500. `--frozen` fails the build instead
+# of drifting. The app runs from /app, so the project itself is not installed.
 # INSTALL_DEV=true installs dev extras (faker, etc.) needed for E2E data seeding
+COPY pyproject.toml uv.lock ./
 ARG INSTALL_DEV=false
-RUN uv venv && if [ "$INSTALL_DEV" = "true" ]; then uv pip install --no-cache ".[dev]"; else uv pip install --no-cache .; fi
+RUN if [ "$INSTALL_DEV" = "true" ]; then uv sync --frozen --no-install-project --no-cache --extra dev; else uv sync --frozen --no-install-project --no-cache --no-dev; fi
 
 # Stage 3: Production
 FROM base AS production

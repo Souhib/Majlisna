@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from typing import cast
 
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -18,7 +19,7 @@ class McqQuizController:
     async def get_all(self) -> Sequence[McqQuestion]:
         cached = cache.get(MCQ_QUESTIONS_CACHE_KEY)
         if cached is not None:
-            return cached  # type: ignore[return-value]
+            return cast(Sequence[McqQuestion], cached)
         questions = (await self.session.exec(select(McqQuestion))).all()
         cache.set(MCQ_QUESTIONS_CACHE_KEY, questions, CACHE_TTL_GAME_CONTENT_SECONDS)
         return questions

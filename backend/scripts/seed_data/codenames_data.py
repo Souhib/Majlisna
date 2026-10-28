@@ -7,6 +7,22 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from majlisna.api.models.codenames import CodenamesWord, CodenamesWordPack
 
+# Cards that are a Name of Allah or carry it (الرحمن, بسم الله, ما شاء الله, سبحان الله,
+# الحمد لله, إن شاء الله). A Codenames card is pointed at, dyed, covered by the
+# assassin's black cloth and struck through in the clue chips: nothing may pass over
+# a sacred name (DESIGN.md §7, and the owner's ban on the Name as decoration). They
+# are no longer dealt, and the seed removes them from a database that has them.
+# Undercover and Kalimat may still carry such words: there nothing passes over them
+# (the lawh fades, an answer is only written).
+RETIRED_CODENAMES_WORDS: tuple[str, ...] = (
+    "Rahman",
+    "Bismillah",
+    "Masha'Allah",
+    "SubhanAllah",
+    "Alhamdulillah",
+    "In sha Allah",
+)
+
 CODENAMES_WORD_PACKS: dict[str, list[dict[str, str | dict[str, str]]]] = {
     "Prophets & Messengers": [
         {"word": "Adam", "hint": {"en": "The first human and prophet created by Allah", "ar": "أول إنسان ونبي خلقه الله", "fr": "Le premier humain et prophète créé par Allah"}},
@@ -39,7 +55,6 @@ CODENAMES_WORD_PACKS: dict[str, list[dict[str, str | dict[str, str]]]] = {
         {"word": "Fatiha", "hint": {"en": "The Opening — first surah of the Quran, recited in every prayer", "ar": "الفاتحة — أول سورة في القرآن، تُقرأ في كل صلاة", "fr": "L'Ouverture — première sourate du Coran, récitée dans chaque prière"}},
         {"word": "Baqarah", "hint": {"en": "The Cow — longest surah in the Quran", "ar": "البقرة — أطول سورة في القرآن الكريم", "fr": "La Vache — la plus longue sourate du Coran"}},
         {"word": "Yasin", "hint": {"en": "Often called the heart of the Quran", "ar": "يس — تُسمى قلب القرآن", "fr": "Souvent appelée le cœur du Coran"}},
-        {"word": "Rahman", "hint": {"en": "The Most Merciful — known for the refrain 'Which of your Lord's favors will you deny?'", "ar": "الرحمن — المعروفة بتكرار 'فبأي آلاء ربكما تكذبان'", "fr": "Le Tout Miséricordieux — connue pour le refrain 'Lequel des bienfaits de votre Seigneur nierez-vous ?'"}},
         {"word": "Mulk", "hint": {"en": "The Sovereignty — protects from the punishment of the grave", "ar": "الملك — تقي من عذاب القبر", "fr": "La Royauté — protège du châtiment de la tombe"}},
         {"word": "Kahf", "hint": {"en": "The Cave — recommended to read on Fridays, contains four stories", "ar": "الكهف — يُستحب قراءتها يوم الجمعة، تحتوي أربع قصص", "fr": "La Caverne — recommandée le vendredi, contient quatre récits"}},
         {"word": "Maryam", "hint": {"en": "Surah named after Mary, mother of Prophet Isa", "ar": "سورة مريم — سُميت على اسم مريم أم النبي عيسى", "fr": "Sourate nommée d'après Marie, mère du prophète Jésus"}},
@@ -195,18 +210,13 @@ CODENAMES_WORD_PACKS: dict[str, list[dict[str, str | dict[str, str]]]] = {
         {"word": "Hijab", "hint": {"en": "Modest head covering worn by Muslim women as an act of faith", "ar": "الحجاب — غطاء الرأس المحتشم الذي ترتديه المسلمات تعبيراً عن إيمانهن", "fr": "Le voile modeste porté par les femmes musulmanes comme acte de foi"}},
         {"word": "Niqab", "hint": {"en": "Face veil that covers the face except the eyes, worn by some Muslim women", "ar": "النقاب — غطاء الوجه الذي يكشف العينين فقط، ترتديه بعض المسلمات", "fr": "Le voile facial qui couvre le visage sauf les yeux, porté par certaines femmes musulmanes"}},
         {"word": "Thobe", "hint": {"en": "Traditional long garment worn by men in many Muslim countries", "ar": "الثوب — لباس طويل تقليدي يرتديه الرجال في كثير من البلدان الإسلامية", "fr": "Vêtement long traditionnel porté par les hommes dans de nombreux pays musulmans"}},
-        {"word": "Kufi", "hint": {"en": "Rounded cap worn by Muslim men, especially during prayer", "ar": "الكوفية — طاقية مستديرة يرتديها الرجال المسلمون، خاصة أثناء الصلاة", "fr": "Calotte arrondie portée par les hommes musulmans, surtout pendant la prière"}},
+        {"word": "Kufi", "hint": {"en": "Rounded cap worn by Muslim men, especially during prayer", "ar": "الطاقية — قلنسوة مستديرة يرتديها الرجال المسلمون، خاصة أثناء الصلاة", "fr": "Calotte arrondie portée par les hommes musulmans, surtout pendant la prière"}},
         {"word": "Miswak", "hint": {"en": "Natural tooth-cleaning twig from the Arak tree, a Prophetic tradition", "ar": "المسواك — عود تنظيف الأسنان الطبيعي من شجرة الأراك، سنة نبوية", "fr": "Bâtonnet naturel de nettoyage des dents issu de l'arbre Arak, une tradition prophétique"}},
         {"word": "Attar", "hint": {"en": "Natural perfume oil, following the Prophetic tradition of wearing fragrance", "ar": "العطر — زيت عطري طبيعي، اتباعاً لسنة النبي في التطيب", "fr": "Huile de parfum naturelle, suivant la tradition prophétique de porter du parfum"}},
         {"word": "Dates", "hint": {"en": "The fruit recommended by the Prophet for breaking fast, staple of Islamic culture", "ar": "التمر — الفاكهة التي أوصى بها النبي للإفطار، من أساسيات الثقافة الإسلامية", "fr": "Le fruit recommandé par le Prophète pour rompre le jeûne, incontournable de la culture islamique"}},
         {"word": "Zamzam", "hint": {"en": "Sacred well in Mecca, miraculously provided for Hajar and baby Ismail", "ar": "زمزم — البئر المقدسة في مكة، أُنبعت بمعجزة لهاجر والطفل إسماعيل", "fr": "Puits sacré à La Mecque, miraculeusement fourni pour Hajar et le bébé Ismaël"}},
-        {"word": "Oud", "hint": {"en": "Fragrant agarwood incense, deeply rooted in Islamic hospitality traditions", "ar": "العود — بخور خشب العقر العطري، متجذر في تقاليد الضيافة الإسلامية", "fr": "L'encens de bois d'agar parfumé, profondément ancré dans les traditions d'hospitalité islamique"}},
+        {"word": "Oud", "hint": {"en": "Fragrant agarwood incense, deeply rooted in Islamic hospitality traditions", "ar": "العود — خشب البخور العطري، متجذر في تقاليد الضيافة الإسلامية", "fr": "L'encens de bois d'agar parfumé, profondément ancré dans les traditions d'hospitalité islamique"}},
         {"word": "Henna", "hint": {"en": "Natural plant dye used for body art, especially at Islamic weddings and celebrations", "ar": "الحناء — صبغة نباتية طبيعية تُستخدم لتزيين الجسم، خاصة في الأعراس والمناسبات", "fr": "Teinture végétale naturelle utilisée pour l'art corporel, surtout lors des mariages et célébrations islamiques"}},
-        {"word": "Bismillah", "hint": {"en": "'In the name of Allah' — phrase said before beginning any action", "ar": "بسم الله — عبارة تُقال قبل البدء بأي عمل", "fr": "'Au nom d'Allah' — formule prononcée avant de commencer toute action"}},
-        {"word": "Masha'Allah", "hint": {"en": "'As God has willed' — expression of appreciation and protection from envy", "ar": "ما شاء الله — تعبير عن الإعجاب والحماية من الحسد", "fr": "'Comme Dieu l'a voulu' — expression d'appréciation et de protection contre l'envie"}},
-        {"word": "SubhanAllah", "hint": {"en": "'Glory be to God' — expression of awe and glorification of Allah", "ar": "سبحان الله — تعبير عن الإعجاب وتنزيه الله", "fr": "'Gloire à Dieu' — expression d'émerveillement et de glorification d'Allah"}},
-        {"word": "Alhamdulillah", "hint": {"en": "'Praise be to God' — expression of gratitude said on all occasions", "ar": "الحمد لله — تعبير عن الشكر يُقال في كل المناسبات", "fr": "'Louange à Dieu' — expression de gratitude dite en toute occasion"}},
-        {"word": "In sha Allah", "hint": {"en": "'God willing' — said when referring to a future event or intention", "ar": "إن شاء الله — تُقال عند الإشارة إلى حدث مستقبلي أو نية", "fr": "'Si Dieu le veut' — dit en se référant à un événement futur ou une intention"}},
         {"word": "Barakah", "hint": {"en": "Divine blessing and abundance that Allah places in things, time, or people", "ar": "البركة — النعمة والزيادة الإلهية التي يضعها الله في الأشياء أو الأوقات أو الناس", "fr": "La bénédiction divine et l'abondance qu'Allah place dans les choses, le temps ou les personnes"}},
         {"word": "Waqf", "hint": {"en": "Islamic endowment — donating property for charitable purposes in perpetuity", "ar": "الوقف — تخصيص ملكية للأعمال الخيرية بشكل دائم", "fr": "La dotation islamique — don de propriété à des fins charitables à perpétuité"}},
         {"word": "Nikah", "hint": {"en": "The Islamic marriage contract, a sacred bond between husband and wife", "ar": "النكاح — عقد الزواج الإسلامي، رابطة مقدسة بين الزوجين", "fr": "Le contrat de mariage islamique, un lien sacré entre mari et femme"}},
@@ -240,6 +250,16 @@ async def seed_codenames_words(session: AsyncSession) -> None:
     """
     total_words = 0
     new_packs = 0
+
+    retired = (
+        await session.exec(
+            select(CodenamesWord).where(CodenamesWord.word.in_(RETIRED_CODENAMES_WORDS))  # ty: ignore[unresolved-attribute]
+        )
+    ).all()
+    for word in retired:
+        await session.delete(word)
+    if retired:
+        print(f"  Retired {len(retired)} Codenames cards that carry a Name of Allah")
 
     for pack_name, words in CODENAMES_WORD_PACKS.items():
         existing_pack = (

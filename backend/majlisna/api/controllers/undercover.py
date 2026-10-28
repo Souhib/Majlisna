@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from typing import cast
 from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError, NoResultFound
@@ -39,7 +40,7 @@ class UndercoverController:
     async def get_words(self) -> Sequence[Word]:
         cached = cache.get(WORDS_CACHE_KEY)
         if cached is not None:
-            return cached  # type: ignore[return-value]
+            return cast(Sequence[Word], cached)
         words = (await self.session.exec(select(Word))).all()
         cache.set(WORDS_CACHE_KEY, words, CACHE_TTL_GAME_CONTENT_SECONDS)
         return words
@@ -99,7 +100,7 @@ class UndercoverController:
     async def get_term_pairs(self) -> Sequence[TermPair]:
         cached = cache.get(TERM_PAIRS_CACHE_KEY)
         if cached is not None:
-            return cached  # type: ignore[return-value]
+            return cast(Sequence[TermPair], cached)
         pairs = (await self.session.exec(select(TermPair))).all()
         cache.set(TERM_PAIRS_CACHE_KEY, pairs, CACHE_TTL_GAME_CONTENT_SECONDS)
         return pairs

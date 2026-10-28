@@ -66,6 +66,6 @@ class ChatController:
             if ref_msg:
                 query = query.where(ChatMessage.created_at > ref_msg.created_at)
 
-        query = query.order_by(ChatMessage.created_at.desc()).limit(limit)  # type: ignore[attr-defined]
+        query = query.order_by(ChatMessage.created_at.desc()).limit(limit)  # ty: ignore[unresolved-attribute]
         newest_first = (await self.session.exec(query)).all()
         return list(reversed(newest_first))

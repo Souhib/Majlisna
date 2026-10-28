@@ -2,6 +2,12 @@ import asyncio
 import html
 
 import resend
+
+# Imported explicitly, not reached through `resend.__init__`. Relying on a package
+# to pull its own submodule in is what `possibly-missing-submodule` warns about,
+# and this module is only ever touched from an `except` clause — the one place a
+# missing name surfaces at the worst possible moment. See `_send`.
+import resend.exceptions
 from loguru import logger
 
 from majlisna.settings import Settings
@@ -175,6 +181,22 @@ class EmailService:
             )
             logger.debug("Email sent to {to}: {subject}", to=to_email, subject=subject)
             return True
-        except (resend.exceptions.ApiError, OSError, TimeoutError):  # type: ignore[attr-defined]
+        # `resend.exceptions.ApiError` DOES NOT EXIST. The SDK's base class is
+        # `ResendError`; `NoContentError` is the one class that does not inherit
+        # from it. Naming a missing attribute in an `except` tuple is only
+        # evaluated when something actually raises — so the happy path never
+        # noticed, while every real send failure raised `AttributeError` from the
+        # handler itself instead of returning False. That propagated out of
+        # `POST /auth/register` as a 500 *after* the user row had been committed:
+        # the account existed, the caller was told registration failed.
+        #
+        # A `# type: ignore[attr-defined]` sat on this line and silenced exactly
+        # the error that would have caught it.
+        except (
+            resend.exceptions.ResendError,
+            resend.exceptions.NoContentError,
+            OSError,
+            TimeoutError,
+        ):
             logger.exception("Failed to send email to {to}", to=to_email)
             return False

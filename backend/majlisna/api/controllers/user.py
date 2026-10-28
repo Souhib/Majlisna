@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from uuid import UUID
 
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError, NoResultFound
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -12,8 +12,9 @@ from majlisna.api.controllers.shared import (
 )
 from majlisna.api.models.challenge import UserChallenge
 from majlisna.api.models.chat import ChatMessage
-from majlisna.api.models.error import UserAlreadyExistsError, UserNotFoundError
+from majlisna.api.models.error import UserAlreadyExistsError, UsernameAlreadyTakenError, UserNotFoundError
 from majlisna.api.models.friendship import Friendship
+from majlisna.api.models.notebook import NotebookEntry
 from majlisna.api.models.relationship import RoomUserLink, UserGameLink
 from majlisna.api.models.room import RoomType
 from majlisna.api.models.stats import UserAchievement, UserStats
@@ -21,6 +22,23 @@ from majlisna.api.models.table import Activity, Event, Game, Room, User
 from majlisna.api.models.token import EmailVerificationToken, PasswordResetToken
 from majlisna.api.models.user import UserCreate, UserUpdate
 from majlisna.api.schemas.error import InvalidCredentialsError
+
+
+async def username_is_taken(session: AsyncSession, username: str, *, exclude_user_id: UUID | None = None) -> bool:
+    """Whether another account already uses ``username``, ignoring case.
+
+    ``user.username`` is indexed but NOT unique, and with no migrations a unique
+    (functional) index cannot be added to the existing table — so registration and
+    renames ask here first. Two concurrent requests for the same new name can still
+    both pass the check (see backend/CLAUDE.md, "Usernames are unique, by check").
+
+    ``lower()`` folds ASCII on SQLite and full Unicode on PostgreSQL; Arabic has no
+    case, so the difference only touches accented Latin letters in dev.
+    """
+    statement = select(User.id).where(func.lower(User.username) == username.lower())
+    if exclude_user_id is not None:
+        statement = statement.where(User.id != exclude_user_id)
+    return (await session.exec(statement.limit(1))).first() is not None
 
 
 class UserController:
@@ -37,6 +55,8 @@ class UserController:
         :param user_create: The body of the user we have to create.
         :return: The created user.
         """
+        if await username_is_taken(self.session, user_create.username):
+            raise UsernameAlreadyTakenError(username=user_create.username)
         try:
             # Always hash the password — storing it in clear leaves plaintext
             # credentials in the DB and produces accounts that can never log in.
@@ -52,6 +72,7 @@ class UserController:
             await self.session.refresh(new_user)
             return new_user
         except IntegrityError:
+            await self.session.rollback()
             raise UserAlreadyExistsError(email_address=user_create.email_address) from None
 
     async def get_users(self) -> Sequence[User]:
@@ -78,10 +99,16 @@ class UserController:
         :param user_id: The id of the user to update.
         :param user_update: The parameters we want to update.
         :return: The updated user.
+        :raises UsernameAlreadyTakenError: the new username belongs to another account (any case).
         """
         try:
             db_user = (await self.session.exec(select(User).where(User.id == user_id))).one()
             db_user_data = user_update.model_dump(exclude_unset=True)
+            new_username = db_user_data.get("username")
+            # Renaming to another account's name (any case) is refused; changing only
+            # the case of one's own name is not a collision.
+            if new_username and await username_is_taken(self.session, new_username, exclude_user_id=user_id):
+                raise UsernameAlreadyTakenError(username=new_username)
             db_user.sqlmodel_update(db_user_data)
             self.session.add(db_user)
             await self.session.commit()
@@ -111,11 +138,12 @@ class UserController:
             select(UserAchievement).where(UserAchievement.user_id == user_id),
             select(UserChallenge).where(UserChallenge.user_id == user_id),
             select(ChatMessage).where(ChatMessage.user_id == user_id),
+            select(NotebookEntry).where(NotebookEntry.user_id == user_id),
             select(RoomUserLink).where(RoomUserLink.user_id == user_id),
             select(UserGameLink).where(UserGameLink.user_id == user_id),
             select(PasswordResetToken).where(PasswordResetToken.user_id == user_id),
             select(EmailVerificationToken).where(EmailVerificationToken.user_id == user_id),
-            select(Friendship).where(or_(Friendship.requester_id == user_id, Friendship.addressee_id == user_id)),  # type: ignore[arg-type]
+            select(Friendship).where(or_(Friendship.requester_id == user_id, Friendship.addressee_id == user_id)),  # ty: ignore[invalid-argument-type]
         ):
             for row in (await self.session.exec(statement)).all():
                 await self.session.delete(row)

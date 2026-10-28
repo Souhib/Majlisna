@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from typing import cast
 from uuid import UUID
 
 from sqlmodel import select
@@ -19,7 +20,7 @@ class WordQuizController:
     async def get_all(self) -> Sequence[QuizWord]:
         cached = cache.get(QUIZ_WORDS_CACHE_KEY)
         if cached is not None:
-            return cached  # type: ignore[return-value]
+            return cast(Sequence[QuizWord], cached)
         words = (await self.session.exec(select(QuizWord))).all()
         cache.set(QUIZ_WORDS_CACHE_KEY, words, CACHE_TTL_GAME_CONTENT_SECONDS)
         return words

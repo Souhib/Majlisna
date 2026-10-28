@@ -8,7 +8,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from majlisna.api.constants import MAX_PLAYERS_UNDERCOVER
+from majlisna.api.constants import MAX_PLAYERS_UNDERCOVER, UNDERCOVER_MR_WHITE_MIN_PLAYERS
 from majlisna.api.controllers.shared import get_password_hash
 from majlisna.api.controllers.undercover_game import UndercoverGameController
 from majlisna.api.models.game import GameStatus
@@ -131,7 +131,11 @@ async def test_create_3_players(undercover_game_controller, setup_undercover_gam
 
 @pytest.mark.asyncio
 async def test_create_5_players(undercover_game_controller, setup_undercover_game, session):
-    """5 players: 1 mr_white, 2 undercover, 2 civilians."""
+    """5 players: 1 mr_white, 1 undercover, 3 civilians.
+
+    This test used to assert 2 civilians against 3 impostors — a deal the win rule
+    (impostors win at parity) had already decided before the first description.
+    """
     # Prepare
     setup = await setup_undercover_game(5)
     room, users = setup["room"], setup["users"]
@@ -145,8 +149,8 @@ async def test_create_5_players(undercover_game_controller, setup_undercover_gam
     roles = [p["role"] for p in players]
 
     assert roles.count(UndercoverRole.MR_WHITE.value) == 1
-    assert roles.count(UndercoverRole.UNDERCOVER.value) == 2
-    assert roles.count(UndercoverRole.CIVILIAN.value) == 2
+    assert roles.count(UndercoverRole.UNDERCOVER.value) == 1
+    assert roles.count(UndercoverRole.CIVILIAN.value) == 3
 
 
 @pytest.mark.asyncio
@@ -534,14 +538,35 @@ async def test_vote_player_not_in_game(undercover_game_controller, setup_underco
 # ========== StartNextRound ==========
 
 
+async def _resolve_round_eliminating_a_civilian(controller, result, session):
+    """Describe, then have every alive player vote out the same civilian (a civilian
+    who is not the victim votes for another civilian), so the round resolves and the
+    game continues. Requires a deal with at least three civilians."""
+    game_uuid = UUID(result.game_id)
+    game = await _get_game(session, result.game_id)
+    for uid in game.live_state["turns"][-1]["description_order"]:
+        await controller.submit_description(game_uuid, UUID(uid), "word")
+    game = await _get_game(session, result.game_id)
+    civilians = [p["user_id"] for p in game.live_state["players"] if p["role"] == UndercoverRole.CIVILIAN.value]
+    victim, fallback = civilians[0], civilians[1]
+    for p in _alive_players(game.live_state):
+        target = fallback if p["user_id"] == victim else victim
+        await controller.submit_vote(game_uuid, UUID(p["user_id"]), UUID(target))
+    return victim
+
+
 @pytest.mark.asyncio
 async def test_next_round_appends_turn(undercover_game_controller, setup_undercover_game, session):
-    """start_next_round adds a new turn, phase reset to 'describing'."""
-    # Prepare
-    setup = await setup_undercover_game(3)
+    """Once a round is resolved, start_next_round adds a describing turn and the
+    state stops reporting the round as resolved."""
+    # Prepare — 4 players, Mr. White cannot be dealt below 5: 3 civilians / 1 undercover
+    setup = await setup_undercover_game(4)
     result = await _start_game(undercover_game_controller, setup["room"].id, setup["users"][0].id)
-
     game_uuid = UUID(result.game_id)
+    await _resolve_round_eliminating_a_civilian(undercover_game_controller, result, session)
+    resolved_state = await undercover_game_controller.get_state(game_uuid, setup["users"][0].id)
+    assert resolved_state.round_resolved is True
+    assert resolved_state.turn_phase == "voting"
 
     # Act
     round_result = await undercover_game_controller.start_next_round(game_uuid, setup["room"].id, setup["users"][0].id)
@@ -552,6 +577,72 @@ async def test_next_round_appends_turn(undercover_game_controller, setup_underco
     assert game.live_state["turns"][1]["phase"] == "describing"
     assert round_result.turn_number == 2
     assert game.game_status == GameStatus.IN_PROGRESS
+    next_state = await undercover_game_controller.get_state(game_uuid, setup["users"][0].id)
+    assert next_state.round_resolved is False
+    assert next_state.turn_number == 2
+
+
+@pytest.mark.asyncio
+async def test_next_round_rejected_while_round_is_open(undercover_game_controller, setup_undercover_game, session):
+    """A host cannot skip the round in progress: the call is rejected and no turn is added."""
+    # Prepare
+    setup = await setup_undercover_game(4)
+    result = await _start_game(undercover_game_controller, setup["room"].id, setup["users"][0].id)
+    game_uuid = UUID(result.game_id)
+
+    # Act / Assert
+    with pytest.raises(BaseError) as exc_info:
+        await undercover_game_controller.start_next_round(game_uuid, setup["room"].id, setup["users"][0].id)
+    assert exc_info.value.status_code == 409
+    game = await _get_game(session, result.game_id)
+    assert len(game.live_state["turns"]) == 1
+    assert game.live_state["turns"][0]["phase"] == "describing"
+
+
+@pytest.mark.asyncio
+async def test_next_round_rejected_while_mr_white_guesses(undercover_game_controller, setup_undercover_game, session):
+    """An eliminated Mr. White owes a guess: the round is resolved but cannot be followed yet."""
+    # Prepare
+    setup, result, game = await _setup_mr_white_voting_phase(undercover_game_controller, setup_undercover_game, session)
+    game_uuid = UUID(result.game_id)
+    mr_white = _find_player_by_role(game.live_state, UndercoverRole.MR_WHITE.value)
+    for p in _alive_players(game.live_state):
+        target = mr_white["user_id"] if p["user_id"] != mr_white["user_id"] else setup["users"][1].id
+        await undercover_game_controller.submit_vote(game_uuid, UUID(p["user_id"]), UUID(str(target)))
+    game = await _get_game(session, result.game_id)
+    assert game.live_state["turns"][-1]["phase"] == "mr_white_guessing"
+
+    # Act / Assert
+    with pytest.raises(BaseError) as exc_info:
+        await undercover_game_controller.start_next_round(game_uuid, setup["room"].id, setup["users"][0].id)
+    assert exc_info.value.status_code == 409
+    game = await _get_game(session, result.game_id)
+    assert len(game.live_state["turns"]) == 1
+
+
+@pytest.mark.parametrize("mr_white_enabled", [True, False])
+@pytest.mark.parametrize("num_players", range(3, MAX_PLAYERS_UNDERCOVER + 1))
+def test_compute_roles_civilians_always_outnumber_impostors(num_players, mr_white_enabled):
+    """Every deal starts with civilians strictly ahead of undercover + Mr. White.
+
+    The win rule hands the impostors the game at parity, so a deal that starts at
+    or past parity is decided before anyone speaks — the old table did exactly that
+    for every 4-6 player game with Mr. White on.
+    """
+    # Act
+    roles = UndercoverGameController._compute_roles(num_players, mr_white_enabled)
+
+    # Assert
+    civilians = roles.count(UndercoverRole.CIVILIAN.value)
+    undercovers = roles.count(UndercoverRole.UNDERCOVER.value)
+    mr_whites = roles.count(UndercoverRole.MR_WHITE.value)
+    assert len(roles) == num_players
+    assert undercovers >= 1
+    assert civilians > undercovers + mr_whites
+    if not mr_white_enabled or num_players < UNDERCOVER_MR_WHITE_MIN_PLAYERS:
+        assert mr_whites == 0
+    else:
+        assert mr_whites >= 1
 
 
 # ========== GetState ==========
@@ -1095,7 +1186,11 @@ async def test_create_4_players_mr_white_disabled(undercover_game_controller, se
 
 @pytest.mark.asyncio
 async def test_create_4_players_mr_white_enabled(undercover_game_controller, setup_undercover_game, session):
-    """4 players with Mr. White enabled: 1 Mr. White, 1 undercover, 2 civilians."""
+    """4 players with Mr. White enabled: no Mr. White (he needs 5), 1 undercover, 3 civilians.
+
+    One undercover plus one Mr. White would already tie two civilians, and the win
+    rule gives the impostors the game at parity.
+    """
     # Prepare
     setup = await setup_undercover_game(4)
     room = setup["room"]
@@ -1110,12 +1205,10 @@ async def test_create_4_players_mr_white_enabled(undercover_game_controller, set
     game = await _get_game(session, result.game_id)
     players = game.live_state["players"]
     roles = [p["role"] for p in players]
-
-    # 4 players: _compute_roles → mr_white=1, undercover=max(2,4//4)=2, civilians=1
-    # But the while loop adjusts: undercover -> 1, civilians -> 2
-    assert roles.count(UndercoverRole.MR_WHITE.value) == 1
     assert len(players) == 4
-    assert roles.count(UndercoverRole.CIVILIAN.value) >= 1
+    assert roles.count(UndercoverRole.MR_WHITE.value) == 0
+    assert roles.count(UndercoverRole.UNDERCOVER.value) == 1
+    assert roles.count(UndercoverRole.CIVILIAN.value) == 3
 
 
 # ========== Spectator State ==========
@@ -1479,6 +1572,15 @@ async def test_mr_white_guess_wrong_game_continues(undercover_game_controller, s
     state = game.live_state
     assert state.get("mr_white_guesser") is None
 
+    # The whole table learns what he guessed, through the round's history (it used to
+    # reach the guesser alone, as a toast).
+    civilian = next(p for p in state["players"] if p["role"] == "civilian")
+    seen = await undercover_game_controller.get_state(game_uuid, UUID(civilian["user_id"]))
+    this_round = next(r for r in seen.vote_history if r.round == len(state["turns"]))
+    assert this_round.mr_white_guess is not None
+    assert this_round.mr_white_guess.word == "completely_wrong_word"
+    assert this_round.mr_white_guess.correct is False
+
 
 @pytest.mark.asyncio
 async def test_mr_white_guess_non_mr_white_rejected(undercover_game_controller, setup_undercover_game, session):
@@ -1617,6 +1719,8 @@ async def test_mr_white_guess_timeout_leaves_a_playable_phase(
     state = game.live_state
     assert "mr_white_guesser" not in state
     assert state["turns"][-1]["phase"] in ("voting", "game_over")
+    # the round records that his time ran out: no word, not the word
+    assert state["turns"][-1]["mr_white_guess"] == {"word": None, "correct": False}
 
     # And landing there does not re-open the elimination.
     eliminated_count = len(state["eliminated_players"])
@@ -1709,3 +1813,331 @@ async def test_vote_history_pairs_each_round_with_its_own_elimination(
     assert len(history) == 1
     assert history[0]["round"] == 1
     assert history[0]["eliminated"]["user_id"] == target
+
+
+# ========== Vote targets stay secret until the round is decided ==========
+
+
+@pytest.mark.asyncio
+async def test_open_round_hides_who_everyone_else_voted_for(undercover_game_controller, setup_undercover_game, session):
+    """The payload must not name a target other players have not committed against yet.
+
+    The UI has only ever rendered "who has voted" out of this dict, but it carried
+    every target — so anyone with the network tab open watched the tally build and
+    voted last with perfect information. In a social-deduction round that is the game.
+    """
+    # Prepare — 5 players in the voting phase, two votes already cast
+    setup, result, game = await _setup_mr_white_voting_phase(undercover_game_controller, setup_undercover_game, session)
+    game_uuid = UUID(result.game_id)
+    alive = _alive_players(game.live_state)
+    voter, other_voter, target = alive[2], alive[3], alive[4]
+
+    await undercover_game_controller.submit_vote(game_uuid, UUID(voter["user_id"]), UUID(target["user_id"]))
+    await undercover_game_controller.submit_vote(game_uuid, UUID(other_voter["user_id"]), UUID(target["user_id"]))
+
+    # Act — the first voter reads the state back
+    state = await undercover_game_controller.get_state(game_uuid, UUID(voter["user_id"]))
+
+    # Assert — both voters are visibly done, but only the caller's own choice is named
+    assert set(state.votes) == {voter["user_id"], other_voter["user_id"]}
+    assert state.votes[voter["user_id"]] == target["user_id"]
+    assert state.votes[other_voter["user_id"]] == ""
+    # ...and the history panel does not publish the open round through the back door
+    assert all(entry["round"] != state.turn_number for entry in state.vote_history)
+
+
+@pytest.mark.asyncio
+async def test_resolved_round_publishes_every_vote(undercover_game_controller, setup_undercover_game, session):
+    """Once the elimination has happened the targets are public — the recap shows them."""
+    # Prepare — 3 players, everyone votes so the round resolves
+    setup, result, game = await _setup_voting_phase(undercover_game_controller, setup_undercover_game, session)
+    game_uuid = UUID(result.game_id)
+    alive = _alive_players(game.live_state)
+
+    await undercover_game_controller.submit_vote(game_uuid, UUID(alive[0]["user_id"]), UUID(alive[1]["user_id"]))
+    await undercover_game_controller.submit_vote(game_uuid, UUID(alive[1]["user_id"]), UUID(alive[0]["user_id"]))
+    await undercover_game_controller.submit_vote(game_uuid, UUID(alive[2]["user_id"]), UUID(alive[0]["user_id"]))
+
+    # Act
+    state = await undercover_game_controller.get_state(game_uuid, UUID(alive[2]["user_id"]))
+
+    # Assert — every target is named now
+    assert state.votes[alive[0]["user_id"]] == alive[1]["user_id"]
+    assert state.votes[alive[1]["user_id"]] == alive[0]["user_id"]
+
+
+# ─── Arabic term forms (TermScript) ───────────────────────────
+#
+# The Arabic form follows exactly the visibility rule of the Latin word: a player
+# gets their OWN word's forms, Mr. White and spectators get none, and both words
+# only appear once the game is over. Every get_state does one batched lookup.
+
+MOSQUE_AR = ("مسجد", "مَسْجِد")
+CHURCH_AR = ("كنيسة", "كَنِيسَة")
+FIXTURE_SCRIPTS = {"mosque": MOSQUE_AR, "church": CHURCH_AR}
+
+
+def _arabic_forms_in(payload: str) -> set[str]:
+    """Which of the fixture's Arabic forms appear anywhere in a serialised state."""
+    return {form for forms in FIXTURE_SCRIPTS.values() for form in forms if form and form in payload}
+
+
+async def _vote_out_mr_white(controller, setup, game_uuid, mr_white) -> None:
+    """Everyone votes for Mr. White (who votes for someone else) — enters the guessing phase."""
+    users = setup["users"]
+    for voter in users:
+        if str(voter.id) == mr_white["user_id"]:
+            other = next(u for u in users if str(u.id) != mr_white["user_id"])
+            await controller.submit_vote(game_uuid, voter.id, other.id)
+        else:
+            await controller.submit_vote(game_uuid, voter.id, UUID(mr_white["user_id"]))
+
+
+async def _reach_mr_white_guess_with_civilian_church(controller, setup_undercover_game, session):
+    """5-player game where the civilians hold "church", voted to Mr. White's guess."""
+    setup, result, game = await _setup_mr_white_voting_phase(controller, setup_undercover_game, session)
+    state = game.live_state
+    state["civilian_word"], state["undercover_word"] = "church", "mosque"
+    game.live_state = state
+    flag_modified(game, "live_state")
+    session.add(game)
+    await session.commit()
+    game_uuid = UUID(result.game_id)
+    mr_white = state["players"][0]
+    await _vote_out_mr_white(controller, setup, game_uuid, mr_white)
+    return setup, game_uuid, mr_white
+
+
+@pytest.mark.asyncio
+async def test_get_state_gives_each_player_only_their_own_word_in_arabic(
+    undercover_game_controller, setup_undercover_game, session, create_term_scripts, count_statements
+):
+    """Civilians get the civilian word's Arabic, the undercover theirs — never the other's."""
+    # Prepare
+    await create_term_scripts(FIXTURE_SCRIPTS)
+    setup = await setup_undercover_game(3)
+    result = await _start_game(undercover_game_controller, setup["room"].id, setup["users"][0].id)
+    game = await _get_game(session, result.game_id)
+    players = game.live_state["players"]
+    counter = count_statements("term_script")
+
+    # Act
+    states = [await undercover_game_controller.get_state(UUID(result.game_id), UUID(p["user_id"])) for p in players]
+
+    # Assert
+    assert counter.count == len(players)  # one batched lookup per request
+    for player_state in states:
+        own_ar, own_vocalized = FIXTURE_SCRIPTS[player_state.my_word]
+        assert player_state.my_word_ar == own_ar
+        assert player_state.my_word_ar_vocalized == own_vocalized
+        assert player_state.word_explanations is None
+        assert _arabic_forms_in(player_state.model_dump_json()) == {own_ar, own_vocalized}
+
+
+@pytest.mark.asyncio
+async def test_get_state_gives_mr_white_no_arabic_word(
+    undercover_game_controller, setup_undercover_game, session, create_term_scripts
+):
+    """Mr. White has no word, so no Arabic form either — not even the civilians'."""
+    # Prepare
+    await create_term_scripts(FIXTURE_SCRIPTS)
+    _setup, result, game = await _setup_mr_white_voting_phase(
+        undercover_game_controller, setup_undercover_game, session
+    )
+    mr_white = game.live_state["players"][0]
+
+    # Act
+    state = await undercover_game_controller.get_state(UUID(result.game_id), UUID(mr_white["user_id"]))
+
+    # Assert
+    assert state.my_role == UndercoverRole.MR_WHITE.value
+    assert state.my_word_ar is None
+    assert state.my_word_ar_vocalized is None
+    assert _arabic_forms_in(state.model_dump_json()) == set()
+
+
+@pytest.mark.asyncio
+async def test_get_state_gives_a_spectator_no_arabic_word_mid_game(
+    undercover_game_controller, setup_undercover_game, session, create_term_scripts, count_statements
+):
+    """A spectator sees no word in any script until the game is over — and costs no lookup."""
+    # Prepare
+    await create_term_scripts(FIXTURE_SCRIPTS)
+    setup = await setup_undercover_game(3)
+    result = await _start_game(undercover_game_controller, setup["room"].id, setup["users"][0].id)
+    spectator = User(
+        username="arabic_spectator", email_address="arabic_spectator@test.com", password=get_password_hash("pw123456")
+    )
+    session.add(spectator)
+    await session.commit()
+    await session.refresh(spectator)
+    session.add(RoomUserLink(room_id=setup["room"].id, user_id=spectator.id, connected=True, is_spectator=True))
+    await session.commit()
+    counter = count_statements("term_script")
+
+    # Act
+    state = await undercover_game_controller.get_state(UUID(result.game_id), spectator.id)
+
+    # Assert
+    assert state.is_spectator is True
+    assert state.my_word_ar is None
+    assert _arabic_forms_in(state.model_dump_json()) == set()
+    assert counter.count == 0
+
+
+@pytest.mark.asyncio
+async def test_word_explanations_carry_both_arabic_forms_once_the_game_is_over(
+    undercover_game_controller, setup_undercover_game, session, create_term_scripts
+):
+    """The game-over screen names both words, so it gets both Arabic forms."""
+    # Prepare
+    await create_term_scripts(FIXTURE_SCRIPTS)
+    _setup, game_uuid, mr_white = await _reach_mr_white_guess_with_civilian_church(
+        undercover_game_controller, setup_undercover_game, session
+    )
+    await undercover_game_controller.submit_mr_white_guess(game_uuid, UUID(mr_white["user_id"]), "church")
+    game = await _get_game(session, str(game_uuid))
+    civilian = next(p for p in game.live_state["players"] if p["role"] == UndercoverRole.CIVILIAN.value)
+
+    # Act
+    state = await undercover_game_controller.get_state(game_uuid, UUID(civilian["user_id"]))
+
+    # Assert
+    assert state.winner == "undercovers"
+    explanations = state.word_explanations
+    assert explanations is not None
+    assert (explanations.civilian_word, explanations.civilian_word_ar) == ("church", CHURCH_AR[0])
+    assert explanations.civilian_word_ar_vocalized == CHURCH_AR[1]
+    assert (explanations.undercover_word, explanations.undercover_word_ar) == ("mosque", MOSQUE_AR[0])
+    assert explanations.undercover_word_ar_vocalized == MOSQUE_AR[1]
+
+
+@pytest.mark.asyncio
+async def test_arabic_forms_are_null_for_a_word_without_a_term_script(
+    undercover_game_controller, setup_undercover_game, session
+):
+    """A word an admin added without an Arabic row still plays — its forms are just null."""
+    # Prepare
+    setup = await setup_undercover_game(3)
+    result = await _start_game(undercover_game_controller, setup["room"].id, setup["users"][0].id)
+    game = await _get_game(session, result.game_id)
+    civilian = next(p for p in game.live_state["players"] if p["role"] == UndercoverRole.CIVILIAN.value)
+
+    # Act
+    state = await undercover_game_controller.get_state(UUID(result.game_id), UUID(civilian["user_id"]))
+
+    # Assert
+    assert state.my_word in FIXTURE_SCRIPTS
+    assert state.my_word_ar is None
+    assert state.my_word_ar_vocalized is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("guess", "expected_correct"),
+    [
+        # Latin
+        ("church", True),
+        ("  CHURCH ", True),
+        # Arabic — plain, vocalised, with the article, with a folded taa marbuta
+        ("كنيسة", True),
+        ("كَنِيسَة", True),
+        ("الكنيسة", True),
+        ("كنيسه", True),
+        # Wrong — including the undercover word, in either script
+        ("mosque", False),
+        ("مسجد", False),
+        ("كنيس", False),
+    ],
+)
+async def test_mr_white_guess_accepts_the_civilian_word_in_latin_or_arabic(
+    undercover_game_controller, setup_undercover_game, session, create_term_scripts, guess, expected_correct
+):
+    """An Arabic-speaking Mr. White typing the civilian word in Arabic wins, like typing the Latin."""
+    # Prepare
+    await create_term_scripts(FIXTURE_SCRIPTS)
+    _setup, game_uuid, mr_white = await _reach_mr_white_guess_with_civilian_church(
+        undercover_game_controller, setup_undercover_game, session
+    )
+
+    # Act
+    response = await undercover_game_controller.submit_mr_white_guess(game_uuid, UUID(mr_white["user_id"]), guess)
+
+    # Assert
+    assert response.correct is expected_correct
+    game = await _get_game(session, str(game_uuid))
+    if expected_correct:
+        assert response.winner == "undercovers"
+        assert game.game_status == GameStatus.FINISHED
+        assert game.live_state["winner"] == "undercovers"
+    else:
+        assert game.game_status == GameStatus.IN_PROGRESS
+        assert game.live_state["turns"][-1]["phase"] == "voting"
+    assert "mr_white_guesser" not in game.live_state
+
+
+@pytest.mark.asyncio
+async def test_game_over_meanings_and_colophon_in_the_requested_language(
+    undercover_game_controller, setup_undercover_game, session
+):
+    """At game over both meanings come back in `lang` (like my_word_hint), with who hosted and when.
+
+    The host's name is the one who STARTED the game, kept in live_state, so a host
+    transfer afterwards does not rename the majlis.
+    """
+    # Prepare
+    setup, game_uuid, mr_white = await _reach_mr_white_guess_with_civilian_church(
+        undercover_game_controller, setup_undercover_game, session
+    )
+    starter = setup["users"][0]
+    await undercover_game_controller.submit_mr_white_guess(game_uuid, UUID(mr_white["user_id"]), "church")
+    game = await _get_game(session, str(game_uuid))
+    game.live_state["civilian_word_hint"] = {"en": "A church", "ar": "كنيسة", "fr": "Une église"}
+    game.live_state["undercover_word_hint"] = {"en": "A mosque", "ar": "مسجد"}
+    flag_modified(game, "live_state")
+    session.add(game)
+    room = (await session.exec(select(Room).where(Room.id == game.room_id))).one()
+    room.owner_id = setup["users"][1].id  # the host moved on after the game
+    session.add(room)
+    await session.commit()
+    civilian = next(p for p in game.live_state["players"] if p["role"] == UndercoverRole.CIVILIAN.value)
+
+    # Act
+    state_ar = await undercover_game_controller.get_state(game_uuid, UUID(civilian["user_id"]), lang="ar")
+    state_fr = await undercover_game_controller.get_state(game_uuid, UUID(civilian["user_id"]), lang="fr")
+
+    # Assert
+    assert state_ar.word_explanations is not None
+    assert state_ar.word_explanations.civilian_word_hint == "كنيسة"
+    assert state_ar.word_explanations.undercover_word_hint == "مسجد"
+    assert state_ar.my_word_hint == "كنيسة"
+    assert state_fr.word_explanations is not None
+    assert state_fr.word_explanations.undercover_word_hint == "A mosque"  # no French → English
+    assert state_ar.host_username == starter.username
+    stored = await _get_game(session, str(game_uuid))
+    assert stored.live_state["host_username"] == starter.username
+    assert state_ar.started_at is not None and state_ar.ended_at is not None
+    assert state_ar.started_at.utcoffset() is not None and state_ar.ended_at.utcoffset() is not None
+    assert state_ar.ended_at >= state_ar.started_at
+
+
+@pytest.mark.asyncio
+async def test_colophon_falls_back_to_the_current_host_for_an_older_game(
+    undercover_game_controller, setup_undercover_game, session
+):
+    """A game started before the host's name was stored reads the room's current host."""
+    # Prepare
+    setup = await setup_undercover_game(3)
+    result = await undercover_game_controller.create_and_start(setup["room"].id, setup["users"][0].id)
+    game = await _get_game(session, result.game_id)
+    del game.live_state["host_username"]
+    flag_modified(game, "live_state")
+    session.add(game)
+    await session.commit()
+
+    # Act
+    state = await undercover_game_controller.get_state(UUID(result.game_id), setup["users"][1].id)
+
+    # Assert
+    assert state.host_username == setup["users"][0].username
+    assert state.ended_at is None

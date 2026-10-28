@@ -8,7 +8,7 @@ from majlisna.api.controllers.stats import StatsController
 from majlisna.api.models.game import GameStatus, GameType
 from majlisna.api.models.relationship import UserGameLink
 from majlisna.api.models.table import Game
-from majlisna.api.schemas.error import UserNotFoundError
+from majlisna.api.schemas.error import InvalidLeaderboardSortError, UserNotFoundError
 from majlisna.api.schemas.stats import DailyGameRecord, GameDurationStats, HeadToHeadStats
 
 
@@ -364,13 +364,45 @@ async def test_get_leaderboard_limit(stats_controller: StatsController, create_u
 
 
 async def test_get_leaderboard_invalid_field(stats_controller: StatsController):
-    """Requesting a leaderboard with a non-existent stat field raises ValueError."""
+    """Ranking by something the leaderboard does not rank by is a 400, not a 500."""
 
     # Arrange — no setup needed
 
     # Act / Assert
-    with pytest.raises(ValueError, match="Invalid stat field"):
+    with pytest.raises(InvalidLeaderboardSortError) as excinfo:
         await stats_controller.get_leaderboard(stat_field="nonexistent_field")
+    assert excinfo.value.status_code == 400
+
+
+async def test_get_leaderboard_rejects_a_column_it_does_not_rank_by(stats_controller: StatsController):
+    """A real UserStats column outside the whitelist is refused too (it used to be getattr)."""
+
+    # Act / Assert
+    with pytest.raises(InvalidLeaderboardSortError):
+        await stats_controller.get_leaderboard(stat_field="user_id")
+
+
+async def test_get_leaderboard_by_win_rate(stats_controller: StatsController, create_user):
+    """`win_rate` ranks by won / played (it is not a column), ties broken by wins."""
+
+    # Arrange — perfect: 2/2 (100 %), single: 1/1 (100 %), half: 1/2 (50 %), none: 0/1
+    perfect = await create_user(username="perfect", email="perfect@test.com")
+    single = await create_user(username="single", email="single@test.com")
+    half = await create_user(username="half", email="half@test.com")
+    none = await create_user(username="none", email="none@test.com")
+    for _ in range(2):
+        await stats_controller.update_stats_after_game(perfect.id, "undercover", won=True, role="civilian")
+    await stats_controller.update_stats_after_game(single.id, "undercover", won=True, role="civilian")
+    await stats_controller.update_stats_after_game(half.id, "undercover", won=True, role="civilian")
+    await stats_controller.update_stats_after_game(half.id, "undercover", won=False, role="civilian")
+    await stats_controller.update_stats_after_game(none.id, "undercover", won=False, role="civilian")
+
+    # Act
+    leaderboard = await stats_controller.get_leaderboard(stat_field="win_rate", limit=10)
+
+    # Assert
+    assert [e.user_id for e in leaderboard] == [perfect.id, single.id, half.id, none.id]
+    assert [e.win_rate for e in leaderboard] == [100.0, 100.0, 50.0, 0.0]
 
 
 async def test_update_stats_multiple_games(stats_controller: StatsController, create_user):

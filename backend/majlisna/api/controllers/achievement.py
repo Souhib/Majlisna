@@ -575,16 +575,16 @@ class AchievementController:
         unlock_rows = (
             await self.session.exec(
                 select(UserAchievement.achievement_id, func.count())
-                .where(UserAchievement.unlocked_at.is_not(None))  # type: ignore[union-attr]
-                .group_by(UserAchievement.achievement_id)  # type: ignore[arg-type]
+                .where(UserAchievement.unlocked_at.is_not(None))  # ty: ignore[unresolved-attribute]
+                .group_by(UserAchievement.achievement_id)  # ty: ignore[invalid-argument-type]
             )
         ).all()
         unlock_counts: dict[UUID, int] = {row[0]: row[1] for row in unlock_rows}
 
         entries: list[AchievementWithProgress] = []
         for defn in all_definitions:
-            ua = ua_map.get(defn.id)  # type: ignore[arg-type]
-            unlocked_count = unlock_counts.get(defn.id, 0)  # type: ignore[arg-type]
+            ua = ua_map.get(defn.id)
+            unlocked_count = unlock_counts.get(defn.id, 0)
             rarity = round((unlocked_count / total_users) * 100, 1) if total_users > 0 else 0.0
             entries.append(
                 AchievementWithProgress(
@@ -622,7 +622,7 @@ class AchievementController:
         existing = await self.session.exec(
             select(UserAchievement).where(
                 UserAchievement.user_id == user_id,
-                UserAchievement.unlocked_at.is_not(None),  # type: ignore[union-attr]
+                UserAchievement.unlocked_at.is_not(None),  # ty: ignore[unresolved-attribute]
             )
         )
         unlocked_ids: set[UUID] = {ua.achievement_id for ua in existing.all()}
@@ -640,7 +640,7 @@ class AchievementController:
 
             current_value = getattr(stats, stat_field, 0)
             if current_value >= defn.threshold:
-                await self.unlock_achievement(user_id, defn.id, commit=commit)  # type: ignore[arg-type]
+                await self.unlock_achievement(user_id, defn.id, commit=commit)
                 newly_unlocked.append(defn)
 
         return newly_unlocked
@@ -693,7 +693,9 @@ class AchievementController:
         in the database.
         """
         existing_codes_result = await self.session.exec(select(AchievementDefinition.code))
-        existing_codes: set[str] = set(existing_codes_result.all())
+        # `exec(select(Column))` yields scalars at runtime; ty resolves the
+        # row-tuple overload instead, so it reads the result as `Sequence[...]`.
+        existing_codes: set[str] = set(existing_codes_result.all())  # ty: ignore[invalid-assignment]
 
         for defn_data in ACHIEVEMENT_DEFINITIONS:
             if defn_data["code"] in existing_codes:

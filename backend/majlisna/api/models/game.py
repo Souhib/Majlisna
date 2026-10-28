@@ -23,6 +23,12 @@ class GameStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
+class GamePauseReason(StrEnum):
+    """Why a running game was paused. Stored in ``live_state["paused"]["reason"]``."""
+
+    SALAH = "salah"  # the adhan came: وقفة الصلاة
+
+
 class GameBase(DBModel):
     start_time: datetime = Field(
         default_factory=lambda: datetime.now(UTC),

@@ -321,7 +321,8 @@ class ChallengeController:
     async def seed_challenges(self) -> None:
         """Create all ChallengeDefinition records if they don't already exist."""
         existing_codes_result = await self.session.exec(select(ChallengeDefinition.code))
-        existing_codes: set[str] = set(existing_codes_result.all())
+        # Scalar select read as a row tuple — see AchievementController.seed_achievements.
+        existing_codes: set[str] = set(existing_codes_result.all())  # ty: ignore[invalid-assignment]
 
         for defn_data in CHALLENGE_DEFINITIONS:
             if defn_data["code"] in existing_codes:
@@ -369,7 +370,7 @@ class ChallengeController:
             return []
 
         definitions = (
-            await self.session.exec(select(ChallengeDefinition).where(ChallengeDefinition.id.in_(challenge_ids)))  # type: ignore[attr-defined,union-attr]
+            await self.session.exec(select(ChallengeDefinition).where(ChallengeDefinition.id.in_(challenge_ids)))  # ty: ignore[unresolved-attribute]
         ).all()
         defn_map = {d.id: d for d in definitions}
 
@@ -380,7 +381,7 @@ class ChallengeController:
                 continue
             results.append(
                 ActiveChallenge(
-                    id=uc.id,  # type: ignore[arg-type]
+                    id=uc.id,
                     code=defn.code,
                     description=defn.description,
                     challenge_type=defn.challenge_type.value,
@@ -422,7 +423,7 @@ class ChallengeController:
 
         challenge_ids = [c.challenge_id for c in active]
         definitions = (
-            await self.session.exec(select(ChallengeDefinition).where(ChallengeDefinition.id.in_(challenge_ids)))  # type: ignore[attr-defined,union-attr]
+            await self.session.exec(select(ChallengeDefinition).where(ChallengeDefinition.id.in_(challenge_ids)))  # ty: ignore[unresolved-attribute]
         ).all()
         defn_map = {d.id: d for d in definitions}
 
@@ -441,7 +442,7 @@ class ChallengeController:
                 uc.completed = True
                 newly_completed.append(
                     ActiveChallenge(
-                        id=uc.id,  # type: ignore[arg-type]
+                        id=uc.id,
                         code=defn.code,
                         description=defn.description,
                         challenge_type=defn.challenge_type.value,
@@ -494,7 +495,7 @@ class ChallengeController:
             for defn in chosen:
                 uc = UserChallenge(
                     user_id=user_id,
-                    challenge_id=defn.id,  # type: ignore[arg-type]
+                    challenge_id=defn.id,
                     progress=0,
                     completed=False,
                     assigned_at=now,
@@ -514,7 +515,7 @@ class ChallengeController:
             for defn in chosen:
                 uc = UserChallenge(
                     user_id=user_id,
-                    challenge_id=defn.id,  # type: ignore[arg-type]
+                    challenge_id=defn.id,
                     progress=0,
                     completed=False,
                     assigned_at=now,

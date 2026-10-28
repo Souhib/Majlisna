@@ -1,13 +1,15 @@
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
 from sqlmodel import select
 
+from majlisna.api.constants import GRACE_PERIOD_SECONDS, LOBBY_GRACE_PERIOD_SECONDS, PAUSED_GAME_GRACE_PERIOD_SECONDS
 from majlisna.api.controllers.room import RoomController
-from majlisna.api.models.game import GameType
+from majlisna.api.models.game import GameStatus, GameType
 from majlisna.api.models.relationship import RoomUserLink
 from majlisna.api.models.room import RoomJoin, RoomType
-from majlisna.api.models.table import Room, User
+from majlisna.api.models.table import Game, Room, User
 from majlisna.api.schemas.error import (
     BaseError,
     RoomNotFoundError,
@@ -456,6 +458,123 @@ async def test_get_room_state_success(sample_owner: User, sample_room: Room, roo
     assert owner_player.is_connected is True
 
 
+async def _mark_away(session, room_id, user_id, seconds_ago: float) -> None:
+    """Mark a member disconnected `seconds_ago` (naive, like every RoomUserLink timestamp)."""
+    link = (
+        await session.exec(
+            select(RoomUserLink).where(RoomUserLink.room_id == room_id).where(RoomUserLink.user_id == user_id)
+        )
+    ).one()
+    link.connected = False
+    link.disconnected_at = datetime.now() - timedelta(seconds=seconds_ago)
+    session.add(link)
+    await session.commit()
+
+
+async def test_room_state_counts_down_an_away_members_lobby_grace(
+    create_user, create_room, room_controller: RoomController, session
+):
+    """An away member carries the whole seconds left of the lobby's 10-minute grace; a present one carries null."""
+    # Arrange
+    owner = await create_user(username="host", email="host@test.com")
+    guest = await create_user(username="guest", email="guest@test.com")
+    room = await create_room(owner=owner)
+    await room_controller.join_room(RoomJoin(public_room_id=room.public_id, password=room.password), guest.id)
+    await _mark_away(session, room.id, guest.id, seconds_ago=2.5)
+
+    # Act
+    state = await room_controller.get_room_state(room.id, owner.id)
+
+    # Assert
+    by_id = {p.user_id: p for p in state.players}
+    assert by_id[str(owner.id)].away_seconds_left is None
+    away = by_id[str(guest.id)]
+    assert away.is_disconnected is True
+    # 600 - 2.5 s, rounded up; a little slack for the test's own run time
+    assert LOBBY_GRACE_PERIOD_SECONDS - 4 <= away.away_seconds_left <= LOBBY_GRACE_PERIOD_SECONDS - 2
+    link = (
+        await session.exec(
+            select(RoomUserLink).where(RoomUserLink.room_id == room.id).where(RoomUserLink.user_id == guest.id)
+        )
+    ).one()
+    assert link.disconnected_at is not None and link.disconnected_at.tzinfo is None  # still naive
+
+
+async def test_room_state_uses_the_running_games_shorter_grace_and_never_goes_negative(
+    create_user, create_room, room_controller: RoomController, session
+):
+    """With a game running the grace is 3 minutes; a member past it reads 0 (due at the next sweep)."""
+    # Arrange
+    owner = await create_user(username="host", email="host@test.com")
+    late = await create_user(username="late", email="late@test.com")
+    gone = await create_user(username="gone", email="gone@test.com")
+    room = await create_room(owner=owner)
+    for user in (late, gone):
+        await room_controller.join_room(RoomJoin(public_room_id=room.public_id, password=room.password), user.id)
+    game = Game(
+        room_id=room.id,
+        number_of_players=3,
+        type=GameType.UNDERCOVER,
+        game_status=GameStatus.IN_PROGRESS,
+        live_state={"players": []},
+    )
+    session.add(game)
+    await session.commit()
+    room.active_game_id = game.id
+    session.add(room)
+    await session.commit()
+    await _mark_away(session, room.id, late.id, seconds_ago=60)
+    await _mark_away(session, room.id, gone.id, seconds_ago=GRACE_PERIOD_SECONDS + 30)
+
+    # Act
+    state = await room_controller.get_room_state(room.id, owner.id)
+
+    # Assert
+    by_id = {p.user_id: p for p in state.players}
+    assert GRACE_PERIOD_SECONDS - 62 <= by_id[str(late.id)].away_seconds_left <= GRACE_PERIOD_SECONDS - 60
+    assert by_id[str(gone.id)].away_seconds_left == 0
+
+
+async def test_room_state_keeps_the_prayer_grace_while_the_game_is_paused(
+    create_user, create_room, room_controller: RoomController, session
+):
+    """A paused game keeps away players for 45 minutes, and the countdown says so."""
+    # Arrange
+    owner = await create_user(username="host", email="host@test.com")
+    guest = await create_user(username="guest", email="guest@test.com")
+    room = await create_room(owner=owner)
+    await room_controller.join_room(RoomJoin(public_room_id=room.public_id, password=room.password), guest.id)
+    game = Game(
+        room_id=room.id,
+        number_of_players=2,
+        type=GameType.UNDERCOVER,
+        game_status=GameStatus.IN_PROGRESS,
+        live_state={
+            "players": [],
+            "paused": {
+                "by": str(owner.id),
+                "by_username": "host",
+                "at": datetime.now(UTC).isoformat(),
+                "reason": "salah",
+            },
+        },
+    )
+    session.add(game)
+    await session.commit()
+    room.active_game_id = game.id
+    session.add(room)
+    await session.commit()
+    await _mark_away(session, room.id, guest.id, seconds_ago=GRACE_PERIOD_SECONDS + 60)
+
+    # Act
+    state = await room_controller.get_room_state(room.id, owner.id)
+
+    # Assert
+    away = next(p for p in state.players if p.user_id == str(guest.id))
+    expected = PAUSED_GAME_GRACE_PERIOD_SECONDS - GRACE_PERIOD_SECONDS - 60
+    assert expected - 2 <= away.away_seconds_left <= expected
+
+
 # === Leave / Rejoin / Ghost Room Prevention ===
 
 
@@ -708,3 +827,92 @@ async def test_join_as_spectator_with_non_ascii_pin_is_rejected_not_crashed(
     # Act / Assert
     with pytest.raises(WrongRoomPasswordError):
         await room_controller.join_room_as_spectator(room.id, watcher.id, "日本語")
+
+
+@pytest.mark.asyncio
+async def test_membership_of_an_inactive_room_does_not_block_creating_one(room_controller, session, create_user):
+    """Only a LIVE room may stand in the way of a new one.
+
+    A room is deactivated when its last *connected* member leaves, which leaves the
+    links of anyone currently marked disconnected behind — and Socket.IO `connect`
+    flips such a link back to connected on the next reconnect. Without the join on
+    Room.type that stale link barred the player from ever creating a room again,
+    while `get_active_room_for_user` (which does filter on ACTIVE) reported no room
+    to leave, so the UI offered no way out either.
+    """
+    # Prepare — a live membership in a room that has since been closed
+    user = await create_user(username="stranded", email="stranded@test.com", password="password123")
+    room = await room_controller.create_room(user.id, GameType.UNDERCOVER)
+    room.type = RoomType.INACTIVE
+    session.add(room)
+    await session.commit()
+
+    # Act
+    new_room = await room_controller.create_room(user.id, GameType.UNDERCOVER)
+
+    # Assert
+    assert new_room.id != room.id
+    assert new_room.type == RoomType.ACTIVE
+    assert await room_controller.get_active_room_for_user(user.id) is not None
+
+
+@pytest.mark.asyncio
+async def test_membership_of_an_active_room_still_blocks_creating_one(room_controller, create_user):
+    """The guard itself is unchanged: one live room per player."""
+    # Prepare
+    user = await create_user(username="busy", email="busy@test.com", password="password123")
+    await room_controller.create_room(user.id, GameType.UNDERCOVER)
+
+    # Act / Assert
+    with pytest.raises(UserAlreadyInRoomError):
+        await room_controller.create_room(user.id, GameType.UNDERCOVER)
+
+
+async def test_room_state_lists_members_in_the_order_they_sat_down(
+    create_user, create_room, room_controller: RoomController, session
+):
+    """Members come in join order, however their link rows were touched since.
+
+    Without an ORDER BY the rows came back in heap order, which moves whenever a link
+    is updated (every heartbeat): two phones seated the same table differently.
+    """
+    # Arrange: three guests, then the FIRST one's link is rewritten (a heartbeat)
+    owner = await create_user(username="host", email="host@test.com")
+    room = await create_room(owner=owner)
+    guests = []
+    for name in ("maryam", "idris", "hafsa"):
+        guest = await create_user(username=name, email=f"{name}@test.com")
+        await room_controller.join_room(RoomJoin(public_room_id=room.public_id, password=room.password), guest.id)
+        guests.append(guest)
+    links = (await session.exec(select(RoomUserLink).where(RoomUserLink.room_id == room.id))).all()
+    base = datetime.now() - timedelta(minutes=10)
+    order = [owner, *guests]
+    for link in links:
+        link.joined_at = base + timedelta(seconds=[u.id for u in order].index(link.user_id))
+        session.add(link)
+    await session.commit()
+    first_guest_link = next(link for link in links if link.user_id == guests[0].id)
+    first_guest_link.last_seen_at = datetime.now()
+    session.add(first_guest_link)
+    await session.commit()
+
+    # Act
+    state = await room_controller.get_room_state(room.id, owner.id)
+
+    # Assert
+    assert [p.username for p in state.players] == ["host", "maryam", "idris", "hafsa"]
+
+
+async def test_update_room_settings_keeps_the_hosts_game_pick(
+    sample_owner: User,
+    sample_room: Room,
+    room_controller: RoomController,
+):
+    """The host's pick in the lobby is stored, and every member's room state reads it."""
+    # Act
+    await room_controller.update_room_settings(sample_room.id, sample_owner.id, RoomSettings(game_type="codenames"))
+    state = await room_controller.get_room_state(sample_room.id, sample_owner.id)
+
+    # Assert
+    assert state.game_type == "codenames"
+    assert state.settings is not None and state.settings.game_type == "codenames"

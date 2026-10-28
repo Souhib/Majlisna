@@ -49,7 +49,14 @@ dev = [
     "freezegun>=1.4.0",
     "testcontainers>=4.8.0",
     "ruff>=0.7.0",
-    "mypy>=1.11.0",
+    # Exact pin, not a floor. ty is pre-1.0 and its diagnostics change between
+    # releases: a range would let a fresh CI checkout resolve a version that
+    # reports errors the developer's lockfile never showed. Upgrading is a
+    # deliberate act — bump this, run `uv run poe typecheck`, adjust suppressions.
+    "ty==0.0.63",
+    # Stub packages. ty consumes the same `.pyi` distributions mypy did, so these
+    # are not mypy leftovers: they are what gives the auth path (passlib, jose)
+    # real types instead of Unknown.
     "types-passlib>=1.7.0",
     "pre-commit>=4.0.0",
 ]
@@ -95,11 +102,16 @@ omit = [
 # Check commands (CI mode)
 lint = "ruff check majlisna/ tests/"
 format-check = "ruff format --check majlisna/ tests/"
-# mypy is part of `check` — and of the CI backend job — because a type checker that
-# nobody runs is worse than none: .pre-commit-config.yaml claimed it for months while
-# the hook was not installed and the package had 311 errors. Scope is majlisna/ only,
-# matching the hook.
-typecheck = "mypy majlisna/"
+# Type checking is part of `check` — and of the CI backend job — because a type checker
+# that nobody runs is worse than none: .pre-commit-config.yaml claimed one for months
+# while the hook was not installed and the package had 311 errors. Scope is majlisna/
+# only, matching the hook.
+#
+# `--error-on-warning` is load-bearing: ty reports `deprecated`,
+# `possibly-missing-submodule` and `unused-type-ignore-comment` as warnings, which do
+# not fail the run by default. The second of those is what caught a broken `except`
+# clause in the email service, so warnings gate here just like errors.
+typecheck = "ty check majlisna/ --error-on-warning"
 check = ["lint", "format-check", "typecheck"]
 
 # Fix commands
@@ -123,19 +135,24 @@ dev = [
     "types-python-jose>=3.5.0.20260408",
 ]
 
-[tool.mypy]
+[tool.ty.environment]
 # Pinned to the version CI and the production image run (Dockerfile: python:3.12-slim).
-# Without this, mypy analyses against whatever interpreter is local — and a developer on
-# 3.13 can get a clean run for code CI rejects.
-python_version = "3.12"
+# Without this, ty analyses against whatever interpreter the local .venv holds — and a
+# developer on 3.13 can get a clean run for code CI rejects. This is the same reason
+# the mypy config it replaces pinned `python_version`.
+python-version = "3.12"
 
-# NOTE on caching: a warm .mypy_cache can hide missing-stub errors that a cold run
-# reports, which is how a "clean" local run shipped a failing CI job once. CI is always
-# cold; if a result surprises you, `rm -rf .mypy_cache` before believing it.
+[tool.ty.src]
+# Scope matches the poe task, the pre-commit hook and the CI step: the shipped
+# package only. Tests and the seeding script are deliberately outside it — they
+# construct half-built models and monkeypatch freely, and the value of a type
+# checker here is on the code that runs in production.
+include = ["majlisna"]
 
-[[tool.mypy.overrides]]
-# python-socketio ships neither stubs nor a py.typed marker. Scoped to this module
-# rather than set globally, so a genuinely missing stub for a typed dependency still
-# surfaces instead of being silently swallowed.
-module = ["socketio", "socketio.*"]
-ignore_missing_imports = true
+[tool.ty.rules]
+# Everything else stays at its default severity. In particular `deprecated`,
+# `possibly-missing-submodule` and `unused-type-ignore-comment` are WARNINGS by
+# default and the gate runs with `--error-on-warning`, so they fail the build like
+# an error: `possibly-missing-submodule` is what found the `resend.exceptions.ApiError`
+# handler that did not exist (see api/services/email.py), and a rule that found a
+# production bug does not get to be advisory.

@@ -40,7 +40,10 @@ async def get_game_lock(game_id: str, session: AsyncSession | None = None) -> As
             lock_key = _game_id_to_lock_key(game_id)
             elapsed = 0.0
             while elapsed < LOCK_TIMEOUT_SECONDS:
-                result = await session.execute(text("SELECT pg_try_advisory_xact_lock(:key)"), {"key": lock_key})
+                # `execute`, not `exec`: SQLModel deprecates it in favour of `exec`, but
+                # `exec` is typed for Select statements only and cannot carry raw SQL
+                # with bound parameters.
+                result = await session.execute(text("SELECT pg_try_advisory_xact_lock(:key)"), {"key": lock_key})  # ty: ignore[deprecated]
                 acquired = result.scalar()
                 if acquired:
                     break

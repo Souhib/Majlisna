@@ -1,16 +1,24 @@
 from uuid import uuid4
 
 import pytest
+from pydantic import ValidationError
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from majlisna.api.controllers.shared import get_password_hash, verify_password
 from majlisna.api.controllers.user import UserController
+from majlisna.api.models.game import GameCreate, GameStatus, GameType
+from majlisna.api.models.notebook import NotebookEntry, NotebookGameType
 from majlisna.api.models.room import RoomType
 from majlisna.api.models.stats import UserStats
 from majlisna.api.models.table import Room, User
 from majlisna.api.models.user import UserCreate, UserUpdate
-from majlisna.api.schemas.error import InvalidCredentialsError, UserAlreadyExistsError, UserNotFoundError
+from majlisna.api.schemas.error import (
+    InvalidCredentialsError,
+    UserAlreadyExistsError,
+    UsernameAlreadyTakenError,
+    UserNotFoundError,
+)
 
 
 async def test_create_user_success(user_controller: UserController):
@@ -145,6 +153,61 @@ async def test_update_user_success(user_controller: UserController):
     assert updated_user.country is None
 
 
+async def test_update_user_rejects_another_accounts_username_in_any_case(
+    user_controller: UserController, session: AsyncSession, create_user
+):
+    """A rename onto someone else's name (any case) is a named 409 and changes nothing."""
+    # Arrange
+    await create_user(username="Maryam", email="maryam@test.com")
+    bilal = await create_user(username="bilal", email="bilal@test.com")
+
+    # Act & Assert
+    with pytest.raises(UsernameAlreadyTakenError):
+        await user_controller.update_user_by_id(bilal.id, UserUpdate(username="maryam"))
+    await session.refresh(bilal)
+    assert bilal.username == "bilal"
+
+
+async def test_update_user_may_recase_their_own_username(
+    user_controller: UserController, session: AsyncSession, create_user
+):
+    """Changing only the case of one's own name is not a collision with oneself."""
+    # Arrange
+    yusuf = await create_user(username="yusuf", email="yusuf@test.com")
+
+    # Act
+    updated = await user_controller.update_user_by_id(yusuf.id, UserUpdate(username="Yusuf"))
+
+    # Assert
+    assert updated.username == "Yusuf"
+    fetched = (await session.exec(select(User).where(User.id == yusuf.id))).one()
+    assert fetched.username == "Yusuf"
+
+
+async def test_create_user_rejects_a_taken_username(
+    user_controller: UserController, session: AsyncSession, create_user
+):
+    """The internal create path applies the same rule as registration."""
+    # Arrange
+    await create_user(username="Admin", email="admin@test.com")
+
+    # Act & Assert
+    with pytest.raises(UsernameAlreadyTakenError):
+        await user_controller.create_user(
+            UserCreate(username="admin", email_address="other@test.com", password="pw123456")
+        )
+    rows = (await session.exec(select(User).where(User.email_address == "other@test.com"))).all()
+    assert rows == []
+
+
+@pytest.mark.parametrize("username", ["admin ", "ad min", "a<b>c", "me@home"])
+def test_user_update_refuses_the_shapes_registration_refuses(username: str):
+    """A rename obeys registration's shape rule, so "admin " cannot slip past the taken check."""
+    # Act & Assert
+    with pytest.raises(ValidationError):
+        UserUpdate(username=username)
+
+
 async def test_update_user_partial(user_controller: UserController):
     """Partially updating a user only changes the specified field, leaving others intact."""
     # Arrange
@@ -259,16 +322,24 @@ async def test_delete_user_account_success(user_controller: UserController, sess
 
 
 async def test_delete_user_account_with_related_data(
-    user_controller: UserController, session: AsyncSession, create_user, create_room
+    user_controller: UserController, session: AsyncSession, create_user, create_room, game_controller
 ):
-    """Deleting an account that owns a room and has stats succeeds (no FK violation)."""
-    # Prepare — a user who owns a room (via create_room) and has a stats row
+    """Deleting an account that owns a room, has stats and kept words succeeds (no FK violation)."""
+    # Prepare — a user who owns a room (via create_room), has a stats row, and has
+    # kept words from a finished game in their notebook
     user = await create_user(username="richuser", email="rich@test.com", password="mypassword")
     user.password = get_password_hash("mypassword")
     session.add(user)
     await session.commit()
     room = await create_room(owner=user)
     session.add(UserStats(user_id=user.id))
+    game = await game_controller.create_game(GameCreate(room_id=room.id, type=GameType.UNDERCOVER, number_of_players=1))
+    game.game_status = GameStatus.FINISHED
+    session.add(game)
+    session.add(
+        NotebookEntry(user_id=user.id, term="Sabr", game_type=NotebookGameType.UNDERCOVER, source_game_id=game.id)
+    )
+    session.add(NotebookEntry(user_id=user.id, term="Uhud", game_type=NotebookGameType.CODENAMES))
     await session.commit()
 
     # Act
@@ -281,6 +352,7 @@ async def test_delete_user_account_with_related_data(
     assert refreshed_room.owner_id is None
     assert refreshed_room.type == RoomType.INACTIVE
     assert (await session.exec(select(UserStats).where(UserStats.user_id == user.id))).first() is None
+    assert (await session.exec(select(NotebookEntry).where(NotebookEntry.user_id == user.id))).all() == []
 
 
 async def test_delete_user_account_wrong_password(user_controller: UserController, session: AsyncSession, create_user):

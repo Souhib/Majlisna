@@ -30,6 +30,7 @@ from majlisna.api.schemas.error import (  # noqa: F401
     TermPairNotFoundError,
     UserAlreadyExistsError,
     UserAlreadyInRoomError,
+    UsernameAlreadyTakenError,
     UserNotFoundError,
     UserNotInRoomError,
     WordAlreadyExistsError,

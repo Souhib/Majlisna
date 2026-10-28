@@ -17,6 +17,7 @@ from majlisna.api.controllers.friend import FriendController
 from majlisna.api.controllers.game import GameController
 from majlisna.api.controllers.mcqquiz import McqQuizController
 from majlisna.api.controllers.mcqquiz_game import McqQuizGameController
+from majlisna.api.controllers.notebook import NotebookController
 from majlisna.api.controllers.profile import ProfileController
 from majlisna.api.controllers.room import RoomController
 from majlisna.api.controllers.stats import StatsController
@@ -38,7 +39,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=F
 @lru_cache
 def get_settings() -> Settings:
     """Get cached application settings."""
-    return Settings()  # type: ignore
+    return Settings()
 
 
 async def get_engine() -> AsyncEngine:
@@ -133,8 +134,16 @@ async def get_current_user(
 
     payload = auth_controller.decode_token(effective_token, expected_type=TOKEN_TYPE_ACCESS)
     user = await auth_controller.get_user_by_email(payload.email)
-    if user is None:
+    # The token must name the same account by BOTH claims. Resolving on `email`
+    # alone (and never looking at `sub`) meant a token stayed valid across a
+    # delete-and-re-register of the same address: the new owner of that mailbox
+    # inherited every session still holding the old token. `/auth/refresh`
+    # already checked this; the request path did not.
+    if user is None or str(user.id) != payload.sub:
         raise InvalidTokenError("User not found for token")
+    # Who is asking, for the per-user rate limits (rate_limit.user_or_ip_key) — set
+    # only once the token has been verified against the account.
+    request.state.user_id = str(user.id)
     return user
 
 
@@ -253,6 +262,13 @@ async def get_mcqquiz_game_controller(
 ) -> McqQuizGameController:
     """Get McqQuizGameController with injected session."""
     return McqQuizGameController(session)
+
+
+async def get_notebook_controller(
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> NotebookController:
+    """Get NotebookController with injected session."""
+    return NotebookController(session)
 
 
 def get_email_service(

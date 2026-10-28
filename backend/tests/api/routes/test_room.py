@@ -1,7 +1,7 @@
 """Route-level tests for room endpoints (prefix /api/v1/rooms)."""
 
 from datetime import datetime
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 from uuid import uuid4
 
 from fastapi import FastAPI
@@ -17,6 +17,7 @@ from majlisna.api.schemas.error import (
     UserNotInRoomError,
     WrongRoomPasswordError,
 )
+from majlisna.api.schemas.room import KickPlayerResponse
 from majlisna.dependencies import get_current_user, get_room_controller
 
 BASE_URL = "/api/v1/rooms"
@@ -395,6 +396,75 @@ def test_leave_room_success(test_app: FastAPI, client: TestClient) -> None:
         assert data["created_at"] == created_at.isoformat()
         assert data["users"] == []
         assert "games" not in data
+    finally:
+        test_app.dependency_overrides.clear()
+
+
+def test_leave_room_notifies_the_room_and_its_game(test_app: FastAPI, client: TestClient) -> None:
+    """A leave goes through notify_member_removed, which reaches a running game too.
+
+    Leaving mid-game eliminates the leaver; with only a room_state the game pages
+    (which refetch on game_updated) stayed on a stale game.
+    """
+    # Arrange
+    mock_controller = Mock(spec=RoomController)
+    room_id = uuid4()
+    mock_room = Room(
+        id=room_id, public_id="LEV89", owner_id=uuid4(), password="5678", status=RoomStatus.ONLINE, type=RoomType.ACTIVE
+    )
+    mock_room.users = []
+    mock_room.games = []
+    mock_controller.leave_room = AsyncMock(return_value=mock_room)
+    test_app.dependency_overrides[get_current_user] = lambda: User(id=uuid4(), username="l", email_address="l@test.com")
+    test_app.dependency_overrides[get_room_controller] = lambda: mock_controller
+
+    try:
+        with (
+            patch(
+                "majlisna.api.routes.room.get_active_game_id", new_callable=AsyncMock, return_value="game-1"
+            ) as lookup,
+            patch("majlisna.api.routes.room.notify_member_removed", new_callable=AsyncMock) as notify,
+        ):
+            # Act
+            response = client.patch(f"{BASE_URL}/leave", json={"room_id": str(room_id)})
+
+        # Assert — the game is read BEFORE the leave (which can end it) and signalled
+        assert response.status_code == 200
+        lookup.assert_awaited_once_with(str(room_id))
+        notify.assert_awaited_once_with(str(room_id), "game-1")
+    finally:
+        test_app.dependency_overrides.clear()
+
+
+def test_kick_player_notifies_the_room_and_its_game(test_app: FastAPI, client: TestClient) -> None:
+    """A kick reaches the running game as well: the kicked player is eliminated from it."""
+    # Arrange
+    mock_controller = Mock(spec=RoomController)
+    room_id = uuid4()
+    target_id = uuid4()
+    mock_controller.kick_player = AsyncMock(return_value=KickPlayerResponse(message="Player kicked"))
+    test_app.dependency_overrides[get_current_user] = lambda: User(id=uuid4(), username="h", email_address="h@test.com")
+    test_app.dependency_overrides[get_room_controller] = lambda: mock_controller
+
+    try:
+        order: list[str] = []
+        mock_controller.kick_player.side_effect = lambda *_: (
+            order.append("kick") or KickPlayerResponse(message="Player kicked")
+        )
+
+        lookup = AsyncMock(side_effect=lambda _room_id: order.append("lookup") or "game-1")
+
+        with (
+            patch("majlisna.api.routes.room.get_active_game_id", lookup),
+            patch("majlisna.api.routes.room.notify_member_removed", new_callable=AsyncMock) as notify,
+        ):
+            # Act
+            response = client.patch(f"{BASE_URL}/{room_id}/kick", json={"user_id": str(target_id)})
+
+        # Assert — the game is read BEFORE the kick (which can end it) and signalled
+        assert response.status_code == 200
+        assert order == ["lookup", "kick"]
+        notify.assert_awaited_once_with(str(room_id), "game-1")
     finally:
         test_app.dependency_overrides.clear()
 

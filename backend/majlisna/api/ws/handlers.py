@@ -9,6 +9,7 @@ from majlisna.api.controllers.disconnect import mark_user_disconnected, update_h
 from majlisna.api.models.relationship import RoomUserLink
 from majlisna.api.models.table import Game
 from majlisna.api.schemas.error import InvalidTokenError, TokenExpiredError
+from majlisna.api.utils.multilingual import normalize_lang
 from majlisna.api.ws.notify import fire_notify_room_changed
 from majlisna.api.ws.server import sio
 from majlisna.api.ws.state import fetch_game_state, fetch_room_state
@@ -19,44 +20,96 @@ from majlisna.settings import Settings
 _user_sids: dict[str, str] = {}
 
 
-@sio.event
-async def connect(sid, environ, auth):  # noqa: ARG001
-    """Authenticate user, join room, update heartbeat, and deduplicate connections."""
-    if not auth or not auth.get("token") or not auth.get("room_id"):
-        raise ConnectionRefusedError("Missing auth token or room_id")
+async def _connect_personal(sid: str, token: str) -> None:
+    """A connection with no room: the signed-in player's own channel (``user:{id}``).
 
-    token = auth["token"]
-    room_id = auth["room_id"]
+    The app shell keeps one open on every signed-in page so a friend's room invite
+    reaches the player wherever they are. It joins nothing else, sends no room
+    state and records no heartbeat: there is no room to be present in.
 
+    It used to be refused ("Missing auth token or room_id"), and socket.io-client
+    does not retry a connection the server refuses, so every invite was answered
+    "Invite sent" and never arrived.
+    """
     try:
         engine = await get_engine()
         async with AsyncSession(engine) as session:
-            auth_controller = AuthController(session, Settings())  # type: ignore
+            auth_controller = AuthController(session, Settings())
+            payload = auth_controller.decode_token(token, expected_type=TOKEN_TYPE_ACCESS)
+            user = await auth_controller.get_user_by_email(payload.email)
+    except (InvalidTokenError, TokenExpiredError) as e:
+        logger.debug("Socket.IO personal auth failed for sid={}: {}", sid, e)
+        raise ConnectionRefusedError("Invalid or expired token") from e
+    if user is None:
+        raise ConnectionRefusedError("User not found")
+
+    user_id = str(user.id)
+    await sio.save_session(sid, {"user_id": user_id, "room_id": None, "lang": None})
+    await sio.enter_room(sid, f"user:{user_id}")
+    logger.debug("Socket.IO personal connect: sid={} user={}", sid, user_id)
+
+
+async def _authenticate_member(sid: str, token: str, room_uuid: UUID) -> str:
+    """The user id behind ``token``, who must be a member of the room; refuse otherwise."""
+    try:
+        engine = await get_engine()
+        async with AsyncSession(engine) as session:
+            auth_controller = AuthController(session, Settings())
             payload = auth_controller.decode_token(token, expected_type=TOKEN_TYPE_ACCESS)
             user = await auth_controller.get_user_by_email(payload.email)
             if user is None:
                 raise ConnectionRefusedError("User not found")
-            user_id = str(user.id)
 
             # Authorization: the user must actually be a member of this room —
             # otherwise any authenticated user could listen to any room's state
             # (which carries the room PIN) and chat.
             link = (
                 await session.exec(
-                    select(RoomUserLink)
-                    .where(RoomUserLink.room_id == UUID(room_id))
-                    .where(RoomUserLink.user_id == user.id)
+                    select(RoomUserLink).where(RoomUserLink.room_id == room_uuid).where(RoomUserLink.user_id == user.id)
                 )
             ).first()
             if not link:
                 raise ConnectionRefusedError("Not a member of this room")
+            return str(user.id)
     except (InvalidTokenError, TokenExpiredError) as e:
         logger.debug("Socket.IO auth failed for sid={}: {}", sid, e)
         raise ConnectionRefusedError("Invalid or expired token") from e
 
-    # Multi-tab deduplication: disconnect previous SID for this user in same room
+
+@sio.event
+async def connect(sid, environ, auth):  # noqa: ARG001
+    """Authenticate user, join room, update heartbeat, and deduplicate connections.
+
+    Without a ``room_id`` the connection is the player's personal channel only
+    (``_connect_personal``): room invites and kicks reach it.
+    """
+    if not auth or not auth.get("token"):
+        raise ConnectionRefusedError("Missing auth token")
+
+    token = auth["token"]
+    room_id = auth.get("room_id")
+    if not room_id:
+        await _connect_personal(sid, token)
+        return
+
+    # The room id is client-supplied and is parsed as a UUID below, inside a block
+    # that only catches token errors. A malformed value therefore escaped as an
+    # unhandled ValueError: python-socketio only special-cases
+    # ConnectionRefusedError, so anything else propagates to the engine.io layer
+    # as a server error instead of a clean refusal.
+    try:
+        room_uuid = UUID(str(room_id))
+    except (ValueError, AttributeError, TypeError) as e:
+        raise ConnectionRefusedError("Invalid room_id") from e
+
+    user_id = await _authenticate_member(sid, token, room_uuid)
+
+    # Multi-tab deduplication: disconnect previous SID for this user in same room.
+    # The new SID is recorded FIRST, so the old one's `disconnect` sees it has been
+    # replaced and does not mark a player who is still here as away.
     user_room_key = f"{user_id}:{room_id}"
     old_sid = _user_sids.get(user_room_key)
+    _user_sids[user_room_key] = sid
     if old_sid and old_sid != sid:
         try:
             await sio.disconnect(old_sid)
@@ -64,10 +117,10 @@ async def connect(sid, environ, auth):  # noqa: ARG001
         except Exception:
             pass  # Old SID may already be gone
 
-    _user_sids[user_room_key] = sid
-
-    # Store session data (user_id bound for correlation logging)
-    await sio.save_session(sid, {"user_id": user_id, "room_id": room_id})
+    # Store session data (user_id bound for correlation logging). `lang` is the
+    # language the client plays in; join_game resolves the game state's hints and
+    # meanings in it (optional — older clients send none and get English).
+    await sio.save_session(sid, {"user_id": user_id, "room_id": room_id, "lang": normalize_lang(auth.get("lang"))})
 
     # Join Socket.IO rooms: room-specific + personal user room for invites
     await sio.enter_room(sid, f"room:{room_id}")
@@ -92,7 +145,12 @@ async def connect(sid, environ, auth):  # noqa: ARG001
 
 @sio.event
 async def join_game(sid, data):
-    """Join a game room to receive per-user game state broadcasts."""
+    """Join a game room to receive per-user game state broadcasts.
+
+    ``data``: ``{"game_id": str, "lang"?: "en" | "ar" | "fr"}``. The initial
+    ``game_state`` this sends is resolved in ``lang`` (else the handshake's
+    ``auth.lang``, else English), like ``GET .../state?lang=``.
+    """
     if not data or not data.get("game_id"):
         return
 
@@ -100,8 +158,10 @@ async def join_game(sid, data):
     session_data = await sio.get_session(sid)
     user_id = session_data.get("user_id")
     room_id = session_data.get("room_id")
+    lang = normalize_lang(data.get("lang") or session_data.get("lang"))
 
-    if not user_id:
+    # a personal connection (no room) has no game to join
+    if not user_id or not room_id:
         return
 
     # Validate: user must be in the room and game must belong to that room
@@ -129,8 +189,9 @@ async def join_game(sid, data):
         logger.opt(exception=True).warning("join_game validation failed for sid={}", sid)
         return
 
-    # Store game_id in session and join game room
+    # Store game_id (and the language the state is read in) in session and join game room
     session_data["game_id"] = game_id
+    session_data["lang"] = lang
     await sio.save_session(sid, session_data)
     await sio.enter_room(sid, f"game:{game_id}")
     logger.debug("Socket.IO join_game: sid={} user={} game={}", sid, user_id, game_id)
@@ -145,7 +206,7 @@ async def join_game(sid, data):
 
     # Send initial game state to this client only
     try:
-        state = await fetch_game_state(game_id, user_id)
+        state = await fetch_game_state(game_id, user_id, lang=lang)
         if state:
             await sio.emit("game_state", state, to=sid)
     except Exception:
@@ -223,13 +284,19 @@ async def disconnect(sid):
     logger.debug("Socket.IO disconnect: sid={} user={} room={}", sid, user_id, room_id)
 
     # Clean up SID tracking
+    replaced = False
     if room_id:
         user_room_key = f"{user_id}:{room_id}"
-        if _user_sids.get(user_room_key) == sid:
+        tracked_sid = _user_sids.get(user_room_key)
+        if tracked_sid == sid:
             _user_sids.pop(user_room_key, None)
+        # A newer socket of the same player in the same room (a reload, a second tab)
+        # took this one's place: the player is still here. On another worker the
+        # newer socket's heartbeat restores `connected` within one interval instead.
+        replaced = tracked_sid is not None and tracked_sid != sid
 
     # Mark user as disconnected in DB (starts grace period)
-    if room_id and user_id != "unknown":
+    if room_id and user_id != "unknown" and not replaced:
         try:
             engine = await get_engine()
             async with AsyncSession(engine) as session:

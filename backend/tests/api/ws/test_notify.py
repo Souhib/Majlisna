@@ -1,11 +1,18 @@
 """Tests for Socket.IO notification functions."""
 
 from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import UUID
 
 import pytest
 
 from majlisna.api.models.game import GameType
-from majlisna.api.ws.notify import notify_chat_message, notify_game_changed, notify_room_changed, notify_user_kicked
+from majlisna.api.ws.notify import (
+    notify_chat_message,
+    notify_game_changed,
+    notify_member_removed,
+    notify_room_changed,
+    notify_user_kicked,
+)
 from majlisna.api.ws.state import fetch_game_state
 from majlisna.api.ws.state import fetch_room_state as state_fetch_room_state
 
@@ -43,6 +50,48 @@ async def test_notify_room_does_not_raise_on_failure(mock_sio):  # noqa: ARG001
     with patch("majlisna.api.ws.notify.fetch_room_state", new_callable=AsyncMock, side_effect=Exception("DB error")):
         # Should not raise
         await notify_room_changed("room-1")
+
+
+# ========== notify_member_removed ==========
+
+
+async def test_member_removed_mid_game_signals_the_game(mock_sio, mock_fetch_room_state):
+    """A leave or kick during a game reaches the game pages, not only the lobby.
+
+    The leaver is eliminated server-side; game pages refetch on game_updated alone
+    (no polling while the socket is up), so a room_state alone left the table on a
+    stale game with the leaver still describing.
+    """
+    await notify_member_removed("room-1", "game-1")
+
+    mock_sio.emit.assert_any_call("game_updated", {"game_id": "game-1"}, to=["game:game-1", "room:room-1"])
+    mock_fetch_room_state.assert_called_once_with("room-1")
+
+
+async def test_member_removed_signals_the_game_it_was_given_even_if_it_just_ended(
+    mock_sio,
+    mock_fetch_room_state,  # noqa: ARG001 — keeps the room-state lookup off the database
+):
+    """The game read before the removal is signalled, whatever the room says now.
+
+    A kick or a leave can decide the game (the last Undercover gone): the room then
+    has no active game, and looking it up after the removal sent only room_state,
+    so the rest of the table never left the finished game for its colophon.
+    """
+    with patch("majlisna.api.ws.notify.get_active_game_id", new_callable=AsyncMock, return_value=None) as lookup:
+        await notify_member_removed("room-1", "game-1")
+
+    lookup.assert_not_called()
+    mock_sio.emit.assert_any_call("game_updated", {"game_id": "game-1"}, to=["game:game-1", "room:room-1"])
+
+
+async def test_member_removed_from_lobby_sends_room_state_only(mock_sio, mock_fetch_room_state):
+    """No game running: the room state, and no game signal."""
+    await notify_member_removed("room-1", None)
+
+    mock_fetch_room_state.assert_called_once_with("room-1")
+    events = [c.args[0] for c in mock_sio.emit.call_args_list]
+    assert events == ["room_state"]
 
 
 # ========== notify_game_changed ==========
@@ -156,6 +205,55 @@ async def test_fetch_game_state_returns_state():
         result = await fetch_game_state("00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002")
 
     assert result == {"phase": "describe", "players": []}
+
+
+@pytest.mark.parametrize(
+    ("game_type", "controller_name", "method"),
+    [
+        (GameType.UNDERCOVER, "UndercoverGameController", "get_state"),
+        (GameType.CODENAMES, "CodenamesGameController", "get_board"),
+        (GameType.WORD_QUIZ, "WordQuizGameController", "get_state"),
+        (GameType.MCQ_QUIZ, "McqQuizGameController", "get_state"),
+    ],
+)
+async def test_fetch_game_state_reads_the_state_in_the_requested_language(
+    game_type: GameType, controller_name: str, method: str
+):
+    """The Socket.IO push resolves hints and meanings in the client's language, like the REST read.
+
+    It used to call every controller with its English default, and the client writes
+    the push into its query cache — so an Arabic player's game-over meanings turned
+    English right after the REST response had them in Arabic.
+    """
+    # Prepare
+    mock_game = MagicMock()
+    mock_game.type = game_type
+    mock_exec_result = MagicMock()
+    mock_exec_result.first.return_value = mock_game
+    mock_state = MagicMock()
+    mock_state.model_dump.return_value = {"ok": True}
+    mock_controller = MagicMock()
+    setattr(mock_controller, method, AsyncMock(return_value=mock_state))
+    mock_session = AsyncMock()
+    mock_session.exec = AsyncMock(return_value=mock_exec_result)
+    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_session.__aexit__ = AsyncMock(return_value=False)
+    game_id = "00000000-0000-0000-0000-000000000001"
+    user_id = "00000000-0000-0000-0000-000000000002"
+
+    # Act
+    with (
+        patch("majlisna.api.ws.state.get_engine", new_callable=AsyncMock),
+        patch("majlisna.api.ws.state.AsyncSession", return_value=mock_session),
+        patch(f"majlisna.api.ws.state.{controller_name}", return_value=mock_controller),
+    ):
+        result = await fetch_game_state(game_id, user_id, lang="ar")
+
+    # Assert
+    assert result == {"ok": True}
+    getattr(mock_controller, method).assert_awaited_once_with(
+        UUID(game_id), UUID(user_id), lang="ar", update_heartbeat=False
+    )
 
 
 async def test_fetch_game_state_not_found():

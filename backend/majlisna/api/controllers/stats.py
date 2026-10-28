@@ -1,18 +1,21 @@
 from collections import defaultdict
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
+from typing import cast
 from uuid import UUID
 
+from sqlalchemy import Float, case
+from sqlalchemy import cast as sql_cast
 from sqlalchemy.exc import NoResultFound
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from majlisna.api.constants import CACHE_TTL_LEADERBOARD_SECONDS
+from majlisna.api.constants import CACHE_TTL_LEADERBOARD_SECONDS, LEADERBOARD_SORT_FIELDS
 from majlisna.api.models.game import GameStatus, GameType
 from majlisna.api.models.relationship import UserGameLink
 from majlisna.api.models.stats import UserStats
 from majlisna.api.models.table import Game, User
-from majlisna.api.schemas.error import UserNotFoundError
+from majlisna.api.schemas.error import InvalidLeaderboardSortError, UserNotFoundError
 from majlisna.api.schemas.stats import DailyGameRecord, GameDurationStats, HeadToHeadStats, LeaderboardEntry
 from majlisna.api.utils.cache import cache
 
@@ -168,24 +171,38 @@ class StatsController:
     ) -> Sequence[LeaderboardEntry]:
         """Return the top users ranked by a given stat field, with usernames.
 
-        :param stat_field: The name of the UserStats column to sort by (descending).
+        :param stat_field: What to rank by, descending: one of LEADERBOARD_SORT_FIELDS
+            (a UserStats column, or ``win_rate``, computed from won / played).
         :param limit: Maximum number of results to return.
         :return: A list of LeaderboardEntry with username included.
-        :raises ValueError: If the stat field does not exist on UserStats.
+        :raises InvalidLeaderboardSortError: If the leaderboard does not rank by ``stat_field``.
         """
+        if stat_field not in LEADERBOARD_SORT_FIELDS:
+            raise InvalidLeaderboardSortError(stat_field)
+
         cache_key = f"leaderboard:{stat_field}:{limit}"
         cached = cache.get(cache_key)
         if cached is not None:
-            return cached  # type: ignore[return-value]
+            return cast(Sequence[LeaderboardEntry], cached)
 
-        column = getattr(UserStats, stat_field, None)
-        if column is None:
-            raise ValueError(f"Invalid stat field: {stat_field}")
+        if stat_field == "win_rate":
+            # The same rule as the entries below: no games played is a 0 % rate. Ties go
+            # to whoever won more, so one lucky game does not outrank a long record.
+            rate = case(
+                (
+                    col(UserStats.total_games_played) > 0,
+                    sql_cast(col(UserStats.total_games_won), Float) / col(UserStats.total_games_played),
+                ),
+                else_=0.0,
+            )
+            order = (rate.desc(), col(UserStats.total_games_won).desc())
+        else:
+            order = (col(getattr(UserStats, stat_field)).desc(),)
 
         results = await self.session.exec(
             select(UserStats, User.username)
-            .join(User, UserStats.user_id == User.id)  # type: ignore[arg-type]
-            .order_by(col(column).desc())
+            .join(User, UserStats.user_id == User.id)  # ty: ignore[invalid-argument-type]
+            .order_by(*order)
             .limit(limit)
         )
 
@@ -213,10 +230,14 @@ class StatsController:
         cutoff = datetime.now(UTC) - timedelta(days=days)
         results = await self.session.exec(
             select(Game)
-            .join(UserGameLink, Game.id == UserGameLink.game_id)  # type: ignore[arg-type]
+            .join(UserGameLink, Game.id == UserGameLink.game_id)  # ty: ignore[invalid-argument-type]
             .where(UserGameLink.user_id == user_id)
             .where(Game.game_status == GameStatus.FINISHED)
-            .where(Game.end_time >= cutoff)  # type: ignore[operator]
+            # `end_time` is nullable (it is only written when a game ends), and SQL
+            # answers NULL — i.e. no match — for the comparison. That is exactly the
+            # wanted semantics here: an unfinished game must not count towards recent
+            # activity. The preceding FINISHED filter makes it unreachable anyway.
+            .where(Game.end_time >= cutoff)  # ty: ignore[unsupported-operator]
         )
         games = results.all()
 
@@ -251,10 +272,10 @@ class StatsController:
         """Compute game duration analytics for a user."""
         results = await self.session.exec(
             select(Game)
-            .join(UserGameLink, Game.id == UserGameLink.game_id)  # type: ignore[arg-type]
+            .join(UserGameLink, Game.id == UserGameLink.game_id)  # ty: ignore[invalid-argument-type]
             .where(UserGameLink.user_id == user_id)
             .where(Game.game_status == GameStatus.FINISHED)
-            .where(Game.end_time.is_not(None))  # type: ignore[union-attr]
+            .where(Game.end_time.is_not(None))  # ty: ignore[unresolved-attribute]
         )
         games = results.all()
 
@@ -306,7 +327,7 @@ class StatsController:
             await self.session.exec(
                 select(UserGameLink.game_id)
                 .where(UserGameLink.user_id == user_id)
-                .where(UserGameLink.game_id.in_(opponent_games_query))  # type: ignore[union-attr]
+                .where(UserGameLink.game_id.in_(opponent_games_query))  # ty: ignore[unresolved-attribute]
             )
         ).all()
 
@@ -323,7 +344,7 @@ class StatsController:
         games = (
             await self.session.exec(
                 select(Game).where(
-                    Game.id.in_(shared_game_ids),  # type: ignore[attr-defined,union-attr]
+                    Game.id.in_(shared_game_ids),  # ty: ignore[unresolved-attribute]
                     Game.game_status == GameStatus.FINISHED,
                 )
             )

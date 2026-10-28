@@ -6,6 +6,7 @@ from uuid import UUID
 from jose import JWTError, jwt
 from jose.exceptions import ExpiredSignatureError
 from loguru import logger
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -23,6 +24,7 @@ from majlisna.api.controllers.shared import (
     get_password_hash,
     verify_password,
 )
+from majlisna.api.controllers.user import username_is_taken
 from majlisna.api.models.table import User
 from majlisna.api.models.token import EmailVerificationToken, PasswordResetToken
 from majlisna.api.models.user import UserCreate
@@ -33,6 +35,8 @@ from majlisna.api.schemas.error import (
     InvalidOrExpiredTokenError,
     InvalidTokenError,
     TokenExpiredError,
+    UserAlreadyExistsError,
+    UsernameAlreadyTakenError,
     UserNotFoundError,
 )
 from majlisna.api.schemas.social_auth import SocialLoginResponse, SocialLoginUserData, SocialTokenPayload
@@ -196,9 +200,24 @@ class AuthController:
         security-sensitive columns (email_verified, auth_provider, google_sub)
         always get their server-side defaults.
 
+        Both identities are checked before anything is written: an address already
+        registered is ``UserAlreadyExistsError`` (409), a username another account
+        uses in any case is ``UsernameAlreadyTakenError`` (409). The email check
+        used to be left to the unique constraint, whose ``IntegrityError`` nothing
+        caught — a 500 — and the username was not checked at all, so a second
+        "admin" registered without complaint. The constraint still backs the email
+        under a race; the username has none (see ``username_is_taken``).
+
         :param user_create: The user creation data.
         :return: The newly created User.
+        :raises UserAlreadyExistsError: the email address is already registered.
+        :raises UsernameAlreadyTakenError: the username is taken (case-insensitively).
         """
+        if await self.get_user_by_email(user_create.email_address) is not None:
+            raise UserAlreadyExistsError(email_address=user_create.email_address)
+        if await username_is_taken(self.session, user_create.username):
+            raise UsernameAlreadyTakenError(username=user_create.username)
+
         hashed_password = await async_get_password_hash(user_create.password)
         new_user = User(
             username=user_create.username,
@@ -208,7 +227,12 @@ class AuthController:
             bio=user_create.bio,
         )
         self.session.add(new_user)
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except IntegrityError:
+            # A concurrent registration of the same address won the unique constraint.
+            await self.session.rollback()
+            raise UserAlreadyExistsError(email_address=user_create.email_address) from None
         await self.session.refresh(new_user)
         return new_user
 
@@ -380,11 +404,9 @@ class AuthController:
         Password is a random sentinel that never matches real input.
         """
         username = self._generate_username(token_payload)
-        # Ensure uniqueness. `.first()`, not `.one_or_none()`: `User.username` is
-        # indexed but NOT unique, so two accounts can already share a name and
-        # one_or_none() would raise MultipleResultsFound (a 500 on Google login).
-        existing = (await self.session.exec(select(User).where(User.username == username))).first()
-        if existing is not None:
+        # Ensure uniqueness, case-insensitively like registration and renames
+        # (`username_is_taken`): `User.username` is indexed but NOT unique.
+        if await username_is_taken(self.session, username):
             suffix = f"_{secrets.token_hex(2)}"
             username = f"{username[: USERNAME_MAX_LENGTH - len(suffix)]}{suffix}"
 

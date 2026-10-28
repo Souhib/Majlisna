@@ -1,4 +1,3 @@
-import unicodedata
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -10,20 +9,29 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from majlisna.api.constants import (
     DEFAULT_DESCRIPTION_TIMER_SECONDS,
     DEFAULT_VOTING_TIMER_SECONDS,
+    HOST_USERNAME_STATE_KEY,
     MAX_PLAYERS_UNDERCOVER,
     MIN_PLAYERS_FOR_GAME,
     TIMER_EXPIRATION_TOLERANCE_SECONDS,
+    UNDERCOVER_MIN_COUNT,
     UNDERCOVER_MR_WHITE_COUNT_LARGE,
     UNDERCOVER_MR_WHITE_COUNT_MEDIUM,
     UNDERCOVER_MR_WHITE_COUNT_SMALL,
+    UNDERCOVER_MR_WHITE_MIN_PLAYERS,
     UNDERCOVER_MR_WHITE_THRESHOLD_MEDIUM,
     UNDERCOVER_MR_WHITE_THRESHOLD_SMALL,
+    UNDERCOVER_RATIO,
     UNDERCOVER_WORD_MAX_LENGTH,
 )
 from majlisna.api.controllers.base_game import BaseGameController
 from majlisna.api.controllers.game_end_stats import record_game_end, undercover_winners
 from majlisna.api.controllers.game_lock import get_game_lock
 from majlisna.api.controllers.undercover import UndercoverController
+from majlisna.api.controllers.undercover_rules import (
+    eliminate_player_based_on_votes,
+    enter_mr_white_guess,
+    winning_team,
+)
 from majlisna.api.models.error import (
     CantVoteBecauseYouDeadError,
     CantVoteForDeadPersonError,
@@ -34,8 +42,28 @@ from majlisna.api.models.event import EventCreate
 from majlisna.api.models.game import GameCreate, GameStatus, GameType
 from majlisna.api.models.table import Room
 from majlisna.api.models.undercover import UndercoverRole
-from majlisna.api.schemas.common import GameStartResponse, HintRecordResponse, TimerExpiredResponse
-from majlisna.api.schemas.error import BaseError
+from majlisna.api.schemas.common import (
+    GameStartResponse,
+    HintRecordResponse,
+    PhaseTimer,
+    TimerExpiredAction,
+    TimerExpiredResponse,
+)
+from majlisna.api.schemas.error import (
+    AllDescriptionsSubmittedError,
+    AlreadyVotedError,
+    DescriptionsNotCompleteError,
+    GameNotInRoomError,
+    InvalidDescriptionWordError,
+    NotAGamePlayerError,
+    NotDescribingPhaseError,
+    NotMrWhiteGuessingPhaseError,
+    NotTheMrWhiteGuesserError,
+    NotYourTurnToDescribeError,
+    RoundNotResolvedError,
+    VoteTargetNotInGameError,
+)
+from majlisna.api.schemas.term_script import TermScriptForms
 from majlisna.api.schemas.undercover import (
     EliminatedPlayer,
     MrWhiteGuessResponse,
@@ -46,8 +74,10 @@ from majlisna.api.schemas.undercover import (
     UndercoverPlayerState,
     WordExplanations,
 )
+from majlisna.api.utils.game_pause import is_paused, parse_instant
 from majlisna.api.utils.game_state import require_state
 from majlisna.api.utils.rng import rng
+from majlisna.api.utils.text_match import matches_any
 
 
 class UndercoverGameController(BaseGameController):
@@ -57,36 +87,40 @@ class UndercoverGameController(BaseGameController):
     Uses asyncio.Lock per game_id for concurrency control.
     """
 
+    GAME_TYPE = GameType.UNDERCOVER
+
     def __init__(self, session: AsyncSession):
         super().__init__(session)
         self._undercover_controller = UndercoverController(session)
 
     @staticmethod
     def _compute_roles(num_players: int, mr_white_enabled: bool) -> list[str]:
-        """Compute role distribution for the given number of players."""
-        if num_players == 3:
-            num_mr_white = 0
-            num_undercover = 1
-            num_civilians = 2
-        elif not mr_white_enabled:
-            num_mr_white = 0
-            num_undercover = max(1, num_players // 4)
-            num_civilians = num_players - num_undercover
-        else:
+        """Compute the role distribution for the given number of players.
+
+        Invariant: civilians strictly outnumber undercover + Mr. White, because the
+        win rule gives the impostors the game the moment they reach parity. The
+        previous table forced at least two undercovers whenever Mr. White was on,
+        which dealt 4 players as 1 civilian / 2 undercover / 1 Mr. White and lost
+        every 4-6 player game for the civilians at the first resolution.
+        """
+        num_undercover = max(UNDERCOVER_MIN_COUNT, num_players // UNDERCOVER_RATIO)
+        num_mr_white = 0
+        if mr_white_enabled and num_players >= UNDERCOVER_MR_WHITE_MIN_PLAYERS:
             if num_players < UNDERCOVER_MR_WHITE_THRESHOLD_SMALL:
                 num_mr_white = UNDERCOVER_MR_WHITE_COUNT_SMALL
             elif num_players <= UNDERCOVER_MR_WHITE_THRESHOLD_MEDIUM:
                 num_mr_white = UNDERCOVER_MR_WHITE_COUNT_MEDIUM
             else:
                 num_mr_white = UNDERCOVER_MR_WHITE_COUNT_LARGE
-            num_undercover = max(2, num_players // 4)
-            num_civilians = num_players - num_mr_white - num_undercover
-            while num_civilians < 1 and num_undercover > 1:
-                num_undercover -= 1
-                num_civilians += 1
-            while num_civilians < 1 and num_mr_white > 0:
-                num_mr_white -= 1
-                num_civilians += 1
+        num_civilians = num_players - num_undercover - num_mr_white
+        # Restore the invariant for any table the constants above could produce:
+        # drop a Mr. White first (an optional role), then undercovers down to one.
+        while num_civilians <= num_undercover + num_mr_white and num_mr_white > 0:
+            num_mr_white -= 1
+            num_civilians += 1
+        while num_civilians <= num_undercover + num_mr_white and num_undercover > UNDERCOVER_MIN_COUNT:
+            num_undercover -= 1
+            num_civilians += 1
 
         roles = (
             [UndercoverRole.UNDERCOVER.value] * num_undercover
@@ -143,7 +177,7 @@ class UndercoverGameController(BaseGameController):
 
             num_players = len(player_users)
             room_settings = getattr(db_room, "settings", None) or {}
-            mr_white_enabled = room_settings.get("enable_mr_white", True) and num_players >= 4
+            mr_white_enabled = room_settings.get("enable_mr_white", True)
             roles = self._compute_roles(num_players, mr_white_enabled)
 
             players = [
@@ -209,6 +243,7 @@ class UndercoverGameController(BaseGameController):
                     "voting_seconds": vote_timer,
                 },
                 "timer_started_at": datetime.now(UTC).isoformat(),
+                HOST_USERNAME_STATE_KEY: await self._host_username_at_start(db_room, player_users),
             }
 
             db_game.live_state = live_state
@@ -245,15 +280,24 @@ class UndercoverGameController(BaseGameController):
             game = await self._get_game(game_id)
             self._check_game_in_progress(game)
             if game.room_id != room_id:
-                raise BaseError(
-                    message=f"Game {game_id} does not belong to room {room_id}",
-                    frontend_message="This game does not belong to this room.",
-                    status_code=400,
-                )
+                raise GameNotInRoomError(game_id=game_id, room_id=room_id)
             room = (await self.session.exec(select(Room).where(Room.id == room_id))).first()
             if room:
                 self._require_room_host(room, user_id)
             state = require_state(game)
+            self._ensure_not_paused(game, state)
+
+            # Only a resolved round may be followed by a new one. Without this guard a
+            # host could append a turn in the middle of describing or voting — or
+            # while an eliminated Mr. White still owes his guess — discarding the
+            # round in progress; and two concurrent calls both appended a turn.
+            current_turn = state["turns"][-1] if state["turns"] else None
+            if (
+                current_turn is None
+                or not current_turn.get("resolved")
+                or current_turn.get("phase") == "mr_white_guessing"
+            ):
+                raise RoundNotResolvedError(game_id=game_id)
 
             description_order = self._generate_description_order(state["players"])
             new_turn = {
@@ -307,36 +351,21 @@ class UndercoverGameController(BaseGameController):
             game = await self._get_game(game_id)
             self._check_game_in_progress(game)
             state = require_state(game)
+            self._ensure_not_paused(game, state)
             current_turn = state["turns"][-1]
 
             if current_turn["phase"] != "describing":
-                raise BaseError(
-                    message="Not in description phase.",
-                    frontend_message="Not in description phase.",
-                    status_code=400,
-                )
+                raise NotDescribingPhaseError()
 
             if current_turn["current_describer_index"] >= len(current_turn["description_order"]):
-                raise BaseError(
-                    message="All descriptions already submitted.",
-                    frontend_message="All descriptions already submitted.",
-                    status_code=400,
-                )
+                raise AllDescriptionsSubmittedError()
 
             if current_turn["description_order"][current_turn["current_describer_index"]] != str(user_id):
-                raise BaseError(
-                    message="Not your turn to describe.",
-                    frontend_message="Not your turn to describe.",
-                    status_code=400,
-                )
+                raise NotYourTurnToDescribeError()
 
             word = word.strip()
             if not word or " " in word or len(word) > UNDERCOVER_WORD_MAX_LENGTH:
-                raise BaseError(
-                    message=f"Word must be a single word (no spaces), max {UNDERCOVER_WORD_MAX_LENGTH} characters.",
-                    frontend_message=f"Word must be a single word (no spaces), max {UNDERCOVER_WORD_MAX_LENGTH} characters.",
-                    status_code=400,
-                )
+                raise InvalidDescriptionWordError(max_length=UNDERCOVER_WORD_MAX_LENGTH)
 
             current_turn["words"][str(user_id)] = word
             current_turn["current_describer_index"] += 1
@@ -364,36 +393,27 @@ class UndercoverGameController(BaseGameController):
             game = await self._get_game(game_id)
             self._check_game_in_progress(game)
             state = require_state(game)
+            self._ensure_not_paused(game, state)
 
             if state["turns"] and state["turns"][-1]["phase"] != "voting":
-                raise BaseError(
-                    message="Descriptions are not complete yet.",
-                    frontend_message="Descriptions are not complete yet.",
-                    status_code=400,
-                )
+                raise DescriptionsNotCompleteError()
 
             player_to_vote = next((p for p in state["players"] if p["user_id"] == str(user_id)), None)
             if not player_to_vote:
-                raise BaseError(message="Player not in game.", frontend_message="Player not in game.", status_code=400)
+                raise NotAGamePlayerError(message="Player not in game.", status_code=400)
             if not player_to_vote["is_alive"]:
                 raise CantVoteBecauseYouDeadError(user_id=user_id)
 
             voted_player = next((p for p in state["players"] if p["user_id"] == str(voted_for)), None)
             if not voted_player:
-                raise BaseError(
-                    message="Voted player not in game.", frontend_message="Voted player not in game.", status_code=400
-                )
+                raise VoteTargetNotInGameError()
             if not voted_player["is_alive"]:
                 raise CantVoteForDeadPersonError(user_id=user_id, dead_user_id=voted_for)
             if str(user_id) == str(voted_for):
                 raise CantVoteForYourselfError(user_id=user_id)
 
             if str(user_id) in state["turns"][-1]["votes"]:
-                raise BaseError(
-                    message="You have already voted this round.",
-                    frontend_message="You have already voted this round.",
-                    status_code=400,
-                )
+                raise AlreadyVotedError()
 
             state["turns"][-1]["votes"][str(user_id)] = str(voted_for)
 
@@ -412,9 +432,7 @@ class UndercoverGameController(BaseGameController):
 
                 # If the eliminated player is Mr. White, give them a chance to guess
                 if eliminated_player["role"] == UndercoverRole.MR_WHITE.value:
-                    state["turns"][-1]["phase"] = "mr_white_guessing"
-                    state["mr_white_guesser"] = eliminated_player["user_id"]
-                    state["timer_started_at"] = datetime.now(UTC).isoformat()
+                    enter_mr_white_guess(state, eliminated_player)
                     result.winner = None
                 else:
                     winner = self._get_winning_team(state)
@@ -452,13 +470,6 @@ class UndercoverGameController(BaseGameController):
         if newly_unlocked:
             state["newly_unlocked_achievements"] = newly_unlocked
 
-    @staticmethod
-    def _normalize_guess(word: str) -> str:
-        """Normalize a guess word for comparison: strip, lowercase, remove Arabic diacritics."""
-        text = word.strip().lower()
-        # Remove Arabic diacritics (tashkeel) — unicode category Mn (nonspacing marks)
-        return "".join(c for c in unicodedata.normalize("NFD", text) if unicodedata.category(c) != "Mn")
-
     async def submit_mr_white_guess(self, game_id: UUID, user_id: UUID, guess_word: str) -> MrWhiteGuessResponse:
         """Mr. White submits a guess for the civilian word after being eliminated."""
         logger.info("Mr. White guess: game={} user={}", game_id, user_id)
@@ -466,27 +477,26 @@ class UndercoverGameController(BaseGameController):
             game = await self._get_game(game_id)
             self._check_game_in_progress(game)
             state = require_state(game)
+            self._ensure_not_paused(game, state)
             current_turn = state["turns"][-1]
 
             if current_turn["phase"] != "mr_white_guessing":
-                raise BaseError(
-                    message="Not in Mr. White guessing phase.",
-                    frontend_message="Not in Mr. White guessing phase.",
-                    status_code=400,
-                )
+                raise NotMrWhiteGuessingPhaseError()
 
             if state.get("mr_white_guesser") != str(user_id):
-                raise BaseError(
-                    message="Only the eliminated Mr. White can guess.",
-                    frontend_message="Only the eliminated Mr. White can guess.",
-                    status_code=403,
-                )
+                raise NotTheMrWhiteGuesserError()
 
-            normalized_guess = self._normalize_guess(guess_word)
-            normalized_civilian_word = self._normalize_guess(state["civilian_word"])
-            correct = normalized_guess == normalized_civilian_word
+            # The civilian word is accepted in Latin or in Arabic script: an
+            # Arabic-speaking Mr. White sees "صبر" on the civilians' cards, and
+            # typing it used to be rejected as a wrong guess.
+            civilian_word = state["civilian_word"]
+            civilian_script = (await self._term_script_controller.get_forms([civilian_word])).get(civilian_word)
+            correct = matches_any(guess_word, [civilian_word, civilian_script.ar if civilian_script else None])
 
             state.pop("mr_white_guesser", None)
+            # The table hears the guess: the round's verdict says what he guessed and
+            # whether it was the word (it used to reach the guesser alone, as a toast).
+            current_turn["mr_white_guess"] = {"word": guess_word.strip(), "correct": correct}
 
             if correct:
                 # Undercovers win — Mr. White guessed correctly
@@ -546,6 +556,28 @@ class UndercoverGameController(BaseGameController):
         elapsed = (datetime.now(UTC) - started).total_seconds()
         return elapsed >= allowed - TIMER_EXPIRATION_TOLERANCE_SECONDS
 
+    def _phase_timer(self, state: dict) -> PhaseTimer | None:
+        """The running phase's timer: describing, an open vote, or Mr. White's guess.
+
+        Same durations as ``_is_timer_actually_expired``. A resolved vote is waiting on
+        the host's next round, not on a clock, so it has none.
+        """
+        started_at = state.get("timer_started_at")
+        turns = state.get("turns") or []
+        if not started_at or not turns:
+            return None
+        turn = turns[-1]
+        timer_config = state.get("timer_config") or {}
+        if turn["phase"] == "describing":
+            seconds = timer_config.get("description_seconds", DEFAULT_DESCRIPTION_TIMER_SECONDS)
+        elif turn["phase"] == "mr_white_guessing" or (turn["phase"] == "voting" and not turn.get("resolved")):
+            seconds = timer_config.get("voting_seconds", DEFAULT_VOTING_TIMER_SECONDS)
+        else:
+            return None
+        if not seconds:
+            return None  # 0 means no time limit
+        return PhaseTimer(started_at=parse_instant(started_at), duration_seconds=seconds)
+
     async def handle_timer_expired(self, game_id: UUID, user_id: UUID) -> TimerExpiredResponse:
         """Handle timer expiration — auto-skip description, auto-random-vote, or mr_white guess timeout."""
         async with get_game_lock(str(game_id), self.session):
@@ -553,21 +585,26 @@ class UndercoverGameController(BaseGameController):
             self._check_game_in_progress(game)
             state = require_state(game)
 
+            # No clock runs while the host has paused the game for the prayer. Not an
+            # error: clients fire this from their own local timers.
+            if is_paused(state):
+                return TimerExpiredResponse(game_id=str(game_id), action=TimerExpiredAction.PAUSED)
+
             # Any player may trigger timer expiration (consistent with the other
             # games); the server only acts if the timer has actually elapsed, so
             # a game can still advance when the host is absent.
             if not self._is_timer_actually_expired(state):
-                return TimerExpiredResponse(game_id=str(game_id), action="timer_not_expired")
+                return TimerExpiredResponse(game_id=str(game_id), action=TimerExpiredAction.TIMER_NOT_EXPIRED)
 
             current_turn = state["turns"][-1]
-            action = "none"
+            action = TimerExpiredAction.NONE
 
             if current_turn["phase"] == "describing":
                 # Auto-skip remaining describers by setting index to end
                 current_turn["current_describer_index"] = len(current_turn["description_order"])
                 current_turn["phase"] = "voting"
                 state["timer_started_at"] = datetime.now(UTC).isoformat()
-                action = "skip_to_voting"
+                action = TimerExpiredAction.SKIP_TO_VOTING
 
             elif current_turn["phase"] == "voting":
                 # A round whose votes have already produced an elimination stays in
@@ -581,18 +618,16 @@ class UndercoverGameController(BaseGameController):
                 # tick. Re-resolving is never correct: a round has exactly one
                 # elimination.
                 if current_turn.get("resolved"):
-                    return TimerExpiredResponse(game_id=str(game_id), action="round_already_resolved")
+                    return TimerExpiredResponse(game_id=str(game_id), action=TimerExpiredAction.ROUND_ALREADY_RESOLVED)
 
                 self._auto_fill_missing_votes(state)
                 # Now eliminate
                 eliminated_player, _ = self._eliminate_player_based_on_votes(state)
-                action = "auto_vote"
+                action = TimerExpiredAction.AUTO_VOTE
 
                 # If Mr. White was eliminated, enter guessing phase
                 if eliminated_player["role"] == UndercoverRole.MR_WHITE.value:
-                    current_turn["phase"] = "mr_white_guessing"
-                    state["mr_white_guesser"] = eliminated_player["user_id"]
-                    state["timer_started_at"] = datetime.now(UTC).isoformat()
+                    enter_mr_white_guess(state, eliminated_player)
                 else:
                     winner = self._get_winning_team(state)
                     if winner:
@@ -601,7 +636,8 @@ class UndercoverGameController(BaseGameController):
             elif current_turn["phase"] == "mr_white_guessing":
                 # Timer expired during Mr. White guessing — treat as wrong guess
                 state.pop("mr_white_guesser", None)
-                action = "mr_white_guess_timeout"
+                current_turn["mr_white_guess"] = {"word": None, "correct": False}
+                action = TimerExpiredAction.MR_WHITE_GUESS_TIMEOUT
                 winner = self._get_winning_team(state)
                 if winner:
                     await self._finish_game(game, state, winner)
@@ -623,82 +659,16 @@ class UndercoverGameController(BaseGameController):
         return TimerExpiredResponse(game_id=str(game_id), action=action)
 
     def _eliminate_player_based_on_votes(self, state: dict) -> tuple[dict, int]:
-        """Eliminate the alive player with the most votes. Returns (eliminated_player, vote_count).
+        """Eliminate the alive player with the most votes. See ``undercover_rules``.
 
-        Marks the turn ``resolved`` so the round can never be counted twice — see
-        ``handle_timer_expired``.
-
-        Candidates are restricted to ALIVE players. Seeding the tally with every
-        player (dead included) meant a dead player could win the tally and be
-        "eliminated" a second time: with one alive player left,
-        ``_auto_fill_missing_votes`` cannot record a vote (no one to vote for), so
-        every count was 0 and the tie-break picked at random from the whole
-        roster, corpses included.
+        Kept as a method because the disconnect path needs the same rule and
+        cannot import a controller (``base_game`` → ``room`` → ``disconnect``).
         """
-        current_turn = state["turns"][-1]
-        votes = current_turn["votes"]
-        vote_counts: dict[str, int] = {p["user_id"]: 0 for p in state["players"] if p["is_alive"]}
-        if not vote_counts:
-            raise BaseError(
-                message="No alive players left to eliminate.",
-                frontend_message="This game is already over.",
-                status_code=400,
-            )
-        for voted_id in votes.values():
-            if voted_id in vote_counts:
-                vote_counts[voted_id] += 1
-
-        max_votes = max(vote_counts.values())
-        players_with_max_votes = [pid for pid, count in vote_counts.items() if count == max_votes]
-
-        if len(players_with_max_votes) > 1:
-            # Mayor breaks tie
-            mayor = next((p for p in state["players"] if p.get("is_mayor")), None)
-            if mayor and mayor.get("is_alive"):
-                mayor_vote = votes.get(mayor["user_id"])
-                player_with_most_vote = (
-                    mayor_vote if mayor_vote in players_with_max_votes else rng.choice(players_with_max_votes)
-                )
-            else:
-                player_with_most_vote = rng.choice(players_with_max_votes)
-        else:
-            player_with_most_vote = players_with_max_votes[0]
-
-        eliminated_player = next(p for p in state["players"] if p["user_id"] == player_with_most_vote)
-        eliminated_player["is_alive"] = False
-        state["eliminated_players"].append(
-            {
-                "user_id": eliminated_player["user_id"],
-                "username": eliminated_player["username"],
-                "role": eliminated_player["role"],
-                # Which turn eliminated them. Vote history and the post-game summary
-                # used to pair eliminated_players[i] with turns[i] by POSITION, an
-                # implicit invariant that silently produced a wrong history the
-                # moment anything appended out of step. Readers prefer this field
-                # and fall back to the index for rows written before it existed.
-                "round": len(state["turns"]),
-            }
-        )
-        # This round's votes have now produced their elimination and must never
-        # produce another one. See handle_timer_expired.
-        current_turn["resolved"] = True
-
-        return eliminated_player, vote_counts[player_with_most_vote]
+        return eliminate_player_based_on_votes(state)
 
     def _get_winning_team(self, state: dict) -> str | None:
-        """Determine if a team has won based on alive player counts. Returns role value or None."""
-        players = state["players"]
-        num_alive_undercover = sum(1 for p in players if p["role"] == UndercoverRole.UNDERCOVER.value and p["is_alive"])
-        num_alive_civilian = sum(1 for p in players if p["role"] == UndercoverRole.CIVILIAN.value and p["is_alive"])
-        num_alive_mr_white = sum(1 for p in players if p["role"] == UndercoverRole.MR_WHITE.value and p["is_alive"])
-
-        if num_alive_undercover == 0 and num_alive_mr_white == 0:
-            return UndercoverRole.CIVILIAN.value
-        if num_alive_civilian == 0:
-            return UndercoverRole.UNDERCOVER.value
-        if num_alive_undercover + num_alive_mr_white >= num_alive_civilian:
-            return UndercoverRole.UNDERCOVER.value
-        return None
+        """Determine if a team has won based on alive player counts. See ``undercover_rules``."""
+        return winning_team(state)
 
     async def get_state(
         self, game_id: UUID, user_id: UUID, sid: str | None = None, lang: str = "en", update_heartbeat: bool = True
@@ -715,22 +685,17 @@ class UndercoverGameController(BaseGameController):
             await self._update_heartbeat_throttled(game.room_id, user_id)
 
         winner = self._get_winner_label(state)
-        is_host = await self._check_is_host(game.room_id, user_id)
+        owner_id, host_username = await self._get_room_host(game.room_id)
+        is_host = owner_id == user_id
+        colophon = self._build_colophon(game, state, host_username)
         vote_history = self._build_vote_history(state)
 
         if is_spectator:
             # Spectators see descriptions/votes but NOT roles/words until game ends
-            word_explanations = None
             my_role = "spectator"
             my_word = ""
             my_word_hint = None
-            if winner:
-                word_explanations = WordExplanations(
-                    civilian_word=state["civilian_word"],
-                    civilian_word_hint=self._resolve_multilingual(state.get("civilian_word_hint"), lang),
-                    undercover_word=state["undercover_word"],
-                    undercover_word_hint=self._resolve_multilingual(state.get("undercover_word_hint"), lang),
-                )
+            own_term = None
             turn_state = self._build_turn_state(state, "")
         else:
             if player is None:
@@ -741,15 +706,19 @@ class UndercoverGameController(BaseGameController):
             my_role = player["role"]
             my_word = self._get_player_word(player, state)
             my_word_hint = self._get_player_word_hint(player, state, lang)
+            own_term = self._get_player_term(player, state)
             turn_state = self._build_turn_state(state, str(user_id))
-            word_explanations = None
-            if winner:
-                word_explanations = WordExplanations(
-                    civilian_word=state["civilian_word"],
-                    civilian_word_hint=self._resolve_multilingual(state.get("civilian_word_hint"), lang),
-                    undercover_word=state["undercover_word"],
-                    undercover_word_hint=self._resolve_multilingual(state.get("undercover_word_hint"), lang),
-                )
+
+        # ONE lookup for every term this caller may see: their own word (none for
+        # Mr. White or a spectator) and, once the game is over, both words. The
+        # Arabic form follows exactly the same rule as the Latin one — the other
+        # side's word is never looked up while the game is running.
+        visible_terms = [own_term]
+        if winner:
+            visible_terms += [state["civilian_word"], state["undercover_word"]]
+        scripts = await self._term_script_controller.get_forms(visible_terms)
+        own_script = scripts.get(own_term) if own_term else None
+        word_explanations = self._build_word_explanations(state, lang, scripts) if winner else None
 
         return UndercoverGameState(
             game_id=str(game.id),
@@ -758,6 +727,8 @@ class UndercoverGameController(BaseGameController):
             is_spectator=is_spectator,
             my_role=my_role,
             my_word=my_word,
+            my_word_ar=own_script.ar if own_script else None,
+            my_word_ar_vocalized=own_script.ar_vocalized if own_script else None,
             my_word_hint=my_word_hint,
             is_alive=player["is_alive"] if player else False,
             players=[
@@ -781,8 +752,38 @@ class UndercoverGameController(BaseGameController):
             word_explanations=word_explanations,
             mr_white_guesser=state.get("mr_white_guesser"),
             newly_unlocked_achievements=state.get("newly_unlocked_achievements"),
+            paused=self._build_pause(game, state),
+            can_pause=self._can_pause(game, state, user_id, owner_id, is_spectator=is_spectator),
+            can_resume=self._can_resume(game, state, user_id, owner_id),
+            host_username=colophon.host_username,
+            started_at=colophon.started_at,
+            ended_at=colophon.ended_at,
             **turn_state,
         )
+
+    def _build_word_explanations(self, state: dict, lang: str, scripts: dict[str, TermScriptForms]) -> WordExplanations:
+        """Both words of the pair, for the game-over screen. Only call once the game is over."""
+        civilian = scripts.get(state["civilian_word"])
+        undercover = scripts.get(state["undercover_word"])
+        return WordExplanations(
+            civilian_word=state["civilian_word"],
+            civilian_word_ar=civilian.ar if civilian else None,
+            civilian_word_ar_vocalized=civilian.ar_vocalized if civilian else None,
+            civilian_word_hint=self._resolve_multilingual(state.get("civilian_word_hint"), lang),
+            undercover_word=state["undercover_word"],
+            undercover_word_ar=undercover.ar if undercover else None,
+            undercover_word_ar_vocalized=undercover.ar_vocalized if undercover else None,
+            undercover_word_hint=self._resolve_multilingual(state.get("undercover_word_hint"), lang),
+        )
+
+    @staticmethod
+    def _get_player_term(player: dict, state: dict) -> str | None:
+        """The secret term dealt to this player, or None for Mr. White (who has none)."""
+        if player["role"] == UndercoverRole.MR_WHITE.value:
+            return None
+        if player["role"] == UndercoverRole.UNDERCOVER.value:
+            return state["undercover_word"]
+        return state["civilian_word"]
 
     def _get_player_word(self, player: dict, state: dict) -> str:
         """Get the word to display for a player based on their role."""
@@ -823,6 +824,26 @@ class UndercoverGameController(BaseGameController):
 
         return HintRecordResponse(game_id=str(game_id), recorded=True)
 
+    @staticmethod
+    def _visible_votes(state: dict, current_turn: dict, user_id: str) -> dict[str, str]:
+        """The votes this caller is allowed to see.
+
+        While the round is open, only the caller's own choice is returned; every
+        other voter is reported as having voted, with no target. The UI has only
+        ever used this to render "who has voted" (``deriveVotedPlayers`` keys the
+        dict), but the raw payload named every target — so anyone with the network
+        tab open could watch the tally build and vote last with perfect
+        information. In a social-deduction round that is the whole game.
+
+        Targets become public once the round is ``resolved`` or the game is over:
+        the elimination has already happened, and the end-of-round overlay and the
+        vote-history panel show them anyway.
+        """
+        votes: dict[str, str] = current_turn.get("votes", {})
+        if current_turn.get("resolved") or state.get("winner"):
+            return votes
+        return {voter: (target if voter == user_id else "") for voter, target in votes.items()}
+
     def _build_turn_state(self, state: dict, user_id: str) -> dict:
         """Build the turn-specific state dict."""
         if not state["turns"]:
@@ -833,12 +854,17 @@ class UndercoverGameController(BaseGameController):
                 "description_order": [],
                 "current_describer_index": 0,
                 "descriptions": {},
+                "round_resolved": False,
             }
         current_turn = state["turns"][-1]
         return {
-            "votes": current_turn["votes"],
+            "votes": self._visible_votes(state, current_turn, user_id),
             "has_voted": user_id in current_turn["votes"],
             "turn_phase": current_turn["phase"],
+            # A resolved turn stays in phase "voting" until the host starts the next
+            # round; without this flag the client cannot tell "still voting" from
+            # "someone was just eliminated" and never offered the next round.
+            "round_resolved": bool(current_turn.get("resolved")),
             "description_order": [
                 {
                     "user_id": uid,
@@ -885,9 +911,19 @@ class UndercoverGameController(BaseGameController):
         eliminated_list = state.get("eliminated_players", [])
         history = []
 
+        last_index = len(state["turns"]) - 1
+        game_over = bool(state.get("winner"))
         for i, turn in enumerate(state["turns"]):
             votes = turn.get("votes", {})
             if not votes:
+                continue
+            # The docstring has always claimed this excludes the round still in
+            # progress; the code did not. An open round's entries name every
+            # target, so this was the second door onto the leak `_visible_votes`
+            # closes — and it is the one the client actually reads. A round is
+            # finished when it is `resolved`; once the game is over everything is
+            # public anyway.
+            if not game_over and i == last_index and not turn.get("resolved"):
                 continue
 
             vote_entries = []
@@ -917,6 +953,7 @@ class UndercoverGameController(BaseGameController):
                     "round": i + 1,
                     "votes": vote_entries,
                     "eliminated": eliminated_info,
+                    "mr_white_guess": turn.get("mr_white_guess"),
                 }
             )
 

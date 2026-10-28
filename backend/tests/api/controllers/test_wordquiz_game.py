@@ -8,7 +8,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from majlisna.api.constants import DEFAULT_WORD_QUIZ_ROUNDS
+from majlisna.api.constants import DEFAULT_WORD_QUIZ_MAX_HINTS, DEFAULT_WORD_QUIZ_ROUNDS
 from majlisna.api.controllers.wordquiz_game import WordQuizGameController
 from majlisna.api.models.game import GameStatus
 from majlisna.api.models.relationship import RoomUserLink
@@ -299,20 +299,21 @@ async def test_advance_to_next_round(wordquiz_game_controller, setup_wordquiz_ga
 
 @pytest.mark.asyncio
 async def test_advance_non_host_marks_ready(wordquiz_game_controller, setup_wordquiz_game, session):
-    """Non-host marks themselves as ready but round doesn't advance yet."""
-    # Prepare
-    setup = await setup_wordquiz_game(num_players=2, num_words=5)
+    """A non-host marks themselves ready; the round waits for the rest."""
+    # Prepare — 3 players so one ready mark is not yet the whole quorum
+    setup = await setup_wordquiz_game(num_players=3, num_words=5)
     room, users = setup["room"], setup["users"]
     result = await _start_game(wordquiz_game_controller, room.id, users[0].id)
     game = await _get_game(session, result.game_id)
     correct_word = game.live_state["current_word"]["word_en"]
-    await wordquiz_game_controller.submit_answer(UUID(result.game_id), users[0].id, correct_word)
-    await wordquiz_game_controller.submit_answer(UUID(result.game_id), users[1].id, correct_word)
+    for user in users:
+        await wordquiz_game_controller.submit_answer(UUID(result.game_id), user.id, correct_word)
 
-    # Act — non-host marks ready
+    # Act — one of the two non-hosts marks ready
     advance_result = await wordquiz_game_controller.advance_to_next_round(UUID(result.game_id), users[1].id)
 
-    # Assert — not advanced, just marked ready
+    # Assert — not advanced, just marked ready. `total_players` reports what
+    # readiness is measured against: everyone but the host.
     assert advance_result.advanced is False
     assert advance_result.ready_count == 1
     assert advance_result.total_players == 2
@@ -322,38 +323,58 @@ async def test_advance_non_host_marks_ready(wordquiz_game_controller, setup_word
 
 
 @pytest.mark.asyncio
-async def test_advance_all_ready_advances_round(wordquiz_game_controller, setup_wordquiz_game, session):
-    """When all players mark ready, the round advances."""
-    # Prepare — 3 players: users[0] is host, users[1] and users[2] are non-host
+async def test_advance_all_ready_advances_round_without_the_host(
+    wordquiz_game_controller, setup_wordquiz_game, session
+):
+    """ "Everyone is ready" must be reachable — it never was.
+
+    The host advances by pressing next and is never added to ``ready_players``, so
+    requiring ``len(ready_players) == len(players)`` could not be satisfied while
+    the host was also a player, i.e. in every normal game. The documented feature
+    collapsed to "only the host can advance", and an absent host stalled the quiz
+    with nothing to rescue it — the results phase has no timeout.
+    """
+    # Prepare — 3 players: users[0] hosts, users[1] and users[2] do not
     setup = await setup_wordquiz_game(num_players=3, num_words=5)
     room, users = setup["room"], setup["users"]
     result = await _start_game(wordquiz_game_controller, room.id, users[0].id)
     game = await _get_game(session, result.game_id)
     correct_word = game.live_state["current_word"]["word_en"]
-    await wordquiz_game_controller.submit_answer(UUID(result.game_id), users[0].id, correct_word)
-    await wordquiz_game_controller.submit_answer(UUID(result.game_id), users[1].id, correct_word)
-    await wordquiz_game_controller.submit_answer(UUID(result.game_id), users[2].id, correct_word)
+    for user in users:
+        await wordquiz_game_controller.submit_answer(UUID(result.game_id), user.id, correct_word)
 
-    # Act — all non-host players mark ready
-    result1 = await wordquiz_game_controller.advance_to_next_round(UUID(result.game_id), users[1].id)
-    assert result1.advanced is False  # Only 1/3 ready
+    # Act — both non-hosts mark ready; the host does nothing at all
+    first = await wordquiz_game_controller.advance_to_next_round(UUID(result.game_id), users[1].id)
+    second = await wordquiz_game_controller.advance_to_next_round(UUID(result.game_id), users[2].id)
 
-    result2 = await wordquiz_game_controller.advance_to_next_round(UUID(result.game_id), users[2].id)
-    assert result2.advanced is False  # Only 2/3 ready
-
-    # Host (users[0]) is the 3rd player — they mark ready and it should advance
-    # Actually host always advances immediately, so let's use a different approach:
-    # The last non-host triggers the advance when count matches total
-    # We have 3 players, 2 non-hosts have marked ready, but total is 3.
-    # We need the host to also mark ready OR the host to force advance.
-    # Since host always advances immediately, let's test host override instead.
-    result3 = await wordquiz_game_controller.advance_to_next_round(UUID(result.game_id), users[0].id)
-
-    # Assert — host override advances immediately
-    assert result3.advanced is True
+    # Assert
+    assert first.advanced is False
+    assert second.advanced is True
     game = await _get_game(session, result.game_id)
     assert game.live_state["current_round"] == 2
     assert game.live_state["round_phase"] == "playing"
+    assert game.live_state["ready_players"] == []
+
+
+@pytest.mark.asyncio
+async def test_host_advances_the_round_on_their_own(wordquiz_game_controller, setup_wordquiz_game, session):
+    """The host override still bypasses readiness entirely."""
+    # Prepare
+    setup = await setup_wordquiz_game(num_players=3, num_words=5)
+    room, users = setup["room"], setup["users"]
+    result = await _start_game(wordquiz_game_controller, room.id, users[0].id)
+    game = await _get_game(session, result.game_id)
+    correct_word = game.live_state["current_word"]["word_en"]
+    for user in users:
+        await wordquiz_game_controller.submit_answer(UUID(result.game_id), user.id, correct_word)
+
+    # Act — nobody has marked ready
+    advance_result = await wordquiz_game_controller.advance_to_next_round(UUID(result.game_id), users[0].id)
+
+    # Assert
+    assert advance_result.advanced is True
+    game = await _get_game(session, result.game_id)
+    assert game.live_state["current_round"] == 2
 
 
 @pytest.mark.asyncio
@@ -862,3 +883,175 @@ async def test_get_state_spectator(wordquiz_game_controller, setup_wordquiz_game
     assert state.my_answered is False
     assert state.my_points == 0
     assert state.round_phase == "playing"
+
+
+# ========== The hint ladder is released one rung at a time ==========
+
+
+@pytest.mark.asyncio
+async def test_state_only_carries_the_hints_released_so_far(wordquiz_game_controller, setup_wordquiz_game):
+    """Shipping the whole ladder at round start was a straight scoring exploit.
+
+    A correct answer pays ``max_hints - hint_number + 1``, where ``hint_number``
+    comes from elapsed *server* time. With all six hints in the very first
+    response, reading the network tab showed the most specific one at t=0 and paid
+    full marks, while honest players waited out the interval for one point less
+    each rung.
+    """
+    # Prepare — a fresh round, one hint interval into it at most
+    setup = await setup_wordquiz_game(2)
+    result = await _start_game(wordquiz_game_controller, setup["room"].id, setup["users"][0].id)
+    game_uuid = UUID(result.game_id)
+
+    # Act
+    state = await wordquiz_game_controller.get_state(game_uuid, setup["users"][1].id)
+
+    # Assert — exactly the revealed prefix, and the ladder length reported separately
+    assert state.hints_revealed == 1
+    assert len(state.hints) == 1
+    assert state.max_hints == DEFAULT_WORD_QUIZ_MAX_HINTS
+
+
+@pytest.mark.asyncio
+async def test_hints_appear_as_the_round_clock_advances(wordquiz_game_controller, setup_wordquiz_game, session):
+    """The rungs already earned are still served — the cap tracks server time, not a constant."""
+    # Prepare — push the round start back past three hint intervals
+    setup = await setup_wordquiz_game(2)
+    result = await _start_game(wordquiz_game_controller, setup["room"].id, setup["users"][0].id)
+    game = await _get_game(session, result.game_id)
+    interval = game.live_state["hint_interval_seconds"]
+    state_dict = game.live_state
+    state_dict["round_started_at"] = (datetime.now(UTC) - timedelta(seconds=interval * 2 + 1)).isoformat()
+    game.live_state = state_dict
+    flag_modified(game, "live_state")
+    session.add(game)
+    await session.commit()
+
+    # Act
+    state = await wordquiz_game_controller.get_state(UUID(result.game_id), setup["users"][1].id)
+
+    # Assert
+    assert state.hints_revealed == 3
+    assert len(state.hints) == 3
+
+
+# === The round's results: category, what each player typed, never before the reveal ===
+
+
+@pytest.mark.asyncio
+async def test_state_carries_the_words_category_key(wordquiz_game_controller, setup_wordquiz_game, session):
+    """The header's theme ("a prophet") comes from the stored category as a stable key."""
+    # Prepare
+    setup = await setup_wordquiz_game(num_players=1)
+    room, users = setup["room"], setup["users"]
+    result = await _start_game(wordquiz_game_controller, room.id, users[0].id)
+
+    # Act
+    view = await wordquiz_game_controller.get_state(UUID(result.game_id), users[0].id)
+
+    # Assert
+    game = await _get_game(session, result.game_id)
+    assert game.live_state["category"] == "Prophets"
+    assert view.category == "prophets"
+
+
+@pytest.mark.parametrize(
+    ("stored", "expected"),
+    [("Places", "places"), ("Islamic History", "islamic_history"), ("Poetry", None), (None, None)],
+)
+def test_category_key_maps_the_seeded_labels_and_nothing_else(stored: str | None, expected: str | None):
+    """An admin-made category outside the seeded set reads as null rather than as raw English."""
+    # Act / Assert
+    assert WordQuizGameController._category_key(stored) == expected
+
+
+@pytest.mark.asyncio
+async def test_typed_answers_appear_only_once_the_round_resolves(
+    wordquiz_game_controller, setup_wordquiz_game, session
+):
+    """What each player typed (and at which hint) is in the round's results, and nowhere before."""
+    # Prepare
+    setup = await setup_wordquiz_game(num_players=3)
+    room, users = setup["room"], setup["users"]
+    result = await _start_game(wordquiz_game_controller, room.id, users[0].id)
+    game_id = UUID(result.game_id)
+    game = await _get_game(session, result.game_id)
+    answer = game.live_state["current_word"]["word_en"]
+
+    # Act — player 0 misses once then finds it; player 1 only misses; player 2 types nothing
+    await wordquiz_game_controller.submit_answer(game_id, users[0].id, "  Nuh ")  # none of the dealt words
+    await wordquiz_game_controller.submit_answer(game_id, users[0].id, f" {answer.lower()} ")
+    await wordquiz_game_controller.submit_answer(game_id, users[1].id, "Yunus")  # none of the dealt words
+    while_open = await wordquiz_game_controller.get_state(game_id, users[1].id)
+    game = await _get_game(session, result.game_id)
+    game.live_state["round_started_at"] = (datetime.now(UTC) - timedelta(seconds=120)).isoformat()
+    flag_modified(game, "live_state")
+    session.add(game)
+    await session.commit()
+    await wordquiz_game_controller.handle_timer_expired(game_id, users[0].id)
+    revealed = await wordquiz_game_controller.get_state(game_id, users[2].id)
+
+    # Assert — nothing typed is in the open round's payload
+    assert while_open.round_results == []
+    assert while_open.correct_answer is None
+    assert answer.lower() not in while_open.model_dump_json().lower()
+    # — and the reveal names it all
+    assert revealed.round_phase == "results"
+    rows = {r.user_id: r for r in revealed.round_results}
+    finder = rows[str(users[0].id)]
+    assert (finder.typed_answer, finder.attempts, finder.answered_at_hint) == (answer.lower(), 2, 1)
+    misser = rows[str(users[1].id)]
+    assert (misser.typed_answer, misser.attempts, misser.answered_at_hint, misser.points) == ("Yunus", 1, None, 0)
+    silent = rows[str(users[2].id)]
+    assert (silent.typed_answer, silent.attempts) == (None, 0)
+    stored = await _get_game(session, result.game_id)
+    assert stored.live_state["attempts"][str(users[1].id)]["last_text"] == "Yunus"
+
+
+@pytest.mark.asyncio
+async def test_next_round_clears_the_typed_answers(wordquiz_game_controller, setup_wordquiz_game, session):
+    """A new word starts with no attempts and its own category."""
+    # Prepare
+    setup = await setup_wordquiz_game(num_players=1)
+    room, users = setup["room"], setup["users"]
+    result = await _start_game(wordquiz_game_controller, room.id, users[0].id)
+    game_id = UUID(result.game_id)
+    game = await _get_game(session, result.game_id)
+    await wordquiz_game_controller.submit_answer(game_id, users[0].id, game.live_state["current_word"]["word_en"])
+
+    # Act
+    await wordquiz_game_controller.advance_to_next_round(game_id, users[0].id)
+
+    # Assert
+    stored = await _get_game(session, result.game_id)
+    assert stored.live_state["current_round"] == 2
+    assert stored.live_state["attempts"] == {}
+    assert stored.live_state["category"] == "Prophets"
+
+
+@pytest.mark.asyncio
+async def test_state_carries_the_colophon_once_over(wordquiz_game_controller, setup_wordquiz_game, session):
+    """At game over: the starting host's name and the UTC start and end."""
+    # Prepare — a one-round game
+    setup = await setup_wordquiz_game(num_players=1)
+    room, users = setup["room"], setup["users"]
+    room.settings = {**(room.settings or {}), "word_quiz_rounds": 1}
+    session.add(room)
+    await session.commit()
+    result = await _start_game(wordquiz_game_controller, room.id, users[0].id)
+    game_id = UUID(result.game_id)
+    game = await _get_game(session, result.game_id)
+    await wordquiz_game_controller.submit_answer(game_id, users[0].id, game.live_state["current_word"]["word_en"])
+
+    # Act
+    await wordquiz_game_controller.advance_to_next_round(game_id, users[0].id)
+    over = await wordquiz_game_controller.get_state(game_id, users[0].id)
+
+    # Assert
+    assert over.game_over is True
+    assert over.host_username == users[0].username
+    assert over.started_at is not None and over.ended_at is not None
+    assert over.started_at.utcoffset() is not None and over.ended_at.utcoffset() is not None
+    assert over.ended_at >= over.started_at
+    stored = await _get_game(session, result.game_id)
+    assert stored.end_time is not None

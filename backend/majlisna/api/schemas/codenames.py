@@ -1,8 +1,9 @@
+from datetime import datetime
 from uuid import UUID
 
 from pydantic import Field
 
-from majlisna.api.schemas.common import PlayerUnlockedAchievements
+from majlisna.api.schemas.common import GamePause, PlayerUnlockedAchievements
 from majlisna.api.schemas.shared import BaseModel
 
 
@@ -49,6 +50,12 @@ class EndTurnResponse(BaseModel):
 class CodenamesCardView(BaseModel):
     index: int
     word: str
+    # Arabic script of `word` (see TermScript). The Latin is on every card for
+    # everyone, so this reveals nothing the board does not already show.
+    word_ar: str | None = None
+    # The same word with harakat. The bare form is ambiguous (أحد = Uhud or "one",
+    # ثور, الملك, كلام); null when the vocalisation is not certain.
+    word_ar_vocalized: str | None = None
     revealed: bool
     card_type: str | None = None
     hint: str | None = None
@@ -63,6 +70,8 @@ class CodenamesPlayerView(BaseModel):
 
 class CodenamesClueGuess(BaseModel):
     word: str
+    word_ar: str | None = None
+    word_ar_vocalized: str | None = None
     card_type: str
     correct: bool
 
@@ -107,3 +116,14 @@ class CodenamesBoardState(BaseModel):
     timer_started_at: str | None = None
     players: list[CodenamesPlayerView]
     newly_unlocked_achievements: list[PlayerUnlockedAchievements] | None = None
+    # Set while the host has paused the game for the prayer; null otherwise.
+    paused: GamePause | None = None
+    # Whether pause / resume would accept THIS caller right now — the server's own
+    # rule, so the UI shows the button exactly when the request would succeed.
+    can_pause: bool = False
+    can_resume: bool = False
+    # The game-over colophon (see schemas/common.GameColophon): who hosted, and when
+    # the game started and ended (UTC). `ended_at` is null while it runs.
+    host_username: str | None = None
+    started_at: datetime | None = None
+    ended_at: datetime | None = None

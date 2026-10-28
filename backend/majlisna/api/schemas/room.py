@@ -12,6 +12,7 @@ from majlisna.api.constants import (
     MIN_QUIZ_ROUNDS,
     MIN_TIMER_SECONDS,
 )
+from majlisna.api.models.game import GameType
 from majlisna.api.schemas.shared import BaseModel
 
 
@@ -31,6 +32,12 @@ class RoomPlayerState(BaseModel):
     is_disconnected: bool
     is_host: bool
     is_spectator: bool
+    # While the member is away (disconnected): whole seconds, rounded up, before the
+    # server removes them — "away · 9:58". Null while connected. Computed when the state
+    # is read (and pushed over Socket.IO), so the client counts down from it locally.
+    # The grace depends on the room: 600 s in the lobby, 180 s in a running game,
+    # 45 min while the game is paused for the prayer. 0 means "due at the next sweep".
+    away_seconds_left: int | None = None
 
 
 class RoomSettings(BaseModel):
@@ -99,8 +106,13 @@ class RoomSettingsRequest(BaseModel):
     unbounded value is not just cosmetic: ``word_quiz_rounds=10_000_000`` makes
     game creation try to draw ten million questions, and a negative timer makes
     the timer-expiry check pass immediately and spin the round forward.
+
+    ``game_type`` is the host's pick in the lobby. It lives in the room's settings
+    (``get_room_state`` reads it from there while no game runs) so every guest's
+    lobby describes the game the host chose, not the one the room was opened for.
     """
 
+    game_type: GameType | None = None
     description_timer: int | None = Field(default=None, ge=MIN_TIMER_SECONDS, le=MAX_TIMER_SECONDS)
     voting_timer: int | None = Field(default=None, ge=MIN_TIMER_SECONDS, le=MAX_TIMER_SECONDS)
     codenames_clue_timer: int | None = Field(default=None, ge=MIN_TIMER_SECONDS, le=MAX_TIMER_SECONDS)

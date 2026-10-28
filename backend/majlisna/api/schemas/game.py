@@ -61,6 +61,10 @@ class ClueGuess(BaseModel):
     """A single guess made during a clue."""
 
     word: str
+    word_ar: str | None = None
+    word_ar_vocalized: str | None = None
+    # The word's meaning in the summary's `lang` (the card's hint), or null.
+    hint: str | None = None
     card_type: str
     correct: bool
 
@@ -81,7 +85,14 @@ class UndercoverWordExplanations(BaseModel):
     """Word pair used in an Undercover game."""
 
     civilian_word: str | None = None
+    civilian_word_ar: str | None = None
+    civilian_word_ar_vocalized: str | None = None
+    # Each word's meaning in the summary's `lang` (shared fallback chain), or null.
+    civilian_word_hint: str | None = None
     undercover_word: str | None = None
+    undercover_word_ar: str | None = None
+    undercover_word_ar_vocalized: str | None = None
+    undercover_word_hint: str | None = None
 
 
 class GameSummary(BaseModel):

@@ -10,6 +10,8 @@ from majlisna.api.schemas.common import (
     AdvanceRoundResponse,
     GameStartResponse,
     HintRecordResponse,
+    PauseGameResponse,
+    ResumeGameResponse,
     TimerExpiredResponse,
 )
 from majlisna.api.schemas.wordquiz import SubmitAnswerRequest, SubmitAnswerResponse, WordQuizGameState
@@ -88,3 +90,30 @@ async def record_hint_viewed(
     controller: Annotated[WordQuizGameController, Depends(get_wordquiz_game_controller)],
 ) -> HintRecordResponse:
     return await controller.record_hint_view(game_id, current_user.id)
+
+
+# --- Prayer pause (وقفة الصلاة) ---
+
+
+@router.post("/games/{game_id}/pause")
+async def pause_wordquiz_game(
+    game_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    controller: Annotated[WordQuizGameController, Depends(get_wordquiz_game_controller)],
+) -> PauseGameResponse:
+    """Pause the game for the prayer. Host only; no move is accepted and no clock runs until resumed."""
+    result = await controller.pause_game(game_id, current_user.id)
+    await notify_game_changed(str(game_id))
+    return result
+
+
+@router.post("/games/{game_id}/resume")
+async def resume_wordquiz_game(
+    game_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    controller: Annotated[WordQuizGameController, Depends(get_wordquiz_game_controller)],
+) -> ResumeGameResponse:
+    """Resume a paused game. Host only; every timer moves forward by the paused duration."""
+    result = await controller.resume_game(game_id, current_user.id)
+    await notify_game_changed(str(game_id))
+    return result

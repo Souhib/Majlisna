@@ -1,6 +1,5 @@
 import traceback
 from datetime import UTC, datetime
-from uuid import UUID
 
 import logfire
 import sentry_sdk
@@ -9,7 +8,6 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 from scalar_fastapi import get_scalar_api_reference
-from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 from sqlalchemy.exc import NoResultFound
@@ -17,6 +15,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from starlette.responses import JSONResponse
 
 from majlisna.api.middleware import LoggingMiddleware, RequestIDMiddleware, SecurityMiddleware
+from majlisna.api.rate_limit import rate_limit_exceeded_handler
 from majlisna.api.routes.auth import limiter
 from majlisna.api.routes.auth import router as auth_router
 from majlisna.api.routes.challenge import router as challenge_router
@@ -25,13 +24,14 @@ from majlisna.api.routes.codenames import router as codenames_router
 from majlisna.api.routes.friend import router as friend_router
 from majlisna.api.routes.game import router as game_router
 from majlisna.api.routes.mcqquiz import router as mcqquiz_router
+from majlisna.api.routes.notebook import router as notebook_router
 from majlisna.api.routes.profile import router as profile_router
 from majlisna.api.routes.room import router as room_router
 from majlisna.api.routes.stats import router as stats_router
 from majlisna.api.routes.undercover import router as undercover_router
 from majlisna.api.routes.user import router as user_router
 from majlisna.api.routes.wordquiz import router as wordquiz_router
-from majlisna.api.schemas.error import BaseError
+from majlisna.api.schemas.error import BaseError, error_response
 from majlisna.api.ws import socketio_app
 from majlisna.database import get_engine as _get_engine
 from majlisna.settings import Settings
@@ -101,42 +101,56 @@ def _log_admin_access(settings: Settings) -> None:
     )
 
 
+# Every REST router, mounted under /api/v1 in this order.
+_API_ROUTERS = (
+    auth_router,
+    user_router,
+    room_router,
+    game_router,
+    undercover_router,
+    codenames_router,
+    wordquiz_router,
+    mcqquiz_router,
+    stats_router,
+    profile_router,
+    friend_router,
+    chat_router,
+    challenge_router,
+    notebook_router,
+)
+
+
+def _include_api_routers(app: FastAPI) -> None:
+    """Mount every REST router with the /api/v1 prefix."""
+    for router in _API_ROUTERS:
+        app.include_router(router, prefix="/api/v1")
+
+
 def create_app(lifespan) -> FastAPI:
     """Create a FastAPI app with all routers, middleware, and exception handlers."""
-    settings = Settings()  # type: ignore
+    settings = Settings()
 
     app = FastAPI(title="Majlisna", lifespan=lifespan)
     _configure_observability(settings, app)
     _log_admin_access(settings)
     app.state.limiter = limiter
-    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
+    # The standard error envelope (translatable `error_key`), not slowapi's bare
+    # {"error": "Rate limit exceeded: …"}.
+    app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
     # Middleware stack (order matters: first added = outermost)
     app.add_middleware(SecurityMiddleware, is_production=settings.environment == "production")
     app.add_middleware(RequestIDMiddleware)
     app.add_middleware(LoggingMiddleware)
     app.add_middleware(
-        CORSMiddleware,  # type: ignore
+        CORSMiddleware,
         allow_origins=settings.cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
 
-    # Include routers with /api/v1 prefix
-    app.include_router(auth_router, prefix="/api/v1")
-    app.include_router(user_router, prefix="/api/v1")
-    app.include_router(room_router, prefix="/api/v1")
-    app.include_router(game_router, prefix="/api/v1")
-    app.include_router(undercover_router, prefix="/api/v1")
-    app.include_router(codenames_router, prefix="/api/v1")
-    app.include_router(wordquiz_router, prefix="/api/v1")
-    app.include_router(mcqquiz_router, prefix="/api/v1")
-    app.include_router(stats_router, prefix="/api/v1")
-    app.include_router(profile_router, prefix="/api/v1")
-    app.include_router(friend_router, prefix="/api/v1")
-    app.include_router(chat_router, prefix="/api/v1")
-    app.include_router(challenge_router, prefix="/api/v1")
+    _include_api_routers(app)
 
     # Mount Socket.IO (separate ASGI app, bypasses FastAPI middleware)
     app.mount("/socket.io", socketio_app)
@@ -156,7 +170,10 @@ def create_app(lifespan) -> FastAPI:
         try:
             engine = await _get_engine()
             async with AsyncSession(engine) as session:
-                await session.exec(text("SELECT 1"))
+                # `exec` is typed for Select statements; a raw TextClause has no
+                # matching overload. Deliberate — the alternative, `execute`, is the one
+                # SQLModel deprecates, and this only needs the round-trip, not the rows.
+                await session.exec(text("SELECT 1"))  # ty: ignore[no-matching-overload]
         except Exception:
             db_status = "error"
             status_code = 503
@@ -182,24 +199,7 @@ def create_app(lifespan) -> FastAPI:
 
     @app.exception_handler(BaseError)
     async def base_error_exception_handler(_request: Request, exc: BaseError):
-        details_status_codes = {400, 409, 422, 429}
-        should_include_details = exc.status_code in details_status_codes
-
-        serializable_details = {}
-        if should_include_details and exc.details:
-            serializable_details = {k: str(v) if isinstance(v, UUID) else v for k, v in exc.details.items()}
-
-        return JSONResponse(
-            status_code=exc.status_code,
-            content={
-                "error": exc.error_code,
-                "error_key": exc.error_key,
-                "message": exc.frontend_message,
-                "error_params": exc.error_params,
-                "details": serializable_details if should_include_details else {},
-                "timestamp": exc.timestamp.isoformat(),
-            },
-        )
+        return error_response(exc)
 
     @app.exception_handler(RequestValidationError)
     async def request_validation_error_handler(request: Request, exc: RequestValidationError):

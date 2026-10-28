@@ -1,8 +1,9 @@
+from datetime import datetime
 from uuid import UUID
 
 from pydantic import Field
 
-from majlisna.api.schemas.common import PlayerUnlockedAchievements
+from majlisna.api.schemas.common import GamePause, PlayerUnlockedAchievements
 from majlisna.api.schemas.shared import BaseModel
 
 
@@ -69,16 +70,28 @@ class VoteEntry(BaseModel):
     target_id: str
 
 
+class MrWhiteGuessRecord(BaseModel):
+    """What the eliminated Mr. White guessed: ``word`` is null when his time ran out."""
+
+    word: str | None = None
+    correct: bool
+
+
 class VoteHistoryRound(BaseModel):
     round: int
     votes: list[VoteEntry]
     eliminated: EliminatedPlayer | None = None
+    mr_white_guess: MrWhiteGuessRecord | None = None
 
 
 class WordExplanations(BaseModel):
     civilian_word: str
+    civilian_word_ar: str | None = None
+    civilian_word_ar_vocalized: str | None = None
     civilian_word_hint: str | None
     undercover_word: str
+    undercover_word_ar: str | None = None
+    undercover_word_ar_vocalized: str | None = None
     undercover_word_hint: str | None
 
 
@@ -104,6 +117,10 @@ class UndercoverGameState(BaseModel):
     is_spectator: bool = False
     my_role: str
     my_word: str
+    # Arabic forms of the caller's OWN word only (never the other side's), and
+    # null for Mr. White and spectators, exactly like the hint.
+    my_word_ar: str | None = None
+    my_word_ar_vocalized: str | None = None
     my_word_hint: str | None
     is_alive: bool
     players: list[UndercoverPlayerState]
@@ -116,9 +133,21 @@ class UndercoverGameState(BaseModel):
     votes: dict
     has_voted: bool
     turn_phase: str
+    round_resolved: bool = False
     description_order: list[DescriptionOrderEntry]
     current_describer_index: int
     descriptions: dict
     word_explanations: WordExplanations | None = None
     mr_white_guesser: str | None = None
     newly_unlocked_achievements: list[PlayerUnlockedAchievements] | None = None
+    # Set while the host has paused the game for the prayer; null otherwise.
+    paused: GamePause | None = None
+    # Whether pause / resume would accept THIS caller right now — the server's own
+    # rule, so the UI shows the button exactly when the request would succeed.
+    can_pause: bool = False
+    can_resume: bool = False
+    # The game-over colophon (see schemas/common.GameColophon): who hosted, and when
+    # the game started and ended (UTC). `ended_at` is null while it runs.
+    host_username: str | None = None
+    started_at: datetime | None = None
+    ended_at: datetime | None = None

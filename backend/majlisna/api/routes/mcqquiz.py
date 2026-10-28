@@ -6,7 +6,13 @@ from starlette.status import HTTP_201_CREATED
 
 from majlisna.api.controllers.mcqquiz_game import McqQuizGameController
 from majlisna.api.models.table import User
-from majlisna.api.schemas.common import AdvanceRoundResponse, GameStartResponse, TimerExpiredResponse
+from majlisna.api.schemas.common import (
+    AdvanceRoundResponse,
+    GameStartResponse,
+    PauseGameResponse,
+    ResumeGameResponse,
+    TimerExpiredResponse,
+)
 from majlisna.api.schemas.mcqquiz import McqQuizGameState, McqSubmitAnswerRequest, McqSubmitAnswerResponse
 from majlisna.api.ws.handlers import auto_join_game_room
 from majlisna.api.ws.notify import notify_game_changed, notify_room_changed
@@ -72,5 +78,32 @@ async def next_round(
     controller: Annotated[McqQuizGameController, Depends(get_mcqquiz_game_controller)],
 ) -> AdvanceRoundResponse:
     result = await controller.advance_to_next_round(game_id, current_user.id)
+    await notify_game_changed(str(game_id))
+    return result
+
+
+# --- Prayer pause (وقفة الصلاة) ---
+
+
+@router.post("/games/{game_id}/pause")
+async def pause_mcqquiz_game(
+    game_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    controller: Annotated[McqQuizGameController, Depends(get_mcqquiz_game_controller)],
+) -> PauseGameResponse:
+    """Pause the game for the prayer. Host only; no move is accepted and no clock runs until resumed."""
+    result = await controller.pause_game(game_id, current_user.id)
+    await notify_game_changed(str(game_id))
+    return result
+
+
+@router.post("/games/{game_id}/resume")
+async def resume_mcqquiz_game(
+    game_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    controller: Annotated[McqQuizGameController, Depends(get_mcqquiz_game_controller)],
+) -> ResumeGameResponse:
+    """Resume a paused game. Host only; every timer moves forward by the paused duration."""
+    result = await controller.resume_game(game_id, current_user.id)
     await notify_game_changed(str(game_id))
     return result

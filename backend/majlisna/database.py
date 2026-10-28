@@ -61,7 +61,7 @@ async def create_app_engine(settings: Settings) -> AsyncEngine:
 async def get_engine() -> AsyncEngine:
     """Get or create the shared database engine singleton."""
     if _engine is None:
-        settings = Settings()  # type: ignore
+        settings = Settings()
         return await create_app_engine(settings)
     return _engine
 

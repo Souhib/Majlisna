@@ -1560,3 +1560,260 @@ async def test_guess_max_guesses_plus_one(codenames_game_controller, setup_coden
 
     game = await _get_game(session, result.game_id)
     assert game.live_state["current_team"] == other_team
+
+
+# ─── Arabic term forms (TermScript) ───────────────────────────
+#
+# Every card carries its Arabic form (`word_ar`) for every viewer: the Latin word
+# is on the card for everyone, so the Arabic reveals nothing more. One batched
+# lookup per board request.
+
+# Arabic forms for most of the fixture's words; the rest deliberately have none.
+FIXTURE_SCRIPTS = {
+    "Quran": ("قرآن", "قُرْآن"),
+    "Salah": ("صلاة", "صَلَاة"),
+    "Zakat": ("زكاة", "زَكَاة"),
+    "Hajj": ("حج", "حَجّ"),
+    "Sawm": ("صوم", "صَوْم"),
+    "Iman": ("إيمان", "إِيمَان"),
+    "Ihsan": ("إحسان", "إِحْسَان"),
+    "Taqwa": ("تقوى", "تَقْوَى"),
+    "Dua": ("دعاء", "دُعَاء"),
+    "Dhikr": ("ذكر", "ذِكْر"),
+    "Minaret": ("مئذنة", "مِئْذَنَة"),
+    "Mihrab": ("محراب", "مِحْرَاب"),
+    "Minbar": ("منبر", "مِنْبَر"),
+    "Wudu": ("وضوء", "وُضُوء"),
+    "Adhan": ("أذان", "أَذَان"),
+    "Sunnah": ("سنة", "سُنَّة"),
+    "Hadith": ("حديث", "حَدِيث"),
+    "Fiqh": ("فقه", "فِقْه"),
+    "Hijab": ("حجاب", "حِجَاب"),
+    "Sadaqah": ("صدقة", "صَدَقَة"),
+    "Barakah": ("بركة", "بَرَكَة"),
+    "Tawhid": ("توحيد", "تَوْحِيد"),
+}
+
+
+# The other eight fixture words, with a bare form but no certain vocalisation. With
+# these, every one of the 30 fixture words has a row, so any 25-card board holds at
+# least three cards whose `word_ar_vocalized` must come back null next to a `word_ar`.
+UNCERTAIN_SCRIPTS: dict[str, tuple[str, str | None]] = {
+    "Mosque": ("مسجد", None),
+    "Iqama": ("إقامة", None),
+    "Sharia": ("شريعة", None),
+    "Ummah": ("أمة", None),
+    "Dawah": ("دعوة", None),
+    "Jannat": ("جنات", None),
+    "Khalifah": ("خليفة", None),
+    "Makkah": ("مكة", None),
+}
+
+
+def _expected_ar(word: str) -> str | None:
+    forms = FIXTURE_SCRIPTS.get(word)
+    return forms[0] if forms else None
+
+
+def _expected_forms(word: str, scripts: dict[str, tuple[str, str | None]]) -> tuple[str | None, str | None]:
+    """(word_ar, word_ar_vocalized) a card must carry, given the stored scripts."""
+    forms = scripts.get(word)
+    return (forms[0], forms[1]) if forms else (None, None)
+
+
+@pytest.mark.asyncio
+async def test_board_cards_carry_their_arabic_form_in_one_lookup(
+    codenames_game_controller, setup_codenames_game, session, create_term_scripts, count_statements
+):
+    """Spymaster and operative both get `word_ar` on every card; words without a row get None."""
+    # Prepare
+    await create_term_scripts(FIXTURE_SCRIPTS)
+    setup = await setup_codenames_game(4)
+    result = await _start_game(codenames_game_controller, setup["room"].id, setup["users"][0].id)
+    game = await _get_game(session, result.game_id)
+    state = game.live_state
+    spymaster = _find_spymaster(state, state["current_team"])
+    operative = _find_operative(state, state["current_team"])
+    counter = count_statements("term_script")
+
+    # Act
+    spymaster_board = await codenames_game_controller.get_board(UUID(result.game_id), UUID(spymaster["user_id"]))
+    operative_board = await codenames_game_controller.get_board(UUID(result.game_id), UUID(operative["user_id"]))
+
+    # Assert
+    assert counter.count == 2  # one per request, not one per card
+    for board in (spymaster_board, operative_board):
+        assert [card.word_ar for card in board.board] == [_expected_ar(card.word) for card in board.board]
+        assert [(card.word_ar, card.word_ar_vocalized) for card in board.board] == [
+            _expected_forms(card.word, FIXTURE_SCRIPTS) for card in board.board
+        ]
+    # Unrevealed cards keep their hint hidden from operatives, Arabic form or not
+    unrevealed = [card for card in operative_board.board if not card.revealed]
+    assert unrevealed
+    assert all(card.hint is None and card.card_type is None for card in unrevealed)
+    assert any(card.word_ar is not None for card in unrevealed)
+
+
+@pytest.mark.asyncio
+async def test_clue_history_guesses_carry_their_arabic_form(
+    codenames_game_controller, setup_codenames_game, session, create_term_scripts
+):
+    """A guessed word in the clue history shows its Arabic form like its card does."""
+    # Prepare
+    await create_term_scripts(FIXTURE_SCRIPTS)
+    setup = await setup_codenames_game(4)
+    result = await _start_game(codenames_game_controller, setup["room"].id, setup["users"][0].id)
+    game = await _give_clue_first(codenames_game_controller, session, result)
+    state = game.live_state
+    team = state["current_team"]
+    operative = _find_operative(state, team)
+    card_index = _find_card_of_type(state["board"], team)
+    guessed_word = state["board"][card_index]["word"]
+    await codenames_game_controller.guess_card(UUID(result.game_id), UUID(operative["user_id"]), card_index)
+
+    # Act
+    board = await codenames_game_controller.get_board(UUID(result.game_id), UUID(operative["user_id"]))
+
+    # Assert
+    guesses = board.clue_history[-1].guesses
+    assert [guess.word for guess in guesses] == [guessed_word]
+    assert guesses[0].word_ar == _expected_ar(guessed_word)
+    assert guesses[0].word_ar_vocalized == _expected_forms(guessed_word, FIXTURE_SCRIPTS)[1]
+    assert board.board[card_index].word_ar == _expected_ar(guessed_word)
+    assert board.board[card_index].word_ar_vocalized == _expected_forms(guessed_word, FIXTURE_SCRIPTS)[1]
+
+
+@pytest.mark.asyncio
+async def test_every_board_view_carries_the_vocalized_form_from_the_same_lookup(
+    codenames_game_controller, setup_codenames_game, session, create_term_scripts, count_statements
+):
+    """Spymaster, operative, spectator and the end-of-game reveal all get `word_ar_vocalized`.
+
+    The bare Arabic is ambiguous on a card (أحد is Uhud or "one"), so each view
+    carries the harakat too — null where they are not certain — and the four
+    requests still cost one term_script statement each.
+    """
+    # Prepare
+    scripts = {**FIXTURE_SCRIPTS, **UNCERTAIN_SCRIPTS}
+    await create_term_scripts(scripts)
+    setup = await setup_codenames_game(4)
+    result = await _start_game(codenames_game_controller, setup["room"].id, setup["users"][0].id)
+    game_id = UUID(result.game_id)
+    game = await _get_game(session, result.game_id)
+    state = game.live_state
+    spymaster = _find_spymaster(state, state["current_team"])
+    operative = _find_operative(state, state["current_team"])
+    spectator = User(username="vocal_spectator", email_address="vocal_spectator@test.com", password="password123")
+    session.add(spectator)
+    await session.commit()
+    session.add(RoomUserLink(room_id=setup["room"].id, user_id=spectator.id, connected=True, is_spectator=True))
+    await session.commit()
+    counter = count_statements("term_script")
+
+    # Act
+    live_boards = [
+        await codenames_game_controller.get_board(game_id, UUID(spymaster["user_id"])),
+        await codenames_game_controller.get_board(game_id, UUID(operative["user_id"])),
+        await codenames_game_controller.get_board(game_id, spectator.id),
+    ]
+    game = await _get_game(session, result.game_id)
+    state = game.live_state
+    state["status"] = CodenamesGameStatus.FINISHED.value
+    state["winner"] = CodenamesTeam.RED.value
+    game.live_state = state
+    flag_modified(game, "live_state")
+    session.add(game)
+    await session.commit()
+    finished_board = await codenames_game_controller.get_board(game_id, UUID(operative["user_id"]))
+
+    # Assert
+    assert counter.count == 4  # one per request, whatever the view
+    for board in [*live_boards, finished_board]:
+        assert len(board.board) == CODENAMES_BOARD_SIZE
+        assert [(card.word_ar, card.word_ar_vocalized) for card in board.board] == [
+            _expected_forms(card.word, scripts) for card in board.board
+        ]
+        # Both shapes are on every board: a certain vocalisation, and a bare form
+        # whose vocalisation is unknown and stays null rather than guessed.
+        assert any(card.word_ar_vocalized is not None for card in board.board)
+        assert any(card.word_ar is not None and card.word_ar_vocalized is None for card in board.board)
+    assert live_boards[2].is_spectator is True
+    assert all(card.revealed for card in finished_board.board)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("variant", ["plain", "vocalized", "with_article"])
+async def test_clue_cannot_be_a_board_word_in_arabic(
+    codenames_game_controller, setup_codenames_game, session, create_term_scripts, variant
+):
+    """The Arabic form is printed on the card, so it is on the board just like the Latin."""
+    # Prepare
+    await create_term_scripts(FIXTURE_SCRIPTS)
+    setup = await setup_codenames_game(4)
+    result = await _start_game(codenames_game_controller, setup["room"].id, setup["users"][0].id)
+    game = await _get_game(session, result.game_id)
+    state = game.live_state
+    spymaster = _find_spymaster(state, state["current_team"])
+    board_word = next(card["word"] for card in state["board"] if card["word"] in FIXTURE_SCRIPTS)
+    ar, vocalized = FIXTURE_SCRIPTS[board_word]
+    clue = {"plain": ar, "vocalized": vocalized, "with_article": f"ال{ar}"}[variant]
+
+    # Act / Assert
+    with pytest.raises(ClueWordIsOnBoardError):
+        await codenames_game_controller.give_clue(UUID(result.game_id), UUID(spymaster["user_id"]), clue, 1)
+    game = await _get_game(session, result.game_id)
+    assert game.live_state["current_turn"]["clue_word"] is None
+
+
+@pytest.mark.asyncio
+async def test_clue_in_arabic_that_is_not_on_the_board_is_accepted(
+    codenames_game_controller, setup_codenames_game, session, create_term_scripts
+):
+    """Arabic clues are fine as long as they name no card."""
+    # Prepare
+    await create_term_scripts(FIXTURE_SCRIPTS)
+    setup = await setup_codenames_game(4)
+    result = await _start_game(codenames_game_controller, setup["room"].id, setup["users"][0].id)
+    game = await _get_game(session, result.game_id)
+    state = game.live_state
+    spymaster = _find_spymaster(state, state["current_team"])
+
+    # Act
+    response = await codenames_game_controller.give_clue(UUID(result.game_id), UUID(spymaster["user_id"]), "عبادة", 2)
+
+    # Assert
+    assert response.clue_word == "عبادة"
+    game = await _get_game(session, result.game_id)
+    assert game.live_state["current_turn"]["clue_word"] == "عبادة"
+
+
+@pytest.mark.asyncio
+async def test_board_carries_the_colophon_and_meanings_in_the_requested_language(
+    codenames_game_controller, setup_codenames_game, session
+):
+    """At game over the board names who hosted and when, and every card's meaning is in `lang`."""
+    # Prepare
+    setup = await setup_codenames_game(4)
+    result = await _start_game(codenames_game_controller, setup["room"].id, setup["users"][0].id)
+    game = await _give_clue_first(codenames_game_controller, session, result)
+    state = game.live_state
+    word = state["board"][0]["word"]
+    state["word_hints"] = {word: {"en": "Patience", "ar": "الصبر", "fr": "La patience"}}
+    flag_modified(game, "live_state")
+    session.add(game)
+    await session.commit()
+    operative = _find_operative(state, state["current_team"])
+    assassin_idx = _find_card_of_type(state["board"], CodenamesCardType.ASSASSIN.value)
+    await codenames_game_controller.guess_card(UUID(result.game_id), UUID(operative["user_id"]), assassin_idx)
+
+    # Act
+    board = await codenames_game_controller.get_board(UUID(result.game_id), UUID(operative["user_id"]), lang="ar")
+
+    # Assert
+    assert board.status == CodenamesGameStatus.FINISHED.value
+    assert board.board[0].hint == "الصبر"
+    assert board.host_username == setup["users"][0].username
+    assert board.started_at is not None and board.ended_at is not None
+    assert board.started_at.utcoffset() is not None and board.ended_at.utcoffset() is not None
+    stored = await _get_game(session, result.game_id)
+    assert stored.live_state["host_username"] == setup["users"][0].username

@@ -3,14 +3,20 @@
 import uuid
 from unittest.mock import AsyncMock, Mock
 
+import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
 from majlisna.api.controllers.auth import AuthController
 from majlisna.api.models.table import User
 from majlisna.api.schemas.auth import LoginResult, LoginUserData, TokenPairResponse, TokenPayload
-from majlisna.api.schemas.error import InvalidCredentialsError, InvalidTokenError, UserAlreadyExistsError
-from majlisna.dependencies import get_auth_controller
+from majlisna.api.schemas.error import (
+    InvalidCredentialsError,
+    InvalidTokenError,
+    UserAlreadyExistsError,
+    UsernameAlreadyTakenError,
+)
+from majlisna.dependencies import get_auth_controller, get_current_user
 
 # ========== Register ==========
 
@@ -51,6 +57,28 @@ def test_register_success(test_app: FastAPI, client: TestClient):
     assert data["country"] == "FRA"
     assert "password" not in data
 
+    test_app.dependency_overrides.clear()
+
+
+def test_register_taken_username_is_a_translatable_409(test_app: FastAPI, client: TestClient):
+    """A taken username answers 409 with its own error key, which the register form shows."""
+    # Arrange
+    mock_controller = Mock(spec=AuthController)
+    mock_controller.register = AsyncMock(side_effect=UsernameAlreadyTakenError(username="admin"))
+    test_app.dependency_overrides[get_auth_controller] = lambda: mock_controller
+
+    # Act
+    response = client.post(
+        "/api/v1/auth/register",
+        json={"username": "admin", "email_address": "fresh@example.com", "password": "securepassword"},
+    )
+
+    # Assert
+    assert response.status_code == 409
+    data = response.json()
+    assert data["error"] == "UsernameAlreadyTakenError"
+    assert data["error_key"] == "errors.api.usernameAlreadyTaken"
+    assert data["error_params"] == {"username": "admin"}
     test_app.dependency_overrides.clear()
 
 
@@ -314,3 +342,61 @@ def test_refresh_token_invalid(test_app: FastAPI, client: TestClient):
     assert data["error_key"] == "errors.api.invalidToken"
 
     test_app.dependency_overrides.clear()
+
+
+# ========== The access token must name one account, by both claims ==========
+
+
+@pytest.mark.asyncio
+async def test_access_token_is_rejected_when_sub_and_email_disagree():
+    """Resolving the caller on `email` alone let a token outlive its account.
+
+    `sub` was decoded and never looked at, so a token stayed valid across a
+    delete-and-re-register of the same address: whoever next registered that
+    mailbox inherited every session still holding the old token. `/auth/refresh`
+    had always checked this; the request path had not.
+    """
+    # Arrange — a token whose `sub` names a different user than the row it resolves to
+    mock_controller = Mock(spec=AuthController)
+    mock_controller.decode_token = Mock(
+        return_value=TokenPayload(sub=str(uuid.uuid4()), email="reused@example.com", exp=0, type="access")
+    )
+    mock_controller.get_user_by_email = AsyncMock(
+        return_value=User(
+            id=uuid.uuid4(),
+            username="newowner",
+            email_address="reused@example.com",
+            password="hashedpassword123",
+        )
+    )
+    request = Mock(cookies={})
+
+    # Act / Assert
+    with pytest.raises(InvalidTokenError):
+        await get_current_user(request, "a.b.c", mock_controller)
+
+
+@pytest.mark.asyncio
+async def test_access_token_is_accepted_when_both_claims_agree():
+    """The ordinary path is unchanged."""
+    # Arrange
+    user_id = uuid.uuid4()
+    mock_controller = Mock(spec=AuthController)
+    mock_controller.decode_token = Mock(
+        return_value=TokenPayload(sub=str(user_id), email="owner@example.com", exp=0, type="access")
+    )
+    mock_controller.get_user_by_email = AsyncMock(
+        return_value=User(
+            id=user_id,
+            username="owner",
+            email_address="owner@example.com",
+            password="hashedpassword123",
+        )
+    )
+    request = Mock(cookies={})
+
+    # Act
+    user = await get_current_user(request, "a.b.c", mock_controller)
+
+    # Assert
+    assert user.id == user_id

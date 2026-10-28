@@ -9,7 +9,13 @@ from majlisna.api.controllers.undercover import UndercoverController
 from majlisna.api.controllers.undercover_game import UndercoverGameController
 from majlisna.api.models.table import User
 from majlisna.api.models.undercover import TermPair, TermPairCreate, Word, WordCreate
-from majlisna.api.schemas.common import GameStartResponse, HintRecordResponse, TimerExpiredResponse
+from majlisna.api.schemas.common import (
+    GameStartResponse,
+    HintRecordResponse,
+    PauseGameResponse,
+    ResumeGameResponse,
+    TimerExpiredResponse,
+)
 from majlisna.api.schemas.undercover import (
     DescriptionRequest,
     MrWhiteGuessRequest,
@@ -145,6 +151,33 @@ async def start_next_round(
     controller: Annotated[UndercoverGameController, Depends(get_undercover_game_controller)],
 ) -> StartNextRoundResponse:
     result = await controller.start_next_round(game_id, body.room_id, current_user.id)
+    await notify_game_changed(str(game_id))
+    return result
+
+
+# --- Prayer pause (وقفة الصلاة) ---
+
+
+@router.post("/games/{game_id}/pause")
+async def pause_undercover_game(
+    game_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    controller: Annotated[UndercoverGameController, Depends(get_undercover_game_controller)],
+) -> PauseGameResponse:
+    """Pause the game for the prayer. Host only; no move is accepted and no clock runs until resumed."""
+    result = await controller.pause_game(game_id, current_user.id)
+    await notify_game_changed(str(game_id))
+    return result
+
+
+@router.post("/games/{game_id}/resume")
+async def resume_undercover_game(
+    game_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    controller: Annotated[UndercoverGameController, Depends(get_undercover_game_controller)],
+) -> ResumeGameResponse:
+    """Resume a paused game. Host only; every timer moves forward by the paused duration."""
+    result = await controller.resume_game(game_id, current_user.id)
     await notify_game_changed(str(game_id))
     return result
 

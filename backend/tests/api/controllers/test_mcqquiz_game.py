@@ -3,6 +3,7 @@
 from uuid import UUID
 
 import pytest
+from sqlalchemy.orm.attributes import flag_modified
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -230,18 +231,19 @@ async def test_advance_to_next_round(mcqquiz_game_controller, setup_mcqquiz_game
 
 @pytest.mark.asyncio
 async def test_advance_non_host_marks_ready(mcqquiz_game_controller, setup_mcqquiz_game, session):
-    """Non-host marks themselves as ready but round doesn't advance yet."""
-    # Prepare
-    setup = await setup_mcqquiz_game(num_players=2, num_questions=5)
+    """A non-host marks themselves ready; the round waits for the rest."""
+    # Prepare — 3 players so one ready mark is not yet the whole quorum
+    setup = await setup_mcqquiz_game(num_players=3, num_questions=5)
     room, users = setup["room"], setup["users"]
     result = await _start_game(mcqquiz_game_controller, room.id, users[0].id)
-    await mcqquiz_game_controller.submit_answer(UUID(result.game_id), users[0].id, 0)
-    await mcqquiz_game_controller.submit_answer(UUID(result.game_id), users[1].id, 1)
+    for i, user in enumerate(users):
+        await mcqquiz_game_controller.submit_answer(UUID(result.game_id), user.id, i % 4)
 
-    # Act — non-host marks ready
+    # Act — one of the two non-hosts marks ready
     advance_result = await mcqquiz_game_controller.advance_to_next_round(UUID(result.game_id), users[1].id)
 
-    # Assert — not advanced, just marked ready
+    # Assert — not advanced, just marked ready. `total_players` reports what
+    # readiness is measured against: everyone but the host.
     assert advance_result.advanced is False
     assert advance_result.ready_count == 1
     assert advance_result.total_players == 2
@@ -251,30 +253,52 @@ async def test_advance_non_host_marks_ready(mcqquiz_game_controller, setup_mcqqu
 
 
 @pytest.mark.asyncio
-async def test_advance_all_ready_advances_round(mcqquiz_game_controller, setup_mcqquiz_game, session):
-    """When all players mark ready, the round advances."""
-    # Prepare — 3 players
+async def test_advance_all_ready_advances_round_without_the_host(mcqquiz_game_controller, setup_mcqquiz_game, session):
+    """ "Everyone is ready" must be reachable — it never was.
+
+    The host advances by pressing next and is never added to ``ready_players``, so
+    requiring ``len(ready_players) == len(players)`` could not be satisfied while
+    the host was also a player, i.e. in every normal game. The documented feature
+    collapsed to "only the host can advance", and an absent host stalled the quiz
+    with nothing to rescue it — the results phase has no timeout.
+    """
+    # Prepare — 3 players: users[0] hosts, users[1] and users[2] do not
     setup = await setup_mcqquiz_game(num_players=3, num_questions=5)
     room, users = setup["room"], setup["users"]
     result = await _start_game(mcqquiz_game_controller, room.id, users[0].id)
-    await mcqquiz_game_controller.submit_answer(UUID(result.game_id), users[0].id, 0)
-    await mcqquiz_game_controller.submit_answer(UUID(result.game_id), users[1].id, 1)
-    await mcqquiz_game_controller.submit_answer(UUID(result.game_id), users[2].id, 0)
+    for i, user in enumerate(users):
+        await mcqquiz_game_controller.submit_answer(UUID(result.game_id), user.id, i % 4)
 
-    # Act — 2 non-host players mark ready, then host forces advance
-    result1 = await mcqquiz_game_controller.advance_to_next_round(UUID(result.game_id), users[1].id)
-    assert result1.advanced is False
+    # Act — both non-hosts mark ready; the host does nothing at all
+    first = await mcqquiz_game_controller.advance_to_next_round(UUID(result.game_id), users[1].id)
+    second = await mcqquiz_game_controller.advance_to_next_round(UUID(result.game_id), users[2].id)
 
-    result2 = await mcqquiz_game_controller.advance_to_next_round(UUID(result.game_id), users[2].id)
-    assert result2.advanced is False
-
-    # Host forces advance
-    result3 = await mcqquiz_game_controller.advance_to_next_round(UUID(result.game_id), users[0].id)
-    assert result3.advanced is True
-
+    # Assert
+    assert first.advanced is False
+    assert second.advanced is True
     game = await _get_game(session, result.game_id)
     assert game.live_state["current_round"] == 2
     assert game.live_state["round_phase"] == "playing"
+    assert game.live_state["ready_players"] == []
+
+
+@pytest.mark.asyncio
+async def test_host_advances_the_round_on_their_own(mcqquiz_game_controller, setup_mcqquiz_game, session):
+    """The host override still bypasses readiness entirely."""
+    # Prepare
+    setup = await setup_mcqquiz_game(num_players=3, num_questions=5)
+    room, users = setup["room"], setup["users"]
+    result = await _start_game(mcqquiz_game_controller, room.id, users[0].id)
+    for i, user in enumerate(users):
+        await mcqquiz_game_controller.submit_answer(UUID(result.game_id), user.id, i % 4)
+
+    # Act — nobody has marked ready
+    advance_result = await mcqquiz_game_controller.advance_to_next_round(UUID(result.game_id), users[0].id)
+
+    # Assert
+    assert advance_result.advanced is True
+    game = await _get_game(session, result.game_id)
+    assert game.live_state["current_round"] == 2
 
 
 @pytest.mark.asyncio
@@ -611,3 +635,142 @@ async def test_create_insufficient_questions(mcqquiz_game_controller, setup_mcqq
     # Act / Assert
     with pytest.raises(NoMcqQuestionsAvailableError):
         await _start_game(mcqquiz_game_controller, room.id, users[0].id)
+
+
+# === The reveal: nothing about the open question leaks, everything survives a reload after ===
+
+
+@pytest.mark.asyncio
+async def test_open_question_withholds_every_players_round_points(mcqquiz_game_controller, setup_mcqquiz_game, session):
+    """While the question is open, nobody's state shows what anyone's lock-in earned.
+
+    Points are added at lock-in, so a live `total_score` (or `current_round_points`)
+    moving by 1-3 told the table who had just been right before the reveal.
+    """
+    # Prepare — round 2, so there is a previous score to freeze at
+    setup = await setup_mcqquiz_game(num_players=3)
+    room, users = setup["room"], setup["users"]
+    result = await _start_game(mcqquiz_game_controller, room.id, users[0].id)
+    game_id = UUID(result.game_id)
+    game = await _get_game(session, result.game_id)
+    for p in game.live_state["players"]:
+        p["total_score"] = 5 if p["user_id"] == str(users[1].id) else 0
+    flag_modified(game, "live_state")
+    session.add(game)
+    await session.commit()
+    correct_index = game.live_state["current_question"]["correct_answer_index"]
+
+    # Act — player 1 locks in the right answer, player 2 a wrong one; player 0 has not answered
+    earned = await mcqquiz_game_controller.submit_answer(game_id, users[1].id, correct_index)
+    await mcqquiz_game_controller.submit_answer(game_id, users[2].id, (correct_index + 1) % 4)
+    views = [await mcqquiz_game_controller.get_state(game_id, u.id) for u in users]
+
+    # Assert — the DB holds the real total, every view the pre-round one
+    stored = await _get_game(session, result.game_id)
+    stored_score = next(p["total_score"] for p in stored.live_state["players"] if p["user_id"] == str(users[1].id))
+    assert stored_score == 5 + earned.points_earned
+    for view in views:
+        assert view.round_phase == "playing"
+        by_id = {p.user_id: p for p in view.players}
+        assert by_id[str(users[1].id)].total_score == 5
+        assert all(p.current_round_points == 0 for p in view.players)
+        assert [p.current_round_answered for p in view.players] == [False, True, True]
+        assert {p.user_id: p.total_score for p in view.leaderboard} == {p.user_id: p.total_score for p in view.players}
+        assert view.my_points == 0
+        assert view.choice_tallies is None
+        assert view.my_choice_index is None
+        assert view.my_answer_time_ms is None
+        assert view.round_results == []
+
+
+@pytest.mark.asyncio
+async def test_reveal_carries_tallies_choices_and_times_from_the_server(
+    mcqquiz_game_controller, setup_mcqquiz_game, session
+):
+    """Once the round resolves the state carries the tallies, each choice, and the caller's own pick and time."""
+    # Prepare
+    setup = await setup_mcqquiz_game(num_players=3)
+    room, users = setup["room"], setup["users"]
+    result = await _start_game(mcqquiz_game_controller, room.id, users[0].id)
+    game_id = UUID(result.game_id)
+    game = await _get_game(session, result.game_id)
+    correct_index = game.live_state["current_question"]["correct_answer_index"]
+    wrong_index = (correct_index + 1) % 4
+
+    # Act — everyone answers, which resolves the round
+    first = await mcqquiz_game_controller.submit_answer(game_id, users[0].id, correct_index)
+    await mcqquiz_game_controller.submit_answer(game_id, users[1].id, correct_index)
+    await mcqquiz_game_controller.submit_answer(game_id, users[2].id, wrong_index)
+    view = await mcqquiz_game_controller.get_state(game_id, users[0].id)
+    other_view = await mcqquiz_game_controller.get_state(game_id, users[2].id)
+
+    # Assert
+    assert view.round_phase == "results"
+    expected_tallies = [0, 0, 0, 0]
+    expected_tallies[correct_index] = 2
+    expected_tallies[wrong_index] = 1
+    assert view.choice_tallies == expected_tallies
+    assert view.my_choice_index == correct_index
+    assert view.my_answer_time_ms is not None and view.my_answer_time_ms >= 0
+    assert view.my_points == first.points_earned
+    assert other_view.my_choice_index == wrong_index
+    assert other_view.my_points == 0
+    results = {r.user_id: r for r in view.round_results}
+    assert results[str(users[2].id)].choice_index == wrong_index
+    assert all(r.answer_time_ms is not None for r in view.round_results)
+    by_id = {p.user_id: p for p in view.players}
+    assert by_id[str(users[0].id)].total_score == first.points_earned
+    assert by_id[str(users[0].id)].current_round_points == first.points_earned
+    # The times are what the DB recorded at lock-in
+    stored = await _get_game(session, result.game_id)
+    assert stored.live_state["answers"][str(users[0].id)]["answer_time_ms"] == view.my_answer_time_ms
+
+
+@pytest.mark.asyncio
+async def test_reveal_after_a_timeout_counts_only_the_answers_given(
+    mcqquiz_game_controller, setup_mcqquiz_game, session
+):
+    """A player who never answered has no choice and no time; the tallies count the others."""
+    # Prepare
+    setup = await setup_mcqquiz_game(num_players=2)
+    room, users = setup["room"], setup["users"]
+    result = await _start_game(mcqquiz_game_controller, room.id, users[0].id)
+    game_id = UUID(result.game_id)
+    await mcqquiz_game_controller.submit_answer(game_id, users[0].id, 2)
+    game = await _get_game(session, result.game_id)
+    game.live_state["round_started_at"] = "2000-01-01T00:00:00+00:00"
+    flag_modified(game, "live_state")
+    session.add(game)
+    await session.commit()
+
+    # Act
+    await mcqquiz_game_controller.handle_timer_expired(game_id, users[0].id)
+    silent = await mcqquiz_game_controller.get_state(game_id, users[1].id)
+
+    # Assert
+    assert silent.round_phase == "results"
+    assert silent.choice_tallies == [0, 0, 1, 0]
+    assert silent.my_choice_index is None
+    assert silent.my_answer_time_ms is None
+    mine = next(r for r in silent.round_results if r.user_id == str(users[1].id))
+    assert (mine.choice_index, mine.answer_time_ms, mine.points) == (None, None, 0)
+
+
+@pytest.mark.asyncio
+async def test_state_carries_the_colophon(mcqquiz_game_controller, setup_mcqquiz_game, session):
+    """The state names the starting host and the game's UTC start (and end, once over)."""
+    # Prepare
+    setup = await setup_mcqquiz_game(num_players=1)
+    room, users = setup["room"], setup["users"]
+    result = await _start_game(mcqquiz_game_controller, room.id, users[0].id)
+    game_id = UUID(result.game_id)
+
+    # Act
+    running = await mcqquiz_game_controller.get_state(game_id, users[0].id)
+
+    # Assert
+    stored = await _get_game(session, result.game_id)
+    assert stored.live_state["host_username"] == users[0].username
+    assert running.host_username == users[0].username
+    assert running.started_at is not None and running.started_at.utcoffset() is not None
+    assert running.ended_at is None

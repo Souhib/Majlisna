@@ -48,6 +48,23 @@ async def _get_room_id_for_game(game_id: str) -> str | None:
         return None
 
 
+async def get_active_game_id(room_id: str) -> str | None:
+    """The room's running game, if any (a fresh session, like every notify lookup).
+
+    Routes that remove a member read it BEFORE the removal and hand it to
+    ``notify_member_removed``: the removal itself can end the game and clear
+    ``Room.active_game_id``.
+    """
+    try:
+        engine = await get_engine()
+        async with AsyncSession(engine, expire_on_commit=False) as session:
+            room = (await session.exec(select(Room).where(Room.id == UUID(room_id)))).first()
+            return str(room.active_game_id) if room and room.active_game_id else None
+    except Exception:
+        logger.opt(exception=True).debug("Failed to look up the active game of room={}", room_id)
+        return None
+
+
 async def notify_user_kicked(user_id: str, room_id: str) -> None:
     """Send 'you_were_kicked' event to the user's personal Socket.IO room."""
     try:
@@ -93,6 +110,28 @@ async def notify_room_changed(room_id: str) -> None:
         await sio.emit("room_state", state, to=f"room:{room_id}")
     except Exception:
         logger.opt(exception=True).error("notify_room_changed FAILED for room={}", room_id)
+
+
+async def notify_member_removed(room_id: str, game_id: str | None) -> None:
+    """After a member left or was kicked: the room, and the game they were in, if any.
+
+    A departure mid-game changes the game too — the leaver is eliminated, the turn
+    moves on, the game may end (``_handle_permanent_disconnect``) — but only
+    ``room_state`` used to go out. Game pages refetch on ``game_updated`` alone and
+    poll only while their socket is down, so the rest of the table stayed on a stale
+    game: the leaver still "describing…", the next describer never given the input.
+    ``notify_game_changed`` also re-sends the room state.
+
+    ``game_id`` is the room's active game read BEFORE the removal
+    (``get_active_game_id``), never after: when the departure decides the game (the
+    last Undercover kicked or gone) the room has no active game any more, and a
+    lookup made then sent only ``room_state`` — the table sat on a finished game
+    that still showed the leaver at their seat, with no colophon.
+    """
+    if game_id:
+        await notify_game_changed(game_id, room_id)
+    else:
+        await notify_room_changed(room_id)
 
 
 async def notify_chat_message(room_id: str, message_data: dict) -> None:

@@ -6,6 +6,7 @@ This script can be used to:
 2. Delete all data from the database (drop and recreate tables)
 3. Seed Undercover word pairs (30+ Islamic term pairs)
 4. Seed Codenames word packs (100+ Islamic terms in categories)
+   + the Arabic-script forms of every Undercover/Codenames term (upsert)
 5. Seed achievement/challenge definitions
 6. Create UserStats, UserAchievements, UserChallenges for test users
 7. Create friendships and chat messages
@@ -65,6 +66,7 @@ from majlisna.database import create_app_engine, create_db_and_tables
 from majlisna.settings import Settings
 from scripts.seed_data.codenames_data import seed_codenames_words
 from scripts.seed_data.mcqquiz_data import seed_mcq_questions
+from scripts.seed_data.term_script_data import seed_term_scripts
 from scripts.seed_data.undercover_data import seed_undercover_pairs, seed_undercover_words
 from scripts.seed_data.wordquiz_data import seed_quiz_words
 
@@ -681,6 +683,10 @@ async def generate_all_data(
         print("\n[5/12] Seeding Codenames word packs...")
         await seed_codenames_words(session)
 
+        # 5a. Arabic forms of the Undercover + Codenames terms (upsert)
+        print("\n[5a/12] Seeding Arabic term scripts...")
+        await seed_term_scripts(session)
+
         # 5b. Seed Word Quiz words
         print("\n[5b/12] Seeding Word Quiz words...")
         await seed_quiz_words(session)
@@ -733,23 +739,26 @@ async def seed_game_content(engine: AsyncEngine) -> None:
     await create_db_and_tables(engine)
 
     async with AsyncSession(engine, expire_on_commit=False) as session:
-        print("\n[1/4] Seeding Undercover words and pairs...")
+        print("\n[1/7] Seeding Undercover words and pairs...")
         word_map = await seed_undercover_words(session)
         await seed_undercover_pairs(session, word_map)
 
-        print("\n[2/4] Seeding Codenames word packs...")
+        print("\n[2/7] Seeding Codenames word packs...")
         await seed_codenames_words(session)
 
-        print("\n[3/6] Seeding Word Quiz words...")
+        print("\n[3/7] Seeding Arabic term scripts...")
+        await seed_term_scripts(session)
+
+        print("\n[4/7] Seeding Word Quiz words...")
         await seed_quiz_words(session)
 
-        print("\n[4/6] Seeding MCQ Quiz questions...")
+        print("\n[5/7] Seeding MCQ Quiz questions...")
         await seed_mcq_questions(session)
 
-        print("\n[5/6] Seeding achievement definitions...")
+        print("\n[6/7] Seeding achievement definitions...")
         await seed_achievements(session)
 
-        print("\n[6/6] Seeding challenge definitions...")
+        print("\n[7/7] Seeding challenge definitions...")
         await seed_challenges(session)
 
     print("\nGame content seeding complete!")

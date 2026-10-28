@@ -24,9 +24,12 @@ repos:
 
   - repo: local
     hooks:
-      - id: mypy
-        name: Type checking with mypy
-        entry: uv run mypy majlisna/
+      # The fast local echo of the CI step. Same command, same flags — including
+      # --error-on-warning, so a warning-level rule (deprecated,
+      # possibly-missing-submodule) cannot pass here and fail there.
+      - id: ty
+        name: Type checking with ty
+        entry: uv run ty check majlisna/ --error-on-warning
         language: system
         types: [python]
         exclude: ^(tests/|scripts/)

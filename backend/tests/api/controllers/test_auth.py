@@ -2,13 +2,22 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from jose import jwt
-from sqlalchemy.exc import IntegrityError
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from majlisna.api.controllers.auth import AuthController
 from majlisna.api.controllers.shared import get_password_hash
+from majlisna.api.models.table import User
 from majlisna.api.models.user import UserCreate
 from majlisna.api.schemas.auth import LoginResult, TokenPairResponse, TokenPayload
-from majlisna.api.schemas.error import InvalidCredentialsError, InvalidTokenError, TokenExpiredError
+from majlisna.api.schemas.error import (
+    InvalidCredentialsError,
+    InvalidTokenError,
+    TokenExpiredError,
+    UserAlreadyExistsError,
+    UsernameAlreadyTakenError,
+)
+from majlisna.api.schemas.social_auth import SocialTokenPayload
 from majlisna.settings import Settings
 
 
@@ -32,8 +41,12 @@ async def test_register_success(auth_controller: AuthController):
     assert user.country is None
 
 
-async def test_register_duplicate_email(auth_controller: AuthController):
-    """Registering two users with the same email raises IntegrityError."""
+async def test_register_duplicate_email(auth_controller: AuthController, session: AsyncSession):
+    """Registering an address twice is a named 409, not the unique constraint's raw IntegrityError (a 500).
+
+    This test used to assert the IntegrityError — i.e. it pinned the 500 the route
+    then answered with.
+    """
     # Arrange
     user_create_1 = UserCreate(
         username="user1",
@@ -48,8 +61,51 @@ async def test_register_duplicate_email(auth_controller: AuthController):
     await auth_controller.register(user_create_1)
 
     # Act & Assert
-    with pytest.raises(IntegrityError):
+    with pytest.raises(UserAlreadyExistsError):
         await auth_controller.register(user_create_2)
+    rows = (await session.exec(select(User).where(User.email_address == "dup@test.com"))).all()
+    assert [u.username for u in rows] == ["user1"]
+
+
+@pytest.mark.parametrize("second_username", ["admin", "Admin", "ADMIN"])
+async def test_register_rejects_a_taken_username_in_any_case(
+    auth_controller: AuthController, session: AsyncSession, second_username: str
+):
+    """A second account cannot take an existing username, whatever its case.
+
+    `user.username` has no unique constraint, so this used to register a second
+    "admin" (201) — e2e/tests/auth/validation.spec.ts "duplicate username shows error".
+    """
+    # Arrange
+    await auth_controller.register(UserCreate(username="admin", email_address="first@test.com", password="secret123"))
+
+    # Act & Assert
+    with pytest.raises(UsernameAlreadyTakenError) as exc_info:
+        await auth_controller.register(
+            UserCreate(username=second_username, email_address="second@test.com", password="secret456")
+        )
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.error_key == "errors.api.usernameAlreadyTaken"
+    assert exc_info.value.error_params == {"username": second_username}
+    assert (await auth_controller.get_user_by_email("second@test.com")) is None
+    rows = (await session.exec(select(User))).all()
+    assert [u.username for u in rows] == ["admin"]
+
+
+async def test_social_signup_does_not_reuse_a_username_taken_in_another_case(
+    auth_controller: AuthController, create_user
+):
+    """A Google sign-up whose generated name matches an account in another case gets a suffix."""
+    # Arrange
+    await create_user(username="Yusuf", email="yusuf@test.com")
+    payload = SocialTokenPayload(sub="google-sub-1", email="yusuf.g@gmail.com", first_name="Yusuf", email_verified=True)
+
+    # Act
+    user = await auth_controller._create_social_user(payload)
+
+    # Assert
+    assert user.username.lower() != "yusuf"
+    assert user.username.startswith("yusuf_")
 
 
 async def test_login_success(auth_controller: AuthController, create_user, test_settings: Settings):

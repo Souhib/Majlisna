@@ -25,7 +25,13 @@ from majlisna.api.schemas.room import (
     UpdateRoomSettingsResponse,
 )
 from majlisna.api.ws.handlers import remove_user_from_room_socket
-from majlisna.api.ws.notify import notify_room_changed, notify_room_invite, notify_user_kicked
+from majlisna.api.ws.notify import (
+    get_active_game_id,
+    notify_member_removed,
+    notify_room_changed,
+    notify_room_invite,
+    notify_user_kicked,
+)
 from majlisna.dependencies import get_current_user, get_room_controller
 
 router = APIRouter(
@@ -75,7 +81,7 @@ async def get_room(
     """Get a room. Members only — the response never leaks the PIN or game state."""
     room = await room_controller.get_room_by_id(room_id)
     if not await room_controller.check_if_user_is_in_room(current_user.id, room_id):
-        raise UserNotInRoomError(user_id=current_user.id, room_id=room_id)  # type: ignore
+        raise UserNotInRoomError(user_id=current_user.id, room_id=room_id)
     return RoomView.model_validate(room)
 
 
@@ -122,9 +128,12 @@ async def leave_room(
     room_controller: RoomController = Depends(get_room_controller),
 ) -> RoomView:
     """Leave a room. Identity comes from the JWT — users can only remove themselves."""
+    # read before the leave, which can end the game (see notify_member_removed)
+    game_id = await get_active_game_id(str(room_leave.room_id))
     result = await room_controller.leave_room(room_leave.room_id, current_user.id)
     await remove_user_from_room_socket(str(current_user.id), str(room_leave.room_id))
-    await notify_room_changed(str(result.id))
+    # the room, and its game: leaving mid-game eliminates the leaver
+    await notify_member_removed(str(result.id), game_id)
     return RoomView.model_validate(result)
 
 
@@ -151,10 +160,13 @@ async def kick_player(
     room_controller: RoomController = Depends(get_room_controller),
 ) -> KickPlayerResponse:
     """Kick a player from the room. Host only."""
+    # read before the kick, which can end the game (see notify_member_removed)
+    game_id = await get_active_game_id(str(room_id))
     result = await room_controller.kick_player(room_id, current_user.id, body.user_id)
     await notify_user_kicked(str(body.user_id), str(room_id))
     await remove_user_from_room_socket(str(body.user_id), str(room_id))
-    await notify_room_changed(str(room_id))
+    # the room, and its game: a kicked player is eliminated from it
+    await notify_member_removed(str(room_id), game_id)
     return result
 
 
@@ -165,7 +177,9 @@ async def update_room_settings(
     current_user: Annotated[User, Depends(get_current_user)],
     room_controller: RoomController = Depends(get_room_controller),
 ) -> UpdateRoomSettingsResponse:
-    result = await room_controller.update_room_settings(room_id, current_user.id, RoomSettings(**body.model_dump()))
+    result = await room_controller.update_room_settings(
+        room_id, current_user.id, RoomSettings(**body.model_dump(mode="json"))
+    )
     await notify_room_changed(str(room_id))
     return result
 

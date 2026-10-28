@@ -9,6 +9,7 @@ from majlisna.api.constants import (
     PASSWORD_MIN_LENGTH,
     USERNAME_MAX_LENGTH,
     USERNAME_MIN_LENGTH,
+    USERNAME_PATTERN,
 )
 from majlisna.api.models.shared import DBModel
 
@@ -45,7 +46,7 @@ class UserCreate(DBModel):
     """
 
     username: str = PydanticField(
-        min_length=USERNAME_MIN_LENGTH, max_length=USERNAME_MAX_LENGTH, pattern=r"^[^\s<>/\\@]+$"
+        min_length=USERNAME_MIN_LENGTH, max_length=USERNAME_MAX_LENGTH, pattern=USERNAME_PATTERN
     )
     email_address: EmailStr
     password: str = Field(min_length=PASSWORD_MIN_LENGTH, max_length=PASSWORD_MAX_LENGTH)
@@ -69,7 +70,11 @@ class UserUpdate(DBModel):
     google_sub) via mass assignment. Only these safe fields are editable.
     """
 
-    username: str | None = Field(default=None, min_length=USERNAME_MIN_LENGTH, max_length=USERNAME_MAX_LENGTH)
+    # Same shape rule as registration (UserCreate): no whitespace, no markup or "@" —
+    # a rename to "admin " would otherwise pass the case-insensitive taken check.
+    username: str | None = PydanticField(
+        default=None, min_length=USERNAME_MIN_LENGTH, max_length=USERNAME_MAX_LENGTH, pattern=USERNAME_PATTERN
+    )
     country: str | None = None
     bio: str | None = Field(default=None, max_length=200)
     profile_picture_url: str | None = None

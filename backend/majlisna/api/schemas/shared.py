@@ -15,7 +15,9 @@ class BaseModel(SQLModel):
     - Strict extra field validation
     """
 
-    model_config = ConfigDict(  # type: ignore
+    # SQLModel declares `model_config` as its own `SQLModelConfig`, so a plain
+    # pydantic `ConfigDict` is not assignable to it as far as a checker is concerned.
+    model_config = ConfigDict(  # ty: ignore[invalid-assignment]
         from_attributes=True,
         populate_by_name=True,
         arbitrary_types_allowed=True,
@@ -30,14 +32,14 @@ class BaseTable(BaseModel):
     TIMESTAMP WITH TIME ZONE support for proper timezone handling.
     """
 
-    created_at: datetime = Field(  # type: ignore[call-overload]
+    created_at: datetime = Field(
         default_factory=lambda: datetime.now(UTC),
-        sa_type=TIMESTAMP(timezone=True),  # type: ignore[invalid-argument-type]
+        sa_type=TIMESTAMP(timezone=True),  # ty: ignore[invalid-argument-type]
         description="Timestamp when the record was created (UTC)",
     )
-    updated_at: datetime = Field(  # type: ignore[call-overload]
+    updated_at: datetime = Field(
         default_factory=lambda: datetime.now(UTC),
-        sa_type=TIMESTAMP(timezone=True),  # type: ignore[invalid-argument-type]
+        sa_type=TIMESTAMP(timezone=True),  # ty: ignore[invalid-argument-type]
         # onupdate makes SQLAlchemy refresh this on every UPDATE; without it the
         # column stays frozen at the created_at value forever.
         sa_column_kwargs={"onupdate": lambda: datetime.now(UTC)},

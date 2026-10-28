@@ -22,7 +22,7 @@ async def get_active_challenges(
     controller: Annotated[ChallengeController, Depends(get_challenge_controller)],
 ) -> Sequence[ActiveChallenge]:
     """Get active daily and weekly challenges for the current user."""
-    return await controller.get_active_challenges(current_user.id)  # type: ignore[arg-type]
+    return await controller.get_active_challenges(current_user.id)
 
 
 @router.post("/seed", status_code=204)

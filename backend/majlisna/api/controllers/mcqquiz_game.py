@@ -9,6 +9,8 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from majlisna.api.constants import (
     DEFAULT_MCQ_QUIZ_ROUNDS,
     DEFAULT_MCQ_QUIZ_TURN_DURATION,
+    HOST_USERNAME_STATE_KEY,
+    MCQ_QUIZ_CHOICE_COUNT,
     TIMER_EXPIRATION_TOLERANCE_SECONDS,
 )
 from majlisna.api.controllers.base_game import BaseGameController
@@ -27,14 +29,24 @@ from majlisna.api.models.game import GameCreate, GameStatus, GameType
 from majlisna.api.models.mcqquiz import McqQuestion
 from majlisna.api.models.relationship import RoomUserLink
 from majlisna.api.models.table import Game, Room
-from majlisna.api.schemas.common import AdvanceRoundResponse, GameStartResponse, TimerExpiredResponse
-from majlisna.api.schemas.error import BaseError
+from majlisna.api.schemas.common import (
+    AdvanceRoundResponse,
+    GameStartResponse,
+    PhaseTimer,
+    TimerExpiredAction,
+    TimerExpiredResponse,
+)
+from majlisna.api.schemas.error import (
+    NotAGamePlayerError,
+    RoundNotInResultsError,
+)
 from majlisna.api.schemas.mcqquiz import (
     McqQuizGameState,
     McqQuizPlayerState,
     McqQuizRoundResult,
     McqSubmitAnswerResponse,
 )
+from majlisna.api.utils.game_pause import is_paused, parse_instant
 from majlisna.api.utils.game_state import require_state
 
 
@@ -44,6 +56,8 @@ class McqQuizGameController(BaseGameController):
     All game state stored in Game.live_state JSON column in PostgreSQL.
     Uses advisory locks per game_id for concurrency control.
     """
+
+    GAME_TYPE = GameType.MCQ_QUIZ
 
     def __init__(self, session: AsyncSession):
         super().__init__(session)
@@ -100,6 +114,7 @@ class McqQuizGameController(BaseGameController):
                 "round_results": [],
                 "game_over": False,
                 "winner": None,
+                HOST_USERNAME_STATE_KEY: await self._host_username_at_start(db_room, player_users),
             }
 
             db_game = await self._game_controller.create_game(
@@ -145,14 +160,17 @@ class McqQuizGameController(BaseGameController):
         if update_heartbeat:
             await self._update_heartbeat_throttled(game.room_id, user_id)
 
-        is_host = await self._check_is_host(game.room_id, user_id)
+        host_id, host_username = await self._get_room_host(game.room_id)
+        is_host = host_id == user_id
+        revealed = self._round_is_revealed(state)
         player_states = self._build_player_states(state)
 
-        # Current player state
+        # Current player state. Like everyone's, the caller's points for the open
+        # question are withheld until the reveal.
         answers = state.get("answers", {})
         my_answer = answers.get(str(user_id)) if not is_spectator else None
         my_answered = my_answer is not None
-        my_points = my_answer["points"] if my_answer else 0
+        my_points = my_answer["points"] if my_answer and revealed else 0
 
         # Resolve question and choices to language
         question_text = self._resolve_question(state, lang)
@@ -160,6 +178,7 @@ class McqQuizGameController(BaseGameController):
 
         # Round results, correct_answer_index, and explanation — only visible during results/game_over
         round_results, correct_answer_index, explanation = self._build_round_results(state, lang)
+        colophon = self._build_colophon(game, state, host_username)
 
         leaderboard = sorted(player_states, key=lambda p: p.total_score, reverse=True)
 
@@ -179,16 +198,25 @@ class McqQuizGameController(BaseGameController):
             turn_duration_seconds=state.get("turn_duration_seconds", DEFAULT_MCQ_QUIZ_TURN_DURATION),
             round_started_at=state.get("round_started_at"),
             newly_unlocked_achievements=state.get("newly_unlocked_achievements"),
+            paused=self._build_pause(game, state),
+            can_pause=self._can_pause(game, state, user_id, host_id, is_spectator=is_spectator),
+            can_resume=self._can_resume(game, state, user_id, host_id),
             players=player_states,
             my_answered=my_answered,
             my_points=my_points,
             round_results=round_results,
+            choice_tallies=self._choice_tallies(state) if revealed else None,
+            my_choice_index=my_answer["choice_index"] if my_answer and revealed else None,
+            my_answer_time_ms=my_answer.get("answer_time_ms") if my_answer and revealed else None,
             winner=state.get("winner"),
             leaderboard=leaderboard,
             game_over=state.get("game_over", False),
             ready_players=state.get("ready_players", []),
             ready_count=len(state.get("ready_players", [])),
-            total_players=len(state["players"]),
+            total_players=self._ready_quorum(state, host_id),
+            host_username=colophon.host_username,
+            started_at=colophon.started_at,
+            ended_at=colophon.ended_at,
         )
 
     async def submit_answer(self, game_id: UUID, user_id: UUID, choice_index: int) -> McqSubmitAnswerResponse:
@@ -197,6 +225,7 @@ class McqQuizGameController(BaseGameController):
         async with get_game_lock(str(game_id), self.session):
             game = await self._get_game(game_id)
             state = require_state(game)
+            self._ensure_not_paused(game, state)
 
             if state["round_phase"] != "playing":
                 raise RoundNotPlayingError()
@@ -225,10 +254,12 @@ class McqQuizGameController(BaseGameController):
 
             correct_index = state["current_question"]["correct_answer_index"]
             correct = choice_index == correct_index
+            # Measured from the round's anchor, which a resume shifts past the prayer
+            # (no answer is accepted while paused, so `now` never falls inside one).
+            elapsed = max((datetime.now(UTC) - parse_instant(state["round_started_at"])).total_seconds(), 0.0)
 
             # Calculate points: 1 base + up to 2 bonus for fast answers
             if correct:
-                elapsed = (datetime.now(UTC) - datetime.fromisoformat(state["round_started_at"])).total_seconds()
                 turn_duration = state.get("turn_duration_seconds", DEFAULT_MCQ_QUIZ_TURN_DURATION)
                 if turn_duration > 0:
                     time_ratio = max(0, 1 - elapsed / turn_duration)
@@ -243,6 +274,7 @@ class McqQuizGameController(BaseGameController):
                 "choice_index": choice_index,
                 "correct": correct,
                 "points": points,
+                "answer_time_ms": int(elapsed * 1000),
             }
 
             if correct:
@@ -260,6 +292,19 @@ class McqQuizGameController(BaseGameController):
 
         return McqSubmitAnswerResponse(correct=correct, points_earned=points)
 
+    def _phase_timer(self, state: dict) -> PhaseTimer | None:
+        """The round's timer while it is being played; between rounds there is none.
+
+        Same duration as ``_is_timer_actually_expired``.
+        """
+        started_at = state.get("round_started_at")
+        if state.get("round_phase") != "playing" or not started_at:
+            return None
+        seconds = state.get("turn_duration_seconds", DEFAULT_MCQ_QUIZ_TURN_DURATION)
+        if not seconds:
+            return None
+        return PhaseTimer(started_at=parse_instant(started_at), duration_seconds=seconds)
+
     async def handle_timer_expired(self, game_id: UUID, user_id: UUID) -> TimerExpiredResponse:
         """Handle timer expiration — transition to results phase."""
         async with get_game_lock(str(game_id), self.session):
@@ -267,12 +312,17 @@ class McqQuizGameController(BaseGameController):
             self._check_game_in_progress(game)
             state = require_state(game)
 
+            # No clock runs while the host has paused the game for the prayer. Not an
+            # error: clients fire this from their own local timers.
+            if is_paused(state):
+                return TimerExpiredResponse(game_id=str(game_id), action=TimerExpiredAction.PAUSED)
+
             if state["round_phase"] != "playing":
-                return TimerExpiredResponse(game_id=str(game_id), action="not_playing")
+                return TimerExpiredResponse(game_id=str(game_id), action=TimerExpiredAction.NOT_PLAYING)
 
             # Verify timer actually expired server-side
             if not self._is_timer_actually_expired(state):
-                return TimerExpiredResponse(game_id=str(game_id), action="timer_not_expired")
+                return TimerExpiredResponse(game_id=str(game_id), action=TimerExpiredAction.TIMER_NOT_EXPIRED)
 
             self._transition_to_results(state)
 
@@ -281,7 +331,7 @@ class McqQuizGameController(BaseGameController):
             self.session.add(game)
             await self.session.commit()
 
-        return TimerExpiredResponse(game_id=str(game_id), action="results")
+        return TimerExpiredResponse(game_id=str(game_id), action=TimerExpiredAction.RESULTS)
 
     async def advance_to_next_round(self, game_id: UUID, user_id: UUID) -> AdvanceRoundResponse:
         """Advance to the next round or finalize the game.
@@ -293,25 +343,21 @@ class McqQuizGameController(BaseGameController):
             game = await self._get_game(game_id)
             self._check_game_in_progress(game)
             state = require_state(game)
+            self._ensure_not_paused(game, state)
 
             if state["round_phase"] != "results":
-                raise BaseError(
-                    message="Can only advance from results phase.",
-                    frontend_message="Can only advance from results phase.",
-                    status_code=400,
-                )
+                raise RoundNotInResultsError()
 
             # Non-host must be a player in this game
-            is_host = await self._check_is_host(game.room_id, user_id)
+            host_id = await self._get_room_owner_id(game.room_id)
+            is_host = host_id == user_id
             if not is_host:
                 player = next((p for p in state["players"] if p["user_id"] == str(user_id)), None)
                 if not player:
-                    raise BaseError(
-                        message=f"User {user_id} is not a player in this game.",
-                        frontend_message="You are not a player in this game.",
-                        status_code=403,
-                    )
-            total_players = len(state["players"])
+                    raise NotAGamePlayerError(message=f"User {user_id} is not a player in this game.")
+            # Paired with ready_count, so it reports what readiness is measured
+            # against — everyone but the host. See BaseGameController._ready_quorum.
+            total_players = self._ready_quorum(state, host_id)
 
             # Non-host: mark as ready
             if not is_host:
@@ -438,25 +484,51 @@ class McqQuizGameController(BaseGameController):
             else:
                 text = str(choice_data)
             resolved.append(text)
-        return resolved
+        # The choices come out of a JSON column, so their values are `object` to a
+        # checker; `str(...)` on the non-dict branch is what actually guarantees `str`.
+        return resolved  # ty: ignore[invalid-return-type]
+
+    @staticmethod
+    def _round_is_revealed(state: dict) -> bool:
+        """Whether the current question has resolved (its answer and points are public)."""
+        return state.get("round_phase") in ("results", "game_over")
 
     @staticmethod
     def _build_player_states(state: dict) -> list[McqQuizPlayerState]:
-        """Build player state list from live_state."""
+        """Build player state list from live_state.
+
+        Points are added to ``total_score`` at lock-in. While the question is open the
+        round's points are therefore subtracted back out (and ``current_round_points``
+        is 0 for everyone): a live total moving by 1-3 told the whole table who had
+        just been right — and how fast — before the reveal. Who has answered stays
+        visible ("2 of 5 answered"); what it earned does not.
+        """
         answers = state.get("answers", {})
+        revealed = McqQuizGameController._round_is_revealed(state)
         result = []
         for p in state["players"]:
             p_answer = answers.get(p["user_id"])
+            round_points = p_answer["points"] if p_answer else 0
             result.append(
                 McqQuizPlayerState(
                     user_id=p["user_id"],
                     username=p["username"],
-                    total_score=p["total_score"],
+                    total_score=p["total_score"] if revealed else p["total_score"] - round_points,
                     current_round_answered=p_answer is not None,
-                    current_round_points=p_answer["points"] if p_answer else 0,
+                    current_round_points=round_points if revealed else 0,
                 )
             )
         return result
+
+    @staticmethod
+    def _choice_tallies(state: dict) -> list[int]:
+        """How many players locked in each of the four choices this round."""
+        tallies = [0] * MCQ_QUIZ_CHOICE_COUNT
+        for answer in state.get("answers", {}).values():
+            index = answer.get("choice_index")
+            if isinstance(index, int) and 0 <= index < MCQ_QUIZ_CHOICE_COUNT:
+                tallies[index] += 1
+        return tallies
 
     def _build_round_results(self, state: dict, lang: str) -> tuple[list[McqQuizRoundResult], int | None, str | None]:
         """Build round results, correct_answer_index, and explanation for results/game_over phases."""
@@ -470,6 +542,8 @@ class McqQuizGameController(BaseGameController):
                 username=rr["username"],
                 chose_correct=rr["chose_correct"],
                 points=rr["points"],
+                choice_index=rr.get("choice_index"),
+                answer_time_ms=rr.get("answer_time_ms"),
             )
             for rr in state.get("round_results", [])
         ]
@@ -480,7 +554,7 @@ class McqQuizGameController(BaseGameController):
         state["round_phase"] = "results"
         answers = state.get("answers", {})
 
-        round_results = []
+        round_results: list[dict] = []
         for p in state["players"]:
             p_answer = answers.get(p["user_id"])
             if p_answer:
@@ -490,6 +564,8 @@ class McqQuizGameController(BaseGameController):
                         "username": p["username"],
                         "chose_correct": p_answer["correct"],
                         "points": p_answer["points"],
+                        "choice_index": p_answer.get("choice_index"),
+                        "answer_time_ms": p_answer.get("answer_time_ms"),
                     }
                 )
             else:
@@ -499,6 +575,8 @@ class McqQuizGameController(BaseGameController):
                         "username": p["username"],
                         "chose_correct": False,
                         "points": 0,
+                        "choice_index": None,
+                        "answer_time_ms": None,
                     }
                 )
 

@@ -6,7 +6,9 @@ from majlisna.api.constants import (
     CODENAMES_NEUTRAL_CARDS,
     CODENAMES_SECOND_TEAM_CARDS,
 )
-from majlisna.api.schemas.error import BaseError
+from majlisna.api.schemas.error import (
+    NotAGamePlayerError,
+)
 from majlisna.api.utils.rng import rng
 
 
@@ -131,8 +133,4 @@ def get_player_from_game(players: list[dict], user_id: str) -> dict:
     for player in players:
         if player["user_id"] == user_id:
             return player
-    raise BaseError(
-        message=f"Player {user_id} not found in game.",
-        frontend_message="You are not in this game.",
-        status_code=400,
-    )
+    raise NotAGamePlayerError(message=f"Player {user_id} not found in game.", status_code=400)

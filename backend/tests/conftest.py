@@ -21,10 +21,12 @@ from majlisna.api.controllers.codenames_game import CodenamesGameController
 from majlisna.api.controllers.friend import FriendController
 from majlisna.api.controllers.game import GameController
 from majlisna.api.controllers.mcqquiz_game import McqQuizGameController
+from majlisna.api.controllers.notebook import NotebookController
 from majlisna.api.controllers.profile import ProfileController
 from majlisna.api.controllers.room import RoomController
 from majlisna.api.controllers.shared import get_password_hash
 from majlisna.api.controllers.stats import StatsController
+from majlisna.api.controllers.term_script import TermScriptController
 from majlisna.api.controllers.undercover import UndercoverController
 from majlisna.api.controllers.undercover_game import UndercoverGameController
 from majlisna.api.controllers.user import UserController
@@ -37,6 +39,7 @@ from majlisna.api.models.relationship import RoomUserLink
 from majlisna.api.models.table import Room, User
 from majlisna.api.models.undercover import TermPair, Word, WordCreate
 from majlisna.api.models.wordquiz import QuizWord
+from majlisna.api.schemas.term_script import TermScriptEntry
 from majlisna.api.utils.cache import cache
 from majlisna.settings import Settings
 
@@ -290,6 +293,12 @@ async def get_profile_controller(session: AsyncSession) -> ProfileController:
     return ProfileController(session)
 
 
+@pytest_asyncio.fixture(name="notebook_controller")
+async def get_notebook_controller(session: AsyncSession) -> NotebookController:
+    """Create a NotebookController instance for testing."""
+    return NotebookController(session)
+
+
 # ========== Factory Fixtures ==========
 
 
@@ -324,6 +333,51 @@ async def get_create_room(room_controller: RoomController):
         return await room_controller.create_room(owner_id=owner.id, game_type=game_type)
 
     return _create_room
+
+
+@pytest_asyncio.fixture(name="create_term_scripts")
+async def get_create_term_scripts(session: AsyncSession):
+    """Factory fixture: store Arabic forms, given as ``{term: (ar, ar_vocalized)}``."""
+
+    async def _create_term_scripts(scripts: dict[str, tuple[str, str | None]]) -> None:
+        entries = [
+            TermScriptEntry(term=term, ar=ar, ar_vocalized=vocalized) for term, (ar, vocalized) in scripts.items()
+        ]
+        await TermScriptController(session).upsert(entries)
+
+    return _create_term_scripts
+
+
+class StatementCounter:
+    """Counts the SQL statements that mention ``needle`` (an engine event listener)."""
+
+    def __init__(self, needle: str):
+        self.needle = needle
+        self.count = 0
+
+    def __call__(self, conn, cursor, statement, parameters, context, executemany) -> None:  # noqa: ARG002
+        if self.needle in statement:
+            self.count += 1
+
+
+@pytest_asyncio.fixture(name="count_statements")
+async def get_count_statements(engine: AsyncEngine):
+    """Factory fixture: start counting statements that mention a table, e.g. ``"term_script"``.
+
+    Used to pin the "one batched lookup per request" rule, so an N+1 regression fails
+    a test instead of only showing up as latency.
+    """
+    counters: list[StatementCounter] = []
+
+    def _count_statements(needle: str) -> StatementCounter:
+        counter = StatementCounter(needle)
+        event.listen(engine.sync_engine, "before_cursor_execute", counter)
+        counters.append(counter)
+        return counter
+
+    yield _count_statements
+    for counter in counters:
+        event.remove(engine.sync_engine, "before_cursor_execute", counter)
 
 
 @pytest_asyncio.fixture(name="create_word")

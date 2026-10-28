@@ -234,7 +234,7 @@ def test_timer_expired_success(mock_notify: AsyncMock, test_app: FastAPI, client
     user = _mock_user()
     mock_controller = Mock(spec=McqQuizGameController)
     mock_controller.handle_timer_expired = AsyncMock(
-        return_value=TimerExpiredResponse(game_id=str(game_id), action="show_results")
+        return_value=TimerExpiredResponse(game_id=str(game_id), action="results")
     )
     test_app.dependency_overrides[get_current_user] = lambda: user
     test_app.dependency_overrides[get_mcqquiz_game_controller] = lambda: mock_controller
@@ -246,7 +246,7 @@ def test_timer_expired_success(mock_notify: AsyncMock, test_app: FastAPI, client
         # Assert
         assert response.status_code == 200
         data = response.json()
-        assert data["action"] == "show_results"
+        assert data["action"] == "results"
         mock_controller.handle_timer_expired.assert_awaited_once_with(game_id, user.id)
         mock_notify.assert_awaited_once()
     finally:

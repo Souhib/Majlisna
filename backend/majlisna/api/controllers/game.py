@@ -7,6 +7,8 @@ from sqlalchemy.orm import selectinload
 from sqlmodel import desc, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from majlisna.api.constants import DEFAULT_LANGUAGE
+from majlisna.api.controllers.term_script import TermScriptController
 from majlisna.api.models.error import GameNotFoundError, NoTurnInsideGameError, RoomIsNotActiveError
 from majlisna.api.models.event import EventCreate
 from majlisna.api.models.game import GameCreate, GameStatus, GameType, GameUpdate
@@ -25,11 +27,13 @@ from majlisna.api.schemas.game import (
     VoteHistoryEntry,
     VoteRound,
 )
+from majlisna.api.utils.multilingual import resolve_multilingual
 
 
 class GameController:
     def __init__(self, session: AsyncSession):
         self.session = session
+        self._term_script_controller = TermScriptController(session)
 
     async def _persist(self, *, commit: bool) -> None:
         """Commit when running standalone, or only flush when part of a caller's transaction.
@@ -53,10 +57,10 @@ class GameController:
         """
         new_game = Game(**game_create.model_dump())
         room: Room = (
-            await self.session.exec(select(Room).where(Room.id == new_game.room_id).options(selectinload(Room.users)))  # type: ignore[arg-type]
+            await self.session.exec(select(Room).where(Room.id == new_game.room_id).options(selectinload(Room.users)))  # ty: ignore[invalid-argument-type]
         ).one()
         if room.type != RoomType.ACTIVE:
-            raise RoomIsNotActiveError(room_id=room.id)  # type: ignore
+            raise RoomIsNotActiveError(room_id=room.id)
         self.session.add(new_game)
         await self.session.flush()
         await self.session.refresh(new_game)
@@ -85,7 +89,7 @@ class GameController:
         """
         return (
             await self.session.exec(
-                select(Game).where(Game.id == game_id).options(selectinload(Game.turns), selectinload(Game.room))  # type: ignore[arg-type]
+                select(Game).where(Game.id == game_id).options(selectinload(Game.turns), selectinload(Game.room))  # ty: ignore[invalid-argument-type]
             )
         ).one()
 
@@ -145,7 +149,7 @@ class GameController:
         :return: A list of enriched GameHistoryEntry records.
         """
         statement = (
-            select(Game).join(UserGameLink, Game.id == UserGameLink.game_id).where(UserGameLink.user_id == user_id)  # type: ignore[arg-type]
+            select(Game).join(UserGameLink, Game.id == UserGameLink.game_id).where(UserGameLink.user_id == user_id)  # ty: ignore[invalid-argument-type]
         )
         if requester_id is not None and requester_id != user_id:
             statement = statement.where(Game.game_status != GameStatus.IN_PROGRESS)
@@ -181,7 +185,7 @@ class GameController:
 
             entries.append(
                 GameHistoryEntry(
-                    id=game.id,  # type: ignore[arg-type]
+                    id=game.id,
                     type=game.type,
                     start_time=game.start_time,
                     end_time=game.end_time,
@@ -194,7 +198,40 @@ class GameController:
             )
         return entries
 
-    async def get_game_summary(self, game_id: UUID, requester_id: UUID) -> GameSummary:
+    async def get_past_game_for_participant(self, game_id: UUID, requester_id: UUID) -> Game:
+        """The game, once it is no longer running, for a caller who took part in it.
+
+        The single gate for every read of a game's secrets after the fact — the
+        summary and the notebook both reveal the words — answering the two
+        questions any such endpoint must ask:
+
+        * did this caller take part? (``UserGameLink``; ``NotAGameParticipantError``, 403);
+        * is the game over? While it is IN_PROGRESS the words and roles are the
+          secret the game is played for (``GameStillInProgressError``, 403).
+
+        Participation is checked FIRST: the two answers carry different error keys,
+        so asking a stranger "is it over?" first told them whether a game they never
+        played is still running.
+
+        :raises GameNotFoundError: no such game (404).
+        """
+        game = (await self.session.exec(select(Game).where(Game.id == game_id))).first()
+        if not game:
+            raise GameNotFoundError(game_id=game_id)
+
+        participant = (
+            await self.session.exec(
+                select(UserGameLink).where(UserGameLink.game_id == game_id).where(UserGameLink.user_id == requester_id)
+            )
+        ).first()
+        if participant is None:
+            raise NotAGameParticipantError(game_id=game_id, user_id=requester_id)
+
+        if game.game_status == GameStatus.IN_PROGRESS:
+            raise GameStillInProgressError(game_id=game_id)
+        return game
+
+    async def get_game_summary(self, game_id: UUID, requester_id: UUID, lang: str = DEFAULT_LANGUAGE) -> GameSummary:
         """Get a detailed game summary for the post-game detail modal.
 
         This response deliberately contains every player's role plus the secret
@@ -210,22 +247,10 @@ class GameController:
 
         :param game_id: The id of the game.
         :param requester_id: The authenticated caller.
+        :param lang: The language the words' meanings are resolved in (``resolve_multilingual``).
         :return: A GameSummary with full player list and history.
         """
-        game = (await self.session.exec(select(Game).where(Game.id == game_id))).first()
-        if not game:
-            raise GameNotFoundError(game_id=game_id)
-
-        if game.game_status == GameStatus.IN_PROGRESS:
-            raise GameStillInProgressError(game_id=game_id)
-
-        participant = (
-            await self.session.exec(
-                select(UserGameLink).where(UserGameLink.game_id == game_id).where(UserGameLink.user_id == requester_id)
-            )
-        ).first()
-        if participant is None:
-            raise NotAGameParticipantError(game_id=game_id, user_id=requester_id)
+        game = await self.get_past_game_for_participant(game_id, requester_id)
 
         state = game.live_state or {}
         players_data = state.get("players", [])
@@ -274,13 +299,31 @@ class GameController:
                 history.append(VoteRound(round=i + 1, votes=vote_entries, eliminated=elim_info))
             vote_history = history
 
+            civilian_word = state.get("civilian_word")
+            undercover_word = state.get("undercover_word")
+            # One lookup for the pair. The game is over (checked above), so both
+            # words — and therefore both Arabic forms — are public.
+            scripts = await self._term_script_controller.get_forms([civilian_word, undercover_word])
+            civilian_script = scripts.get(civilian_word) if civilian_word else None
+            undercover_script = scripts.get(undercover_word) if undercover_word else None
             word_explanations = UndercoverWordExplanations(
-                civilian_word=state.get("civilian_word"),
-                undercover_word=state.get("undercover_word"),
+                civilian_word=civilian_word,
+                civilian_word_ar=civilian_script.ar if civilian_script else None,
+                civilian_word_ar_vocalized=civilian_script.ar_vocalized if civilian_script else None,
+                civilian_word_hint=resolve_multilingual(state.get("civilian_word_hint"), lang),
+                undercover_word=undercover_word,
+                undercover_word_ar=undercover_script.ar if undercover_script else None,
+                undercover_word_ar_vocalized=undercover_script.ar_vocalized if undercover_script else None,
+                undercover_word_hint=resolve_multilingual(state.get("undercover_word_hint"), lang),
             )
 
         elif game.type == GameType.CODENAMES:
             raw_clues = state.get("clue_history", [])
+            word_hints = state.get("word_hints") or {}
+            # One lookup for every guessed word across the whole history.
+            scripts = await self._term_script_controller.get_forms(
+                g.get("word") for c in raw_clues for g in c.get("guesses", [])
+            )
             clue_history = [
                 ClueHistoryEntry(
                     team=c.get("team", ""),
@@ -289,6 +332,9 @@ class GameController:
                     guesses=[
                         ClueGuess(
                             word=g.get("word", ""),
+                            word_ar=scripts[g["word"]].ar if g.get("word") in scripts else None,
+                            word_ar_vocalized=scripts[g["word"]].ar_vocalized if g.get("word") in scripts else None,
+                            hint=resolve_multilingual(word_hints.get(g.get("word", "")), lang),
                             card_type=g.get("card_type", ""),
                             correct=g.get("correct", False),
                         )
@@ -299,7 +345,7 @@ class GameController:
             ]
 
         return GameSummary(
-            id=game.id,  # type: ignore[arg-type]
+            id=game.id,
             type=game.type,
             start_time=game.start_time,
             end_time=game.end_time,
@@ -346,7 +392,7 @@ class GameController:
         """
         try:
             db_game = (
-                await self.session.exec(select(Game).where(Game.id == game_id).options(selectinload(Game.turns)))  # type: ignore[arg-type]
+                await self.session.exec(select(Game).where(Game.id == game_id).options(selectinload(Game.turns)))  # ty: ignore[invalid-argument-type]
             ).one()
             if not db_game.turns:
                 raise NoTurnInsideGameError(game_id=game_id)
@@ -382,7 +428,7 @@ class GameController:
         """
         try:
             db_game = (
-                await self.session.exec(select(Game).where(Game.id == game_id).options(selectinload(Game.turns)))  # type: ignore[arg-type]
+                await self.session.exec(select(Game).where(Game.id == game_id).options(selectinload(Game.turns)))  # ty: ignore[invalid-argument-type]
             ).one()
             if not db_game.turns:
                 raise NoTurnInsideGameError(game_id=game_id)
