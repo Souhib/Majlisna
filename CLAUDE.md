@@ -129,14 +129,14 @@ docker compose -f docker-compose.dokploy.yml up -d
 | Database | PostgreSQL (prod), SQLite (dev) |
 | Game State | PostgreSQL JSON column (`Game.live_state`) |
 | Auth | JWT (python-jose, bcrypt) |
-| Frontend | React 19, TanStack Router/Query, Tailwind v4, shadcn/ui |
+| Frontend | React 19, TanStack Router/Query, Tailwind v4, Samar design system on Radix (`DESIGN.md`), self-hosted @fontsource fonts |
 | Real-time | Socket.IO (python-socketio + socket.io-client) — notification layer over REST |
 | Infra | PgBouncer (connection pooling), Redis (Socket.IO pub/sub only) |
 | Monitoring | Umami (analytics), GlitchTip (errors), Uptime Kuma (uptime), Dozzle (logs) — self-hosted behind SSO, hostnames in Claude Code memory |
 | Security | Trivy (CI vulnerability scanning) |
 | API Codegen | Kubb (OpenAPI -> React Query hooks) |
 | i18n | i18next (English + Arabic + French) |
-| Testing | pytest (backend, 820+ tests), Vitest (frontend, 256 tests), Playwright (E2E, 170+ tests) |
+| Testing | pytest (backend, 1700+ tests), Vitest (frontend, 650+ tests), Playwright (E2E, 180+ tests) |
 | CI/CD | GitHub Actions |
 | Deployment | Docker + Dokploy (Oracle VPS) |
 | Domain | `majlisna.app` (Cloudflare DNS + proxy) |
@@ -385,14 +385,19 @@ When a test fails, the goal is NEVER to make the test pass — it's to have a wo
 - **REST + Socket.IO Notifications**: Mutations go through REST. Socket.IO pushes state updates to clients after mutations. PostgreSQL is the ONLY source of truth — Redis is ONLY for Socket.IO cross-worker pub/sub (ephemeral, no game data).
 - **Game State in PostgreSQL**: `Game.live_state` JSON column stores full game state
 - **Manual kick**: Host can kick players from room; no auto-disconnect
-- **Lobby disconnect tolerance**: Players in rooms without an active game have a 10-minute grace period (`LOBBY_GRACE_PERIOD_SECONDS = 600`) before auto-removal. They are marked `connected=False` but their `RoomUserLink` is preserved during the grace period. Rooms with an active game enforce a shorter 180s grace period. The host can manually kick idle players at any time.
+- **Leaving or being kicked mid-game reaches the game pages**: `leave_room` / `kick_player` routes call `notify_member_removed` (game_updated + room_state when the room has a running game); a room_state alone left the table on a stale game.
+- **The host's game pick is the room's**: `RoomSettingsRequest.game_type` stores it in `Room.settings`, so every member's lobby describes the game the host chose.
+- **Lobby disconnect tolerance**: Players in rooms without an active game have a 10-minute grace period (`LOBBY_GRACE_PERIOD_SECONDS = 600`) before auto-removal. They are marked `connected=False` but their `RoomUserLink` is preserved during the grace period. Rooms with an active game enforce a shorter 180s grace period. The host can manually kick idle players at any time. `RoomPlayerState.away_seconds_left` is the server-computed countdown ("away · 9:58"; null while connected), from the same grace rule as the sweep and the deliberately naive `RoomUserLink` timestamps.
 - **Kubb Codegen**: Auto-generated React Query hooks from FastAPI's OpenAPI spec
 - **Spectator Mode**: Users can join rooms as spectators (`RoomUserLink.is_spectator`). Spectators see sanitized game state (no roles/words until game over), read-only UI with no action buttons.
-- **Friend Invites**: Room hosts can invite friends via `POST /api/v1/rooms/{id}/invite`. Socket.IO personal rooms (`user:{user_id}`) deliver real-time invite notifications.
-- **Game History**: `GET /api/v1/games/{id}/summary` returns typed `GameSummary` with `VoteRound`, `ClueHistoryEntry`, player roles, and word explanations.
+- **Friend Invites**: Room hosts can invite friends via `POST /api/v1/rooms/{id}/invite`. Socket.IO personal rooms (`user:{user_id}`) deliver real-time invite notifications: every signed-in page keeps a socket WITHOUT a `room_id` (the app shell, `_auth.tsx`), which `connect` accepts as the personal channel only (it used to refuse it, so no invite ever arrived). The invite shows as a quiet strip under the nav (`RoomInviteStrip`), never a toast.
+- **Game History**: `GET /api/v1/games/{id}/summary?lang=` returns typed `GameSummary` with `VoteRound`, `ClueHistoryEntry`, player roles, and word explanations (meanings resolved in `lang`).
+- **Colophon**: all four game states carry `host_username` (the host who started the game, kept in `live_state`), `started_at` and `ended_at` (UTC; `ended_at` null while running).
+- **Prayer pause (وقفة الصلاة)**: when the adhan comes the host pauses the game — `POST /api/v1/{undercover|codenames|wordquiz|mcqquiz}/games/{id}/pause` and `/resume` (IN_PROGRESS-only, a spectator cannot pause, double pause/resume → 409, a game of another type reaching a router → 404). While paused every move answers `GamePausedError` (409) and `timer-expired` answers `action="paused"` (`TimerExpiredAction` enum) without acting. Every state schema carries `paused: GamePause | None` with server-computed `remaining_seconds` (frozen countdown), `paused_for_seconds`, `anyone_can_resume_at`, plus per-caller `can_pause` / `can_resume`. Only the host pauses; resume is the host's, or any player's once the pause outlasts `PRAYER_PAUSE_MAX_SECONDS` (45 min) or the room has no owner — a pause can never hold a table for good. Resume moves every clock forward (`PAUSE_TIME_ANCHOR_KEYS`, chosen by the game's own type) and the disconnect grace of anyone away; while paused a disconnected member is kept 45 min instead of 180 s. See `backend/CLAUDE.md`.
+- **Kunnash (كُنّاش, the notebook)**: players keep words from finished games — `GET /api/v1/notebook/games/{id}` (the game-over colophon: every word the game dealt, with `kept` / `entry_id`), `POST /api/v1/notebook/games/{id}/keep` (all of a game's words), `POST /api/v1/notebook/entries` (`{game_id, word}`, which must belong to that game), `GET /api/v1/notebook` (newest first, keyset `cursor` → `next_cursor`, resolved in `lang`: `word_display`, `word_ar`, `word_ar_vocalized`, `hint`), `DELETE /api/v1/notebook/entries/{id}` (owner only, others get 404). Same gates as the summary (`GameController.get_past_game_for_participant`: participation first, then status); MCQ has no words (400). Idempotent via a unique constraint + `ON CONFLICT DO NOTHING`. Keeps are rate-limited per signed-in user (not per IP), and a 429 answers the standard error envelope (`errors.api.rateLimitExceeded`). Table `notebook_entry`; see `backend/CLAUDE.md`.
 - **Caching**: `majlisna.api.utils.cache.TTLCache` caches undercover words/term pairs, codenames word packs, and user stats. Tests use autouse `clear_cache` fixture.
 - **PWA**: Manifest + service worker for installable web app with offline navigation shell.
-- **Pre-commit**: `prek` hooks run ruff lint/format + mypy on commit.
+- **Pre-commit**: `prek` hooks run ruff lint/format + `ty` type checking on commit.
 - **BaseGameController**: All 4 game controllers inherit from `majlisna.api.controllers.base_game.BaseGameController`, which provides shared methods: `_get_game`, `_check_is_host`, `_update_heartbeat_throttled`, `_check_spectator`, `_resolve_multilingual`. Game-specific logic stays in each subclass.
 - **Room Share Links**: `GET /api/v1/rooms/{id}/share-link` returns `public_id` + `password`. Frontend constructs URL `majlisna.app/rooms/join?code=X&pin=Y`. The `/rooms/join` route auto-joins via `useEffect` with the join mutation.
 - **Shared Quiz Components**: `PlayerScoreboard` and `QuizGameOver` in `components/games/shared/` are used by both Word Quiz and MCQ Quiz. Game-specific i18n keys passed via props.
@@ -425,13 +430,19 @@ When a test fails, the goal is NEVER to make the test pass — it's to have a wo
 
 **Player counts are bounded on both ends** — `MAX_PLAYERS_UNDERCOVER` (12), `MAX_PLAYERS_CODENAMES` (10). Only the minimums used to be checked.
 
+**Usernames are unique case-insensitively, by a controller check.** `user.username` has no unique constraint and there are no migrations, so `username_is_taken` guards registration (409 `errors.api.usernameAlreadyTaken`), profile renames and Google sign-up. Two simultaneous registrations of the same new name can still both win the check; see `backend/CLAUDE.md`.
+
+**Every error the API answers has a translated key.** Never raise a bare `BaseError(...)` (key `errors.api.base`, untranslatable); add a named class and its `errors.api.*` entry in all three locales — `backend/tests/api/test_error_keys.py` fails otherwise.
+
+**The Socket.IO `join_game` push must be read in the player's language.** The client writes it into the query cache, so an English push overwrote Arabic meanings. The server accepts `lang` in `join_game` (and `auth.lang`); `useSocket` sends both (`i18n.language`, the same value the pages put in `?lang=`) and writes the push only into the query keyed by that language.
+
 **`GET /users` and `DELETE /users/{user_id}` were removed.** The first returned the entire unpaginated user table to any caller; the second deleted an account on nothing but a valid session, while `/users/me/account` does the same and requires the password.
 
 **Game content endpoints (undercover words/term pairs, codenames word packs) are admin-only — reads included.** `ADMIN_EMAILS` + `get_current_admin_user`, fail-closed. The GETs took no auth at all and `GET /undercover/termpair` reveals the opposing word to any player; the writes took only *a* login, so any player could delete all game content. There is no `is_admin` column (no migrations), so admin membership is configuration — matched case-insensitively, and the account must have a **verified** email, because naming an address in config turns that address into a credential anyone could register. See `backend/CLAUDE.md`.
 
-**The frontend CSP is ENFORCED.** The API, Umami and Sentry origins are substituted into `security-headers.conf` from the same build args the bundle is compiled with. `'self'` does not cover a different port or subdomain, so a split-origin API needs its own entry. `src/lib/zod-jitless.ts` must stay imported first in `main.tsx`. `e2e/tests/smoke/csp.spec.ts` fails on any violation. See `front/CLAUDE.md`.
+**The frontend CSP is ENFORCED.** The API, Umami and Sentry origins are substituted into `security-headers.conf` from the same build args the bundle is compiled with. Fonts are self-hosted (`front/src/fonts.ts`), so `style-src`/`font-src` allow no font CDN. `'self'` does not cover a different port or subdomain, so a split-origin API needs its own entry. `src/lib/zod-jitless.ts` must stay imported first in `main.tsx`. `e2e/tests/smoke/csp.spec.ts` fails on any violation. See `front/CLAUDE.md`.
 
-**mypy passes and runs in CI** (`uv run poe check`, and the `backend` job). It was 311 errors behind an uninstalled pre-commit hook. `api/utils/game_state.py::require_state` is what makes `Game.live_state` typed; primary keys are `UUID`, not `UUID | None`. See `backend/CLAUDE.md`.
+**Type checking is `ty` (Astral), it passes, and it runs in CI** — `ty check majlisna/ --error-on-warning`, in `uv run poe check` and in the `backend` job. It replaced mypy: measured on identical suppression-free source the two agree on 46 sites, ty additionally catching deprecated APIs, a missing submodule and JSON-derived types while mypy's extra hits were `Settings()` false positives that had needed three ignores. ~14 s → ~0.3 s, one toolchain with ruff. The version is pinned **exactly** (`ty==0.0.63`) because ty is pre-1.0 and its diagnostics move between releases. `--error-on-warning` is deliberate: ty's warning-level rules are not advisory here — `possibly-missing-submodule` is what found an `except` clause naming a `resend` exception class that does not exist, which turned every failed email into a 500 on registration. `api/utils/game_state.py::require_state` is what makes `Game.live_state` typed; primary keys are `UUID`, not `UUID | None`. Read the `ty: ignore` discipline in `backend/CLAUDE.md` before adding a suppression.
 
 **`notify_game_changed` addresses the room as well as the game room.** Game-room membership is built from a per-process SID map, so with 4 workers the first `game_updated` of a game reached only a fraction of the table.
 
@@ -519,6 +530,27 @@ page.locator('text=Discuss and vote')
 
 **Always use `isPageAlive(page)` before interacting with a player page.**
 
+**A wait that can be satisfied before the event is not a test.** `disconnect-during-game`
+waited for `text=Eliminated` "within 120 s" of a browser closing — but the in-game grace is
+`GRACE_PERIOD_SECONDS` (180 s), so it could only ever pass on some unrelated "Eliminated" on
+screen. The redesign removed that text and the spec failed, as it should have. Scope a
+wait to the thing that changes (the leaver's own seat, after asserting it is NOT eliminated
+yet) and give it the real budget (stale 20 s + grace 180 s + checker 5 s).
+
+**Only the host starts the next Undercover round** (`startNextRoundAsHost`), and an
+eliminated player has no ballot: vote only with the living (`state.players[].is_alive`).
+
+**The specs read what a player reads.** No test-only text in a page (the quiz pages' hidden
+"Round 1/…", "Question n/m" and "#1" spans are gone); prefer roles and accessible names:
+the game picker is `getByRole("tab")`, the clue count a `group` of toggles, the lobby's
+code and PIN are `CodeTiles` groups ("Room code", "PIN").
+
+**New suites:** `tests/notebook/kunnash.spec.ts` (keep a game's words from the colophon,
+read and remove them in /notebook, EN + AR; Kalimat keep / un-keep) and
+`tests/pause/prayer-pause.spec.ts` (host-only Pause, the veil on every seat, moves refused
+and the clock frozen, resume, a pause that survives a reload). `contrast.spec.ts` now
+measures Kalimat's hint rung in play (a translucent brass wash) in both lights.
+
 ### Infrastructure
 
 **GitHub Actions gates the deploy; Dokploy performs it.** On push to `main` the
@@ -601,21 +633,25 @@ Cloudflare -> dokploy-traefik :443 (Let's Encrypt)
 - Roles: Civilian, Undercover, Mr. White
 - Each player gets an Islamic term; undercover gets a different one
 - Vote to eliminate the undercover agent
-- **Mr. White guessing**: When Mr. White is eliminated by vote, they get one chance to guess the civilian word. If correct, undercovers win. If wrong, game continues normally. Endpoint: `POST /api/v1/undercover/games/{game_id}/mr-white-guess`
+- **Mr. White guessing**: When Mr. White is eliminated by vote, they get one chance to guess the civilian word. If correct, undercovers win. If wrong, game continues normally. Endpoint: `POST /api/v1/undercover/games/{game_id}/mr-white-guess`. The guess is the whole table's news: the turn keeps `mr_white_guess` `{word, correct}` (`word` null on a timeout) and `vote_history[].mr_white_guess` carries it to every player's verdict.
 
 ### Codenames
 - 4-10 players, 2 teams (Red/Blue)
+- No card carries a Name of Allah (`RETIRED_CODENAMES_WORDS` in `scripts/seed_data/codenames_data.py`: Rahman, Bismillah, Masha'Allah, SubhanAllah, Alhamdulillah, In sha Allah). A card is pointed at, dyed, covered by the assassin's cloth and struck in the clue chips; `--seed` also deletes them from a database that has them.
 - Roles: Spymaster, Operative
 - 5x5 board of Islamic terms
 - Spymaster gives one-word clues, operatives guess
 
 ### Word Quiz (Kalimat)
+- Displayed as **Kalimat** (EN/FR) and **كلمات** (AR); the MCQ Quiz is **The Quiz** / **Le Quiz** / **مسائل**; Undercover and Codenames are written phonetically in Arabic (**أندركفر**, **كودنيمز**), and so are the roles (**سيفيليان**, **أندركفر**, **مستر وايت**, **سبايماستر**, **أوبريتيف**; French keeps the English role names: Civilian, Undercover, Mr. White, Spymaster, Operative; glossary in `DESIGN.md` §10). Codenames teams are the plain colour: Red / Blue, Rouge / Bleue, الأحمر / الأزرق. Visual system: root `DESIGN.md`.
 - 1+ players (solo or group)
 - Progressive hint system: 6 hints revealed every N seconds (vague → specific)
 - Players type answers — faster = more points (hint 1 = 6pts, hint 6 = 1pt)
 - Multiple rounds, highest score wins
 - Answer matching: Arabic diacritics stripped, case-insensitive, whitespace-normalized
 - Trilingual hints (EN, FR, AR) with `QuizWord` model
+- The state carries the word's theme as a key (`category`: prophets, companions, places, quran, islamic_history, islamic_concepts, daily_life — the client words it)
+- Round results say what each player typed (`typed_answer`: the answer that found it, else their last wrong try) and `attempts`; only from the results phase on, never while the round is open
 - **Ready system**: Non-host players can mark themselves as ready for next round. Round advances when all players are ready OR host overrides.
 
 ### MCQ Quiz
@@ -624,11 +660,21 @@ Cloudflare -> dokploy-traefik :443 (Let's Encrypt)
 - Configurable timer (default 15s) and number of rounds (default 10)
 - One attempt per round — answer locks in on submit
 - **Time-based scoring**: 1 base point + up to 2 bonus points for fast answers (1-3 points total)
+- **No spoiler before the reveal**: points are earned at lock-in, but while the question is open every state shows the scores as they stood before the round (`current_round_points`/`my_points` 0); the reveal (`choice_tallies`, `my_choice_index`, `my_answer_time_ms`, per-row `choice_index`/`answer_time_ms`) comes from the server once the round resolves, so it survives a reload
 - Shows explanation after each round
 - 200+ trilingual questions (EN, FR, AR) across 8 Islamic knowledge categories
 - Prophet names use Arabic transliteration (e.g., "Yunus" not "Jonah")
 - `McqQuestion` model with JSON columns for multilingual choices and explanations
 - **Ready system**: Non-host players can mark themselves as ready for next round. Round advances when all players are ready OR host overrides.
+
+### Prayer Pause (All Games)
+- The host pauses for the adhan and resumes after the prayer; nothing moves and no clock runs in between
+- Every timer keeps exactly the time it had left; the Word Quiz hint ladder and the MCQ speed bonus stand still too
+- Phones that lock during the prayer keep their seat for 45 min; past 45 min of pause any player may resume
+
+### Kunnash (All Games but MCQ)
+- After a game, players keep its words in their notebook (كُنّاش): Undercover's two words, the 25 Codenames board words, every Kalimat round's word
+- Each kept word shows its Arabic (vocalised where certain) and its meaning in the player's language
 
 ### Hint System (All Games)
 - Words have multilingual hints (JSON `hint` column: `{en, ar, fr}`)
@@ -674,6 +720,15 @@ Sentry hosts are baked in at build time from `VITE_UMAMI_URL` / `VITE_SENTRY_DSN
 and aren't known to nginx, so an enforcing policy would silently break analytics
 and error reporting. Add those hosts, watch for violations, then switch the header
 name to enforce.
+
+### Unhashed public files must not match the immutable asset rule
+
+`front/nginx.conf` caches anything ending in an image/font/script extension for a year
+(`immutable`): right for Vite's hashed `/assets/*`, wrong for files whose name never changes.
+The home skies (`/sky/*.webp`, preloaded by name from `index.html`) therefore have their own
+`location ^~ /sky/` with a one-week `max-age` (the `^~` is what stops the regex from claiming
+them), and it includes `security-headers.conf` like every other location. A new unhashed public
+asset that will ever change needs the same treatment.
 
 ### Published container ports are bound to loopback
 
