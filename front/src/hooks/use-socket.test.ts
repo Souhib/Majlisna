@@ -4,21 +4,46 @@ import { describe, expect, it, vi, beforeEach } from "vitest"
 const mockOn = vi.fn()
 const mockEmit = vi.fn()
 const mockDisconnect = vi.fn()
+const mockConnect = vi.fn()
 const mockSocket = {
   on: mockOn,
   emit: mockEmit,
   disconnect: mockDisconnect,
+  connect: mockConnect,
   connected: false,
+  active: false,
 }
 const mockIo = vi.fn(() => mockSocket)
 vi.mock("socket.io-client", () => ({
   io: (...args: unknown[]) => mockIo(...args),
 }))
 
-// Mock auth
-vi.mock("@/lib/auth", () => ({
-  getStoredToken: () => "test-token",
+// The language the pages read their state in (mutable per test)
+const mockLang = { value: "en" }
+vi.mock("react-i18next", () => ({
+  useTranslation: () => ({ t: (key: string) => key, i18n: { language: mockLang.value } }),
 }))
+
+// Mock auth
+const mockToken = { value: "test-token" }
+const tokenListeners = new Set<() => void>()
+vi.mock("@/lib/auth", () => ({
+  getStoredToken: () => mockToken.value,
+  onTokenStored: (listener: () => void) => {
+    tokenListeners.add(listener)
+    return () => tokenListeners.delete(listener)
+  },
+}))
+
+/** The handshake payload the socket would send now (auth is a function of the moment). */
+function handshake(): Record<string, unknown> {
+  const options = (mockIo.mock.calls.at(-1) as unknown[] | undefined)?.[1] as { auth: (cb: (data: object) => void) => void }
+  let sent: Record<string, unknown> = {}
+  options.auth((data) => {
+    sent = data as Record<string, unknown>
+  })
+  return sent
+}
 
 // Mock generated API hooks
 vi.mock("@/api/generated", () => ({
@@ -46,24 +71,56 @@ vi.mock("@tanstack/react-query", () => ({
 const { useSocket } = await import("./use-socket")
 
 // Minimal renderHook for testing hooks without full React test utils
-import { renderHook } from "@testing-library/react"
+import { act, renderHook } from "@testing-library/react"
 
 describe("useSocket", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockLang.value = "en"
     mockSocket.connected = false
+    mockSocket.active = false
+    mockToken.value = "test-token"
+    tokenListeners.clear()
     mockOn.mockReset()
     mockIo.mockReturnValue(mockSocket)
   })
 
   it("connects when enabled with roomId", () => {
     renderHook(() => useSocket({ roomId: "room-1", enabled: true }))
-    expect(mockIo).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({
-        auth: { token: "test-token", room_id: "room-1" },
-      }),
-    )
+    expect(mockIo).toHaveBeenCalledTimes(1)
+    expect(handshake()).toEqual({ token: "test-token", room_id: "room-1", lang: "en" })
+  })
+
+  it("shows the token stored at each (re)connect, not the one from mount", () => {
+    // Access tokens last 15 min: a reconnect after a refresh used to send the expired
+    // one captured at mount, which the server refuses.
+    renderHook(() => useSocket({ roomId: "room-1", enabled: true }))
+    mockToken.value = "refreshed-token"
+    expect(handshake()).toMatchObject({ token: "refreshed-token" })
+  })
+
+  it("connects again on a fresh token after the server refused the handshake", () => {
+    // socket.io-client never retries a refused handshake (socket.active is false).
+    renderHook(() => useSocket({ roomId: "room-1", enabled: true }))
+    mockSocket.active = false
+    tokenListeners.forEach((listener) => listener())
+    expect(mockConnect).toHaveBeenCalledTimes(1)
+  })
+
+  it("leaves a socket alone that is still reconnecting by itself, or connected", () => {
+    renderHook(() => useSocket({ roomId: "room-1", enabled: true }))
+    mockSocket.active = true
+    tokenListeners.forEach((listener) => listener())
+    mockSocket.active = false
+    mockSocket.connected = true
+    tokenListeners.forEach((listener) => listener())
+    expect(mockConnect).not.toHaveBeenCalled()
+  })
+
+  it("stops listening for tokens when it unmounts", () => {
+    const { unmount } = renderHook(() => useSocket({ roomId: "room-1", enabled: true }))
+    unmount()
+    expect(tokenListeners.size).toBe(0)
   })
 
   it("does not connect when disabled", () => {
@@ -125,7 +182,23 @@ describe("useSocket", () => {
   it("emits join_game when gameId is set and socket is connected", () => {
     mockSocket.connected = true
     renderHook(() => useSocket({ roomId: "room-1", gameId: "game-1", gameType: "undercover", enabled: true }))
-    expect(mockEmit).toHaveBeenCalledWith("join_game", { game_id: "game-1" })
+    expect(mockEmit).toHaveBeenCalledWith("join_game", { game_id: "game-1", lang: "en" })
+  })
+
+  it("asks for the game state in the player's language", () => {
+    mockLang.value = "ar"
+    mockSocket.connected = true
+    renderHook(() => useSocket({ roomId: "room-1", gameId: "game-1", gameType: "undercover", enabled: true }))
+    expect(mockEmit).toHaveBeenCalledWith("join_game", { game_id: "game-1", lang: "ar" })
+    expect(handshake()).toMatchObject({ lang: "ar" })
+
+    // ...and writes the push only into the query read in that language
+    const gameStateHandler = mockOn.mock.calls.find((c: unknown[]) => c[0] === "game_state")?.[1]
+    gameStateHandler({ phase: "description" })
+    expect(mockSetQueriesData).toHaveBeenCalledWith(
+      { queryKey: [{ url: '/api/v1/undercover/games/:game_id/state', params: { game_id: "game-1" } }, { lang: "ar" }] },
+      { phase: "description" },
+    )
   })
 
   it("game_updated handler invalidates game query cache", () => {
@@ -169,7 +242,7 @@ describe("useSocket", () => {
     renderHook(() => useSocket({ roomId: "room-1", gameId: "game-1", gameType: "undercover", enabled: true }))
 
     const connectHandler = mockOn.mock.calls.find((c: unknown[]) => c[0] === "connect")?.[1]
-    connectHandler()
+    act(() => connectHandler())
 
     // Should invalidate room state query
     expect(mockInvalidateQueries).toHaveBeenCalledWith(
@@ -193,9 +266,9 @@ describe("useSocket", () => {
     mockEmit.mockClear()
 
     const connectHandler = mockOn.mock.calls.find((c: unknown[]) => c[0] === "connect")?.[1]
-    connectHandler()
+    act(() => connectHandler())
 
-    expect(mockEmit).toHaveBeenCalledWith("join_game", { game_id: "game-1" })
+    expect(mockEmit).toHaveBeenCalledWith("join_game", { game_id: "game-1", lang: "en" })
   })
 
   it("game_state handler for word_quiz triggers invalidateQueries not setQueriesData", () => {
@@ -217,7 +290,7 @@ describe("useSocket", () => {
     gameStateHandler({ phase: "description", players: [] })
 
     expect(mockSetQueriesData).toHaveBeenCalledWith(
-      { queryKey: [{ url: '/api/v1/undercover/games/:game_id/state', params: { game_id: "game-1" } }] },
+      { queryKey: [{ url: '/api/v1/undercover/games/:game_id/state', params: { game_id: "game-1" } }, { lang: "en" }] },
       { phase: "description", players: [] },
     )
   })

@@ -6,13 +6,17 @@
  */
 
 import { difficultyLevelSchema } from "./difficultyLevelSchema.ts";
+import { gameTypeSchema } from "./gameTypeSchema.ts";
 import { z } from "zod/v4";
 
 /**
- * @description Host-supplied room settings.\n\nEvery numeric field is bounded. These values are copied verbatim into\n``Room.settings`` and then into a game\'s ``live_state`` at start, so an\nunbounded value is not just cosmetic: ``word_quiz_rounds=10_000_000`` makes\ngame creation try to draw ten million questions, and a negative timer makes\nthe timer-expiry check pass immediately and spin the round forward.
+ * @description Host-supplied room settings.\n\nEvery numeric field is bounded. These values are copied verbatim into\n``Room.settings`` and then into a game\'s ``live_state`` at start, so an\nunbounded value is not just cosmetic: ``word_quiz_rounds=10_000_000`` makes\ngame creation try to draw ten million questions, and a negative timer makes\nthe timer-expiry check pass immediately and spin the round forward.\n\n``game_type`` is the host\'s pick in the lobby. It lives in the room\'s settings\n(``get_room_state`` reads it from there while no game runs) so every guest\'s\nlobby describes the game the host chose, not the one the room was opened for.
  */
 export const roomSettingsRequestSchema = z
   .object({
+    get game_type() {
+      return z.union([gameTypeSchema, z.null()]).optional();
+    },
     description_timer: z.optional(z.union([z.int(), z.null()])),
     voting_timer: z.optional(z.union([z.int(), z.null()])),
     codenames_clue_timer: z.optional(z.union([z.int(), z.null()])),
@@ -34,5 +38,5 @@ export const roomSettingsRequestSchema = z
     },
   })
   .describe(
-    "Host-supplied room settings.\n\nEvery numeric field is bounded. These values are copied verbatim into\n``Room.settings`` and then into a game's ``live_state`` at start, so an\nunbounded value is not just cosmetic: ``word_quiz_rounds=10_000_000`` makes\ngame creation try to draw ten million questions, and a negative timer makes\nthe timer-expiry check pass immediately and spin the round forward.",
+    "Host-supplied room settings.\n\nEvery numeric field is bounded. These values are copied verbatim into\n``Room.settings`` and then into a game's ``live_state`` at start, so an\nunbounded value is not just cosmetic: ``word_quiz_rounds=10_000_000`` makes\ngame creation try to draw ten million questions, and a negative timer makes\nthe timer-expiry check pass immediately and spin the round forward.\n\n``game_type`` is the host's pick in the lobby. It lives in the room's settings\n(``get_room_state`` reads it from there while no game runs) so every guest's\nlobby describes the game the host chose, not the one the room was opened for.",
   );

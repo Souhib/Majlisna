@@ -10,6 +10,8 @@ import { z } from "zod/v4";
 export const codenamesCardViewSchema = z.object({
   index: z.int(),
   word: z.string(),
+  word_ar: z.optional(z.union([z.string(), z.null()])),
+  word_ar_vocalized: z.optional(z.union([z.string(), z.null()])),
   revealed: z.boolean(),
   card_type: z.optional(z.union([z.string(), z.null()])),
   hint: z.optional(z.union([z.string(), z.null()])),

@@ -14,6 +14,11 @@ export const getGameSummaryApiV1GamesGameIdSummaryGetPathParamsSchema =
     game_id: z.uuid(),
   });
 
+export const getGameSummaryApiV1GamesGameIdSummaryGetQueryParamsSchema =
+  z.object({
+    lang: z.string().default("en"),
+  });
+
 /**
  * @description Successful Response
  */

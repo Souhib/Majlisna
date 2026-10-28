@@ -3,6 +3,11 @@ import tailwindcss from '@tailwindcss/vite'
 import { TanStackRouterVite } from '@tanstack/router-plugin/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
+
+// Dev proxy target. Defaults to the native backend (`uv run python main.py`);
+// point it at the seeded E2E stack with VITE_DEV_PROXY_TARGET=http://127.0.0.1:5049.
+const DEV_PROXY_TARGET = process.env.VITE_DEV_PROXY_TARGET ?? 'http://127.0.0.1:5111'
+
 // https://vite.dev/config/
 export default defineConfig({
   esbuild: {
@@ -28,11 +33,11 @@ export default defineConfig({
     port: 3000,
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:5111',
+        target: DEV_PROXY_TARGET,
         changeOrigin: true,
       },
       '/socket.io': {
-        target: 'http://127.0.0.1:5111',
+        target: DEV_PROXY_TARGET,
         changeOrigin: true,
         ws: true,
       },

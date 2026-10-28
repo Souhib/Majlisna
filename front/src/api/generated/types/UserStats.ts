@@ -20,7 +20,10 @@ export type UserStats = {
    * @type string | undefined, date-time
    */
   updated_at?: string;
-  id?: string | null;
+  /**
+   * @type string | undefined, uuid
+   */
+  id?: string;
   /**
    * @type string, uuid
    */

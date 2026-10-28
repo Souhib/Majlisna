@@ -9,7 +9,11 @@ import { z } from "zod/v4";
 
 export const wordExplanationsSchema = z.object({
   civilian_word: z.string(),
+  civilian_word_ar: z.optional(z.union([z.string(), z.null()])),
+  civilian_word_ar_vocalized: z.optional(z.union([z.string(), z.null()])),
   civilian_word_hint: z.union([z.string(), z.null()]),
   undercover_word: z.string(),
+  undercover_word_ar: z.optional(z.union([z.string(), z.null()])),
+  undercover_word_ar_vocalized: z.optional(z.union([z.string(), z.null()])),
   undercover_word_hint: z.union([z.string(), z.null()]),
 });

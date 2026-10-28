@@ -1,182 +1,185 @@
 import { createFileRoute, Link } from "@tanstack/react-router"
-import { motion } from "motion/react"
-import { Trophy } from "lucide-react"
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { useGetLeaderboardApiV1StatsLeaderboardGet } from "@/api/generated"
-
-interface LeaderboardEntry {
-  user_id: string
-  username: string
-  total_games_played: number
-  total_games_won: number
-  win_rate: number
-  current_win_streak: number
-  longest_win_streak: number
-}
-
-type SortField = "total_games_won" | "win_rate" | "longest_win_streak"
+import type { LeaderboardEntry } from "@/api/generated"
+import { Lozenge } from "@/components/brand"
+import { type LeaderboardSort as SortField, phoneColumns, SORT_COLUMN, type LeaderboardColumn as Column } from "@/components/stats/format"
+import { PageHeader, Segmented } from "@/components/stats/PlayerSpace"
+import { Button } from "@/components/ui/button"
+import { EmptyState } from "@/components/ui/empty-state"
+import { Panel } from "@/components/ui/panel"
+import { Skeleton } from "@/components/ui/skeleton"
+import { cn } from "@/lib/utils"
+import { useAuth } from "@/providers/AuthProvider"
 
 export const Route = createFileRoute("/leaderboard")({
   component: LeaderboardPage,
 })
 
-function RankBadge({ index }: { index: number }) {
-  if (index === 0) {
-    return (
-      <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-yellow-400 to-amber-500 text-sm font-bold text-white shadow-md shadow-amber-500/30">
-        1
-      </span>
-    )
-  }
-  if (index === 1) {
-    return (
-      <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-gray-300 to-gray-400 text-sm font-bold text-white shadow-md shadow-gray-400/30">
-        2
-      </span>
-    )
-  }
-  if (index === 2) {
-    return (
-      <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-amber-600 to-amber-700 text-sm font-bold text-white shadow-md shadow-amber-700/30">
-        3
-      </span>
-    )
-  }
-  return (
-    <span className="inline-flex h-8 w-8 items-center justify-center text-sm font-mono tabular-nums text-muted-foreground">
-      #{index + 1}
-    </span>
-  )
-}
-
 function LeaderboardPage() {
   const { t } = useTranslation()
+  const { user } = useAuth()
   const [sortField, setSortField] = useState<SortField>("total_games_won")
 
-  const { data: entries = [] as LeaderboardEntry[], isLoading } = useGetLeaderboardApiV1StatsLeaderboardGet(
-    { stat_field: sortField, limit: 50 },
-  ) as { data: LeaderboardEntry[] | undefined; isLoading: boolean }
+  const { data: entries = [], isLoading } = useGetLeaderboardApiV1StatsLeaderboardGet({ stat_field: sortField, limit: 50 }) as {
+    data: LeaderboardEntry[] | undefined
+    isLoading: boolean
+  }
 
-  const sortTabs: { field: SortField; label: string }[] = [
-    { field: "total_games_won", label: t("leaderboard.wins") },
-    { field: "win_rate", label: t("leaderboard.winRate") },
-    { field: "longest_win_streak", label: t("leaderboard.streak") },
+  const onPhone = phoneColumns(sortField)
+  const columns: { key: Column; label: string; value: (e: LeaderboardEntry) => string | number }[] = [
+    { key: "wins", label: t("leaderboard.wins"), value: (e) => e.total_games_won },
+    { key: "games", label: t("leaderboard.games"), value: (e) => e.total_games_played },
+    { key: "rate", label: t("leaderboard.winRate"), value: (e) => `${Math.round(e.win_rate)}%` },
+    { key: "streak", label: t("leaderboard.streak"), value: (e) => e.longest_win_streak },
   ]
+  const folded = columns.filter((c) => !onPhone.has(c.key))
+  const sortedOn = SORT_COLUMN[sortField]
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-10">
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-        className="flex items-center gap-3 mb-10"
-      >
-        <div className="rounded-2xl bg-accent/10 p-3">
-          <Trophy className="h-7 w-7 text-accent" />
-        </div>
-        <h1 className="text-3xl font-extrabold tracking-tight gradient-text">{t("leaderboard.title")}</h1>
-      </motion.div>
+    <div className="page-wrap py-[clamp(32px,5vw,72px)]">
+      <div className="mx-auto max-w-[60rem]">
+        <PageHeader title={t("leaderboard.title")} lede={t("leaderboard.lede")} />
 
-      {/* Sort Tabs */}
-      <div className="flex gap-2 mb-6">
-        {sortTabs.map((tab) => (
-          <button
-            key={tab.field}
-            type="button"
-            onClick={() => setSortField(tab.field)}
-            className={`rounded-2xl px-4 py-2 text-sm font-semibold transition-all duration-200 ${
-              sortField === tab.field
-                ? "bg-gradient-to-r from-primary to-primary/90 text-primary-foreground shadow-md shadow-primary/20"
-                : "bg-secondary/60 text-muted-foreground hover:bg-secondary hover:-translate-y-0.5"
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+        <Segmented<SortField>
+          label={t("leaderboard.sortBy")}
+          value={sortField}
+          onChange={setSortField}
+          className="mb-5 w-full sm:w-fit sm:min-w-[26rem]"
+          options={[
+            { value: "total_games_won", label: t("leaderboard.wins") },
+            { value: "win_rate", label: t("leaderboard.winRate") },
+            { value: "longest_win_streak", label: t("leaderboard.streak") },
+          ]}
+        />
 
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, delay: 0.15 }}
-        className="glass rounded-2xl border border-border/30 overflow-hidden"
-      >
-        <table className="w-full">
-          <thead>
-            <tr className="border-b border-border/30 bg-muted/30">
-              <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                {t("leaderboard.rank")}
-              </th>
-              <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                {t("leaderboard.player")}
-              </th>
-              <th className="px-6 py-4 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                {t("leaderboard.wins")}
-              </th>
-              <th className="px-6 py-4 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                {t("leaderboard.games")}
-              </th>
-              <th className="px-6 py-4 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                {t("leaderboard.winRate")}
-              </th>
-              <th className="px-6 py-4 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                {t("leaderboard.streak")}
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading ? (
-              <>
-                {[1, 2, 3].map((i) => (
-                  <tr key={i} className="border-b border-border/20">
-                    <td colSpan={6} className="px-6 py-5">
-                      <div className="h-4 rounded-full bg-muted animate-pulse" />
+        <Panel flush>
+          <table data-testid="leaderboard" className="w-full border-collapse text-[15px]">
+            <caption className="sr-only">
+              {t("leaderboard.caption", { sort: columns.find((c) => c.key === sortedOn)?.label })}
+            </caption>
+            <thead>
+              <tr className="type-meta border-b border-line">
+                <th scope="col" className="py-3 pe-3 ps-4 text-start font-normal whitespace-nowrap sm:ps-[22px]">
+                  <span className="sr-only sm:not-sr-only">{t("leaderboard.rank")}</span>
+                </th>
+                <th scope="col" className="w-full py-3 pe-2 text-start font-normal">
+                  {t("leaderboard.player")}
+                </th>
+                {columns.map((c) => (
+                  <th
+                    key={c.key}
+                    scope="col"
+                    aria-sort={c.key === sortedOn ? "descending" : undefined}
+                    className={cn(
+                      "py-3 ps-2 pe-4 text-end font-normal whitespace-nowrap sm:pe-0 sm:ps-8 sm:last:pe-[22px]",
+                      !onPhone.has(c.key) && "hidden sm:table-cell",
+                      c.key === sortedOn && "font-medium text-foreground",
+                    )}
+                  >
+                    {c.label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {isLoading ? (
+                [0, 1, 2, 3, 4].map((i) => (
+                  <tr key={i} className="border-t border-line first:border-t-0">
+                    <td colSpan={6} className="px-4 py-4 sm:px-[22px]">
+                      <Skeleton className="h-5 w-full" />
                     </td>
                   </tr>
-                ))}
-              </>
-            ) : entries.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="px-6 py-16 text-center text-muted-foreground">
-                  {t("leaderboard.noPlayers")}
-                </td>
-              </tr>
-            ) : (
-              entries.map((entry, index) => (
-                <motion.tr
-                  key={entry.user_id}
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ duration: 0.3, delay: index * 0.03 }}
-                  className={`border-b border-border/20 last:border-b-0 transition-all duration-200 ${
-                    index < 3
-                      ? "bg-gradient-to-r from-accent/5 to-transparent hover:from-accent/10"
-                      : "hover:bg-muted/20"
-                  }`}
-                >
-                  <td className="px-6 py-4">
-                    <RankBadge index={index} />
+                ))
+              ) : entries.length === 0 ? (
+                <tr>
+                  <td colSpan={6}>
+                    <EmptyState
+                      titleAs="p"
+                      title={t("leaderboard.noPlayers")}
+                      action={
+                        <Button asChild variant="secondary">
+                          <Link to="/rooms">{t("stats.findRoom")}</Link>
+                        </Button>
+                      }
+                    />
                   </td>
-                  <td className="px-6 py-4 text-sm font-semibold">
-                    <Link
-                      to="/players/$userId"
-                      params={{ userId: entry.user_id }}
-                      className="hover:text-primary transition-colors duration-200"
+                </tr>
+              ) : (
+                entries.map((entry, index) => {
+                  const me = entry.user_id === user?.id
+                  return (
+                    <tr
+                      key={entry.user_id}
+                      aria-current={me ? "true" : undefined}
+                      className={cn(
+                        "border-t border-line first:border-t-0",
+                        me && "bg-[color-mix(in_oklch,var(--brass)_9%,var(--surface))]",
+                      )}
                     >
-                      {entry.username}
-                    </Link>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-right font-mono tabular-nums">{entry.total_games_won}</td>
-                  <td className="px-6 py-4 text-sm text-right font-mono tabular-nums text-muted-foreground">{entry.total_games_played}</td>
-                  <td className="px-6 py-4 text-sm text-right font-mono tabular-nums">{entry.win_rate}%</td>
-                  <td className="px-6 py-4 text-sm text-right font-mono tabular-nums">{entry.longest_win_streak}</td>
-                </motion.tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </motion.div>
+                      <td className="py-3 pe-3 ps-4 align-middle sm:ps-[22px]">
+                        <span
+                          className={cn(
+                            "num inline-flex items-center gap-1.5 text-[15px]",
+                            // brass only on the viewer's own row: the podium is ink
+                            me ? "font-medium text-brass" : index < 3 ? "font-medium text-foreground" : "text-muted-foreground",
+                          )}
+                        >
+                          {index === 0 ? <Lozenge state={me ? "brass" : "ink"} size={7} /> : null}
+                          {index + 1}
+                        </span>
+                      </td>
+                      <td className="w-full max-w-0 py-3 pe-2 align-middle">
+                        <Link
+                          to="/players/$userId"
+                          params={{ userId: entry.user_id }}
+                          className={cn(
+                            "-my-2 flex min-h-11 flex-col justify-center rounded-sm py-1 underline-offset-[5px] hover:underline hover:decoration-line-brass-strong",
+                            me && "text-brass",
+                          )}
+                        >
+                          <span className="flex min-w-0 items-baseline gap-2">
+                            <span dir="auto" className="truncate font-medium">
+                              {entry.username}
+                            </span>
+                            {me ? <span className="shrink-0 text-[12.5px] font-medium">{t("leaderboard.you")}</span> : null}
+                          </span>
+                          {/* the figures a phone has no column for */}
+                          <span className="flex flex-wrap gap-x-3 text-[12.5px] leading-snug text-muted-foreground sm:hidden">
+                            {folded.map((c) => (
+                              <span key={c.key} className="whitespace-nowrap">
+                                {c.label}{" "}
+                                <span dir="ltr" className="num bidi-isolate text-foreground">
+                                  {c.value(entry)}
+                                </span>
+                              </span>
+                            ))}
+                          </span>
+                        </Link>
+                      </td>
+                      {columns.map((c) => (
+                        <td
+                          key={c.key}
+                          className={cn(
+                            "num py-3 ps-2 pe-4 text-end align-middle whitespace-nowrap sm:pe-0 sm:ps-8 sm:last:pe-[22px]",
+                            !onPhone.has(c.key) && "hidden sm:table-cell",
+                            c.key === sortedOn ? "font-medium text-foreground" : "text-muted-foreground",
+                          )}
+                        >
+                          <span dir="ltr" className="bidi-isolate">
+                            {c.value(entry)}
+                          </span>
+                        </td>
+                      ))}
+                    </tr>
+                  )
+                })
+              )}
+            </tbody>
+          </table>
+        </Panel>
+      </div>
     </div>
   )
 }

@@ -1,59 +1,53 @@
 import { fireEvent, render, screen } from '@testing-library/react'
-import type { ReactNode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
-
-vi.mock('motion/react', () => ({
-  AnimatePresence: ({ children }: { children: ReactNode }) => <>{children}</>,
-  motion: {
-    div: ({ children, className, ...props }: any) => <div className={className} {...props}>{children}</div>,
-    h2: ({ children, className, ...props }: any) => <h2 className={className} {...props}>{children}</h2>,
-    p: ({ children, className, ...props }: any) => <p className={className} {...props}>{children}</p>,
-  },
-}))
-
 import { EliminationOverlay } from './EliminationOverlay'
 
-describe('EliminationOverlay', () => {
+describe('EliminationOverlay (the verdict for a player who missed it)', () => {
   const defaultProps = {
+    round: 2,
     eliminatedUsername: 'Alice',
     eliminatedRole: 'civilian',
+    eliminatedUserId: 'u1',
+    votes: [{ voter: 'Bob', voter_id: 'u2', target: 'Alice', target_id: 'u1' }],
+    currentUserId: 'u3',
     onDismiss: vi.fn(),
   }
 
-  it('shows eliminated title', () => {
+  it('carries the elimination-overlay test id', () => {
     render(<EliminationOverlay {...defaultProps} />)
-    expect(screen.getByText('game.eliminated')).toBeInTheDocument()
+    expect(screen.getByTestId('elimination-overlay')).toBeInTheDocument()
   })
 
-  it('shows eliminated username', () => {
-    render(<EliminationOverlay {...defaultProps} eliminatedUsername="Bob" />)
+  it('names who the table chose', () => {
+    render(<EliminationOverlay {...defaultProps} />)
+    expect(screen.getByRole('heading', { name: 'game.undercover.verdict.chose' })).toBeInTheDocument()
+    expect(screen.getByText('Alice')).toBeInTheDocument()
+  })
+
+  it.each([
+    ['civilian', 'games.undercover.roles.civilian'],
+    ['undercover', 'games.undercover.roles.undercover'],
+    ['mr_white', 'games.undercover.roles.mrWhite'],
+  ])('turns the tablet over to show the role: %s', (role, label) => {
+    render(<EliminationOverlay {...defaultProps} eliminatedRole={role} />)
+    expect(screen.getByText(label)).toBeInTheDocument()
+  })
+
+  it('says who voted for whom', () => {
+    render(<EliminationOverlay {...defaultProps} />)
     expect(screen.getByText('Bob')).toBeInTheDocument()
+    expect(screen.getByText('game.undercover.verdict.votedFor')).toBeInTheDocument()
   })
 
-  it('shows role label for civilian', () => {
-    render(<EliminationOverlay {...defaultProps} eliminatedRole="civilian" />)
-    expect(screen.getByText(/Civilian/)).toBeInTheDocument()
-  })
-
-  it('shows role label for undercover', () => {
-    render(<EliminationOverlay {...defaultProps} eliminatedRole="undercover" />)
-    expect(screen.getByText(/Undercover/)).toBeInTheDocument()
-  })
-
-  it('shows role label for mr_white', () => {
-    render(<EliminationOverlay {...defaultProps} eliminatedRole="mr_white" />)
-    expect(screen.getByText(/Mr. White/)).toBeInTheDocument()
-  })
-
-  it('calls onDismiss when button clicked', () => {
+  it('"Continue" dismisses it', () => {
     const onDismiss = vi.fn()
     render(<EliminationOverlay {...defaultProps} onDismiss={onDismiss} />)
-    fireEvent.click(screen.getByText('game.undercover.continueGame'))
+    fireEvent.click(screen.getByRole('button', { name: 'game.undercover.continueGame' }))
     expect(onDismiss).toHaveBeenCalledOnce()
   })
 
-  it('no username shown when undefined', () => {
+  it('without a name, only says the votes are in', () => {
     render(<EliminationOverlay {...defaultProps} eliminatedUsername={undefined} />)
-    expect(screen.queryByText('Alice')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'game.undercover.verdict.noOne' })).toBeInTheDocument()
   })
 })

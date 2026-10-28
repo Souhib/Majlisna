@@ -5,6 +5,8 @@
  * Do not edit manually.
  */
 
+import type { TimerExpiredAction } from "./TimerExpiredAction.ts";
+
 /**
  * TimerExpiredResponse
  */
@@ -14,7 +16,8 @@ export type TimerExpiredResponse = {
    */
   game_id: string;
   /**
+   * @description Every answer ``POST /{game}/games/{id}/timer-expired`` can give.\n\nAn enum rather than a bare ``str`` so the values reach OpenAPI and the generated\nclient gets a union to switch on — a timer callback has to know which answers\nmean \"stop firing\" (``paused``, ``round_already_resolved``) without comparing\nhard-coded strings.
    * @type string
    */
-  action: string;
+  action: TimerExpiredAction;
 };

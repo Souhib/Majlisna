@@ -93,3 +93,24 @@ describe("getApiErrorMessage", () => {
     expect(getApiErrorMessage({ random: "object" })).toBe("An error occurred")
   })
 })
+
+describe("client", () => {
+  it("answers a 204 with no data, though FastAPI labels it application/json", async () => {
+    // Prepare: FastAPI's No Content answer, an empty body under a JSON content type
+    const { client } = await import("./client")
+    const fetchMock = vi.fn(async () => new Response(null, { status: 204, headers: { "content-type": "application/json" } }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    try {
+      // Act
+      const response = await client({ url: "/api/v1/notebook/entries/e1", method: "DELETE" })
+
+      // Assert
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(response.status).toBe(204)
+      expect(response.data).toBeUndefined()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+})

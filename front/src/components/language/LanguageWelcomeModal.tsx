@@ -1,285 +1,137 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { AnimatePresence, motion, useReducedMotion } from "motion/react"
-import { BookOpen, Check, ChevronRight } from "lucide-react"
+import { Lockup } from "@/components/brand"
+import { applyLanguage, currentLanguage, LANGUAGES, type LanguageCode } from "@/components/layout/language-switch"
+import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 
 const STORAGE_KEY = "majlisna-first-visit-complete"
 
+function readFirstVisit() {
+  try {
+    return !localStorage.getItem(STORAGE_KEY)
+  } catch {
+    return false
+  }
+}
+
 function useFirstVisit() {
-  const [isFirstVisit, setIsFirstVisit] = useState(() => {
-    if (localStorage.getItem(STORAGE_KEY)) return false
-    return true
-  })
+  const [isFirstVisit, setIsFirstVisit] = useState(readFirstVisit)
 
   const markComplete = useCallback(() => {
-    localStorage.setItem(STORAGE_KEY, "true")
+    try {
+      localStorage.setItem(STORAGE_KEY, "true")
+    } catch {
+      // private mode: we will ask again next visit
+    }
     setIsFirstVisit(false)
   }, [])
 
   return { isFirstVisit, markComplete }
 }
 
-const languages = [
-  { code: "en", fullName: "English", flag: "\u{1F1EC}\u{1F1E7}", dir: "ltr" },
-  { code: "fr", fullName: "Fran\u00E7ais", flag: "\u{1F1EB}\u{1F1F7}", dir: "ltr" },
-  { code: "ar", fullName: "\u0627\u0644\u0639\u0631\u0628\u064A\u0629", flag: "\u{1F1F5}\u{1F1F8}", dir: "rtl" },
-] as const
-
-type LanguageCode = (typeof languages)[number]["code"]
-
+/**
+ * First visit: which language? Asked once, in all three languages at the same time
+ * (each line in its own language, so nobody has to read the others), then remembered.
+ * Three large choices, a lozenge on the one chosen, and "Skip" keeps the detected one.
+ */
 export function LanguageWelcomeModal() {
-  const { i18n } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { isFirstVisit, markComplete } = useFirstVisit()
   const [selected, setSelected] = useState<LanguageCode | null>(null)
-  const [ready, setReady] = useState(false)
-  const cardRefs = useRef<(HTMLButtonElement | null)[]>([])
-  const shouldReduceMotion = useReducedMotion()
+  const [, setLoaded] = useState(0)
+  const optionRefs = useRef<(HTMLButtonElement | null)[]>([])
+  const current = currentLanguage(i18n.language)
+
+  // The prompt is shown in every language: make sure all three are loaded.
+  useEffect(() => {
+    if (!isFirstVisit) return
+    const loader = (i18n as { loadLanguages?: (lngs: string[]) => Promise<unknown> }).loadLanguages
+    loader?.call(i18n, ["en", "fr", "ar"]).then(() => setLoaded((n) => n + 1))
+  }, [isFirstVisit, i18n])
 
   const handleSelect = useCallback(
     (code: LanguageCode) => {
       setSelected(code)
-      const lang = languages.find((l) => l.code === code)
-      if (!lang) return
-      i18n.changeLanguage(code)
-      localStorage.setItem("majlisna-language", code)
-      document.documentElement.dir = lang.dir
-      document.documentElement.lang = lang.code
-
-      setTimeout(() => {
-        markComplete()
-      }, 500)
+      applyLanguage(i18n, code)
+      // let the chosen lozenge register before the dialog closes
+      window.setTimeout(markComplete, 320)
     },
     [i18n, markComplete],
   )
 
-  const handleSkip = useCallback(() => {
-    markComplete()
-  }, [markComplete])
+  const onKeyDown = (e: KeyboardEvent, index: number) => {
+    const forward = e.key === "ArrowDown" || (e.key === "ArrowRight" && document.dir !== "rtl") || (e.key === "ArrowLeft" && document.dir === "rtl")
+    const back = e.key === "ArrowUp" || (e.key === "ArrowLeft" && document.dir !== "rtl") || (e.key === "ArrowRight" && document.dir === "rtl")
+    if (!forward && !back) return
+    e.preventDefault()
+    const next = (index + (forward ? 1 : -1) + LANGUAGES.length) % LANGUAGES.length
+    optionRefs.current[next]?.focus()
+  }
 
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent, index: number) => {
-      let nextIndex: number | null = null
-
-      if (e.key === "ArrowRight" || e.key === "ArrowDown") {
-        e.preventDefault()
-        nextIndex = (index + 1) % languages.length
-      } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
-        e.preventDefault()
-        nextIndex = (index - 1 + languages.length) % languages.length
-      } else if (e.key === "Enter" || e.key === " ") {
-        e.preventDefault()
-        handleSelect(languages[index].code)
-        return
-      }
-
-      if (nextIndex !== null) {
-        cardRefs.current[nextIndex]?.focus()
-      }
-    },
-    [handleSelect],
-  )
-
-  useEffect(() => {
-    if (isFirstVisit) {
-      const timer = setTimeout(() => {
-        setReady(true)
-        cardRefs.current[0]?.focus()
-      }, 300)
-      return () => clearTimeout(timer)
-    }
-  }, [isFirstVisit])
+  const fixed = (code: LanguageCode) => {
+    const getFixedT = (i18n as { getFixedT?: (lng: string) => (key: string) => string }).getFixedT
+    return getFixedT ? getFixedT.call(i18n, code)("ui.chooseLanguage") : t("ui.chooseLanguage")
+  }
 
   if (!isFirstVisit) return null
+  const checked = selected ?? current
 
   return (
-    <AnimatePresence>
-      {/* Backdrop */}
-      <motion.div
-        className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-xl"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        transition={{ duration: 0.2 }}
-      >
-        {/* Modal */}
-        <motion.div
-          className="relative w-full max-w-md mx-4 glass rounded-2xl p-8 shadow-2xl shadow-black/10 overflow-hidden"
-          initial={shouldReduceMotion ? {} : { scale: 0.9, opacity: 0, y: 20 }}
-          animate={{ scale: 1, opacity: 1, y: 0 }}
-          exit={{ scale: 0.9, opacity: 0, y: 20 }}
-          transition={{ type: "spring", stiffness: 300, damping: 24 }}
-        >
-          {/* Decorative gradient background */}
-          <motion.div
-            className="pointer-events-none absolute inset-0 overflow-hidden rounded-2xl"
-            initial={shouldReduceMotion ? {} : { opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.6 }}
-            aria-hidden="true"
-          >
-            <div
-              className="absolute -top-1/3 -left-1/3 h-2/3 w-2/3 rounded-full opacity-15"
-              style={{ background: "radial-gradient(circle, var(--primary), transparent 70%)" }}
-            />
-            <div
-              className="absolute -bottom-1/3 -right-1/3 h-2/3 w-2/3 rounded-full opacity-10"
-              style={{ background: "radial-gradient(circle, var(--accent), transparent 70%)" }}
-            />
-          </motion.div>
+    <Dialog open onOpenChange={(open) => !open && markComplete()}>
+      <DialogContent hideClose className="max-w-md gap-6 p-6 sm:p-8">
+        <div className="grid justify-items-center gap-4 text-center">
+          <DialogTitle className="sr-only">Majlisna</DialogTitle>
+          <Lockup size={34} />
+          <DialogDescription asChild>
+            <div className="grid gap-1 text-muted-foreground">
+              {LANGUAGES.map((lang) => (
+                <span key={lang.code} lang={lang.code} dir={lang.dir} className={lang.code === "ar" ? "text-[18px]" : "text-[15px]"}>
+                  {fixed(lang.code)}
+                </span>
+              ))}
+            </div>
+          </DialogDescription>
+        </div>
 
-          {/* Header */}
-          <div className="relative text-center mb-6">
-            <motion.div
-              className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/15 to-accent/10 text-primary"
-              initial={shouldReduceMotion ? {} : { scale: 0, rotate: -180 }}
-              animate={{ scale: 1, rotate: 0 }}
-              transition={{ type: "spring", stiffness: 260, damping: 20, delay: 0.1 }}
-            >
-              <BookOpen className="h-8 w-8" />
-            </motion.div>
-
-            <motion.p
-              className="text-xs font-semibold uppercase tracking-widest text-muted-foreground"
-              initial={shouldReduceMotion ? {} : { opacity: 0, y: 12 }}
-              animate={ready ? { opacity: 1, y: 0 } : {}}
-              transition={{ type: "spring", stiffness: 300, damping: 24, delay: 0.2 }}
-            >
-              Welcome to
-            </motion.p>
-
-            <motion.h2
-              className="text-3xl font-extrabold tracking-tight gradient-text"
-              initial={shouldReduceMotion ? {} : { opacity: 0, y: 12 }}
-              animate={ready ? { opacity: 1, y: 0 } : {}}
-              transition={{ type: "spring", stiffness: 300, damping: 24, delay: 0.28 }}
-            >
-              Islamic Party Games
-            </motion.h2>
-
-            <motion.p
-              className="mt-3 flex items-baseline justify-center gap-2 flex-wrap text-muted-foreground"
-              initial={shouldReduceMotion ? {} : { opacity: 0 }}
-              animate={ready ? { opacity: 1 } : {}}
-              transition={{ duration: 0.3, delay: 0.35 }}
-            >
-              <span className="text-sm" lang="en">Choose your language</span>
-              <span className="opacity-40" aria-hidden="true">·</span>
-              <span className="text-base" lang="fr">Choisissez votre langue</span>
-              <span className="opacity-40" aria-hidden="true">·</span>
-              <span className="text-lg" lang="ar" dir="rtl">اختر لغتك</span>
-            </motion.p>
-          </div>
-
-          {/* Language cards */}
-          <div
-            role="radiogroup"
-            aria-label="Select language"
-            className="relative grid grid-cols-3 gap-3"
-          >
-            {languages.map((lang, index) => (
-              <motion.div
+        <div role="radiogroup" aria-label={t("nav.switchLanguage")} className="grid gap-2">
+          {LANGUAGES.map((lang, index) => {
+            const isChecked = checked === lang.code
+            return (
+              <button
                 key={lang.code}
-                initial={shouldReduceMotion ? {} : { opacity: 0, y: 24 }}
-                animate={ready ? { opacity: 1, y: 0 } : {}}
-                transition={{
-                  type: "spring",
-                  stiffness: 300,
-                  damping: 24,
-                  delay: 0.4 + index * 0.12,
+                ref={(el) => {
+                  optionRefs.current[index] = el
                 }}
+                type="button"
+                role="radio"
+                aria-checked={isChecked}
+                tabIndex={isChecked ? 0 : -1}
+                lang={lang.code}
+                dir={lang.dir}
+                onClick={() => handleSelect(lang.code)}
+                onKeyDown={(e) => onKeyDown(e, index)}
+                className={cn(
+                  "flex min-h-14 items-center gap-3 rounded-sm border px-4 text-start transition-colors duration-(--dur-state)",
+                  "hover:bg-[color-mix(in_oklch,var(--brass)_8%,transparent)]",
+                  isChecked ? "border-line-brass-strong bg-surface-2" : "border-line",
+                )}
               >
-                <button
-                  ref={(el) => {
-                    cardRefs.current[index] = el
-                  }}
-                  type="button"
-                  role="radio"
-                  aria-checked={selected === lang.code}
-                  tabIndex={selected === lang.code || (!selected && index === 0) ? 0 : -1}
-                  onClick={() => handleSelect(lang.code)}
-                  onKeyDown={(e) => handleKeyDown(e, index)}
-                  className={cn(
-                    "group relative flex w-full flex-col items-center gap-2.5 rounded-2xl border p-5 text-center cursor-pointer transition-all duration-200",
-                    "bg-background/60 backdrop-blur-sm border-border/40",
-                    "hover:border-primary/50 hover:shadow-lg hover:shadow-primary/5 hover:-translate-y-0.5",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                    "active:scale-[0.97]",
-                    selected === lang.code && "bg-primary/10 border-primary shadow-[0_0_24px_-6px_var(--primary)]",
-                  )}
-                >
-                  {/* Shimmer sweep on selection */}
-                  <AnimatePresence>
-                    {selected === lang.code && !shouldReduceMotion && (
-                      <motion.div
-                        className="pointer-events-none absolute inset-0 overflow-hidden rounded-2xl"
-                        initial={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        aria-hidden="true"
-                      >
-                        <motion.div
-                          className="absolute inset-0 bg-gradient-to-r from-transparent via-primary/10 to-transparent"
-                          initial={{ x: "-100%" }}
-                          animate={{ x: "100%" }}
-                          transition={{ duration: 0.6, ease: "easeInOut" }}
-                        />
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
+                <span
+                  aria-hidden="true"
+                  className={cn("loz [--loz:9px]", isChecked ? "bg-brass" : "border border-line-brass-strong")}
+                />
+                <span className={cn("flex-1 font-medium", lang.code === "ar" ? "text-[20px]" : "text-[17px]")}>{lang.name}</span>
+              </button>
+            )
+          })}
+        </div>
 
-                  {/* Checkmark */}
-                  <AnimatePresence>
-                    {selected === lang.code && (
-                      <motion.div
-                        className="absolute top-2 end-2 flex h-5 w-5 items-center justify-center rounded-full bg-gradient-to-br from-primary to-primary/80 text-primary-foreground"
-                        initial={shouldReduceMotion ? {} : { scale: 0 }}
-                        animate={{ scale: 1 }}
-                        exit={{ scale: 0 }}
-                        transition={{ type: "spring", stiffness: 500, damping: 25 }}
-                      >
-                        <Check className="h-3 w-3" strokeWidth={3} />
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-
-                  {/* Flag */}
-                  <motion.div
-                    className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted/40"
-                    whileHover={shouldReduceMotion ? {} : { scale: 1.1 }}
-                    whileTap={shouldReduceMotion ? {} : { scale: 0.9 }}
-                    transition={{ type: "spring", stiffness: 400, damping: 15 }}
-                  >
-                    <span className="text-3xl select-none" aria-hidden="true">
-                      {lang.flag}
-                    </span>
-                  </motion.div>
-
-                  <span lang={lang.code} className={cn("font-semibold", lang.code === "ar" ? "text-xl" : "text-base")}>
-                    {lang.fullName}
-                  </span>
-                </button>
-              </motion.div>
-            ))}
-          </div>
-
-          {/* Skip button */}
-          <motion.div
-            className="mt-5 text-center"
-            initial={shouldReduceMotion ? {} : { opacity: 0 }}
-            animate={ready ? { opacity: 1 } : {}}
-            transition={{ duration: 0.3, delay: 0.65 }}
-          >
-            <button
-              type="button"
-              onClick={handleSkip}
-              className="inline-flex items-center gap-1.5 rounded-full border border-border/50 px-4 py-1.5 text-sm text-muted-foreground transition-all duration-200 hover:text-foreground hover:border-border hover:bg-glow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            >
-              Skip
-              <ChevronRight className="h-3.5 w-3.5" />
-            </button>
-          </motion.div>
-        </motion.div>
-      </motion.div>
-    </AnimatePresence>
+        <Button variant="ghost" size="sm" className="justify-self-center text-muted-foreground" onClick={markComplete}>
+          {t("ui.skip")}
+        </Button>
+      </DialogContent>
+    </Dialog>
   )
 }

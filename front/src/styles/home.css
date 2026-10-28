@@ -1,0 +1,780 @@
+/* ============================================================================
+   The home page (sketch sections A, E, F, G and B), ported from the sketch's
+   `.hero`, `.sky`, `.ground`, `.hero-word`, `.hero-body`, `.join`, `.halqa-card`,
+   `.sec-head` and `.fihrist`. Markup: components/home/*.
+
+   One horizon, two lights: a pre-composed sky (public/sky/, CC BY-SA 4.0, credited
+   on /credits) whose bottom edge IS the horizon, drawn with object-fit: cover at every
+   width, and a CSS ground that starts on the file's last row. The giant مجلسنا lies on
+   that horizon. The nav is sticky above it (it has no ground of its own up here), so
+   the hero slides up under it by one nav height.
+   ============================================================================ */
+
+@layer components {
+  .home-hero {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    background: var(--bg);
+    --hh: clamp(720px, 100svh, 1440px);
+    --horizon: calc(var(--hh) * 0.47);
+    --word: clamp(96px, 9.6vw, 236px);
+    --gap-h: clamp(36px, 4.4vh, 56px);
+    --hero-stretch: 2.25em;
+    min-height: var(--hh);
+    margin-block-start: calc(-1 * var(--navh));
+    padding-block-end: clamp(48px, 7vh, 96px);
+  }
+
+  .home-wrap {
+    width: 100%;
+    max-width: calc(var(--maxw) + 2 * var(--gutter));
+    margin-inline: auto;
+    padding-inline: var(--gutter);
+  }
+
+  /* --- the sky: one picture, its bottom edge on the horizon -------------------- */
+  .home-sky {
+    position: absolute;
+    z-index: 0;
+    inset-inline: 0;
+    top: 0;
+    height: var(--horizon);
+    background: var(--sky-fallback);
+    overflow: hidden;
+  }
+  .home-sky picture,
+  .home-sky img {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  .home-sky img {
+    object-fit: cover;
+    object-position: 52% 100%;
+  }
+  /* Arabic: the rocks and the sun move to the left, the name and the text to the right */
+  [dir="rtl"] .home-sky {
+    transform: scaleX(-1);
+  }
+
+  /* --- the ground: starts on the sky file's last row, overlapping it by 1 px ---- */
+  .home-ground {
+    position: absolute;
+    z-index: 0;
+    inset-inline: 0;
+    top: calc(var(--horizon) - 1px);
+    bottom: 0;
+    background: linear-gradient(180deg, var(--ground-foot) 0, var(--ground-1) 150px, var(--bg) 78%);
+  }
+  :root[data-theme="light"] .home-ground {
+    background: linear-gradient(
+      180deg,
+      var(--ground-foot) 0,
+      oklch(0.7 0.062 46) 10px,
+      oklch(0.79 0.052 56) 26px,
+      var(--ground-0) 58px,
+      var(--ground-1) 124px,
+      var(--ground-1) 40%,
+      var(--bg) 92%
+    );
+  }
+  .home-ground::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: var(--grain);
+    background-size: 240px;
+    opacity: 0.3;
+    mix-blend-mode: overlay;
+    -webkit-mask-image: linear-gradient(180deg, #000, transparent 50%);
+    mask-image: linear-gradient(180deg, #000, transparent 50%);
+  }
+  :root[data-theme="dark"] .home-ground::before {
+    opacity: 0.12;
+  }
+  .home-ground::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(
+      90deg,
+      color-mix(in oklch, var(--text) 2.4%, transparent) 0 1px,
+      transparent 1px 7px
+    );
+    -webkit-mask-image: linear-gradient(180deg, #000, transparent 70%);
+    mask-image: linear-gradient(180deg, #000, transparent 70%);
+  }
+
+  /* --- the name on the horizon ------------------------------------------------- */
+  .home-word {
+    position: absolute;
+    z-index: 3;
+    inset-inline: 0;
+    top: calc(var(--horizon) - 0.85 * var(--word));
+    font-size: var(--word);
+    line-height: 1;
+    color: var(--text);
+    pointer-events: none;
+  }
+
+  /* --- the body: copy + actions, and the halqa card ------------------------------ */
+  .home-hero-body {
+    position: relative;
+    z-index: 4;
+    margin-block-start: calc(var(--horizon) + var(--gap-h));
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, clamp(400px, 33vw, 500px));
+    gap: clamp(40px, 4vw, 72px);
+    align-items: start;
+  }
+  /* RTL: the name's ج descender sits over the start of the title; clear it */
+  [dir="rtl"] .home-hero-body {
+    margin-block-start: calc(var(--horizon) + max(var(--gap-h), 0.58 * var(--word)));
+  }
+  .home-hero h1 {
+    font: 400 clamp(42px, 4.4vw, 84px) / 1.02 var(--f-display);
+    letter-spacing: -0.012em;
+    color: var(--text);
+    text-wrap: balance;
+    max-width: 6.6em;
+  }
+  .home-hero h1:lang(ar) {
+    font: 700 clamp(44px, 4.6vw, 88px) / 1.22 var(--f-nass);
+    max-width: 7.5em;
+  }
+  .home-lede {
+    margin-block-start: clamp(16px, 1.6vw, 24px);
+    max-width: 52ch;
+    font-size: clamp(17px, 1.05vw, 20px);
+    font-weight: 300;
+    line-height: 1.6;
+    color: var(--text-muted);
+    text-wrap: pretty;
+  }
+  .home-lede:lang(ar) {
+    font-size: clamp(19px, 1.2vw, 22px);
+    line-height: 1.9;
+    max-width: 46ch;
+  }
+  .home-lede em {
+    font-style: normal;
+    color: var(--text);
+  }
+  .home-actions {
+    margin-block-start: clamp(22px, 2vw, 32px);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  /* the room code + PIN join row: always left to right, as one continuous row */
+  .home-join {
+    display: inline-flex;
+    align-items: flex-end;
+    gap: 12px;
+    padding-block: 10px;
+    padding-inline: 14px 10px;
+    border: 1px solid var(--line-brass);
+    border-radius: 2px;
+    background: var(--surface);
+    direction: ltr;
+  }
+  .home-join .code-tiles[data-size] {
+    --tw: 28px;
+    --th: 36px;
+    --tf: 15px;
+    --tg: 3px;
+  }
+  /* label size and weight: utilities on the form (CodeTilesInput labels carry type-label) */
+  .home-join label {
+    line-height: 1;
+    text-align: left;
+  }
+  .home-join-error {
+    margin-block-start: 10px;
+    font-size: 14px;
+    line-height: 1.45;
+    color: var(--ember);
+  }
+
+  /* --- the halqa card ---------------------------------------------------------- */
+  .halqa-card {
+    position: relative;
+    justify-self: end;
+    width: 100%;
+    margin-block-start: -6px;
+    border: 1px solid var(--line-brass);
+    border-radius: 2px;
+    background: var(--surface);
+    --panel-ground: var(--surface);
+  }
+  .hc-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    padding: 16px 20px 0;
+    font: 400 13px / 1.3 var(--f-ui);
+    color: var(--text-muted);
+  }
+  .hc-title {
+    font: 400 21px / 1.1 var(--f-display);
+    color: var(--text);
+    letter-spacing: 0;
+    white-space: nowrap;
+  }
+  .hc-title:lang(ar) {
+    font: 700 22px / 1.3 var(--f-nass);
+  }
+  .hc-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+    gap: 8px;
+    align-items: center;
+    padding-block: 2px 18px;
+    padding-inline: 8px 20px;
+  }
+  /* the ring is drawn in the sketch's 340 × 300 box with 17 px labels (HalqaCard) */
+  .halqa-card .halqa .code {
+    font-size: 26px;
+  }
+  .halqa-card .halqa .center-label {
+    font-size: 15px;
+  }
+  @media (max-width: 1100px) {
+    .halqa-card .halqa text {
+      font-size: 15px;
+    }
+    .halqa-card .halqa .code {
+      font-size: 26px;
+    }
+  }
+  .hc-side {
+    display: grid;
+    gap: 14px;
+    align-content: center;
+    justify-items: start;
+  }
+  .hc-feed {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 8px;
+    font-size: 14px;
+    line-height: 1.4;
+    color: var(--text-muted);
+  }
+  .hc-feed li {
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+  }
+  .hc-feed li::before {
+    content: "";
+    flex: none;
+    width: 5px;
+    height: 5px;
+    translate: 0 -2px;
+    rotate: 45deg;
+    background: var(--brass);
+  }
+  .hc-feed b {
+    font-weight: 500;
+    color: var(--text);
+  }
+  .hc-caption {
+    margin-inline: 20px;
+    padding-block: 12px 14px;
+    border-block-start: 1px solid var(--line);
+    font-size: 12.5px;
+    line-height: 1.45;
+    color: var(--text-muted);
+  }
+
+  /* --- sections ---------------------------------------------------------------- */
+  .home-sec {
+    padding-block: clamp(72px, 8.5vw, 128px);
+  }
+  .home-sec-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 0.95fr);
+    gap: clamp(20px, 5vw, 72px);
+    align-items: end;
+    margin-block-end: clamp(36px, 4vw, 60px);
+  }
+  .home-sec-head h2 {
+    font: 400 clamp(36px, 3.8vw, 60px) / 1.04 var(--f-display);
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+    max-width: 16ch;
+  }
+  .home-sec-head h2:lang(ar) {
+    font: 700 clamp(36px, 3.6vw, 56px) / 1.3 var(--f-nass);
+  }
+  .home-sec-head .echo {
+    display: block;
+    text-align: start;
+    margin-block-start: 12px;
+    font: 700 clamp(22px, 2vw, 30px) / 1.45 var(--f-nass);
+    color: var(--brass);
+  }
+  .home-sec-head p:not(.echo) {
+    color: var(--text-muted);
+    max-width: 52ch;
+    text-wrap: pretty;
+  }
+
+  /* --- B. the four games: the fihrist ------------------------------------------ */
+  .fihrist {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    position: relative;
+    border-block-end: 1px solid var(--line-brass);
+    --gn: clamp(64px, 6.2vw, 116px);
+    --h3: clamp(26px, 2.2vw, 34px);
+    --mk: 56px;
+  }
+  .fihrist::before,
+  .fihrist::after,
+  .fihrist-entry::before,
+  .fihrist-entry::after {
+    content: "";
+    position: absolute;
+    width: 9px;
+    height: 9px;
+    rotate: 45deg;
+    border: 1px solid var(--brass);
+    background: var(--bg);
+  }
+  .fihrist::before,
+  .fihrist::after {
+    bottom: -5px;
+  }
+  .fihrist-entry::before,
+  .fihrist-entry::after {
+    top: -5px;
+  }
+  .fihrist::before,
+  .fihrist-entry::before {
+    inset-inline-start: -4px;
+  }
+  .fihrist::after,
+  .fihrist-entry::after {
+    inset-inline-end: -4px;
+  }
+  .fihrist-entry {
+    position: relative;
+    display: grid;
+    grid-template-areas: "mark ttl desc meta";
+    column-gap: clamp(20px, 3.2vw, 52px);
+    align-items: center;
+    padding-block: clamp(28px, 2.6vw, 44px);
+    border-block-start: 1px solid var(--line-brass);
+  }
+  /* the mark is centred on the Arabic name: the row centre, raised by half the Latin line */
+  .fihrist-entry .mark {
+    grid-area: mark;
+    width: var(--mk);
+    height: var(--mk);
+    color: var(--brass);
+    translate: 0 calc(-0.5 * (1.1 * var(--h3) + 0.26 * var(--gn)));
+  }
+  .fihrist[data-arabic-only="true"] .fihrist-entry .mark {
+    translate: none;
+  }
+  .fihrist-entry .mark * {
+    vector-effect: non-scaling-stroke;
+  }
+  .fihrist-entry .ttl {
+    grid-area: ttl;
+    display: grid;
+    min-width: 0;
+    text-align: start;
+  }
+  /* Amiri's ي tail and dots reach ~.25em below the line box: clear the Latin cap height */
+  .fihrist-entry .ar {
+    font: 700 var(--gn) / 1.22 var(--f-nass);
+    color: var(--brass);
+    white-space: nowrap;
+    padding-block-end: 0.26em;
+    letter-spacing: 0;
+  }
+  .fihrist[data-arabic-only="true"] .fihrist-entry .ar {
+    padding-block-end: 0.12em;
+  }
+  .fihrist-entry h3 {
+    font: 400 var(--h3) / 1.1 var(--f-display);
+    letter-spacing: -0.005em;
+  }
+  .fihrist-entry .desc {
+    grid-area: desc;
+    min-width: 0;
+  }
+  .fihrist-entry .rule {
+    font-size: clamp(16.5px, 1.15vw, 19px);
+    line-height: 1.62;
+    color: var(--text-muted);
+    max-width: 36em;
+    text-wrap: pretty;
+  }
+  .fihrist-entry .rule:lang(ar) {
+    font-size: clamp(18px, 1.25vw, 21px);
+    line-height: 1.85;
+  }
+  .fihrist-sample {
+    margin-block-start: 14px;
+    padding-block-start: 12px;
+    border-block-start: 1px solid var(--line-brass);
+    font: 400 clamp(15px, 1.05vw, 17px) / 1.6 var(--f-ui);
+    color: var(--text);
+    max-width: 36em;
+  }
+  .fihrist-sample .k {
+    color: var(--text-muted);
+    margin-inline-end: 10px;
+  }
+  .fihrist-sample .a {
+    font: 700 22px / 1 var(--f-nass);
+    color: var(--text);
+    unicode-bidi: isolate;
+  }
+  .fihrist-sample .dot {
+    display: inline-block;
+    width: 5px;
+    height: 5px;
+    translate: 0 -3px;
+    rotate: 45deg;
+    background: var(--brass);
+    margin-inline: 8px;
+  }
+  .fihrist-sample .cl {
+    font: 400 16px / 1 var(--f-display);
+    letter-spacing: 0.08em;
+    margin-inline-end: 6px;
+  }
+  .fihrist-sample .cl:lang(ar) {
+    font: 700 19px / 1 var(--f-nass);
+  }
+  .fihrist-sample .n {
+    color: var(--brass);
+    font-weight: 500;
+    margin-inline-end: 10px;
+  }
+  .fihrist-entry .meta {
+    grid-area: meta;
+    display: grid;
+    justify-items: end;
+    gap: 12px;
+    text-align: end;
+  }
+  /* figures in Readex Pro: Marcellus's 1 reads as an I ("4–IO") */
+  .fihrist-entry .count {
+    font: 250 clamp(38px, 3.2vw, 52px) / 1 var(--f-ui);
+    letter-spacing: -0.02em;
+    color: var(--text);
+    font-variant-numeric: lining-nums tabular-nums;
+  }
+  .fihrist-entry .count small {
+    display: block;
+    margin-block-start: 7px;
+    font: 400 13px / 1.2 var(--f-ui);
+    letter-spacing: 0;
+    color: var(--text-muted);
+  }
+  .fihrist-entry .meta a {
+    display: inline-flex;
+    gap: 8px;
+    align-items: center;
+    padding-block: 6px;
+    font: 500 14.5px / 1 var(--f-ui);
+    color: var(--brass);
+    text-decoration: none;
+    border-radius: 2px;
+  }
+  .fihrist-entry .meta a:hover {
+    text-decoration: underline;
+    text-underline-offset: 5px;
+  }
+  .fihrist-entry .meta a svg {
+    width: 16px;
+    height: 16px;
+  }
+  .home-band {
+    margin-block-start: clamp(40px, 4vw, 64px);
+  }
+
+  @media (min-width: 1101px) {
+    /* one grid for all four rows: every description starts right after the widest name */
+    .fihrist {
+      display: grid;
+      grid-template-columns: var(--mk) max-content minmax(0, 1fr) auto;
+      column-gap: clamp(24px, 3.4vw, 56px);
+    }
+    .fihrist-entry {
+      grid-column: 1 / -1;
+      grid-template-columns: subgrid;
+    }
+    .fihrist-entry .mark {
+      grid-column: 1;
+      grid-row: 1;
+    }
+    .fihrist-entry .ttl {
+      grid-column: 2;
+      grid-row: 1;
+    }
+    .fihrist-entry .desc {
+      grid-column: 3;
+      grid-row: 1;
+    }
+    .fihrist-entry .meta {
+      grid-column: 4;
+      grid-row: 1;
+    }
+  }
+
+  /* --- the support rows (charities) --------------------------------------------- */
+  .support-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    border-block: 1px solid var(--line);
+  }
+  .support-list > li {
+    display: grid;
+    align-content: start;
+    gap: 10px;
+    padding: clamp(24px, 2.4vw, 36px) clamp(0px, 2vw, 32px);
+  }
+  .support-list > li + li {
+    border-inline-start: 1px solid var(--line);
+  }
+  .support-list h3 {
+    font: 400 clamp(24px, 2vw, 30px) / 1.1 var(--f-display);
+  }
+  .support-list p {
+    color: var(--text-muted);
+    max-width: 46ch;
+    text-wrap: pretty;
+  }
+
+  /* --- responsive ---------------------------------------------------------------- */
+  @media (min-height: 1000px) and (min-width: 1101px) {
+    .home-hero {
+      --horizon: calc(var(--hh) * 0.5);
+    }
+  }
+  @media (min-width: 1101px) {
+    .hc-body {
+      grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+    }
+  }
+  @media (min-width: 2200px) {
+    .home-hero h1 {
+      font-size: 100px;
+    }
+    .home-hero h1:lang(ar) {
+      font-size: 104px;
+    }
+    .home-lede {
+      font-size: 22px;
+    }
+    .home-lede:lang(ar) {
+      font-size: 24px;
+    }
+    .home-hero-body {
+      grid-template-columns: minmax(0, 1fr) 600px;
+    }
+    .home-join .code-tiles[data-size] {
+      --tw: 34px;
+      --th: 44px;
+      --tf: 18px;
+    }
+    .hc-head {
+      font-size: 15px;
+    }
+    .hc-title {
+      font-size: 25px;
+    }
+    .hc-feed {
+      font-size: 16px;
+    }
+    .fihrist {
+      --gn: 132px;
+      --h3: 38px;
+      --mk: 64px;
+    }
+    .fihrist-entry .rule {
+      font-size: 20px;
+    }
+    .fihrist-sample {
+      font-size: 18px;
+    }
+  }
+  @media (max-width: 1100px) {
+    /* tablet: the word eases from the phone size (19vw at 760) to the desktop size (9.6vw at 1101) */
+    .home-hero {
+      --gap-h: 40px;
+      --word: clamp(105.6px, calc(229.8px - 11.29vw), 144px);
+    }
+    .home-hero-body {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 40px;
+    }
+    .halqa-card {
+      justify-self: stretch;
+    }
+    /* full-width card: the ring keeps the sketch's size instead of growing with it */
+    .halqa-card .halqa {
+      max-width: 420px;
+      justify-self: center;
+    }
+    .fihrist {
+      --mk: 52px;
+      --gn: clamp(64px, 8vw, 84px);
+    }
+    .fihrist-entry {
+      grid-template-columns: var(--mk) minmax(0, 1fr) auto;
+      grid-template-areas:
+        "mark ttl meta"
+        ". desc desc";
+      row-gap: 16px;
+    }
+  }
+  @media (max-width: 900px) {
+    .home-sec-head {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 16px;
+    }
+    .support-list {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .support-list > li {
+      padding-inline: 0;
+    }
+    .support-list > li + li {
+      border-inline-start: 0;
+      border-block-start: 1px solid var(--line);
+    }
+  }
+  @media (max-width: 760px) {
+    .home-hero {
+      --horizon: min(300px, 77vw);
+      /* the sketch's max(80px, 19vw), held under the width of the smallest phones
+         (the name is ~3.95 em wide with this kashida: 80 px no longer fits under 400 px) */
+      --word: max(min(80px, 20.5vw), 19vw);
+      --gap-h: 36px;
+      --hero-stretch: 1.45em;
+      min-height: 0;
+      padding-block-end: 40px;
+    }
+    .home-hero-body {
+      gap: 32px;
+    }
+    .home-hero h1 {
+      font-size: 42px;
+    }
+    .home-hero h1:lang(ar) {
+      font-size: 44px;
+    }
+    .home-actions {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    /* phones: tiles are touch targets (>= 44 x 48), so the code takes its own row and
+       the PIN shares the next one with Join; the single #home-room-code input still
+       lies over the five code tiles */
+    .home-join {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      grid-template-areas:
+        "code code"
+        "pin submit";
+      align-items: end;
+      gap: 14px 12px;
+      padding-inline: 14px;
+    }
+    .home-join > :nth-child(1) {
+      grid-area: code;
+    }
+    .home-join > :nth-child(2) {
+      grid-area: pin;
+    }
+    .home-join .join-submit {
+      grid-area: submit;
+      width: 100%;
+    }
+    .home-join .code-tiles[data-size] {
+      --tw: 44px;
+      --th: 48px;
+      --tf: 19px;
+      --tg: 5px;
+    }
+    .hc-head {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 4px;
+    }
+    .hc-body {
+      grid-template-columns: minmax(0, 1fr);
+      padding: 4px 16px 18px;
+    }
+    .halqa-card .halqa {
+      max-width: 320px;
+      margin-inline: auto;
+    }
+    .fihrist {
+      --mk: 44px;
+      --gn: 56px;
+      --h3: 26px;
+    }
+    .fihrist-entry {
+      grid-template-columns: var(--mk) minmax(0, 1fr);
+      grid-template-areas:
+        "mark ttl"
+        "desc desc"
+        "meta meta";
+      column-gap: 16px;
+    }
+    .fihrist-entry .meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      text-align: start;
+    }
+    .fihrist-entry .count {
+      font-size: 38px;
+    }
+  }
+  @media (max-width: 380px) {
+    /* the smallest phones: Join gets a row of its own under the PIN */
+    .home-join {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas:
+        "code"
+        "pin"
+        "submit";
+    }
+  }
+  /* touch screens wide enough for the inline row (tablets): the same 44 x 48 tiles */
+  @media (pointer: coarse) and (min-width: 761px) {
+    .home-join .code-tiles[data-size] {
+      --tw: 44px;
+      --th: 48px;
+      --tf: 19px;
+      --tg: 5px;
+    }
+  }
+  /* text links are touch targets too */
+  @media (max-width: 760px), (pointer: coarse) {
+    .fihrist-entry .meta a {
+      min-block-size: 44px;
+      padding-block: 0;
+    }
+  }
+}

@@ -71,6 +71,13 @@ export {
 } from "./deleteAccountApiV1UsersMeAccountDeleteSchema.ts";
 export { deleteAccountRequestSchema } from "./deleteAccountRequestSchema.ts";
 export {
+  deleteNotebookEntryApiV1NotebookEntriesEntryIdDeletePathParamsSchema,
+  deleteNotebookEntryApiV1NotebookEntriesEntryIdDelete204Schema,
+  deleteNotebookEntryApiV1NotebookEntriesEntryIdDelete404Schema,
+  deleteNotebookEntryApiV1NotebookEntriesEntryIdDelete422Schema,
+  deleteNotebookEntryApiV1NotebookEntriesEntryIdDeleteMutationResponseSchema,
+} from "./deleteNotebookEntryApiV1NotebookEntriesEntryIdDeleteSchema.ts";
+export {
   deleteRoomApiV1RoomsRoomIdDeletePathParamsSchema,
   deleteRoomApiV1RoomsRoomIdDelete204Schema,
   deleteRoomApiV1RoomsRoomIdDelete404Schema,
@@ -132,6 +139,8 @@ export { friendshipStatusEnumSchema } from "./friendshipStatusEnumSchema.ts";
 export { friendshipStatusResponseSchema } from "./friendshipStatusResponseSchema.ts";
 export { gameDurationStatsSchema } from "./gameDurationStatsSchema.ts";
 export { gameHistoryEntrySchema } from "./gameHistoryEntrySchema.ts";
+export { gamePauseReasonSchema } from "./gamePauseReasonSchema.ts";
+export { gamePauseSchema } from "./gamePauseSchema.ts";
 export { gameStartResponseSchema } from "./gameStartResponseSchema.ts";
 export { gameSummaryPlayerSchema } from "./gameSummaryPlayerSchema.ts";
 export { gameSummarySchema } from "./gameSummarySchema.ts";
@@ -201,6 +210,7 @@ export {
 } from "./getGamesByUserApiV1GamesUserUserIdGetSchema.ts";
 export {
   getGameSummaryApiV1GamesGameIdSummaryGetPathParamsSchema,
+  getGameSummaryApiV1GamesGameIdSummaryGetQueryParamsSchema,
   getGameSummaryApiV1GamesGameIdSummaryGet200Schema,
   getGameSummaryApiV1GamesGameIdSummaryGet404Schema,
   getGameSummaryApiV1GamesGameIdSummaryGet422Schema,
@@ -240,6 +250,14 @@ export {
   getMessagesApiV1RoomsRoomIdMessagesGet422Schema,
   getMessagesApiV1RoomsRoomIdMessagesGetQueryResponseSchema,
 } from "./getMessagesApiV1RoomsRoomIdMessagesGetSchema.ts";
+export {
+  getNotebookGameWordsApiV1NotebookGamesGameIdGetPathParamsSchema,
+  getNotebookGameWordsApiV1NotebookGamesGameIdGetQueryParamsSchema,
+  getNotebookGameWordsApiV1NotebookGamesGameIdGet200Schema,
+  getNotebookGameWordsApiV1NotebookGamesGameIdGet404Schema,
+  getNotebookGameWordsApiV1NotebookGamesGameIdGet422Schema,
+  getNotebookGameWordsApiV1NotebookGamesGameIdGetQueryResponseSchema,
+} from "./getNotebookGameWordsApiV1NotebookGamesGameIdGetSchema.ts";
 export {
   getPendingRequestsApiV1FriendsPendingGet200Schema,
   getPendingRequestsApiV1FriendsPendingGet404Schema,
@@ -406,6 +424,23 @@ export {
 } from "./joinRoomAsSpectatorApiV1RoomsJoinSpectatorPatchSchema.ts";
 export { joinSpectatorRequestSchema } from "./joinSpectatorRequestSchema.ts";
 export {
+  keepNotebookGameWordsApiV1NotebookGamesGameIdKeepPostPathParamsSchema,
+  keepNotebookGameWordsApiV1NotebookGamesGameIdKeepPostQueryParamsSchema,
+  keepNotebookGameWordsApiV1NotebookGamesGameIdKeepPost200Schema,
+  keepNotebookGameWordsApiV1NotebookGamesGameIdKeepPost404Schema,
+  keepNotebookGameWordsApiV1NotebookGamesGameIdKeepPost422Schema,
+  keepNotebookGameWordsApiV1NotebookGamesGameIdKeepPostMutationResponseSchema,
+} from "./keepNotebookGameWordsApiV1NotebookGamesGameIdKeepPostSchema.ts";
+export {
+  keepNotebookWordApiV1NotebookEntriesPostQueryParamsSchema,
+  keepNotebookWordApiV1NotebookEntriesPost200Schema,
+  keepNotebookWordApiV1NotebookEntriesPost404Schema,
+  keepNotebookWordApiV1NotebookEntriesPost422Schema,
+  keepNotebookWordApiV1NotebookEntriesPostMutationRequestSchema,
+  keepNotebookWordApiV1NotebookEntriesPostMutationResponseSchema,
+} from "./keepNotebookWordApiV1NotebookEntriesPostSchema.ts";
+export { keepWordRequestSchema } from "./keepWordRequestSchema.ts";
+export {
   kickPlayerApiV1RoomsRoomIdKickPatchPathParamsSchema,
   kickPlayerApiV1RoomsRoomIdKickPatch200Schema,
   kickPlayerApiV1RoomsRoomIdKickPatch404Schema,
@@ -423,6 +458,13 @@ export {
   leaveRoomApiV1RoomsLeavePatchMutationRequestSchema,
   leaveRoomApiV1RoomsLeavePatchMutationResponseSchema,
 } from "./leaveRoomApiV1RoomsLeavePatchSchema.ts";
+export {
+  listNotebookEntriesApiV1NotebookGetQueryParamsSchema,
+  listNotebookEntriesApiV1NotebookGet200Schema,
+  listNotebookEntriesApiV1NotebookGet404Schema,
+  listNotebookEntriesApiV1NotebookGet422Schema,
+  listNotebookEntriesApiV1NotebookGetQueryResponseSchema,
+} from "./listNotebookEntriesApiV1NotebookGetSchema.ts";
 export {
   loginApiV1AuthLoginPost200Schema,
   loginApiV1AuthLoginPost422Schema,
@@ -449,6 +491,7 @@ export {
   mrWhiteGuessApiV1UndercoverGamesGameIdMrWhiteGuessPostMutationRequestSchema,
   mrWhiteGuessApiV1UndercoverGamesGameIdMrWhiteGuessPostMutationResponseSchema,
 } from "./mrWhiteGuessApiV1UndercoverGamesGameIdMrWhiteGuessPostSchema.ts";
+export { mrWhiteGuessRecordSchema } from "./mrWhiteGuessRecordSchema.ts";
 export { mrWhiteGuessRequestSchema } from "./mrWhiteGuessRequestSchema.ts";
 export { mrWhiteGuessResponseSchema } from "./mrWhiteGuessResponseSchema.ts";
 export {
@@ -466,6 +509,41 @@ export {
   nextRoundApiV1WordquizGamesGameIdNextRoundPostMutationResponseSchema,
 } from "./nextRoundApiV1WordquizGamesGameIdNextRoundPostSchema.ts";
 export { nextRoundRequestSchema } from "./nextRoundRequestSchema.ts";
+export { notebookEntryViewSchema } from "./notebookEntryViewSchema.ts";
+export { notebookGameTypeSchema } from "./notebookGameTypeSchema.ts";
+export { notebookGameWordSchema } from "./notebookGameWordSchema.ts";
+export { notebookGameWordsSchema } from "./notebookGameWordsSchema.ts";
+export { notebookKeepResponseSchema } from "./notebookKeepResponseSchema.ts";
+export { notebookPageSchema } from "./notebookPageSchema.ts";
+export {
+  pauseCodenamesGameApiV1CodenamesGamesGameIdPausePostPathParamsSchema,
+  pauseCodenamesGameApiV1CodenamesGamesGameIdPausePost200Schema,
+  pauseCodenamesGameApiV1CodenamesGamesGameIdPausePost404Schema,
+  pauseCodenamesGameApiV1CodenamesGamesGameIdPausePost422Schema,
+  pauseCodenamesGameApiV1CodenamesGamesGameIdPausePostMutationResponseSchema,
+} from "./pauseCodenamesGameApiV1CodenamesGamesGameIdPausePostSchema.ts";
+export { pauseGameResponseSchema } from "./pauseGameResponseSchema.ts";
+export {
+  pauseMcqquizGameApiV1McqquizGamesGameIdPausePostPathParamsSchema,
+  pauseMcqquizGameApiV1McqquizGamesGameIdPausePost200Schema,
+  pauseMcqquizGameApiV1McqquizGamesGameIdPausePost404Schema,
+  pauseMcqquizGameApiV1McqquizGamesGameIdPausePost422Schema,
+  pauseMcqquizGameApiV1McqquizGamesGameIdPausePostMutationResponseSchema,
+} from "./pauseMcqquizGameApiV1McqquizGamesGameIdPausePostSchema.ts";
+export {
+  pauseUndercoverGameApiV1UndercoverGamesGameIdPausePostPathParamsSchema,
+  pauseUndercoverGameApiV1UndercoverGamesGameIdPausePost200Schema,
+  pauseUndercoverGameApiV1UndercoverGamesGameIdPausePost404Schema,
+  pauseUndercoverGameApiV1UndercoverGamesGameIdPausePost422Schema,
+  pauseUndercoverGameApiV1UndercoverGamesGameIdPausePostMutationResponseSchema,
+} from "./pauseUndercoverGameApiV1UndercoverGamesGameIdPausePostSchema.ts";
+export {
+  pauseWordquizGameApiV1WordquizGamesGameIdPausePostPathParamsSchema,
+  pauseWordquizGameApiV1WordquizGamesGameIdPausePost200Schema,
+  pauseWordquizGameApiV1WordquizGamesGameIdPausePost404Schema,
+  pauseWordquizGameApiV1WordquizGamesGameIdPausePost422Schema,
+  pauseWordquizGameApiV1WordquizGamesGameIdPausePostMutationResponseSchema,
+} from "./pauseWordquizGameApiV1WordquizGamesGameIdPausePostSchema.ts";
 export { playerUnlockedAchievementsSchema } from "./playerUnlockedAchievementsSchema.ts";
 export { publicProfileSchema } from "./publicProfileSchema.ts";
 export { publicUserViewSchema } from "./publicUserViewSchema.ts";
@@ -540,6 +618,35 @@ export {
   resetPasswordApiV1AuthResetPasswordPostMutationResponseSchema,
 } from "./resetPasswordApiV1AuthResetPasswordPostSchema.ts";
 export { resetPasswordRequestSchema } from "./resetPasswordRequestSchema.ts";
+export {
+  resumeCodenamesGameApiV1CodenamesGamesGameIdResumePostPathParamsSchema,
+  resumeCodenamesGameApiV1CodenamesGamesGameIdResumePost200Schema,
+  resumeCodenamesGameApiV1CodenamesGamesGameIdResumePost404Schema,
+  resumeCodenamesGameApiV1CodenamesGamesGameIdResumePost422Schema,
+  resumeCodenamesGameApiV1CodenamesGamesGameIdResumePostMutationResponseSchema,
+} from "./resumeCodenamesGameApiV1CodenamesGamesGameIdResumePostSchema.ts";
+export { resumeGameResponseSchema } from "./resumeGameResponseSchema.ts";
+export {
+  resumeMcqquizGameApiV1McqquizGamesGameIdResumePostPathParamsSchema,
+  resumeMcqquizGameApiV1McqquizGamesGameIdResumePost200Schema,
+  resumeMcqquizGameApiV1McqquizGamesGameIdResumePost404Schema,
+  resumeMcqquizGameApiV1McqquizGamesGameIdResumePost422Schema,
+  resumeMcqquizGameApiV1McqquizGamesGameIdResumePostMutationResponseSchema,
+} from "./resumeMcqquizGameApiV1McqquizGamesGameIdResumePostSchema.ts";
+export {
+  resumeUndercoverGameApiV1UndercoverGamesGameIdResumePostPathParamsSchema,
+  resumeUndercoverGameApiV1UndercoverGamesGameIdResumePost200Schema,
+  resumeUndercoverGameApiV1UndercoverGamesGameIdResumePost404Schema,
+  resumeUndercoverGameApiV1UndercoverGamesGameIdResumePost422Schema,
+  resumeUndercoverGameApiV1UndercoverGamesGameIdResumePostMutationResponseSchema,
+} from "./resumeUndercoverGameApiV1UndercoverGamesGameIdResumePostSchema.ts";
+export {
+  resumeWordquizGameApiV1WordquizGamesGameIdResumePostPathParamsSchema,
+  resumeWordquizGameApiV1WordquizGamesGameIdResumePost200Schema,
+  resumeWordquizGameApiV1WordquizGamesGameIdResumePost404Schema,
+  resumeWordquizGameApiV1WordquizGamesGameIdResumePost422Schema,
+  resumeWordquizGameApiV1WordquizGamesGameIdResumePostMutationResponseSchema,
+} from "./resumeWordquizGameApiV1WordquizGamesGameIdResumePostSchema.ts";
 export { roomCreateRequestSchema } from "./roomCreateRequestSchema.ts";
 export { roomInviteRequestSchema } from "./roomInviteRequestSchema.ts";
 export { roomInviteResponseSchema } from "./roomInviteResponseSchema.ts";
@@ -661,6 +768,7 @@ export {
 export { submitVoteResponseSchema } from "./submitVoteResponseSchema.ts";
 export { termPairCreateSchema } from "./termPairCreateSchema.ts";
 export { termPairSchema } from "./termPairSchema.ts";
+export { timerExpiredActionSchema } from "./timerExpiredActionSchema.ts";
 export {
   timerExpiredApiV1CodenamesGamesGameIdTimerExpiredPostPathParamsSchema,
   timerExpiredApiV1CodenamesGamesGameIdTimerExpiredPost200Schema,
@@ -750,6 +858,7 @@ export { voteRequestSchema } from "./voteRequestSchema.ts";
 export { voteRoundSchema } from "./voteRoundSchema.ts";
 export { wordCreateSchema } from "./wordCreateSchema.ts";
 export { wordExplanationsSchema } from "./wordExplanationsSchema.ts";
+export { wordQuizCategorySchema } from "./wordQuizCategorySchema.ts";
 export { wordQuizGameStateSchema } from "./wordQuizGameStateSchema.ts";
 export { wordQuizPlayerStateSchema } from "./wordQuizPlayerStateSchema.ts";
 export { wordQuizRoundResultSchema } from "./wordQuizRoundResultSchema.ts";

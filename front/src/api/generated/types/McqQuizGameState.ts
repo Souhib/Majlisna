@@ -5,6 +5,7 @@
  * Do not edit manually.
  */
 
+import type { GamePause } from "./GamePause.ts";
 import type { McqQuizPlayerState } from "./McqQuizPlayerState.ts";
 import type { McqQuizRoundResult } from "./McqQuizRoundResult.ts";
 import type { PlayerUnlockedAchievements } from "./PlayerUnlockedAchievements.ts";
@@ -74,6 +75,9 @@ export type McqQuizGameState = {
    * @type array
    */
   round_results: McqQuizRoundResult[];
+  choice_tallies?: number[] | null;
+  my_choice_index?: number | null;
+  my_answer_time_ms?: number | null;
   winner?: string | null;
   /**
    * @type array
@@ -98,4 +102,18 @@ export type McqQuizGameState = {
    */
   total_players?: number;
   newly_unlocked_achievements?: PlayerUnlockedAchievements[] | null;
+  paused?: GamePause | null;
+  /**
+   * @default false
+   * @type boolean | undefined
+   */
+  can_pause?: boolean;
+  /**
+   * @default false
+   * @type boolean | undefined
+   */
+  can_resume?: boolean;
+  host_username?: string | null;
+  started_at?: string | null;
+  ended_at?: string | null;
 };

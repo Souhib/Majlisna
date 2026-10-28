@@ -1,40 +1,48 @@
-import { Loader2, Send, X } from "lucide-react"
-import { useEffect, useState } from "react"
+import { Link } from "@tanstack/react-router"
+import { Check } from "lucide-react"
+import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
-import { getApiErrorMessage } from "@/api/client"
-import {
-  useGetFriendsApiV1FriendsGet,
-  useInviteFriendToRoomApiV1RoomsRoomIdInvitePost,
-} from "@/api/generated"
-
-interface FriendEntry {
-  friendship_id: string
-  user_id: string
-  username: string
-  status: string
-}
+import { useGetFriendsApiV1FriendsGet, useInviteFriendToRoomApiV1RoomsRoomIdInvitePost } from "@/api/generated"
+import { Avatar } from "@/components/ui/avatar"
+import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { EmptyState } from "@/components/ui/empty-state"
+import { Skeleton } from "@/components/ui/skeleton"
+import { roomErrorMessage } from "./errors"
 
 interface InviteFriendModalProps {
   roomId: string
-  onClose: () => void
+  open: boolean
+  onOpenChange: (open: boolean) => void
 }
 
-export function InviteFriendModal({ roomId, onClose }: InviteFriendModalProps) {
+/**
+ * Invite a friend into the room (Dialog: protected focus, Escape and the corner button
+ * close it, focus returns to "Invite a friend"). Each friend gets one Invite button,
+ * which turns into a quiet "Invited" once the notice has gone out.
+ */
+export function InviteFriendModal({ roomId, open, onOpenChange }: InviteFriendModalProps) {
+  const { t } = useTranslation()
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>{t("room.lobbyPage.invite")}</DialogTitle>
+          <DialogDescription>{t("room.invite.description")}</DialogDescription>
+        </DialogHeader>
+        {open ? <FriendList roomId={roomId} /> : null}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function FriendList({ roomId }: { roomId: string }) {
   const { t } = useTranslation()
   const [invitedIds, setInvitedIds] = useState<Set<string>>(new Set())
-
-  const { data: friends = [] as FriendEntry[], isLoading } = useGetFriendsApiV1FriendsGet() as { data: FriendEntry[] | undefined; isLoading: boolean }
-  const inviteMutation = useInviteFriendToRoomApiV1RoomsRoomIdInvitePost()
   const [invitingId, setInvitingId] = useState<string | null>(null)
-
-  useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose()
-    }
-    window.addEventListener("keydown", handleEscape)
-    return () => window.removeEventListener("keydown", handleEscape)
-  }, [onClose])
+  const { data: friends = [], isLoading } = useGetFriendsApiV1FriendsGet()
+  const inviteMutation = useInviteFriendToRoomApiV1RoomsRoomIdInvitePost()
 
   const handleInvite = async (friendUserId: string) => {
     setInvitingId(friendUserId)
@@ -43,68 +51,70 @@ export function InviteFriendModal({ roomId, onClose }: InviteFriendModalProps) {
       setInvitedIds((prev) => new Set(prev).add(friendUserId))
       toast.success(t("room.inviteSent"))
     } catch (err) {
-      toast.error(getApiErrorMessage(err, "Failed to invite friend"))
+      toast.error(roomErrorMessage(err, t("room.invite.failed")))
     } finally {
       setInvitingId(null)
     }
   }
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-xl" onClick={onClose}>
-      <div
-        className="relative mx-4 max-h-[70vh] w-full max-w-sm overflow-y-auto glass rounded-2xl p-6 shadow-2xl shadow-black/10 animate-scale-in"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <button
-          type="button"
-          onClick={onClose}
-          className="absolute top-4 right-4 rounded-xl p-1.5 text-muted-foreground hover:text-foreground hover:bg-glow transition-all duration-200"
-        >
-          <X className="h-5 w-5" />
-        </button>
-
-        <h2 className="text-lg font-bold mb-5">{t("room.inviteFriend")}</h2>
-
-        {isLoading ? (
-          <div className="py-8 text-center text-muted-foreground">{t("common.loading")}</div>
-        ) : friends.length === 0 ? (
-          <div className="py-8 text-center text-muted-foreground">{t("friends.noFriends")}</div>
-        ) : (
-          <div className="space-y-2">
-            {friends.map((friend) => {
-              const isInvited = invitedIds.has(friend.user_id)
-              const isInviting = invitingId === friend.user_id
-              return (
-                <div
-                  key={friend.friendship_id}
-                  className="flex items-center justify-between rounded-xl bg-muted/30 border border-border/30 px-3.5 py-3 hover:bg-muted/50 transition-all duration-150"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-primary/15 to-accent/10 text-xs font-bold text-primary">
-                      {friend.username.charAt(0).toUpperCase()}
-                    </div>
-                    <span className="text-sm font-semibold">{friend.username}</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => handleInvite(friend.user_id)}
-                    disabled={isInvited || isInviting}
-                    className="rounded-xl px-3 py-1.5 text-xs font-medium text-primary hover:bg-glow disabled:opacity-50 transition-all duration-200"
-                  >
-                    {isInviting ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : isInvited ? (
-                      "Sent"
-                    ) : (
-                      <Send className="h-3.5 w-3.5" />
-                    )}
-                  </button>
-                </div>
-              )
-            })}
-          </div>
-        )}
+  if (isLoading) {
+    return (
+      <div className="grid gap-3" aria-busy="true">
+        <span className="sr-only">{t("common.loading")}</span>
+        {[0, 1, 2].map((i) => (
+          <Skeleton key={i} className="h-12 w-full" />
+        ))}
       </div>
-    </div>
+    )
+  }
+
+  if (friends.length === 0) {
+    return (
+      <EmptyState
+        className="py-6"
+        titleAs="p"
+        title={t("room.invite.emptyTitle")}
+        description={t("room.invite.emptyBody")}
+        action={
+          <Button asChild variant="secondary" size="sm">
+            <Link to="/friends">{t("nav.friends")}</Link>
+          </Button>
+        }
+      />
+    )
+  }
+
+  return (
+    <ul className="-mx-1 grid max-h-[50dvh] overflow-y-auto border-t border-line px-1">
+      {friends.map((friend) => {
+        const isInvited = invitedIds.has(friend.user_id)
+        const isInviting = invitingId === friend.user_id
+        return (
+          <li key={friend.friendship_id} className="flex items-center gap-3 border-b border-line py-2.5">
+            <Avatar name={friend.username} size={36} />
+            <span className="min-w-0 flex-1 truncate text-[15px] font-medium">
+              <bdi>{friend.username}</bdi>
+            </span>
+            {isInvited ? (
+              <span className="inline-flex h-10 items-center gap-1.5 px-2 text-[14px] text-muted-foreground" role="status">
+                <Check className="size-4 text-brass" aria-hidden="true" />
+                {t("room.invite.sent")}
+              </span>
+            ) : (
+              <Button
+                variant="secondary"
+                size="sm"
+                loading={isInviting}
+                disabled={invitingId !== null && !isInviting}
+                onClick={() => handleInvite(friend.user_id)}
+                aria-label={t("room.invite.actionLabel", { name: friend.username })}
+              >
+                {t("room.invite.action")}
+              </Button>
+            )}
+          </li>
+        )
+      })}
+    </ul>
   )
 }

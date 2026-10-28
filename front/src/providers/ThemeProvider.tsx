@@ -22,16 +22,16 @@ export function ThemeProvider({ children, defaultTheme = "system" }: ThemeProvid
     return stored || defaultTheme
   })
 
+  // The class drives Tailwind's `dark:` variant; `data-theme` drives the Samar tokens
+  // in index.css (and lets a section re-theme its subtree with its own data-theme).
+  // index.html applies the same rule before first paint, so there is no flash.
   const applyTheme = useCallback((t: Theme) => {
     const root = document.documentElement
+    const resolved: "light" | "dark" =
+      t === "system" ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light") : t
     root.classList.remove("light", "dark")
-
-    if (t === "system") {
-      const systemDark = window.matchMedia("(prefers-color-scheme: dark)").matches
-      root.classList.add(systemDark ? "dark" : "light")
-    } else {
-      root.classList.add(t)
-    }
+    root.classList.add(resolved)
+    root.dataset.theme = resolved
   }, [])
 
   useEffect(() => {

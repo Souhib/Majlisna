@@ -1,21 +1,40 @@
-import { Check, Send, X } from "lucide-react"
-import { memo, useCallback, useState } from "react"
+import { memo, useCallback, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { motion } from "motion/react"
-import { cn } from "@/lib/utils"
+import { Seal } from "@/components/brand"
+import { Figure } from "@/components/games/shared/quiz-utils"
+import { Button } from "@/components/ui/button"
+import { Field, Input } from "@/components/ui/field"
 
 interface AnswerInputProps {
   onSubmit: (answer: string) => Promise<{ correct: boolean; points_earned: number } | null>
   disabled: boolean
   answered: boolean
   pointsEarned: number
+  /** A line under "You found it" once you have (what happens next). */
+  answeredNote?: string
+  /** The field's prompt, worded for the round's theme ("Where is it?"); defaults to "Type your answer". */
+  placeholder?: string
 }
 
-export const AnswerInput = memo(function AnswerInput({ onSubmit, disabled, answered, pointsEarned }: AnswerInputProps) {
+/**
+ * Kalimat's answer row (sketch C, D): one field and "Answer", with the reassurance
+ * that every spelling counts. A wrong guess is named in the error ("“Zakari” is not
+ * it") and the field is cleared for the next try, focus kept. Once you have found it,
+ * the row locks: a brass seal, the points, and how many have found it so far.
+ */
+export const AnswerInput = memo(function AnswerInput({
+  onSubmit,
+  disabled,
+  answered,
+  pointsEarned,
+  answeredNote,
+  placeholder,
+}: AnswerInputProps) {
   const { t } = useTranslation()
   const [input, setInput] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [lastResult, setLastResult] = useState<"correct" | "wrong" | null>(null)
+  const [wrongGuess, setWrongGuess] = useState<string | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
 
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
@@ -23,16 +42,13 @@ export const AnswerInput = memo(function AnswerInput({ onSubmit, disabled, answe
       const trimmed = input.trim()
       if (!trimmed || isSubmitting || disabled || answered) return
       setIsSubmitting(true)
-      setLastResult(null)
+      setWrongGuess(null)
       const result = await onSubmit(trimmed)
       if (result) {
-        setLastResult(result.correct ? "correct" : "wrong")
-        if (result.correct) {
-          setInput("")
-        }
+        setInput("")
         if (!result.correct) {
-          setInput("")
-          setTimeout(() => setLastResult(null), 1500)
+          setWrongGuess(trimmed)
+          inputRef.current?.focus()
         }
       }
       setIsSubmitting(false)
@@ -42,59 +58,57 @@ export const AnswerInput = memo(function AnswerInput({ onSubmit, disabled, answe
 
   if (answered) {
     return (
-      <motion.div
-        initial={{ scale: 0.95, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        className="flex items-center gap-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 px-5 py-4"
+      <div
+        role="status"
+        className="mt-4 flex items-center gap-3.5 rounded-sm border border-line-brass-strong bg-[color-mix(in_oklch,var(--brass)_9%,var(--surface))] px-4 py-3"
       >
-        <Check className="h-5 w-5 text-emerald-500" />
-        <div>
-          <p className="text-sm font-extrabold text-emerald-500">{t("game.wordQuiz.correct")}</p>
-          <p className="text-xs text-emerald-500/80">{t("game.wordQuiz.pointsEarned", { points: pointsEarned })}</p>
+        <Seal size={26} />
+        <div className="min-w-0 flex-1">
+          <p className="text-[15px] font-medium leading-tight">{t("game.quiz.kalimat.found")}</p>
+          {answeredNote ? <p className="mt-0.5 text-[13px] text-muted-foreground">{answeredNote}</p> : null}
         </div>
-      </motion.div>
+        <span className="text-[18px] font-medium text-primary-on-tint">
+          <span className="sr-only">{t("game.quiz.kalimat.pointsSr", { count: pointsEarned })}</span>
+          <span aria-hidden="true">
+            <Figure>+{pointsEarned}</Figure>
+          </span>
+        </span>
+      </div>
     )
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-2">
-      <div className="relative">
-        <input
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder={t("game.wordQuiz.typeYourAnswer")}
-          aria-label={t("game.wordQuiz.typeYourAnswer")}
-          disabled={disabled}
-          enterKeyHint="send"
-          autoComplete="off"
-          autoCorrect="off"
-          className={cn(
-            "w-full rounded-xl border-2 bg-background px-4 py-3 text-sm pr-12 transition-all duration-200 outline-none",
-            lastResult === "wrong"
-              ? "border-destructive/50 animate-shake"
-              : "border-border/30 focus:border-primary/50 focus:ring-2 focus:ring-primary/20",
-          )}
-        />
-        <button
-          type="submit"
-          disabled={!input.trim() || isSubmitting || disabled}
-          aria-label={t("game.wordQuiz.submitAnswer", "Submit answer")}
-          className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-2 text-primary hover:bg-primary/10 disabled:opacity-30 transition-all duration-200"
-        >
-          <Send className="h-4 w-4" />
-        </button>
-      </div>
-      {lastResult === "wrong" && (
-        <motion.p
-          initial={{ opacity: 0, y: -5 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="flex items-center gap-1 text-xs text-destructive"
-        >
-          <X className="h-3 w-3" />
-          {t("game.wordQuiz.tryAgain")}
-        </motion.p>
-      )}
+    <form onSubmit={handleSubmit} noValidate className="mt-4">
+      <Field
+        label={t("game.quiz.kalimat.answerLabel")}
+        hideLabel
+        hint={t("game.quiz.kalimat.spellings")}
+        error={wrongGuess ? t("game.quiz.kalimat.wrongGuess", { guess: wrongGuess }) : undefined}
+      >
+        <div className="flex gap-2.5">
+          <Input
+            ref={inputRef}
+            type="text"
+            value={input}
+            onChange={(e) => {
+              setInput(e.target.value)
+              if (wrongGuess) setWrongGuess(null)
+            }}
+            placeholder={placeholder ?? t("game.wordQuiz.typeYourAnswer")}
+            disabled={disabled}
+            dir="auto"
+            enterKeyHint="send"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="none"
+            spellCheck={false}
+            className="min-w-0 flex-1"
+          />
+          <Button type="submit" disabled={!input.trim() || disabled} loading={isSubmitting} className="max-sm:px-4">
+            {t("game.quiz.kalimat.answer")}
+          </Button>
+        </div>
+      </Field>
     </form>
   )
 })

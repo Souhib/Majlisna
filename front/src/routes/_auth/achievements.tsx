@@ -1,73 +1,54 @@
-import { createFileRoute } from "@tanstack/react-router"
-import { Award, Lock } from "lucide-react"
+import { createFileRoute, Link } from "@tanstack/react-router"
+import { useMemo } from "react"
 import { useTranslation } from "react-i18next"
-import { useAuth } from "@/providers/AuthProvider"
 import { useGetUserAchievementsApiV1StatsUsersUserIdAchievementsGet } from "@/api/generated"
-
-interface AchievementData {
-  code: string
-  name: string
-  description: string
-  icon: string
-  category: string
-  tier: number
-  threshold: number
-  progress: number
-  unlocked: boolean
-  rarity_percentage: number | null
-}
-
-function getRarityLabel(rarity: number | null, t: (key: string) => string): { label: string; color: string } | null {
-  if (rarity === null) return null
-  if (rarity <= 1) return { label: t("achievements.rarity.mythic"), color: "text-red-500 bg-red-500/10" }
-  if (rarity <= 5) return { label: t("achievements.rarity.legendary"), color: "text-purple-500 bg-purple-500/10" }
-  if (rarity <= 15) return { label: t("achievements.rarity.epic"), color: "text-yellow-500 bg-yellow-500/10" }
-  if (rarity <= 30) return { label: t("achievements.rarity.rare"), color: "text-blue-500 bg-blue-500/10" }
-  return { label: t("achievements.rarity.common"), color: "text-muted-foreground bg-muted" }
-}
-
-const TIER_COLORS: Record<number, string> = {
-  1: "border-amber-700/40 shadow-amber-700/10",
-  2: "border-gray-400/40 shadow-gray-400/10",
-  3: "border-yellow-500/40 shadow-yellow-500/10",
-  4: "border-emerald-500/40 shadow-emerald-500/10",
-  5: "border-purple-500/40 shadow-purple-500/10",
-  6: "border-red-500/40 shadow-red-500/10",
-}
-
-const TIER_GLOW: Record<number, string> = {
-  1: "hover:shadow-amber-700/20",
-  2: "hover:shadow-gray-400/20",
-  3: "hover:shadow-yellow-500/20",
-  4: "hover:shadow-emerald-500/20",
-  5: "hover:shadow-purple-500/20",
-  6: "hover:shadow-red-500/20",
-}
+import type { AchievementWithProgress } from "@/api/generated"
+import { Lozenge, Seal } from "@/components/brand"
+import { orderAchievements, percentOf } from "@/components/stats/format"
+import { PageHeader } from "@/components/stats/PlayerSpace"
+import { Button } from "@/components/ui/button"
+import { EmptyState } from "@/components/ui/empty-state"
+import { Panel } from "@/components/ui/panel"
+import { Progress } from "@/components/ui/progress"
+import { Skeleton } from "@/components/ui/skeleton"
+import { cn } from "@/lib/utils"
+import { useAuth } from "@/providers/AuthProvider"
 
 export const Route = createFileRoute("/_auth/achievements")({
   component: AchievementsPage,
 })
 
+/** The backend's categories, in the order a new player meets them. */
+const CATEGORIES = ["beginner", "undercover_master", "codenames_master", "social", "streak", "special"] as const
+
+type T = (key: string, opts?: Record<string, unknown>) => string
+
 function AchievementsPage() {
   const { t } = useTranslation()
   const { user } = useAuth()
 
-  const { data: achievements = [] as AchievementData[], isLoading } = useGetUserAchievementsApiV1StatsUsersUserIdAchievementsGet(
+  const { data: achievements = [], isLoading } = useGetUserAchievementsApiV1StatsUsersUserIdAchievementsGet(
     { user_id: user?.id ?? "" },
     { query: { enabled: !!user?.id } },
-  ) as { data: AchievementData[] | undefined; isLoading: boolean }
+  ) as { data: AchievementWithProgress[] | undefined; isLoading: boolean }
+
+  const groups = useMemo(() => {
+    const known = new Set<string>(CATEGORIES)
+    const order = [...CATEGORIES, ...new Set(achievements.map((a) => a.category).filter((c) => !known.has(c)))]
+    return order
+      .map((category) => ({ category, items: orderAchievements(achievements.filter((a) => a.category === category)) }))
+      .filter((g) => g.items.length > 0)
+  }, [achievements])
+
+  const earned = achievements.filter((a) => a.unlocked).length
 
   if (isLoading) {
     return (
-      <div className="mx-auto max-w-4xl px-4 py-8 animate-slide-up">
-        <h1 className="text-3xl font-extrabold tracking-tight gradient-text mb-8">{t("achievements.title")}</h1>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {[1, 2, 3, 4, 5, 6].map((i) => (
-            <div key={i} className="glass rounded-2xl p-6 animate-pulse">
-              <div className="h-10 w-10 rounded-xl bg-muted mb-3" />
-              <div className="h-4 w-24 rounded bg-muted mb-2" />
-              <div className="h-3 w-32 rounded bg-muted" />
-            </div>
+      <div className="page-wrap py-[clamp(32px,5vw,72px)]" aria-busy="true">
+        <PageHeader title={t("achievements.title")} />
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {Array.from({ length: 6 }, (_, i) => (
+            <Skeleton key={i} className="h-[132px] w-full" />
           ))}
         </div>
       </div>
@@ -75,88 +56,111 @@ function AchievementsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl px-4 py-8 animate-slide-up">
-      <h1 className="text-3xl font-extrabold tracking-tight gradient-text mb-8">{t("achievements.title")}</h1>
+    <div className="page-wrap py-[clamp(32px,5vw,72px)]">
+      <PageHeader
+        title={t("achievements.title")}
+        lede={achievements.length > 0 ? t("achievements.earnedCount", { earned, total: achievements.length }) : undefined}
+        end={
+          achievements.length > 0 ? (
+            <Progress
+              value={percentOf(earned, achievements.length)}
+              aria-label={t("achievements.earnedCount", { earned, total: achievements.length })}
+              className="w-[min(18rem,80vw)]"
+            />
+          ) : null
+        }
+      />
 
       {achievements.length === 0 ? (
-        <p className="text-muted-foreground">{t("achievements.noAchievements")}</p>
+        <Panel>
+          <EmptyState
+            titleAs="h2"
+            title={t("achievements.noAchievements")}
+            action={
+              <Button asChild>
+                <Link to="/rooms">{t("stats.findRoom")}</Link>
+              </Button>
+            }
+          />
+        </Panel>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {achievements.map((achievement) => (
-            <div
-              key={achievement.code}
-              className={`relative rounded-2xl border p-6 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg ${
-                achievement.unlocked
-                  ? `glass ${TIER_COLORS[achievement.tier] || "border-primary/30"} ${TIER_GLOW[achievement.tier] || "hover:shadow-primary/20"} shadow-md`
-                  : "bg-muted/20 border-border/30 opacity-60"
-              }`}
-            >
-              {/* Lock overlay for locked achievements */}
-              {!achievement.unlocked && (
-                <div className="absolute inset-0 rounded-2xl bg-background/40 backdrop-blur-[1px] z-10 flex items-center justify-center">
-                  <Lock className="h-8 w-8 text-muted-foreground/40" />
-                </div>
-              )}
-
-              <div className="flex items-center gap-3 mb-2">
-                <div
-                  className={`flex h-10 w-10 items-center justify-center rounded-xl ${
-                    achievement.unlocked ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
-                  }`}
-                >
-                  {achievement.unlocked ? (
-                    <Award className="h-5 w-5" />
-                  ) : (
-                    <Lock className="h-5 w-5" />
-                  )}
-                </div>
-                <div>
-                  <h3 className="font-extrabold tracking-tight text-sm">{t(`achievements.items.${achievement.code}.name`, { defaultValue: achievement.name })}</h3>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-xs text-muted-foreground font-mono">
-                      {t(`achievements.tiers.${achievement.tier}`)}
-                    </span>
-                    {(() => {
-                      const rarity = getRarityLabel(achievement.rarity_percentage, t)
-                      if (!rarity) return null
-                      return (
-                        <span className={`rounded-lg px-1.5 py-0.5 text-[9px] font-bold ${rarity.color}`}>
-                          {rarity.label} ({achievement.rarity_percentage}%)
-                        </span>
-                      )
-                    })()}
-                  </div>
-                </div>
-              </div>
-              <p className="text-xs text-muted-foreground mb-3">{t(`achievements.items.${achievement.code}.description`, { defaultValue: achievement.description })}</p>
-
-              {/* Progress bar */}
-              <div className="space-y-1">
-                <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>
-                    {achievement.unlocked
-                      ? t("achievements.unlocked")
-                      : t("achievements.progress", {
-                          current: Math.min(achievement.progress, achievement.threshold),
-                          target: achievement.threshold,
-                        })}
+        <div className="grid gap-[clamp(32px,4vw,52px)]">
+          {groups.map((g) => (
+            <section key={g.category} aria-labelledby={`ach-${g.category}`}>
+              <div className="mb-4 flex items-baseline justify-between gap-4 border-b border-line-brass pb-2.5">
+                <h2 id={`ach-${g.category}`} className="type-title text-[clamp(22px,2vw,26px)]">
+                  {t(`achievements.category.${g.category}`, { defaultValue: g.category })}
+                </h2>
+                <p className="type-meta">
+                  <span dir="ltr" className="num bidi-isolate">
+                    {g.items.filter((a) => a.unlocked).length} / {g.items.length}
                   </span>
-                </div>
-                <div className="h-2 rounded-full bg-muted/50 overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all duration-200 ${
-                      achievement.unlocked ? "bg-gradient-to-r from-primary to-primary/80" : "bg-primary/40"
-                    }`}
-                    style={{
-                      width: `${Math.min((achievement.progress / achievement.threshold) * 100, 100)}%`,
-                    }}
-                  />
-                </div>
+                </p>
               </div>
-            </div>
+              <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {g.items.map((a) => (
+                  <AchievementTile key={a.code} a={a} t={t} />
+                ))}
+              </ul>
+            </section>
           ))}
         </div>
       )}
     </div>
+  )
+}
+
+/**
+ * One achievement. Earned: the brass seal, pressed and still (a page of seals must not
+ * all move at once). Not yet: an empty lozenge, the condition, and how far along.
+ */
+function AchievementTile({ a, t }: { a: AchievementWithProgress; t: T }) {
+  const name = t(`achievements.items.${a.code}.name`, { defaultValue: a.name })
+  const condition = t(`achievements.items.${a.code}.description`, { defaultValue: a.description })
+  const current = Math.min(a.progress, a.threshold)
+  // rarity as a plain share of players: the old bucket names (Mythic, Epic…) collided with the tier names
+  const pct = a.rarity_percentage
+  const meta = [
+    t(`achievements.tiers.${a.tier}`, { defaultValue: "" }),
+    pct === null || pct === undefined ? null : pct > 0 ? t("achievements.rarityLine", { pct }) : t("achievements.rarityNone"),
+  ]
+    .filter(Boolean)
+    .join(" · ")
+
+  return (
+    <li
+      className={cn(
+        "flex gap-4 rounded-lg border bg-surface p-4",
+        a.unlocked ? "border-line-brass" : "border-line",
+      )}
+    >
+      <span className="grid size-11 shrink-0 place-items-center">
+        {/* the seal's ring reaches past its box (a rotated square in a ring): 34 keeps it inside the 44 px slot */}
+        {a.unlocked ? (
+          <Seal size={34} pressed={false} />
+        ) : (
+          <Lozenge state="open" size={22} className="opacity-90" />
+        )}
+      </span>
+      <div className="grid min-w-0 flex-1 content-start gap-1">
+        <h3 className="text-[16px] font-medium leading-snug">{name}</h3>
+        <p className="text-[14px] leading-snug text-muted-foreground text-pretty">{condition}</p>
+        {meta ? <p className="type-meta mt-1">{meta}</p> : null}
+        {a.unlocked ? (
+          <p className="mt-2 text-[13px] font-medium text-brass">{t("achievements.unlocked")}</p>
+        ) : (
+          <div className="mt-2.5 flex items-center gap-3">
+            <Progress
+              value={percentOf(current, a.threshold)}
+              aria-label={t("achievements.progressLabel", { name, current, target: a.threshold })}
+              className="flex-1"
+            />
+            <span dir="ltr" className="num bidi-isolate shrink-0 text-[13px] text-muted-foreground">
+              {current} / {a.threshold}
+            </span>
+          </div>
+        )}
+      </div>
+    </li>
   )
 }

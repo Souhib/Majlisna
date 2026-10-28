@@ -5,7 +5,9 @@
  * Do not edit manually.
  */
 
+import type { GamePause } from "./GamePause.ts";
 import type { PlayerUnlockedAchievements } from "./PlayerUnlockedAchievements.ts";
+import type { WordQuizCategory } from "./WordQuizCategory.ts";
 import type { WordQuizPlayerState } from "./WordQuizPlayerState.ts";
 import type { WordQuizRoundResult } from "./WordQuizRoundResult.ts";
 import type { WordQuizTimerConfig } from "./WordQuizTimerConfig.ts";
@@ -51,7 +53,12 @@ export type WordQuizGameState = {
    * @type array
    */
   hints: string[];
+  /**
+   * @type integer
+   */
+  max_hints: number;
   difficulty?: string | null;
+  category?: WordQuizCategory | null;
   /**
    * @type integer
    */
@@ -104,4 +111,18 @@ export type WordQuizGameState = {
    */
   total_players?: number;
   newly_unlocked_achievements?: PlayerUnlockedAchievements[] | null;
+  paused?: GamePause | null;
+  /**
+   * @default false
+   * @type boolean | undefined
+   */
+  can_pause?: boolean;
+  /**
+   * @default false
+   * @type boolean | undefined
+   */
+  can_resume?: boolean;
+  host_username?: string | null;
+  started_at?: string | null;
+  ended_at?: string | null;
 };

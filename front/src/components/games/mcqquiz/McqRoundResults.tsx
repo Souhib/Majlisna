@@ -1,92 +1,138 @@
 import { memo } from "react"
 import { useTranslation } from "react-i18next"
-import { motion } from "motion/react"
+import { currentLanguage } from "@/components/layout/language-switch"
+import { RoundAdvanceButton } from "@/components/games/shared/RoundAdvanceButton"
+import { Figure } from "@/components/games/shared/quiz-utils"
 import { cn } from "@/lib/utils"
+import { choiceLetter } from "./ChoiceButtons"
+import { emphasize } from "./emphasize"
 
 interface McqRoundResult {
   user_id: string
   username: string
   chose_correct: boolean
   points: number
+  /** The choice they locked in; null when they did not answer (absent from older states). */
+  choice_index?: number | null
 }
 
 interface McqRoundResultsProps {
   explanation: string | null
   roundResults: McqRoundResult[]
   isHost: boolean
+  isReady?: boolean
+  readyCount?: number
+  /** Every player but the host: what the ready count is measured against. */
+  readyTotal?: number
   isLastRound?: boolean
   onNextRound: () => void
   isAdvancing: boolean
+  /** The right choice's text, set in bold where the explanation names it. */
+  correctChoice?: string | null
+  currentUserId?: string
+  isSpectator?: boolean
+  /** The question's choices, to name each player's pick by its letter. */
+  choices?: string[]
 }
 
+/**
+ * After the reveal (sketch C): the story behind the answer, in Amiri, under a brass
+ * rule, with the answer in bold; then how each player did this round (the letter they
+ * chose, right or missed, the points), and the way to the next question (the ready system). The explanation's text is kept character for
+ * character (the E2E suite looks for it verbatim).
+ */
 export const McqRoundResults = memo(function McqRoundResults({
   explanation,
   roundResults,
   isHost,
+  isReady = false,
+  readyCount = 0,
+  readyTotal,
   isLastRound,
   onNextRound,
   isAdvancing,
+  correctChoice,
+  currentUserId,
+  isSpectator = false,
+  choices,
 }: McqRoundResultsProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const arabic = currentLanguage(i18n.language) === "ar"
 
   return (
-    <div className="space-y-4">
-      {/* Explanation */}
-      {explanation && (
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="glass rounded-2xl border-border/30 p-5"
-        >
-          <h3 className="text-xs font-bold text-primary mb-2">{t("game.mcqQuiz.explanation")}</h3>
-          <p className="text-sm text-muted-foreground leading-relaxed">{explanation}</p>
-        </motion.div>
-      )}
+    <div>
+      {explanation ? (
+        <section className="mt-4">
+          <h3 className="sr-only">{t("game.mcqQuiz.explanation")}</h3>
+          <p className="quiz-why">{emphasize(explanation, correctChoice)}</p>
+        </section>
+      ) : null}
 
-      {/* Player Results */}
-      <div className="glass rounded-2xl border-border/30 p-5">
-        <div className="space-y-2">
-          {roundResults.map((result, index) => (
-            <motion.div
+      <h3 className="sr-only">{t("game.quiz.mcq.thisRound")}</h3>
+      <ul className="mt-4 border-t border-line" data-testid="mcq-round-results">
+        {roundResults.map((result) => {
+          const isMe = result.user_id === currentUserId
+          // null: they did not answer; undefined: a state from before picks were sent
+          const noAnswer = result.choice_index === null && !result.chose_correct
+          const letter =
+            result.choice_index != null && choices && result.choice_index < choices.length
+              ? choiceLetter(result.choice_index, arabic)
+              : null
+          return (
+            <li
               key={result.user_id}
-              initial={{ opacity: 0, x: -10 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: index * 0.1 }}
-              className={cn(
-                "flex items-center justify-between rounded-xl px-4 py-2.5 border",
-                result.chose_correct
-                  ? "bg-emerald-500/10 border-emerald-500/30"
-                  : "bg-destructive/5 border-destructive/20",
-              )}
+              data-you={isMe || undefined}
+              className="flex items-center gap-3 border-b border-line py-2.5"
             >
-              <div className="flex items-center gap-2">
-                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-primary to-primary/70 text-xs font-bold text-primary-foreground">
-                  {result.username.charAt(0).toUpperCase()}
-                </div>
-                <span className="text-sm font-medium">{result.username}</span>
-              </div>
-              <span className={cn(
-                "text-xs font-bold",
-                result.chose_correct ? "text-emerald-600 dark:text-emerald-400" : "text-destructive",
-              )}>
-                {result.chose_correct ? t("game.mcqQuiz.correctAnswer") : t("game.mcqQuiz.wrongAnswer")}
+              <span
+                aria-hidden="true"
+                className={cn(
+                  "loz [--loz:8px]",
+                  result.chose_correct ? "bg-foreground" : "border border-line-field",
+                )}
+              />
+              <span className={cn("min-w-0 flex-1 truncate text-[15px] font-medium", isMe && "text-brass")}>
+                {result.username}
+                {isMe ? <span className="ms-2 text-[13px] font-normal text-muted-foreground">{t("game.quiz.you")}</span> : null}
               </span>
-            </motion.div>
-          ))}
-        </div>
-      </div>
+              <span className="shrink-0 text-[13px] text-muted-foreground">
+                {letter ? (
+                  <>
+                    <span className="sr-only">{t("game.quiz.mcq.chose")} </span>
+                    <span className="font-medium text-foreground">{letter}</span>
+                    {" · "}
+                  </>
+                ) : null}
+                {noAnswer
+                  ? t("game.quiz.mcq.noAnswer")
+                  : result.chose_correct
+                    ? t("game.quiz.mcq.right")
+                    : t("game.quiz.mcq.missed")}
+              </span>
+              <Figure
+                className={cn(
+                  "min-w-[2.5ch] shrink-0 text-end text-[15px] font-medium",
+                  !result.chose_correct ? "text-muted-foreground" : isMe ? "text-brass" : undefined,
+                )}
+              >
+                {result.chose_correct ? `+${result.points}` : "0"}
+              </Figure>
+            </li>
+          )
+        })}
+      </ul>
 
-      {/* Next Round Button (host only) */}
-      {isHost && (
-        <button
-          type="button"
-          onClick={onNextRound}
-          disabled={isAdvancing}
-          className="w-full rounded-xl bg-gradient-to-r from-primary to-primary/90 px-5 py-3 text-sm font-extrabold text-primary-foreground shadow-lg shadow-primary/25 hover:shadow-xl disabled:opacity-50 transition-all duration-200"
-        >
-          {isAdvancing ? t("common.loading") : isLastRound ? t("game.mcqQuiz.seeResults") : t("game.mcqQuiz.nextRound")}
-        </button>
-      )}
+      <RoundAdvanceButton
+        className="mt-5"
+        isHost={isHost}
+        isReady={isReady}
+        readyCount={readyCount}
+        readyTotal={readyTotal}
+        isAdvancing={isAdvancing}
+        isSpectator={isSpectator}
+        advanceLabel={isLastRound ? t("game.mcqQuiz.seeResults") : t("game.mcqQuiz.nextRound")}
+        onAdvance={onNextRound}
+      />
     </div>
   )
 })

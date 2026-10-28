@@ -1,0 +1,572 @@
+/* ============================================================================
+   Samar brand pieces. The markup lives in src/components/brand/*; this file
+   holds the CSS those components need (pseudo-elements, container units, SVG
+   text classes) so the components stay plain. Every rule uses logical
+   properties, so the pieces mirror in Arabic.
+   ============================================================================ */
+
+@layer components {
+  /* --- al-madd: the woven kashida ---------------------------------------- */
+  /* <span class="madd" dir="rtl"><span>مجلـ</span><i class="k"></i><span>ـسنا</span></span>
+     Each half ends or starts with a tatweel, so the joining form is right whatever the
+     browser does at element boundaries; the band overlaps both tatweel ends. */
+  .madd {
+    display: inline-flex;
+    align-items: baseline;
+    white-space: nowrap;
+    font-family: var(--f-wordmark);
+    font-weight: 700;
+    line-height: 1;
+    direction: rtl;
+    unicode-bidi: isolate;
+    letter-spacing: 0;
+  }
+  .madd > .k {
+    display: inline-block;
+    width: var(--stretch, 2em);
+    height: 0.141em;
+    vertical-align: baseline;
+    position: relative;
+    z-index: 1;
+    margin-inline: -0.235em;
+    background: var(--band-madd) right center / auto 100% round no-repeat;
+  }
+  /* under 80 px: ink kashida with one 1.5 px madder thread at its centre */
+  .madd > .k.k-ink {
+    background:
+      linear-gradient(var(--madd-madder), var(--madd-madder)) center / 100% 1.5px no-repeat,
+      currentColor;
+  }
+
+  /* --- Sadu bands --------------------------------------------------------- */
+  .sadu-band {
+    display: block;
+    height: var(--h, 12px);
+    background: var(--b, var(--band-madd)) left center / auto 100% repeat-x;
+  }
+  [dir="rtl"] .sadu-band {
+    background-position: right center;
+  }
+
+  /* --- the lozenge: the product's only geometry --------------------------- */
+  .loz {
+    display: inline-block;
+    flex: none;
+    width: var(--loz, 10px);
+    height: var(--loz, 10px);
+    rotate: 45deg;
+    vertical-align: middle;
+  }
+  .loz[data-state="host"],
+  .loz[data-state="brass"] {
+    background: var(--brass);
+  }
+  .loz[data-state="ready"],
+  .loz[data-state="ink"] {
+    background: var(--text);
+  }
+  .loz[data-state="away"] {
+    border: 1.2px solid var(--text-muted);
+  }
+  .loz[data-state="spectator"] {
+    border: 1.2px solid var(--text);
+  }
+  .loz[data-state="open"] {
+    border: 1px dashed var(--line-brass-strong);
+  }
+  .loz[data-state="you"] {
+    border: 1.4px dashed var(--brass);
+  }
+  .loz[data-state="madder"] {
+    background: var(--wool-madder);
+  }
+  .loz[data-state="undyed"] {
+    background: var(--wool-undyed);
+    box-shadow: inset 0 0 0 1px oklch(0.19 0.016 50 / 0.25);
+  }
+  .loz[data-state="seal"] {
+    background: var(--brass);
+    box-shadow:
+      0 0 0 calc(var(--loz, 10px) * 0.2) var(--seal-ground, var(--surface)),
+      0 0 0 calc(var(--loz, 10px) * 0.2 + 1px) var(--line-brass-strong);
+  }
+
+  /* --- the brass seal ------------------------------------------------------ */
+  .brass-seal {
+    position: relative;
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    width: var(--seal, 22px);
+    height: var(--seal, 22px);
+  }
+  .brass-seal::before {
+    content: "";
+    width: calc(var(--seal, 22px) * 0.64);
+    height: calc(var(--seal, 22px) * 0.64);
+    rotate: 45deg;
+    background: var(--brass);
+    box-shadow:
+      0 0 0 calc(var(--seal, 22px) * 0.14) var(--seal-ground, var(--surface)),
+      0 0 0 calc(var(--seal, 22px) * 0.14 + 1px) var(--line-brass-strong);
+  }
+  .brass-seal > svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    rotate: -90deg;
+  }
+  .brass-seal circle {
+    fill: none;
+    stroke-width: 2;
+  }
+
+  /* --- glazed code tiles: zellige as a material; always left to right ---- */
+  .code-tiles {
+    display: inline-flex;
+    gap: var(--tg, 5px);
+    direction: ltr;
+    unicode-bidi: isolate;
+    position: relative;
+  }
+  .code-tile {
+    width: var(--tw, 44px);
+    height: var(--th, 52px);
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--line-brass);
+    border-radius: 2px;
+    background: var(--surface-2);
+    box-shadow:
+      inset 0 1px 0 color-mix(in oklch, var(--text) 9%, transparent),
+      inset 0 -2px 0 oklch(0 0 0 / 0.22);
+    font: 600 var(--tf, 22px) / 1 var(--f-ui);
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+    text-transform: uppercase;
+    transition: border-color var(--dur-state) var(--ease-out), box-shadow var(--dur-state) var(--ease-out);
+  }
+  :where(.light, [data-theme="light"]) .code-tile {
+    box-shadow:
+      inset 0 1px 0 oklch(1 0 0 / 0.8),
+      inset 0 -2px 0 oklch(0.21 0.016 50 / 0.1);
+  }
+  .code-tile[data-active="true"] {
+    border-color: var(--brass);
+    box-shadow:
+      inset 0 -2px 0 var(--brass),
+      inset 0 1px 0 color-mix(in oklch, var(--text) 9%, transparent);
+  }
+  .code-tile[data-active="true"]:empty::after {
+    content: "";
+    width: 1.5px;
+    height: 44%;
+    background: var(--brass);
+  }
+  .code-tile[data-invalid="true"] {
+    border-color: var(--ember);
+  }
+  .code-tiles[data-size="sm"] {
+    --tw: 28px;
+    --th: 36px;
+    --tf: 15px;
+    --tg: 3px;
+  }
+  .code-tiles[data-size="md"] {
+    --tw: 40px;
+    --th: 48px;
+    --tf: 20px;
+    --tg: 5px;
+  }
+  .code-tiles[data-size="lg"] {
+    --tw: 44px;
+    --th: 52px;
+    --tf: 22px;
+    --tg: 5px;
+  }
+  .code-tiles[data-kind="pin"][data-size="md"] {
+    --tw: 34px;
+  }
+  /* the single-input variant: one real <input> laid over the tiles */
+  .code-tiles > input.code-tiles-input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    background: transparent;
+    color: transparent;
+    caret-color: transparent;
+    font-size: 16px;
+    cursor: text;
+  }
+  .code-tiles:focus-within {
+    outline: 2px solid var(--focus);
+    outline-offset: 4px;
+    border-radius: 3px;
+  }
+  /* the split variant: each tile is its own <input> */
+  input.code-tile {
+    text-align: center;
+    padding: 0;
+    caret-color: var(--brass);
+    outline: none;
+  }
+  input.code-tile:focus {
+    border-color: var(--brass);
+    box-shadow:
+      inset 0 -2px 0 var(--brass),
+      inset 0 1px 0 color-mix(in oklch, var(--text) 9%, transparent);
+  }
+
+  /* --- khayt, the thread clock -------------------------------------------- */
+  .thread-clock {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+  }
+  .thread-clock .track {
+    flex: 1;
+    min-width: 24px;
+    height: 8px;
+    position: relative;
+    background: repeating-linear-gradient(90deg, var(--warp) 0 1px, transparent 1px 5px);
+  }
+  .thread-clock .track > i {
+    position: absolute;
+    inset-block: 0;
+    inset-inline-start: 0;
+    width: calc(var(--left, 1) * 100%);
+    background: var(--band-khayt) left center / auto 100% repeat-x;
+    transition: width 500ms linear;
+  }
+  [dir="rtl"] .thread-clock .track > i {
+    background-position: right center;
+  }
+  .thread-clock[data-phase="last"] .track > i {
+    width: 14px;
+    transition: none;
+  }
+  .thread-clock[data-phase="done"] .track {
+    opacity: 0.6;
+  }
+  .thread-clock[data-phase="done"] .track > i {
+    display: none;
+  }
+  .thread-clock .time {
+    font: 500 15px / 1 var(--f-ui);
+    font-variant-numeric: tabular-nums lining-nums;
+    min-width: 3.4ch;
+    text-align: end;
+    color: var(--text);
+    direction: ltr;
+    unicode-bidi: isolate;
+  }
+  .thread-clock .lozenges {
+    display: inline-flex;
+    gap: 5px;
+    align-items: center;
+    flex: none;
+  }
+  .thread-clock .lozenges > i {
+    width: 10px;
+    height: 10px;
+    rotate: 45deg;
+    border: 1px solid var(--line-brass-strong);
+  }
+  .thread-clock .lozenges > i[data-on="true"] {
+    background: var(--brass);
+    border-color: var(--brass);
+    animation: loz-stamp 220ms var(--ease-press) both;
+  }
+  .thread-clock .knot {
+    width: 14px;
+    height: 14px;
+    flex: none;
+    color: var(--text);
+  }
+
+  /* --- the halqa ------------------------------------------------------------ */
+  .halqa {
+    width: 100%;
+    height: auto;
+    overflow: visible;
+    direction: ltr;
+  }
+  .halqa text {
+    font-family: var(--f-ui);
+    font-size: var(--halqa-font, 12px);
+    fill: var(--text-muted);
+  }
+  .halqa text.me {
+    fill: var(--text);
+    font-weight: 500;
+  }
+  .halqa text.you {
+    fill: var(--brass);
+    font-weight: 500;
+  }
+  .halqa tspan.st {
+    font-size: calc(var(--halqa-font, 12px) - 1px);
+    font-weight: 400;
+    fill: var(--text-muted);
+  }
+  .halqa .ring {
+    fill: none;
+    stroke: var(--line-brass);
+    stroke-width: 1;
+  }
+  .halqa .ring-in {
+    fill: none;
+    stroke: var(--line-brass);
+    stroke-opacity: 0.45;
+    stroke-dasharray: 2 5;
+  }
+  .halqa .thread {
+    fill: none;
+    stroke: var(--brass);
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    transition: stroke-width var(--dur-move) var(--ease-out);
+  }
+  .halqa .thread.closed {
+    stroke-width: 2.6;
+  }
+  .halqa .s-host {
+    fill: var(--brass);
+  }
+  .halqa .s-in {
+    fill: var(--text);
+  }
+  .halqa .s-away {
+    fill: none;
+    stroke: var(--text-muted);
+    stroke-width: 1.2;
+  }
+  .halqa .s-spectator {
+    fill: none;
+    stroke: var(--text);
+    stroke-width: 1.2;
+  }
+  .halqa .s-open {
+    fill: none;
+    stroke: var(--line-brass-strong);
+    stroke-dasharray: 3 3;
+  }
+  .halqa .s-you {
+    fill: none;
+    stroke: var(--brass);
+    stroke-width: 1.4;
+    stroke-dasharray: 3 2.5;
+  }
+  .halqa .code {
+    font: 600 22px var(--f-ui);
+    letter-spacing: 0.14em;
+    fill: var(--text);
+  }
+  .halqa .count {
+    font: 400 34px var(--f-ui);
+    font-weight: 300;
+    fill: var(--text);
+  }
+  .halqa .center-label {
+    font-size: 13px;
+    fill: var(--text-muted);
+  }
+
+  /* --- the arch (game-over colophon) ---------------------------------------- */
+  .arch-stage {
+    position: relative;
+    container-type: inline-size;
+    width: 100%;
+    max-width: 560px;
+    margin-inline: auto;
+  }
+  .arch-inner {
+    position: relative;
+    z-index: 1;
+    padding: 58cqw 6cqw 6cqw;
+  }
+  .arch-stage[data-photo="false"] .arch-inner {
+    padding-block-start: 30cqw;
+  }
+  .arch-photo {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    -webkit-mask:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 520 251' preserveAspectRatio='none'%3E%3Cpath d='M0 251V250C0 130 120 55 260 0C400 55 520 130 520 250V251Z'/%3E%3C/svg%3E")
+        top / 100% 48.27cqw no-repeat,
+      linear-gradient(#000, #000) bottom / 100% calc(100% - 48cqw) no-repeat;
+    mask:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 520 251' preserveAspectRatio='none'%3E%3Cpath d='M0 251V250C0 130 120 55 260 0C400 55 520 130 520 250V251Z'/%3E%3C/svg%3E")
+        top / 100% 48.27cqw no-repeat,
+      linear-gradient(#000, #000) bottom / 100% calc(100% - 48cqw) no-repeat;
+  }
+  .arch-photo img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: 50% 8%;
+    filter: brightness(0.92);
+  }
+  .arch-photo::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, transparent 40%, oklch(0.12 0.01 50 / 0.55));
+  }
+  .arch-stage[data-photo="false"] .arch-photo {
+    background: var(--bg-deep);
+  }
+  .arch-stage[data-photo="false"] .arch-photo::after {
+    display: none;
+  }
+  .arch-head {
+    position: absolute;
+    pointer-events: none;
+    left: -2.308cqw;
+    top: -2.5cqw;
+    width: 104.62cqw;
+    height: auto;
+    overflow: visible;
+  }
+  .arch-head path {
+    fill: none;
+    vector-effect: non-scaling-stroke;
+  }
+  .arch-head .in {
+    stroke: color-mix(in oklch, var(--brass) 70%, transparent);
+  }
+  .arch-head .out {
+    stroke: var(--line-brass-strong);
+  }
+  .arch-side {
+    position: absolute;
+    pointer-events: none;
+  }
+  .arch-side.in {
+    inset-inline: 0;
+    top: 48.08cqw;
+    bottom: 0;
+    border: 1px solid color-mix(in oklch, var(--brass) 70%, transparent);
+    border-top: 0;
+  }
+  .arch-side.out {
+    inset-inline: -2.115cqw;
+    top: 48.08cqw;
+    bottom: -2.115cqw;
+    border: 1px solid var(--line-brass-strong);
+    border-top: 0;
+  }
+  .arch-node {
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    translate: -50% -50%;
+    rotate: 45deg;
+    background: var(--brass);
+  }
+
+  /* --- panel corner nodes (the halqa card's two lozenges) ----------------- */
+  .panel-nodes::before,
+  .panel-nodes::after {
+    content: "";
+    position: absolute;
+    width: 9px;
+    height: 9px;
+    border: 1px solid var(--brass);
+    rotate: 45deg;
+    background: var(--panel-ground, var(--surface));
+    top: -5px;
+  }
+  .panel-nodes::before {
+    inset-inline-start: 22px;
+  }
+  .panel-nodes::after {
+    inset-inline-end: 22px;
+  }
+
+  /* --- loading lozenges inside a button ("Starting ◆◆◆") ------------------ */
+  .busy-lozenges {
+    display: inline-flex;
+    gap: 4px;
+    align-items: center;
+  }
+  .busy-lozenges > i {
+    width: 6px;
+    height: 6px;
+    rotate: 45deg;
+    background: currentColor;
+    opacity: 0.35;
+  }
+  .busy-lozenges > i:nth-child(1) {
+    opacity: 1;
+  }
+  .busy-lozenges > i:nth-child(2) {
+    opacity: 0.65;
+  }
+}
+
+/* --- sonner, re-dyed (components/ui/toaster.tsx) ---------------------------
+   Outside @layer so it beats sonner's runtime-injected sheet; the extra `html`
+   raises specificity above [data-sonner-toaster][data-sonner-theme]. */
+html [data-sonner-toaster][data-sonner-theme] {
+  --border-radius: 3px;
+  --normal-bg: var(--surface);
+  --normal-bg-hover: var(--surface-2);
+  --normal-border: var(--line-brass);
+  --normal-border-hover: var(--line-brass-strong);
+  --normal-text: var(--text);
+  --success-bg: var(--surface);
+  --success-border: var(--line-brass-strong);
+  --success-text: var(--text);
+  --info-bg: var(--surface);
+  --info-border: var(--line-brass);
+  --info-text: var(--text);
+  --warning-bg: var(--surface);
+  --warning-border: var(--line-brass-strong);
+  --warning-text: var(--text);
+  --error-bg: color-mix(in oklch, var(--ember) 6%, var(--surface));
+  --error-border: color-mix(in oklch, var(--ember) 55%, transparent);
+  --error-text: var(--ember-on-tint);
+  font-family: var(--f-ui);
+}
+html [data-sonner-toast][data-styled="true"] {
+  font-size: 14px;
+  box-shadow: 0 14px 28px -18px oklch(0 0 0 / 0.45);
+}
+html [data-sonner-toast][data-styled="true"] [data-title] {
+  font-weight: 500;
+  line-height: 1.35;
+}
+html [data-sonner-toast][data-styled="true"] [data-description] {
+  color: var(--text-muted);
+}
+html [data-sonner-toast][data-styled="true"] [data-close-button] {
+  background: var(--surface);
+  border-color: var(--line);
+  color: var(--text-muted);
+}
+html [data-sonner-toast][data-type="success"] [data-icon],
+html [data-sonner-toast][data-type="info"] [data-icon],
+html [data-sonner-toast][data-type="warning"] [data-icon] {
+  color: var(--brass);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thread-clock .track > i {
+    transition: none;
+  }
+  .thread-clock .lozenges > i[data-on="true"] {
+    animation: fade-in 140ms linear both;
+  }
+  .halqa .thread {
+    transition: none;
+  }
+}

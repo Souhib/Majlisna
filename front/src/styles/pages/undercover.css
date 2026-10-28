@@ -1,0 +1,456 @@
+/* ============================================================================
+   Undercover (sketch C right column, D third and fourth phones): the lawh, the
+   held tablet that carries a player's word, its turned-over twin for a seat that
+   empties, the description list and the vote. Markup: components/games/undercover/*.
+
+   The tablet is the same for every role while the game runs: same size, same foot,
+   same colour. At rest it is bare warp with a brass seal; pressed and held, the word
+   is written in (the `ink` utility, in the word's reading direction); let go and it
+   fades away (never a mask sweep, which would pass over a sacred name).
+   ============================================================================ */
+
+@layer components {
+  /* --- the page ------------------------------------------------------------ */
+  .uc-page {
+    width: 100%;
+    max-width: calc(1120px + 2 * var(--gutter));
+    margin-inline: auto;
+    padding-inline: var(--gutter);
+    padding-block: 18px 72px;
+  }
+  .uc-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 18px;
+    padding-block-end: 14px;
+    margin-block-end: 22px;
+    border-block-end: 1px solid var(--line);
+  }
+  /* In its last five seconds the clock adds five lozenges (and a knot at zero): it needs
+     ~150-180 px then, more than 30vw at 390. It grows to its content and the header
+     wraps, instead of pushing the page sideways. */
+  .uc-head .uc-clock {
+    width: clamp(112px, 30vw, 220px);
+    min-width: min-content;
+  }
+  .uc-stage {
+    display: grid;
+    gap: 28px;
+    max-width: 680px;
+    margin-inline: auto;
+  }
+  .uc-main {
+    display: grid;
+    gap: 30px;
+    min-width: 0;
+    align-content: start;
+  }
+  .uc-end {
+    display: grid;
+    gap: 36px;
+    max-width: 680px;
+    margin-inline: auto;
+  }
+  @media (min-width: 1024px) {
+    .uc-stage[data-split] {
+      max-width: none;
+      grid-template-columns: 340px minmax(0, 1fr);
+      column-gap: clamp(40px, 5vw, 80px);
+      align-items: start;
+    }
+    .uc-stage[data-split] .uc-lawh-col {
+      position: sticky;
+      top: calc(var(--navh) + 20px);
+    }
+    .uc-end {
+      max-width: none;
+      grid-template-columns: minmax(0, 560px) minmax(0, 1fr);
+      column-gap: clamp(40px, 5vw, 80px);
+      align-items: start;
+    }
+  }
+
+  /* --- the lawh -------------------------------------------------------------- */
+  .lawh-wrap {
+    display: grid;
+    justify-items: center;
+    gap: 10px;
+  }
+  .lawh {
+    position: relative;
+    display: block;
+    width: 100%;
+    max-width: 340px;
+    margin-block-start: 30px;
+    margin-inline: auto;
+    padding: 0;
+    container-type: inline-size;
+    border: 1px solid var(--line-brass-strong);
+    border-radius: 4px;
+    background: var(--surface-2);
+    color: var(--text);
+    font: inherit;
+    text-align: center;
+  }
+  /* the handle: a rounded tab with a hole, riding the top edge */
+  .lawh::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: -29px;
+    width: 86px;
+    height: 30px;
+    translate: -50% 0;
+    border: 1px solid var(--line-brass-strong);
+    border-bottom: 0;
+    border-radius: 44px 44px 0 0;
+    background: var(--surface-2);
+  }
+  .lawh::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: -16px;
+    width: 14px;
+    height: 14px;
+    translate: -50% 0;
+    border-radius: 50%;
+    background: var(--bg);
+    border: 1px solid var(--line-brass-strong);
+  }
+  button.lawh {
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    transition: border-color var(--dur-state) var(--ease-out);
+  }
+  button.lawh:hover {
+    border-color: var(--brass);
+  }
+  button.lawh:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 5px;
+  }
+  .lawh > span,
+  .lawh > div {
+    display: block;
+  }
+  .lawh .lawh-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px 10px;
+    border-block-end: 1px solid var(--line-brass);
+    font: 400 12.5px / 1.2 var(--f-ui);
+    color: var(--text-muted);
+  }
+  .lawh .lawh-top b {
+    font-weight: 500;
+    color: var(--text);
+  }
+  .lawh .lawh-face {
+    position: relative;
+    display: grid;
+    place-content: center;
+    justify-items: center;
+    min-height: 252px;
+    padding: 18px 20px 20px;
+  }
+  .lawh .lawh-face[data-rest] {
+    background-image: repeating-linear-gradient(90deg, var(--warp) 0 1px, transparent 1px 6px);
+  }
+  .lawh .lawh-text {
+    display: grid;
+    justify-items: center;
+  }
+  .lawh .lawh-word {
+    display: block;
+    max-width: 100%;
+    font: 700 calc(clamp(56px, 25.5cqw, 88px) * var(--lawh-fit, 1)) / 1.2 var(--f-nass);
+    padding-block: 0.22em 0.3em;
+    color: var(--text);
+    overflow-wrap: anywhere;
+    unicode-bidi: isolate;
+  }
+  .lawh .lawh-word[data-script="latin"] {
+    font: 500 calc(clamp(30px, 12cqw, 42px) * var(--lawh-fit, 1)) / 1.2 var(--f-ui);
+    padding-block: 0.1em 0.2em;
+  }
+  .lawh .lawh-tr {
+    display: block;
+    font: 500 22px / 1.15 var(--f-ui);
+    margin-block-start: 2px;
+  }
+  .lawh .lawh-gloss {
+    display: block;
+    margin: 8px auto 0;
+    max-width: 26ch;
+    font: 400 14.5px / 1.45 var(--f-ui);
+    color: var(--text-muted);
+    text-wrap: pretty;
+  }
+  .lawh .lawh-gloss:lang(ar) {
+    font-size: 16px;
+    line-height: 1.7;
+  }
+  /* Mr. White: a dashed page instead of a word */
+  .lawh .lawh-blank {
+    display: grid;
+    justify-items: center;
+    align-content: center;
+    gap: 6px;
+    min-width: min(240px, 100%);
+    padding: 22px 18px;
+    border: 1.5px dashed var(--text-muted);
+    border-radius: 2px;
+  }
+  .lawh .lawh-blank-title {
+    display: block;
+    font: 400 30px / 1.15 var(--f-display);
+    font-synthesis-weight: none;
+  }
+  .lawh .lawh-blank-title:lang(ar) {
+    font-weight: 700;
+    line-height: 1.4;
+  }
+  .lawh .lawh-act {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    min-height: 54px;
+    padding-inline: 12px;
+    border-block-start: 1px solid var(--line-brass);
+    font: 500 15px / 1.2 var(--f-ui);
+    color: var(--text);
+  }
+  .lawh .lawh-ring {
+    flex: none;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: 1.5px solid var(--brass);
+    border-inline-end-color: transparent;
+    rotate: -40deg;
+  }
+  .lawh[data-state="shown"] .lawh-ring {
+    border-color: var(--brass);
+  }
+  .lawh > .sadu-band {
+    border-radius: 0 0 3px 3px;
+  }
+  .lawh-fading {
+    animation: lawh-fade 120ms var(--ease-in) both;
+  }
+
+  /* the turned tablet: whose seat emptied, and what they held */
+  .lawh.lawh-turned {
+    margin-block-start: 26px;
+  }
+  .lawh.lawh-turned .lawh-face {
+    min-height: 0;
+    padding: 18px 18px 20px;
+  }
+  .lawh .lawh-role {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    height: 40px;
+    font: 500 15px / 1 var(--f-ui);
+    color: var(--wool-ink);
+  }
+  .lawh .lawh-role[data-role="undercover"] {
+    background: var(--wool-madder);
+  }
+  .lawh .lawh-role[data-role="civilian"] {
+    background: var(--wool-undyed);
+  }
+  .lawh .lawh-role[data-role="mr_white"] {
+    color: var(--text);
+    border-block-end: 1.5px dashed var(--text-muted);
+  }
+  .lawh .lawh-role .loz {
+    --loz: 11px;
+  }
+  .lawh .lawh-role[data-role="undercover"] .loz,
+  .lawh .lawh-role[data-role="civilian"] .loz {
+    background: var(--wool-ink);
+  }
+  .lawh .lawh-role[data-role="mr_white"] .loz {
+    border: 1px dashed var(--text-muted);
+  }
+  .lawh .lawh-held {
+    display: block;
+    font: 400 28px / 1.15 var(--f-display);
+    font-synthesis-weight: none;
+  }
+  .lawh .lawh-held:lang(ar) {
+    font-weight: 700;
+    line-height: 1.45;
+  }
+  .lawh.lawh-turned[data-role="mr_white"] .lawh-face {
+    margin: 14px;
+    border: 1.5px dashed var(--text-muted);
+    border-radius: 2px;
+  }
+  .lawh.lawh-turned .lawh-word {
+    font-size: calc(clamp(48px, 19cqw, 64px) * var(--lawh-fit, 1));
+  }
+  .lawh.lawh-turned .lawh-tr {
+    font-size: 18px;
+  }
+
+  /* --- what the players wrote (sketch .descs) -------------------------------- */
+  .uc-descs {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border-block-start: 1px solid var(--line);
+  }
+  .uc-descs > li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 46px;
+    padding: 8px 2px;
+    border-block-end: 1px solid var(--line);
+    font: 400 14px / 1.3 var(--f-ui);
+    color: var(--text-muted);
+  }
+  /* a seat that emptied recedes */
+  .uc-descs > li[data-out] {
+    color: var(--text-muted);
+  }
+  /* while voting, the candidates' rows are the buttons (one list, not a second grid) */
+  .uc-descs > li[data-candidate] {
+    padding: 0;
+  }
+  /* the rows that are not buttons line up with the buttons' content (padding + hairline) */
+  .uc-descs[data-choosing] > li:not([data-candidate]) {
+    padding-inline: 9px 11px;
+  }
+  .uc-seat {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+    min-height: 52px;
+    margin-block: 3px;
+    padding-block: 7px;
+    padding-inline: 8px 10px;
+    border: 1px solid transparent;
+    border-radius: 2px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: start;
+    cursor: pointer;
+    transition: border-color var(--dur-state) var(--ease-out), background-color var(--dur-state) var(--ease-out);
+  }
+  .uc-seat:hover {
+    border-color: var(--line-brass-strong);
+  }
+  .uc-seat:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 1px;
+  }
+  .uc-seat[aria-pressed="true"] {
+    border-color: var(--brass);
+    background: color-mix(in oklch, var(--brass) 10%, var(--surface));
+  }
+  .uc-descs .uc-hand {
+    font: 700 23px / 1.35 var(--f-hand);
+    color: var(--text);
+  }
+  .uc-descs .uc-said {
+    font: 400 15.5px / 1.3 var(--f-ui);
+    color: var(--text);
+    overflow-wrap: anywhere;
+    text-align: end;
+  }
+
+  /* --- the vote ------------------------------------------------------------------ */
+  /* who voted for whom (sketch .votes) */
+  .uc-votes {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 6px;
+    font: 400 14px / 1.45 var(--f-ui);
+    color: var(--text-muted);
+  }
+  .uc-votes b {
+    font-weight: 500;
+    color: var(--text);
+  }
+
+  /* --- the verdict: a seat empties ------------------------------------------- */
+  .uc-verdict {
+    display: grid;
+    gap: 18px;
+    grid-template-areas: "text" "tablet" "votes" "act";
+    align-content: start;
+  }
+  .uc-verdict > .uc-verdict-text {
+    grid-area: text;
+    text-align: center;
+  }
+  .uc-verdict > .lawh-turned {
+    grid-area: tablet;
+  }
+  .uc-verdict > .uc-votes {
+    grid-area: votes;
+  }
+  .uc-verdict > .uc-verdict-act {
+    grid-area: act;
+  }
+  /* compact (beside the player's own tablet, or as a notice): one column, reading-start */
+  .uc-verdict[data-compact] > .uc-verdict-text {
+    text-align: start;
+  }
+  .uc-verdict[data-compact] > .lawh-turned {
+    margin-inline: 0;
+  }
+  @media (min-width: 1024px) {
+    .uc-verdict:not([data-compact]) {
+      grid-template-columns: 340px minmax(0, 1fr);
+      grid-template-areas: "tablet text" "tablet votes" "tablet act";
+      grid-template-rows: auto auto 1fr;
+      column-gap: clamp(40px, 5vw, 80px);
+    }
+    .uc-verdict:not([data-compact]) > .uc-verdict-text {
+      text-align: start;
+      align-self: end;
+    }
+    .uc-verdict:not([data-compact]) > .lawh-turned {
+      margin-block-start: 26px;
+      align-self: start;
+    }
+  }
+}
+
+@keyframes lawh-fade {
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lawh-fading {
+    animation: none;
+    opacity: 0;
+  }
+  button.lawh,
+  .uc-seat {
+    transition: none;
+  }
+}

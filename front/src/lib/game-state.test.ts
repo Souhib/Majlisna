@@ -53,6 +53,24 @@ describe("deriveUndercoverPhase", () => {
     expect(deriveUndercoverPhase({ ...base, turn_phase: "voting", turn_number: 1 })).toBe("playing")
   })
 
+  it("returns round_over when the voting turn is resolved", () => {
+    expect(deriveUndercoverPhase({ ...base, turn_phase: "voting", turn_number: 1, round_resolved: true })).toBe(
+      "round_over",
+    )
+  })
+
+  it("returns mr_white_guessing while an eliminated Mr. White owes his guess", () => {
+    expect(
+      deriveUndercoverPhase({ ...base, turn_phase: "mr_white_guessing", turn_number: 2, round_resolved: true }),
+    ).toBe("mr_white_guessing")
+  })
+
+  it("returns describing for the next round even though the previous one resolved", () => {
+    expect(
+      deriveUndercoverPhase({ ...base, turn_phase: "describing", turn_number: 2, round_resolved: false }),
+    ).toBe("describing")
+  })
+
   it("returns role_reveal for initial state (turn 0, non-spectator)", () => {
     expect(deriveUndercoverPhase(base)).toBe("role_reveal")
   })

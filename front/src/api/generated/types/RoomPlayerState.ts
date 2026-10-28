@@ -33,4 +33,5 @@ export type RoomPlayerState = {
    * @type boolean
    */
   is_spectator: boolean;
+  away_seconds_left?: number | null;
 };

@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as LeaderboardRouteImport } from './routes/leaderboard'
+import { Route as CreditsRouteImport } from './routes/credits'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as AuthRouteImport } from './routes/_auth'
 import { Route as IndexRouteImport } from './routes/index'
@@ -22,6 +23,7 @@ import { Route as AuthLoginRouteImport } from './routes/auth/login'
 import { Route as AuthForgotPasswordRouteImport } from './routes/auth/forgot-password'
 import { Route as AuthStatsRouteImport } from './routes/_auth/stats'
 import { Route as AuthProfileRouteImport } from './routes/_auth/profile'
+import { Route as AuthNotebookRouteImport } from './routes/_auth/notebook'
 import { Route as AuthFriendsRouteImport } from './routes/_auth/friends'
 import { Route as AuthChallengesRouteImport } from './routes/_auth/challenges'
 import { Route as AuthAchievementsRouteImport } from './routes/_auth/achievements'
@@ -42,6 +44,11 @@ const PrivacyRoute = PrivacyRouteImport.update({
 const LeaderboardRoute = LeaderboardRouteImport.update({
   id: '/leaderboard',
   path: '/leaderboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CreditsRoute = CreditsRouteImport.update({
+  id: '/credits',
+  path: '/credits',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AboutRoute = AboutRouteImport.update({
@@ -96,6 +103,11 @@ const AuthStatsRoute = AuthStatsRouteImport.update({
 const AuthProfileRoute = AuthProfileRouteImport.update({
   id: '/profile',
   path: '/profile',
+  getParentRoute: () => AuthRoute,
+} as any)
+const AuthNotebookRoute = AuthNotebookRouteImport.update({
+  id: '/notebook',
+  path: '/notebook',
   getParentRoute: () => AuthRoute,
 } as any)
 const AuthFriendsRoute = AuthFriendsRouteImport.update({
@@ -158,11 +170,13 @@ const AuthGameCodenamesGameIdRoute = AuthGameCodenamesGameIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/credits': typeof CreditsRoute
   '/leaderboard': typeof LeaderboardRoute
   '/privacy': typeof PrivacyRoute
   '/achievements': typeof AuthAchievementsRoute
   '/challenges': typeof AuthChallengesRoute
   '/friends': typeof AuthFriendsRoute
+  '/notebook': typeof AuthNotebookRoute
   '/profile': typeof AuthProfileRoute
   '/stats': typeof AuthStatsRoute
   '/auth/forgot-password': typeof AuthForgotPasswordRoute
@@ -183,11 +197,13 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/credits': typeof CreditsRoute
   '/leaderboard': typeof LeaderboardRoute
   '/privacy': typeof PrivacyRoute
   '/achievements': typeof AuthAchievementsRoute
   '/challenges': typeof AuthChallengesRoute
   '/friends': typeof AuthFriendsRoute
+  '/notebook': typeof AuthNotebookRoute
   '/profile': typeof AuthProfileRoute
   '/stats': typeof AuthStatsRoute
   '/auth/forgot-password': typeof AuthForgotPasswordRoute
@@ -210,11 +226,13 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_auth': typeof AuthRouteWithChildren
   '/about': typeof AboutRoute
+  '/credits': typeof CreditsRoute
   '/leaderboard': typeof LeaderboardRoute
   '/privacy': typeof PrivacyRoute
   '/_auth/achievements': typeof AuthAchievementsRoute
   '/_auth/challenges': typeof AuthChallengesRoute
   '/_auth/friends': typeof AuthFriendsRoute
+  '/_auth/notebook': typeof AuthNotebookRoute
   '/_auth/profile': typeof AuthProfileRoute
   '/_auth/stats': typeof AuthStatsRoute
   '/auth/forgot-password': typeof AuthForgotPasswordRoute
@@ -237,11 +255,13 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/about'
+    | '/credits'
     | '/leaderboard'
     | '/privacy'
     | '/achievements'
     | '/challenges'
     | '/friends'
+    | '/notebook'
     | '/profile'
     | '/stats'
     | '/auth/forgot-password'
@@ -262,11 +282,13 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/about'
+    | '/credits'
     | '/leaderboard'
     | '/privacy'
     | '/achievements'
     | '/challenges'
     | '/friends'
+    | '/notebook'
     | '/profile'
     | '/stats'
     | '/auth/forgot-password'
@@ -288,11 +310,13 @@ export interface FileRouteTypes {
     | '/'
     | '/_auth'
     | '/about'
+    | '/credits'
     | '/leaderboard'
     | '/privacy'
     | '/_auth/achievements'
     | '/_auth/challenges'
     | '/_auth/friends'
+    | '/_auth/notebook'
     | '/_auth/profile'
     | '/_auth/stats'
     | '/auth/forgot-password'
@@ -315,6 +339,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthRoute: typeof AuthRouteWithChildren
   AboutRoute: typeof AboutRoute
+  CreditsRoute: typeof CreditsRoute
   LeaderboardRoute: typeof LeaderboardRoute
   PrivacyRoute: typeof PrivacyRoute
   AuthForgotPasswordRoute: typeof AuthForgotPasswordRoute
@@ -339,6 +364,13 @@ declare module '@tanstack/react-router' {
       path: '/leaderboard'
       fullPath: '/leaderboard'
       preLoaderRoute: typeof LeaderboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/credits': {
+      id: '/credits'
+      path: '/credits'
+      fullPath: '/credits'
+      preLoaderRoute: typeof CreditsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/about': {
@@ -416,6 +448,13 @@ declare module '@tanstack/react-router' {
       path: '/profile'
       fullPath: '/profile'
       preLoaderRoute: typeof AuthProfileRouteImport
+      parentRoute: typeof AuthRoute
+    }
+    '/_auth/notebook': {
+      id: '/_auth/notebook'
+      path: '/notebook'
+      fullPath: '/notebook'
+      preLoaderRoute: typeof AuthNotebookRouteImport
       parentRoute: typeof AuthRoute
     }
     '/_auth/friends': {
@@ -502,6 +541,7 @@ interface AuthRouteChildren {
   AuthAchievementsRoute: typeof AuthAchievementsRoute
   AuthChallengesRoute: typeof AuthChallengesRoute
   AuthFriendsRoute: typeof AuthFriendsRoute
+  AuthNotebookRoute: typeof AuthNotebookRoute
   AuthProfileRoute: typeof AuthProfileRoute
   AuthStatsRoute: typeof AuthStatsRoute
   AuthRoomsRoomIdRoute: typeof AuthRoomsRoomIdRoute
@@ -518,6 +558,7 @@ const AuthRouteChildren: AuthRouteChildren = {
   AuthAchievementsRoute: AuthAchievementsRoute,
   AuthChallengesRoute: AuthChallengesRoute,
   AuthFriendsRoute: AuthFriendsRoute,
+  AuthNotebookRoute: AuthNotebookRoute,
   AuthProfileRoute: AuthProfileRoute,
   AuthStatsRoute: AuthStatsRoute,
   AuthRoomsRoomIdRoute: AuthRoomsRoomIdRoute,
@@ -536,6 +577,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthRoute: AuthRouteWithChildren,
   AboutRoute: AboutRoute,
+  CreditsRoute: CreditsRoute,
   LeaderboardRoute: LeaderboardRoute,
   PrivacyRoute: PrivacyRoute,
   AuthForgotPasswordRoute: AuthForgotPasswordRoute,

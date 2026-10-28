@@ -6,12 +6,14 @@
  */
 
 import type { DifficultyLevel } from "./DifficultyLevel.ts";
+import type { GameType } from "./GameType.ts";
 
 /**
  * RoomSettingsRequest
- * @description Host-supplied room settings.\n\nEvery numeric field is bounded. These values are copied verbatim into\n``Room.settings`` and then into a game\'s ``live_state`` at start, so an\nunbounded value is not just cosmetic: ``word_quiz_rounds=10_000_000`` makes\ngame creation try to draw ten million questions, and a negative timer makes\nthe timer-expiry check pass immediately and spin the round forward.
+ * @description Host-supplied room settings.\n\nEvery numeric field is bounded. These values are copied verbatim into\n``Room.settings`` and then into a game\'s ``live_state`` at start, so an\nunbounded value is not just cosmetic: ``word_quiz_rounds=10_000_000`` makes\ngame creation try to draw ten million questions, and a negative timer makes\nthe timer-expiry check pass immediately and spin the round forward.\n\n``game_type`` is the host\'s pick in the lobby. It lives in the room\'s settings\n(``get_room_state`` reads it from there while no game runs) so every guest\'s\nlobby describes the game the host chose, not the one the room was opened for.
  */
 export type RoomSettingsRequest = {
+  game_type?: GameType | null;
   description_timer?: number | null;
   voting_timer?: number | null;
   codenames_clue_timer?: number | null;

@@ -1,7 +1,9 @@
-import { Crown } from "lucide-react"
 import { memo } from "react"
 import { useTranslation } from "react-i18next"
+import { Lozenge } from "@/components/brand"
+import { Badge } from "@/components/ui/chip"
 import { cn } from "@/lib/utils"
+import { RoleMark, roleLabelKey } from "./Lawh"
 
 interface Player {
   id: string
@@ -12,40 +14,69 @@ interface Player {
 
 interface UndercoverPlayerListProps {
   players: Player[]
+  /** Roles of the seats that emptied (public once a tablet turns over). */
+  eliminated?: { user_id: string; role: string }[]
+  /** During the vote: who has voted (never for whom). */
+  voted?: string[]
+  currentUserId?: string
 }
 
-export const UndercoverPlayerList = memo(function UndercoverPlayerList({
-  players,
-}: UndercoverPlayerListProps) {
+/**
+ * The table: who is still seated, the Mayor (their vote breaks ties), and every emptied
+ * seat with the role its tablet showed. What is finished recedes to secondary ink.
+ */
+export const UndercoverPlayerList = memo(function UndercoverPlayerList({ players, eliminated = [], voted, currentUserId }: UndercoverPlayerListProps) {
   const { t } = useTranslation()
   const aliveCount = players.filter((p) => p.is_alive).length
+  const roles = new Map(eliminated.map((e) => [e.user_id, e.role]))
 
   return (
-    <div className="glass rounded-2xl border-border/30 p-6 transition-all duration-200">
-      <h3 className="font-extrabold tracking-tight mb-4">
-        {t("room.players")} ({aliveCount}/{players.length})
+    <section aria-labelledby="uc-table-title" className="grid content-start gap-3">
+      <h3 id="uc-table-title" className="flex items-center gap-2.5 type-label">
+        {t("room.players")}
+        <Badge>
+          <span className="sr-only">{t("game.undercover.seatedSr")} </span>
+          {aliveCount}/{players.length}
+        </Badge>
       </h3>
-      <div className="space-y-2">
-        {players.map((player) => (
-          <div
-            key={player.id}
-            className={cn(
-              "flex items-center justify-between rounded-2xl px-4 py-2.5 border transition-all duration-200",
-              player.is_alive
-                ? "glass border-border/30 hover:border-border/50"
-                : "bg-destructive/5 border-destructive/10 line-through opacity-50",
-            )}
-          >
-            <span className="text-sm flex items-center gap-2 font-medium">
-              {player.username}
-              {player.is_mayor && <Crown className="h-3 w-3 text-yellow-500 drop-shadow-sm" />}
-            </span>
-            <span className="text-xs text-muted-foreground font-mono tabular-nums">
-              {player.is_alive ? t("game.alive") : t("game.eliminated")}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
+      <ul className="border-t border-line">
+        {players.map((player) => {
+          const role = roles.get(player.id)
+          return (
+            <li
+              key={player.id}
+              className={cn(
+                "flex min-h-11 items-center gap-3 border-b border-line py-2 text-[14.5px]",
+                !player.is_alive && "text-muted-foreground",
+              )}
+            >
+              {player.is_alive ? <Lozenge state={player.id === currentUserId ? "brass" : "ready"} size={9} /> : role ? <RoleMark role={role} size={9} /> : <Lozenge state="away" size={9} />}
+              <span className={cn("min-w-0 flex-1 truncate", player.is_alive && "font-medium")}>
+                {player.username}
+                {player.id === currentUserId ? <span className="font-normal text-muted-foreground"> · {t("game.undercover.youLower")}</span> : null}
+              </span>
+              {player.is_mayor ? (
+                <span className="inline-flex shrink-0 items-center gap-1.5 text-[13px] text-muted-foreground">
+                  <Lozenge state="ink" size={7} />
+                  {t("game.undercover.mayorLabel")}
+                  <span className="sr-only">: {t("game.undercover.mayorNote")}</span>
+                </span>
+              ) : null}
+              {player.is_alive && voted ? (
+                <span className={cn("shrink-0 text-[13px]", voted.includes(player.id) ? "text-foreground" : "text-muted-foreground")}>
+                  {voted.includes(player.id) ? t("game.undercover.hasVoted") : t("game.undercover.notVotedYet")}
+                </span>
+              ) : null}
+              {!player.is_alive ? (
+                <span className="shrink-0 text-[13px]">
+                  {t("game.eliminated")}
+                  {role ? ` · ${t(roleLabelKey(role))}` : ""}
+                </span>
+              ) : null}
+            </li>
+          )
+        })}
+      </ul>
+    </section>
   )
 })

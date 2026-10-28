@@ -1,25 +1,36 @@
 {
-  "name": "Majlisna",
+  "name": "Majlisna · Islamic party games",
   "short_name": "Majlisna",
-  "description": "Play Islamized versions of your favorite party games online with friends",
+  "description": "The evening majlis of riddles: Undercover, Codenames, Kalimat and the Quiz with friends, in English, French or Arabic.",
+  "lang": "en",
+  "dir": "auto",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
-  "theme_color": "#2d6a4f",
-  "background_color": "#0a0a0a",
+  "theme_color": "#1c1611",
+  "background_color": "#130d0a",
   "orientation": "portrait-primary",
+  "categories": ["games", "education"],
   "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    },
     {
       "src": "/icons/icon-192.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     },
     {
       "src": "/icons/icon-512.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     },
     {
-      "src": "/icons/icon-512.png",
+      "src": "/icons/icon-maskable-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"

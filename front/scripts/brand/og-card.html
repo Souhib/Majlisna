@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<style>
+@font-face{font-family:Marcellus;src:url(../../node_modules/@fontsource/marcellus/files/marcellus-latin-400-normal.woff2) format("woff2")}
+@font-face{font-family:Readex;src:url(../../node_modules/@fontsource-variable/readex-pro/files/readex-pro-latin-wght-normal.woff2) format("woff2");font-weight:160 700}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1200px;height:630px;overflow:hidden;background:#130d0a}
+.card{position:relative;width:1200px;height:630px;overflow:hidden}
+.sky{position:absolute;inset:0 0 auto 0;height:392px;background:linear-gradient(180deg,#02040b,#0b0d1c 45%,#6b2a17 88%,#e0a96b)}
+.sky img{display:block;width:100%;height:100%;object-fit:cover;object-position:52% 100%}
+.ground{position:absolute;inset:391px 0 0 0;background:linear-gradient(180deg,#0c0705 0,#130d0a 150px,#130d0a)}
+.ground::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(90deg,rgba(239,231,216,.024) 0 1px,transparent 1px 7px);-webkit-mask-image:linear-gradient(180deg,#000,transparent 70%)}
+.word{position:absolute;left:72px;top:calc(392px - 1000 * 0.158px - 4px);width:calc(3991 * 0.158px);height:calc(1520 * 0.158px)}
+.title{position:absolute;left:72px;top:500px;font:400 58px/1 Marcellus;color:#efe7d8;letter-spacing:-.01em}
+.lock{position:absolute;left:74px;top:578px;display:flex;align-items:center;gap:16px;font:400 17px/1 Marcellus;letter-spacing:.26em;text-transform:uppercase;color:#e4b56d}
+.lock i{display:block;width:7px;height:7px;transform:rotate(45deg);background:#e4b56d}
+.lock span.s{font:300 17px/1 Readex;letter-spacing:.02em;text-transform:none;color:#cbbfae}
+</style></head>
+<body><div class="card">
+<div class="sky"><img src="../../public/sky/sky-maghrib.2400.webp" alt=""></div>
+<div class="ground"></div>
+<img class="word" src="../../src/assets/brand/wordmark-night.svg" alt="">
+<p class="title">The night is for riddles.</p>
+<p class="lock"><span>Majlisna</span><i></i><span class="s">Undercover · Codenames · Kalimat · The Quiz</span></p>
+</div></body></html>

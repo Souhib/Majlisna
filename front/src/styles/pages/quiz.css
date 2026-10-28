@@ -1,0 +1,284 @@
+/* ============================================================================
+   Kalimat and The Quiz (sketch sections C and D): the hint ladder, the three
+   score bands, the four lettered choices, the explanation. Only what Tailwind
+   utilities cannot say on their own (rotated lozenges carrying an upright
+   figure, the struck letter, the lock-in thread); everything else is utilities
+   in the components. Logical properties throughout: the Arabic screen mirrors.
+   ============================================================================ */
+@layer components {
+  /* --- the page title: the game's name, set as a panel head (sketch C, D) --- */
+  .quiz-title {
+    font: 500 17px / 1.2 var(--f-ui);
+    letter-spacing: 0;
+  }
+  .quiz-title:lang(ar) {
+    font: 500 18px / 1.3 var(--f-ui);
+  }
+
+  /* --- Kalimat: the ladder, six rungs, worth 6 at the top down to 1 ------- */
+  .hint-ladder {
+    list-style: none;
+    display: grid;
+    border-block-start: 1px solid var(--line);
+  }
+  .hint-rung {
+    display: grid;
+    grid-template-columns: 38px minmax(0, 1fr) auto;
+    gap: 14px;
+    align-items: center;
+    min-height: 52px;
+    padding-block: 8px;
+    padding-inline: 4px 12px;
+    border-block-end: 1px solid var(--line);
+  }
+  .hint-rung .rung-worth {
+    width: 28px;
+    height: 28px;
+    margin-inline: 5px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--line);
+    rotate: 45deg;
+  }
+  .hint-rung .rung-worth > span {
+    rotate: -45deg;
+    font: 500 14px / 1 var(--f-ui);
+    font-variant-numeric: tabular-nums lining-nums;
+    color: var(--text-muted);
+  }
+  .hint-rung .rung-text {
+    font-size: 15.5px;
+    line-height: 1.42;
+    text-wrap: pretty;
+  }
+  .hint-rung .rung-text:lang(ar) {
+    font-size: 17px;
+    line-height: 1.7;
+  }
+  .hint-rung .rung-warp {
+    display: block;
+    height: 14px;
+    background-image: repeating-linear-gradient(90deg, var(--warp) 0 1px, transparent 1px 6px);
+  }
+  .hint-rung .rung-tag {
+    font: 400 12.5px / 1.2 var(--f-ui);
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+  /* a hint already passed: its worth is struck, its line recedes */
+  .hint-rung[data-state="past"] .rung-text {
+    color: var(--text-muted);
+  }
+  .hint-rung[data-state="past"] .rung-worth > span {
+    text-decoration: line-through;
+    text-decoration-thickness: 1.5px;
+  }
+  /* the hint in play: brass */
+  .hint-rung[data-state="now"] {
+    background: color-mix(in oklch, var(--brass) 9%, transparent);
+    outline: 1px solid var(--line-brass-strong);
+    outline-offset: -1px;
+  }
+  .hint-rung[data-state="now"] .rung-worth {
+    border-color: var(--brass);
+    background: var(--brass);
+  }
+  .hint-rung[data-state="now"] .rung-worth > span {
+    color: var(--on-brass);
+    font-weight: 600;
+  }
+
+  /* --- The Quiz: +3 / +2 / +1, the first quarter, the middle half, the last --- */
+  .score-bands {
+    position: relative;
+    display: grid;
+    grid-template-columns: 1fr 2fr 1fr;
+    /* room under the lock-in thread and its lozenge (bottom: -11px) for an Amiri
+       question's harakat */
+    margin-block-end: 24px;
+    font: 500 12.5px / 1.2 var(--f-ui);
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums lining-nums;
+  }
+  .score-bands > span {
+    min-height: 28px;
+    display: grid;
+    place-items: center;
+    padding: 4px;
+    text-align: center;
+    border: 1px solid var(--line);
+    border-inline-start-width: 0;
+  }
+  .score-bands > span:first-child {
+    border-inline-start-width: 1px;
+  }
+  .score-bands > span[data-hit="true"] {
+    color: var(--brass);
+    border-color: var(--line-brass-strong);
+    background: color-mix(in oklch, var(--brass) 10%, transparent);
+  }
+  /* the thread runs from the start of the clock to the moment you locked in */
+  .score-bands .lock-thread {
+    position: absolute;
+    inset-inline-start: 0;
+    bottom: -6px;
+    height: 4px;
+    width: calc(var(--at, 0.4) * 100%);
+    background: var(--band-khayt) left center / auto 100% repeat-x;
+  }
+  [dir="rtl"] .score-bands .lock-thread {
+    background-position: right center;
+  }
+  .score-bands .lock-mark {
+    position: absolute;
+    bottom: -11px;
+    inset-inline-start: calc(var(--at, 0.4) * 100%);
+    width: 9px;
+    height: 9px;
+    translate: -50% 0;
+    rotate: 45deg;
+    background: var(--brass);
+    border: 1.5px solid var(--surface);
+  }
+  [dir="rtl"] .score-bands .lock-mark {
+    translate: 50% 0;
+  }
+
+  /* --- the question: Readex 500; an Arabic question in Amiri --------------- */
+  .quiz-question {
+    font: 500 21px / 1.35 var(--f-ui);
+    letter-spacing: -0.005em;
+    text-wrap: balance;
+  }
+  .quiz-question:lang(ar) {
+    font: 700 26px / 1.55 var(--f-nass);
+    letter-spacing: 0;
+  }
+
+  /* --- four choices, a lettered lozenge each (A B C D, أ ب ج د in Arabic) --- */
+  .quiz-choice {
+    display: grid;
+    grid-template-columns: 40px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-height: 54px;
+    padding-block: 6px;
+    padding-inline: 8px 14px;
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    background: var(--surface-2);
+    color: var(--text);
+    font: 400 16px / 1.4 var(--f-ui);
+    text-align: start;
+    transition:
+      background-color var(--dur-state) var(--ease-out),
+      border-color var(--dur-state) var(--ease-out);
+  }
+  .quiz-choice .choice-text:lang(ar) {
+    font-size: 18px;
+    line-height: 1.5;
+  }
+  button.quiz-choice {
+    cursor: pointer;
+  }
+  button.quiz-choice:hover:not(:disabled) {
+    border-color: var(--line-brass-strong);
+  }
+  button.quiz-choice:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+  button.quiz-choice:disabled {
+    cursor: default;
+  }
+  .quiz-choice .choice-letter {
+    position: relative;
+    isolation: isolate;
+    width: 36px;
+    height: 36px;
+    display: grid;
+    place-items: center;
+    font: 600 16px / 1 var(--f-ui);
+    color: var(--text);
+  }
+  .quiz-choice .choice-letter:lang(ar) {
+    font: 700 18px / 1 var(--f-nass);
+    padding-block-start: 4px;
+  }
+  .quiz-choice .choice-letter::before {
+    content: "";
+    position: absolute;
+    inset: 6px;
+    z-index: -1;
+    border: 1px solid var(--line-brass-strong);
+    rotate: 45deg;
+  }
+  .quiz-choice .choice-tag {
+    font: 400 13px / 1.2 var(--f-ui);
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+  /* chosen (before and after locking in): ink lozenge, a brass hairline */
+  .quiz-choice[data-state="chosen"] {
+    border-color: var(--brass);
+    background: color-mix(in oklch, var(--brass) 7%, var(--surface-2));
+  }
+  .quiz-choice[data-state="chosen"] .choice-letter {
+    color: var(--bg);
+  }
+  .quiz-choice[data-state="chosen"] .choice-letter::before {
+    background: var(--text);
+    border-color: var(--text);
+  }
+  /* the right answer, revealed: brass */
+  .quiz-choice[data-state="right"] {
+    border-color: var(--brass);
+    background: color-mix(in oklch, var(--brass) 13%, var(--surface-2));
+  }
+  .quiz-choice[data-state="right"] .choice-letter {
+    color: var(--on-brass);
+  }
+  .quiz-choice[data-state="right"] .choice-letter::before {
+    background: var(--brass);
+    border-color: var(--brass);
+  }
+  .quiz-choice[data-state="right"] .choice-tag {
+    color: var(--primary-on-tint);
+    font-weight: 500;
+  }
+  /* a wrong pick: the LETTER is struck, never the word (it may be a sacred name) */
+  .quiz-choice[data-state="wrong"] {
+    background: transparent;
+  }
+  .quiz-choice[data-state="wrong"] .choice-text,
+  .quiz-choice[data-state="wrong"] .choice-letter {
+    color: var(--text-muted);
+  }
+  .quiz-choice[data-state="wrong"] .choice-letter::after {
+    content: "";
+    position: absolute;
+    inset-inline: 4px;
+    top: 50%;
+    height: 1.5px;
+    background: var(--ember);
+    rotate: -30deg;
+  }
+
+  /* --- the explanation, in Amiri, the answer in bold ------------------------ */
+  .quiz-why {
+    padding: 14px 4px 2px;
+    border-block-start: 1px solid var(--line-brass);
+    font: 400 17px / 1.65 var(--f-nass);
+    color: var(--text-muted);
+    text-wrap: pretty;
+  }
+  .quiz-why:lang(ar) {
+    font-size: 18px;
+    line-height: 1.8;
+  }
+  .quiz-why b {
+    font-weight: 700;
+    color: var(--text);
+  }
+}

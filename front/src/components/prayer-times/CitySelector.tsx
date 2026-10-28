@@ -1,6 +1,7 @@
-import { MapPin, Search, Loader2 } from "lucide-react"
+import { MapPin, Search } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
+import { Button } from "@/components/ui/button"
 
 export interface CityCoordinates {
   city: string
@@ -197,62 +198,72 @@ export function CitySelector({ onSelect, initialCity }: CitySelectorProps) {
   return (
     <div className="relative" ref={dropdownRef}>
       {selectedCity ? (
-        <div className="flex items-center gap-2">
-          <MapPin className="h-4 w-4 text-primary" />
-          <span className="text-sm font-medium">{selectedCity}</span>
-          <button
-            type="button"
+        <div className="flex items-center gap-2 text-[14px]">
+          <MapPin className="size-4 shrink-0 text-brass" aria-hidden="true" />
+          <span className="min-w-0 truncate font-medium text-foreground">{selectedCity}</span>
+          <Button
+            variant="link"
+            size="sm"
+            className="ms-auto text-[13px]"
             onClick={() => {
               setSelectedCity("")
-              inputRef.current?.focus()
+              // the search input mounts on the next render
+              requestAnimationFrame(() => inputRef.current?.focus())
             }}
-            className="text-xs text-muted-foreground hover:text-primary transition-colors underline"
           >
             {t("prayer.changeCity")}
-          </button>
+          </Button>
         </div>
       ) : (
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
+        <div className="grid gap-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            block
             onClick={detectLocation}
-            disabled={detecting}
-            className="flex items-center gap-1.5 rounded-md bg-primary/10 px-3 py-1.5 text-sm font-medium text-primary hover:bg-primary/20 transition-colors disabled:opacity-50"
+            loading={detecting}
+            iconStart={<MapPin aria-hidden="true" />}
           >
-            {detecting ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <MapPin className="h-3.5 w-3.5" />
-            )}
             {t("prayer.useMyLocation")}
-          </button>
-          <div className="relative flex-1">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+          </Button>
+          <div className="relative">
+            <Search
+              className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+              aria-hidden="true"
+            />
             <input
               ref={inputRef}
-              type="text"
+              type="search"
               value={query}
               onChange={(e) => handleSearch(e.target.value)}
               onFocus={() => predictions.length > 0 && setShowDropdown(true)}
               placeholder={t("prayer.searchCity")}
-              className="w-full rounded-md border bg-background py-1.5 pl-8 pr-3 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
+              aria-label={t("prayer.searchCity")}
+              aria-expanded={showDropdown && predictions.length > 0}
+              aria-controls="city-predictions"
+              autoComplete="off"
+              className="h-11 w-full rounded-sm border border-line-field bg-surface ps-9 pe-3 text-[15px] text-foreground outline-none transition-colors duration-(--dur-state) focus-visible:border-brass focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_oklch,var(--brass)_45%,transparent)]"
             />
             {showDropdown && predictions.length > 0 && (
-              <div className="absolute top-full left-0 right-0 mt-1 rounded-md border bg-popover shadow-lg z-50 max-h-48 overflow-auto">
+              <ul
+                id="city-predictions"
+                className="absolute inset-x-0 top-full z-50 mt-1 max-h-48 overflow-auto rounded-sm border border-line-brass bg-popover p-1 shadow-[0_14px_28px_-18px_oklch(0_0_0/0.45)]"
+              >
                 {predictions.map((r) => (
-                  <button
-                    key={r.id}
-                    type="button"
-                    onClick={() => selectPrediction(r)}
-                    className="w-full px-3 py-2 text-left text-sm hover:bg-muted transition-colors"
-                  >
-                    <span className="font-medium">{r.name}</span>
-                    <span className="text-muted-foreground ml-1 text-xs">
-                      {[r.admin1, r.country].filter(Boolean).join(", ")}
-                    </span>
-                  </button>
+                  <li key={r.id}>
+                    <button
+                      type="button"
+                      onClick={() => selectPrediction(r)}
+                      className="flex min-h-10 w-full flex-col items-start justify-center rounded-sm px-3 py-1.5 text-start text-[14px] hover:bg-[color-mix(in_oklch,var(--brass)_12%,transparent)] focus-visible:bg-[color-mix(in_oklch,var(--brass)_12%,transparent)] pointer-coarse:min-h-11"
+                    >
+                      <span className="font-medium text-foreground">{r.name}</span>
+                      <span className="text-[12.5px] text-muted-foreground">
+                        {[r.admin1, r.country].filter(Boolean).join(", ")}
+                      </span>
+                    </button>
+                  </li>
                 ))}
-              </div>
+              </ul>
             )}
           </div>
         </div>

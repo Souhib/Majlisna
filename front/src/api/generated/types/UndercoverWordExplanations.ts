@@ -11,5 +11,11 @@
  */
 export type UndercoverWordExplanations = {
   civilian_word?: string | null;
+  civilian_word_ar?: string | null;
+  civilian_word_ar_vocalized?: string | null;
+  civilian_word_hint?: string | null;
   undercover_word?: string | null;
+  undercover_word_ar?: string | null;
+  undercover_word_ar_vocalized?: string | null;
+  undercover_word_hint?: string | null;
 };

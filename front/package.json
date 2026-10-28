@@ -20,6 +20,11 @@
     "test:ui": "vitest --ui"
   },
   "dependencies": {
+    "@fontsource-variable/readex-pro": "5.3.0",
+    "@fontsource-variable/reem-kufi": "5.3.0",
+    "@fontsource/amiri": "5.3.0",
+    "@fontsource/aref-ruqaa": "5.3.0",
+    "@fontsource/marcellus": "5.3.0",
     "@hookform/resolvers": "^5.2.2",
     "@radix-ui/react-alert-dialog": "^1.1.15",
     "@radix-ui/react-avatar": "^1.1.11",

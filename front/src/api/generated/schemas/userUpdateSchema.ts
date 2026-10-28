@@ -12,7 +12,9 @@ import { z } from "zod/v4";
  */
 export const userUpdateSchema = z
   .object({
-    username: z.optional(z.union([z.string(), z.null()])),
+    username: z.optional(
+      z.union([z.string().regex(/^[^\s<>/\\@]+$/), z.null()]),
+    ),
     country: z.optional(z.union([z.string(), z.null()])),
     bio: z.optional(z.union([z.string(), z.null()])),
     profile_picture_url: z.optional(z.union([z.string(), z.null()])),

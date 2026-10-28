@@ -10,8 +10,6 @@ describe('VotingPhase', () => {
       { id: 'u3', username: 'Charlie', is_alive: true, is_mayor: false },
       { id: 'u4', username: 'Dead Dave', is_alive: false, is_mayor: false },
     ],
-    myRole: 'civilian',
-    myWord: 'Mosque',
     descriptions: { u1: 'big place', u2: 'worship' } as Record<string, string>,
     descriptionOrder: [
       { user_id: 'u1', username: 'Alice' },
@@ -26,58 +24,41 @@ describe('VotingPhase', () => {
     onConfirmVote: vi.fn(),
   }
 
-  it('shows word reminder for civilian', () => {
-    render(<VotingPhase {...defaultProps} myRole="civilian" myWord="Mosque" />)
-    expect(screen.getByText('Mosque')).toBeInTheDocument()
-    expect(screen.getByText(/game\.undercover\.yourWordReminder/)).toBeInTheDocument()
-  })
+  const candidateButtons = () => screen.queryAllByRole('button', { name: /game\.undercover\.voteFor/ })
 
-  it('hides word reminder for mr_white', () => {
-    render(<VotingPhase {...defaultProps} myRole="mr_white" myWord={undefined} />)
-    expect(screen.queryByText('game.undercover.yourWordReminder')).not.toBeInTheDocument()
-  })
-
-  it('shows descriptions from phase', () => {
+  it('heads the phase with "Discuss and vote"', () => {
     render(<VotingPhase {...defaultProps} />)
-    expect(screen.getByText('Alice:')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'game.undercover.discussAndVote' })).toBeInTheDocument()
+  })
+
+  it('recalls what everyone wrote', () => {
+    render(<VotingPhase {...defaultProps} />)
     expect(screen.getByText('big place')).toBeInTheDocument()
-    expect(screen.getByText('Bob:')).toBeInTheDocument()
     expect(screen.getByText('worship')).toBeInTheDocument()
   })
 
-  it('shows "you are dead" when not alive', () => {
-    render(<VotingPhase {...defaultProps} isAlive={false} />)
-    expect(screen.getByText('game.undercover.youAreDead')).toBeInTheDocument()
+  it('offers every living player but you as a candidate', () => {
+    render(<VotingPhase {...defaultProps} />)
+    const buttons = candidateButtons()
+    expect(buttons).toHaveLength(2)
+    expect(buttons[0]).toHaveTextContent('Bob')
+    expect(buttons[1]).toHaveTextContent('Charlie')
   })
 
-  it('renders alive players as vote targets (excludes self, excludes dead)', () => {
-    render(<VotingPhase {...defaultProps} currentUserId="u1" />)
-    // Bob and Charlie are alive and not self
-    expect(screen.getByText('Bob')).toBeInTheDocument()
-    expect(screen.getByText('Charlie')).toBeInTheDocument()
-    // Alice is self, Dead Dave is dead - neither should be vote targets
-    // Alice appears in descriptions but not as a vote button
-    const voteButtons = screen.getAllByRole('button').filter(
-      (btn) => btn.textContent?.includes('Bob') || btn.textContent?.includes('Charlie'),
-    )
-    expect(voteButtons).toHaveLength(2)
-  })
-
-  it('calls onSelectPlayer when player clicked', () => {
+  it('selects a candidate on click', () => {
     const onSelectPlayer = vi.fn()
     render(<VotingPhase {...defaultProps} onSelectPlayer={onSelectPlayer} />)
-    fireEvent.click(screen.getByText('Bob'))
+    fireEvent.click(candidateButtons()[0])
     expect(onSelectPlayer).toHaveBeenCalledWith('u2')
   })
 
-  it('shows selected state (ring-2) on selected player', () => {
-    const { container } = render(<VotingPhase {...defaultProps} selectedVote="u2" />)
-    const selectedButton = container.querySelector('.ring-2')
-    expect(selectedButton).toBeInTheDocument()
-    expect(selectedButton).toHaveTextContent('Bob')
+  it('marks the chosen candidate as pressed', () => {
+    render(<VotingPhase {...defaultProps} selectedVote="u2" />)
+    expect(candidateButtons()[0]).toHaveAttribute('aria-pressed', 'true')
+    expect(candidateButtons()[1]).toHaveAttribute('aria-pressed', 'false')
   })
 
-  it('shows mayor crown icon for mayor players', () => {
+  it('shows the Mayor next to their name', () => {
     render(
       <VotingPhase
         {...defaultProps}
@@ -87,30 +68,72 @@ describe('VotingPhase', () => {
         ]}
       />,
     )
-    // The Crown icon renders as an SVG inside the Bob button
-    const bobButton = screen.getByText('Bob').closest('button')
-    expect(bobButton?.querySelector('svg')).toBeInTheDocument()
+    expect(candidateButtons()[0]).toHaveTextContent('game.undercover.mayorLabel')
   })
 
-  it('shows waiting message after voting', () => {
-    render(<VotingPhase {...defaultProps} hasVoted={true} />)
-    expect(screen.getByText('game.undercover.waitingForVotes')).toBeInTheDocument()
+  it('keeps "Vote to eliminate" disabled until a name is chosen, and says why', () => {
+    render(<VotingPhase {...defaultProps} />)
+    expect(screen.getByRole('button', { name: 'game.undercover.voteToEliminate' })).toBeDisabled()
+    expect(screen.getByText('game.undercover.chooseFirst')).toBeInTheDocument()
   })
 
-  it('vote confirm button disabled when no selection', () => {
-    render(<VotingPhase {...defaultProps} selectedVote={null} />)
-    const confirmButton = screen.getByText('game.undercover.voteToEliminate')
-    expect(confirmButton).toBeDisabled()
+  it('confirms the vote once a name is chosen', () => {
+    const onConfirmVote = vi.fn()
+    render(<VotingPhase {...defaultProps} selectedVote="u2" onConfirmVote={onConfirmVote} />)
+    fireEvent.click(screen.getByRole('button', { name: 'game.undercover.voteToEliminate' }))
+    expect(onConfirmVote).toHaveBeenCalledOnce()
   })
 
-  it('vote confirm button enabled when selectedVote set', () => {
-    render(<VotingPhase {...defaultProps} selectedVote="u2" />)
-    const confirmButton = screen.getByText('game.undercover.voteToEliminate')
-    expect(confirmButton).not.toBeDisabled()
+  it('after voting: says for whom, then exactly one "waiting" line, and no candidates', () => {
+    render(<VotingPhase {...defaultProps} hasVoted={true} selectedVote="u2" votedPlayers={['u1']} />)
+    expect(screen.getByText('game.undercover.votedFor')).toBeInTheDocument()
+    expect(screen.getAllByText('game.undercover.waitingForVotes')).toHaveLength(1)
+    expect(candidateButtons()).toHaveLength(0)
   })
 
-  it('hides player grid when dead (isAlive=false)', () => {
-    const { container } = render(<VotingPhase {...defaultProps} isAlive={false} />)
-    expect(container.querySelector('.grid')).not.toBeInTheDocument()
+  it('an eliminated player sees the notice, never the candidates', () => {
+    render(<VotingPhase {...defaultProps} isAlive={false} />)
+    expect(screen.getByTestId('you-are-eliminated')).toHaveTextContent('game.undercover.youAreDead')
+    expect(candidateButtons()).toHaveLength(0)
+    expect(screen.queryByRole('button', { name: 'game.undercover.voteToEliminate' })).not.toBeInTheDocument()
+  })
+
+  it('a spectator watches: no candidates, no "eliminated" notice', () => {
+    render(<VotingPhase {...defaultProps} isAlive={true} isSpectator={true} currentUserId="s1" />)
+    expect(candidateButtons()).toHaveLength(0)
+    expect(screen.queryByTestId('you-are-eliminated')).not.toBeInTheDocument()
+    expect(screen.getByText('game.undercover.spectatorVoting')).toBeInTheDocument()
+  })
+
+  it('asks only those who can still vote to choose a name', () => {
+    const { rerender } = render(<VotingPhase {...defaultProps} />)
+    expect(screen.getByText('game.undercover.selectPlayerToVote')).toBeInTheDocument()
+    rerender(<VotingPhase {...defaultProps} isAlive={false} />)
+    expect(screen.queryByText('game.undercover.selectPlayerToVote')).not.toBeInTheDocument()
+    rerender(<VotingPhase {...defaultProps} isSpectator={true} currentUserId="s1" />)
+    expect(screen.queryByText('game.undercover.selectPlayerToVote')).not.toBeInTheDocument()
+    rerender(<VotingPhase {...defaultProps} hasVoted={true} votedPlayers={['u1']} />)
+    expect(screen.queryByText('game.undercover.selectPlayerToVote')).not.toBeInTheDocument()
+  })
+
+  it('counts the votes among the living, never naming a target', () => {
+    render(<VotingPhase {...defaultProps} votedPlayers={['u2', 'u3']} />)
+    expect(screen.getByText('game.undercover.votesCast')).toBeInTheDocument()
+  })
+
+  it('lists the table once: the seats themselves are the candidates (no second grid)', () => {
+    render(<VotingPhase {...defaultProps} eliminated={[{ user_id: 'u4', role: 'undercover' }]} />)
+    expect(screen.getAllByRole('list')).toHaveLength(1)
+    const list = screen.getByRole('list', { name: 'game.undercover.descriptionOrder' })
+    // every seat once: you, the two candidates, and the emptied seat with its role
+    expect(list.querySelectorAll('li')).toHaveLength(4)
+    expect(list).toHaveTextContent('game.eliminated · games.undercover.roles.undercover')
+  })
+
+  it('says on each living seat whether it has voted, never for whom', () => {
+    render(<VotingPhase {...defaultProps} hasVoted selectedVote="u2" votedPlayers={['u1', 'u3']} />)
+    const list = screen.getByRole('list', { name: 'game.undercover.descriptionOrder' })
+    expect(list.querySelectorAll('li')[0]).toHaveTextContent('game.undercover.hasVoted')
+    expect(list.querySelectorAll('li')[1]).toHaveTextContent('game.undercover.notVotedYet')
   })
 })

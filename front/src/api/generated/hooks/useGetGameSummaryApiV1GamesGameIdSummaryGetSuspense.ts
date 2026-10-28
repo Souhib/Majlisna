@@ -9,6 +9,7 @@ import fetch from "@/api/client";
 import type {
   GetGameSummaryApiV1GamesGameIdSummaryGetQueryResponse,
   GetGameSummaryApiV1GamesGameIdSummaryGetPathParams,
+  GetGameSummaryApiV1GamesGameIdSummaryGetQueryParams,
   GetGameSummaryApiV1GamesGameIdSummaryGet404,
   GetGameSummaryApiV1GamesGameIdSummaryGet422,
 } from "../types/GetGameSummaryApiV1GamesGameIdSummaryGet.ts";
@@ -21,13 +22,15 @@ import type {
 } from "@tanstack/react-query";
 import { queryOptions, useSuspenseQuery } from "@tanstack/react-query";
 
-export const getGameSummaryApiV1GamesGameIdSummaryGetSuspenseQueryKey = ({
-  game_id,
-}: {
-  game_id: GetGameSummaryApiV1GamesGameIdSummaryGetPathParams["game_id"];
-}) =>
+export const getGameSummaryApiV1GamesGameIdSummaryGetSuspenseQueryKey = (
+  {
+    game_id,
+  }: { game_id: GetGameSummaryApiV1GamesGameIdSummaryGetPathParams["game_id"] },
+  params: GetGameSummaryApiV1GamesGameIdSummaryGetQueryParams = {},
+) =>
   [
     { url: "/api/v1/games/:game_id/summary", params: { game_id: game_id } },
+    ...(params ? [params] : []),
   ] as const;
 
 export type GetGameSummaryApiV1GamesGameIdSummaryGetSuspenseQueryKey =
@@ -37,6 +40,7 @@ export type GetGameSummaryApiV1GamesGameIdSummaryGetSuspenseQueryKey =
  * @description Get a detailed game summary with players, roles, and history.
  * Participants only, and only once the game is over — the payload contains
  * every role and the secret words (see ``GameController.get_game_summary``).
+ * The words' meanings (`*_hint`, `hint`) are resolved in `lang`.
  * @summary Get Game Summary
  * {@link /api/v1/games/:game_id/summary}
  */
@@ -44,6 +48,7 @@ export async function getGameSummaryApiV1GamesGameIdSummaryGetSuspense(
   {
     game_id,
   }: { game_id: GetGameSummaryApiV1GamesGameIdSummaryGetPathParams["game_id"] },
+  params?: GetGameSummaryApiV1GamesGameIdSummaryGetQueryParams,
   config: Partial<RequestConfig> & { client?: Client } = {},
 ) {
   const { client: request = fetch, ...requestConfig } = config;
@@ -58,6 +63,7 @@ export async function getGameSummaryApiV1GamesGameIdSummaryGetSuspense(
   >({
     method: "GET",
     url: `/api/v1/games/${game_id}/summary`,
+    params,
     ...requestConfig,
   });
   return res.data;
@@ -67,11 +73,13 @@ export function getGameSummaryApiV1GamesGameIdSummaryGetSuspenseQueryOptions(
   {
     game_id,
   }: { game_id: GetGameSummaryApiV1GamesGameIdSummaryGetPathParams["game_id"] },
+  params?: GetGameSummaryApiV1GamesGameIdSummaryGetQueryParams,
   config: Partial<RequestConfig> & { client?: Client } = {},
 ) {
-  const queryKey = getGameSummaryApiV1GamesGameIdSummaryGetSuspenseQueryKey({
-    game_id,
-  });
+  const queryKey = getGameSummaryApiV1GamesGameIdSummaryGetSuspenseQueryKey(
+    { game_id },
+    params,
+  );
   return queryOptions<
     GetGameSummaryApiV1GamesGameIdSummaryGetQueryResponse,
     ResponseErrorConfig<
@@ -87,6 +95,7 @@ export function getGameSummaryApiV1GamesGameIdSummaryGetSuspenseQueryOptions(
       config.signal = signal;
       return getGameSummaryApiV1GamesGameIdSummaryGetSuspense(
         { game_id },
+        params,
         config,
       );
     },
@@ -97,6 +106,7 @@ export function getGameSummaryApiV1GamesGameIdSummaryGetSuspenseQueryOptions(
  * @description Get a detailed game summary with players, roles, and history.
  * Participants only, and only once the game is over — the payload contains
  * every role and the secret words (see ``GameController.get_game_summary``).
+ * The words' meanings (`*_hint`, `hint`) are resolved in `lang`.
  * @summary Get Game Summary
  * {@link /api/v1/games/:game_id/summary}
  */
@@ -108,6 +118,7 @@ export function useGetGameSummaryApiV1GamesGameIdSummaryGetSuspense<
   {
     game_id,
   }: { game_id: GetGameSummaryApiV1GamesGameIdSummaryGetPathParams["game_id"] },
+  params?: GetGameSummaryApiV1GamesGameIdSummaryGetQueryParams,
   options: {
     query?: Partial<
       UseSuspenseQueryOptions<
@@ -127,12 +138,16 @@ export function useGetGameSummaryApiV1GamesGameIdSummaryGetSuspense<
   const { client: queryClient, ...queryOptions } = queryConfig;
   const queryKey =
     queryOptions?.queryKey ??
-    getGameSummaryApiV1GamesGameIdSummaryGetSuspenseQueryKey({ game_id });
+    getGameSummaryApiV1GamesGameIdSummaryGetSuspenseQueryKey(
+      { game_id },
+      params,
+    );
 
   const query = useSuspenseQuery(
     {
       ...getGameSummaryApiV1GamesGameIdSummaryGetSuspenseQueryOptions(
         { game_id },
+        params,
         config,
       ),
       queryKey,

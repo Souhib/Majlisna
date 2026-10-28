@@ -3,38 +3,93 @@
   <head>
     <meta charset="UTF-8" />
 
-    <!-- Favicon -->
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🕌</text></svg>" />
+    <!-- Icons: the halqa (a ring of seats, the host's lozenge at the head). SVG first,
+         ICO for old browsers, a full-bleed PNG for iOS home screens. -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
 
     <!-- Primary Meta Tags -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5" />
-    <title>Majlisna - Islamic Party Games</title>
-    <meta name="title" content="Majlisna - Islamic Party Games" />
-    <meta name="description" content="Play Islamized versions of your favorite party games online with friends. Undercover, Codenames, and more!" />
+    <title>Majlisna · Islamic party games</title>
+    <meta name="title" content="Majlisna · Islamic party games" />
+    <meta name="description" content="The evening majlis of riddles: play Undercover, Codenames, Kalimat and the Quiz with friends on your phones, every word an Islamic term, in English, French or Arabic." />
 
     <!-- Open Graph / Facebook -->
     <meta property="og:type" content="website" />
-    <meta property="og:title" content="Majlisna - Islamic Party Games" />
-    <meta property="og:description" content="Play Islamized versions of your favorite party games online with friends." />
+    <meta property="og:site_name" content="Majlisna" />
+    <meta property="og:url" content="https://majlisna.app/" />
+    <meta property="og:title" content="Majlisna · The night is for riddles" />
+    <meta property="og:description" content="Undercover, Codenames, Kalimat and the Quiz: Islamic party games for one table, in English, French and Arabic." />
+    <meta property="og:image" content="https://majlisna.app/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="مجلسنا, Majlisna: the name lying on the horizon of a night sky over the AlUla mesas." />
 
     <!-- Twitter -->
-    <meta property="twitter:card" content="summary_large_image" />
-    <meta property="twitter:title" content="Majlisna - Islamic Party Games" />
-    <meta property="twitter:description" content="Play Islamized versions of your favorite party games online with friends." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Majlisna · The night is for riddles" />
+    <meta name="twitter:description" content="Undercover, Codenames, Kalimat and the Quiz: Islamic party games for one table, in English, French and Arabic." />
+    <meta name="twitter:image" content="https://majlisna.app/og-image.png" />
+    <meta name="twitter:image:alt" content="مجلسنا, Majlisna: the name lying on the horizon of a night sky over the AlUla mesas." />
 
-    <!-- Mobile Web App / PWA -->
-    <meta name="theme-color" content="#2d6a4f" />
+    <!-- Mobile Web App / PWA. The bar colour follows the light (the nav's ground);
+         the script below pins it when a stored choice overrides the system one. -->
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#1c1611" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#fefefc" />
+    <meta name="color-scheme" content="dark light" />
     <meta name="application-name" content="Majlisna" />
     <link rel="manifest" href="/manifest.json" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Majlisna" />
-    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
 
-    <!-- Google Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@200..800&display=swap" rel="stylesheet" />
+    <!-- Fonts are self-hosted (src/fonts.ts): the CSP allows no font CDN. -->
+
+    <!-- Theme before first paint: same storage key and rule as ThemeProvider, so the
+         page never flashes the wrong light. The class drives Tailwind's dark variant,
+         data-theme drives the Samar tokens. On the home page it also preloads the one
+         sky the hero will draw (night or afternoon, phone / tablet / desktop crop):
+         the same files, sizes and breakpoints as the <picture> in HomeHero.tsx. -->
+    <script>
+      (function () {
+        var t = null;
+        try { t = localStorage.getItem('majlisna-theme'); } catch (e) {}
+        var stored = t === 'light' || t === 'dark';
+        if (!stored) {
+          t = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+        var r = document.documentElement;
+        r.classList.add(t);
+        r.setAttribute('data-theme', t);
+        if (stored) {
+          var metas = document.querySelectorAll('meta[name="theme-color"]');
+          for (var i = 0; i < metas.length; i++) {
+            metas[i].removeAttribute('media');
+            metas[i].setAttribute('content', t === 'dark' ? '#1c1611' : '#fefefc');
+          }
+        }
+        if (location.pathname === '/') {
+          var sky = '/sky/' + (t === 'light' ? 'sky-asr' : 'sky-maghrib');
+          var preload = function (href, media, srcset) {
+            var l = document.createElement('link');
+            l.rel = 'preload';
+            l.as = 'image';
+            l.href = href;
+            l.media = media;
+            if (srcset) {
+              l.setAttribute('imagesrcset', srcset);
+              l.setAttribute('imagesizes', '100vw');
+            }
+            l.setAttribute('fetchpriority', 'high');
+            document.head.appendChild(l);
+          };
+          preload(sky + '.1600.webp', '(min-width: 1101px)', sky + '.1600.webp 1600w, ' + sky + '.2400.webp 2400w');
+          preload(sky + '.tab1600.webp', '(min-width: 761px) and (max-width: 1100px)');
+          preload(sky + '.800.webp', '(max-width: 760px)', sky + '.800.webp 800w, ' + sky + '.1000.webp 1000w');
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

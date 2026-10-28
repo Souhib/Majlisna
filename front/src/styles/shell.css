@@ -1,0 +1,597 @@
+/* ============================================================================
+   The shell: the nav (Qandil's gold-on-espresso bar), the language switch, the
+   prayer chip, and the footer. Ported from the Samar sketch (`.nav`, `.lockup`,
+   `.prayer`, `.langs`, `.iconbtn`). Markup: components/layout/*.
+
+   Show/hide per breakpoint is done with Tailwind classes in the markup, never here:
+   a utility (`inline-flex` on a Button) sits in a later layer and would beat a
+   `display: none` written in this one.
+   ============================================================================ */
+
+@layer components {
+  /* --- the bar --------------------------------------------------------------- */
+  .samar-nav {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    --lockup-size: 32px;
+    --nav-dim: var(--text-muted);
+    /* off the hero: an espresso ground (surface + paper grain) */
+    background-color: var(--surface);
+    background-image: var(--grain);
+    background-size: 240px;
+    background-blend-mode: soft-light;
+    transition: background-color var(--dur-state) var(--ease-out);
+  }
+  /* over the home sky, until the page scrolls: no ground at all */
+  .samar-nav[data-over-sky="true"] {
+    background-color: transparent;
+    background-image: none;
+  }
+  /* links stay legible over the Milky Way (night) and the peach sky (afternoon) */
+  :root[data-theme="dark"] .samar-nav[data-over-sky="true"] {
+    --nav-dim: oklch(0.86 0.03 80);
+  }
+  :root[data-theme="light"] .samar-nav[data-over-sky="true"] {
+    --nav-dim: var(--text);
+  }
+
+  .samar-nav-row {
+    position: relative;
+    width: 100%;
+    max-width: calc(var(--maxw) + 2 * var(--gutter));
+    height: var(--navh);
+    margin-inline: auto;
+    padding-inline: var(--gutter);
+    display: flex;
+    align-items: center;
+    gap: clamp(20px, 2.6vw, 40px);
+  }
+  /* Qandil's rule: one brass hairline under the bar, broken once by a lozenge */
+  .samar-nav-row::after {
+    content: "";
+    position: absolute;
+    inset-inline: var(--gutter);
+    bottom: 0;
+    height: 1px;
+    background: linear-gradient(
+      90deg,
+      var(--line-brass) calc(50% - 12px),
+      transparent calc(50% - 12px) calc(50% + 12px),
+      var(--line-brass) calc(50% + 12px)
+    );
+    pointer-events: none;
+  }
+  .samar-nav-row::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    bottom: -3px;
+    width: 7px;
+    height: 7px;
+    margin-left: -3.5px;
+    rotate: 45deg;
+    background: var(--brass);
+    pointer-events: none;
+  }
+
+  .nav-lockup {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    color: var(--lockup);
+    text-decoration: none;
+    border-radius: 2px;
+  }
+
+  .nav-links ul {
+    display: flex;
+    gap: clamp(16px, 2vw, 28px);
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    font: 400 14.5px / 1 var(--f-ui);
+  }
+  html[dir="rtl"] .nav-links ul {
+    font-size: 15.5px;
+  }
+  .nav-links a {
+    position: relative;
+    display: inline-block;
+    padding-block: 8px;
+    color: var(--nav-dim);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: color var(--dur-state) var(--ease-out);
+  }
+  .nav-links a:hover,
+  .nav-links a[aria-current="page"] {
+    color: var(--text);
+  }
+  .nav-links a[aria-current="page"]::after {
+    content: "";
+    position: absolute;
+    inset-inline: 0;
+    bottom: -1px;
+    height: 1.5px;
+    background: var(--brass);
+  }
+
+  .nav-end {
+    margin-inline-start: auto;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    font: 400 14px / 1 var(--f-ui);
+  }
+  .nav-end > * {
+    flex: none;
+    white-space: nowrap;
+  }
+  .nav-login {
+    color: var(--text);
+    text-decoration: none;
+    padding-block: 10px;
+  }
+  .nav-login:hover {
+    text-decoration: underline;
+    text-decoration-color: var(--line-brass-strong);
+    text-underline-offset: 6px;
+  }
+
+  /* --- the prayer chip ------------------------------------------------------ */
+  .prayer-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 34px;
+    padding: 0 12px;
+    border: 1px solid var(--line-brass);
+    border-radius: 2px;
+    background: transparent;
+    color: var(--nav-dim, var(--text-muted));
+    font: 400 14px / 1 var(--f-ui);
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+      border-color var(--dur-state) var(--ease-out),
+      background-color var(--dur-state) var(--ease-out);
+  }
+  .prayer-chip:hover,
+  .prayer-chip[data-state="open"] {
+    border-color: var(--line-brass-strong);
+    background-color: color-mix(in oklch, var(--brass) 8%, transparent);
+  }
+  .prayer-chip > svg {
+    width: 18px;
+    height: 18px;
+    color: var(--brass);
+  }
+  .prayer-chip b {
+    font-weight: 500;
+    color: var(--text);
+  }
+  /* No city yet: "Horaires de prière" is longer than "Maghrib 18:42", so the label
+     gives way earlier (the French signed-out row is 1 px too wide at 1361). */
+  @media (max-width: 1440px) {
+    .samar-nav .prayer-chip[data-fallback] .pn {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+  }
+  @media (max-width: 1360px) {
+    .samar-nav .prayer-chip .pn {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+  }
+
+  /* the six times inside the popover */
+  .prayer-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .prayer-grid > li {
+    display: grid;
+    gap: 3px;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    background: var(--surface);
+  }
+  .prayer-grid > li[data-next="true"] {
+    border-color: var(--line-brass-strong);
+    background: color-mix(in oklch, var(--brass) 8%, var(--surface));
+  }
+  .prayer-grid .pname {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font: 400 12.5px / 1.25 var(--f-ui);
+    color: var(--text-muted);
+  }
+  .prayer-grid .ptime {
+    font: 500 15px / 1.2 var(--f-ui);
+    font-variant-numeric: tabular-nums lining-nums;
+    color: var(--text);
+    direction: ltr;
+    text-align: start;
+    unicode-bidi: isolate;
+  }
+
+  /* --- the language switch: EN FR ع ---------------------------------------- */
+  .lang-switch {
+    display: inline-flex;
+    gap: 2px;
+  }
+  .lang-switch > button {
+    display: inline-grid;
+    place-items: center;
+    min-width: 32px;
+    height: 30px;
+    padding: 0 8px;
+    border: 0;
+    border-radius: 2px;
+    background: none;
+    color: var(--nav-dim, var(--text-muted));
+    font: 400 14px / 1 var(--f-ui);
+    cursor: pointer;
+    transition: color var(--dur-state) var(--ease-out);
+  }
+  .lang-switch > button:hover,
+  .lang-switch > button[aria-pressed="true"] {
+    color: var(--text);
+  }
+  .lang-switch > button[aria-pressed="true"] {
+    box-shadow: inset 0 0 0 1px var(--line-brass);
+  }
+  .lang-switch[data-variant="short"] > button[lang="ar"] {
+    font-size: 16px;
+    padding-block-end: 5px;
+  }
+  /* in the menu sheet: three equal segments, names in full */
+  .lang-switch[data-variant="full"] {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0;
+    border: 1px solid var(--line-brass);
+    border-radius: 2px;
+  }
+  .lang-switch[data-variant="full"] > button {
+    height: 44px;
+    font-size: 15px;
+    color: var(--text-muted);
+    border-inline-start: 1px solid var(--line-brass);
+    border-radius: 0;
+  }
+  .lang-switch[data-variant="full"] > button:first-child {
+    border-inline-start: 0;
+  }
+  .lang-switch[data-variant="full"] > button[aria-pressed="true"] {
+    color: var(--text);
+    background: var(--surface);
+    box-shadow: inset 0 -2px 0 var(--primary);
+  }
+  .lang-switch[data-variant="full"] > button[lang="ar"] {
+    font-size: 17px;
+  }
+
+  /* --- the square icon button (theme) ---------------------------------------- */
+  .nav-iconbtn {
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    border: 1px solid var(--line-brass);
+    border-radius: 2px;
+    background: transparent;
+    color: var(--text);
+    cursor: pointer;
+    transition:
+      border-color var(--dur-state) var(--ease-out),
+      background-color var(--dur-state) var(--ease-out);
+  }
+  .nav-iconbtn:hover {
+    border-color: var(--line-brass-strong);
+    background-color: color-mix(in oklch, var(--brass) 10%, transparent);
+  }
+  .nav-iconbtn > svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  /* --- the account trigger ---------------------------------------------------- */
+  .nav-account {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 40px;
+    padding-inline: 3px 8px;
+    border: 1px solid transparent;
+    border-radius: 2px;
+    background: transparent;
+    color: var(--text);
+    font: 400 14px / 1 var(--f-ui);
+    cursor: pointer;
+    transition:
+      border-color var(--dur-state) var(--ease-out),
+      background-color var(--dur-state) var(--ease-out);
+  }
+  .nav-account:hover,
+  .nav-account[data-state="open"] {
+    border-color: var(--line-brass);
+    background-color: color-mix(in oklch, var(--brass) 8%, transparent);
+  }
+  .nav-account .name {
+    max-width: 11ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .nav-account > svg {
+    width: 14px;
+    height: 14px;
+    color: var(--text-muted);
+  }
+
+  /* touch screens wide enough for the full bar (a tablet in landscape) */
+  @media (pointer: coarse) {
+    .samar-nav .nav-lockup,
+    .samar-footer .nav-lockup {
+      min-height: 44px;
+    }
+    .samar-nav .lang-switch > button {
+      min-width: 44px;
+      height: 44px;
+    }
+    .samar-nav .nav-iconbtn {
+      width: 44px;
+      height: 44px;
+    }
+    .samar-nav .prayer-chip,
+    .samar-nav .nav-account {
+      height: 44px;
+    }
+  }
+
+  @media (min-width: 2200px) {
+    .samar-nav {
+      --lockup-size: 38px;
+    }
+    .samar-nav .nav-lockup [lang="en"] {
+      font-size: 14px;
+      height: 20px;
+    }
+    .nav-links ul {
+      font-size: 16.5px;
+    }
+    .nav-end,
+    .nav-end .prayer-chip,
+    .nav-end .lang-switch > button,
+    .nav-end .nav-account {
+      font-size: 16px;
+    }
+  }
+  @media (max-width: 1360px) {
+    .nav-links ul {
+      gap: 18px;
+    }
+  }
+  /* just above the collapse, French and Arabic labels are longer: draw the row tighter */
+  @media (max-width: 1260px) {
+    .samar-nav-row {
+      gap: 18px;
+    }
+    .nav-links ul {
+      gap: 14px;
+    }
+    .nav-end {
+      gap: 12px;
+    }
+  }
+  @media (max-width: 760px) {
+    .samar-nav {
+      --lockup-size: 30px;
+    }
+    .samar-nav-row {
+      gap: 12px;
+    }
+  }
+
+  /* --- the menu sheet (≤ 1180 px) -------------------------------------------- */
+  .menu-links {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border-block-start: 1px solid var(--line);
+  }
+  .menu-links a {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 52px;
+    padding-inline: 4px;
+    border-block-end: 1px solid var(--line);
+    color: var(--text);
+    font: 400 18px / 1.2 var(--f-ui);
+    text-decoration: none;
+  }
+  html[dir="rtl"] .menu-links a {
+    font-size: 19px;
+  }
+  .menu-links a::before {
+    content: "";
+    flex: none;
+    width: 7px;
+    height: 7px;
+    rotate: 45deg;
+    border: 1px solid var(--line-brass-strong);
+  }
+  .menu-links a[aria-current="page"]::before {
+    background: var(--brass);
+    border-color: var(--brass);
+  }
+  .menu-links a:hover {
+    background: color-mix(in oklch, var(--brass) 8%, transparent);
+  }
+  .menu-group-label {
+    font: 500 13px / 1.2 var(--f-ui);
+    color: var(--text-muted);
+    margin-block-end: 8px;
+  }
+
+  /* --- the footer: a quiet colophon ------------------------------------------ */
+  .samar-footer {
+    position: relative;
+    background: var(--bg-deep);
+    color: var(--text-muted);
+    font: 400 14px / 1.6 var(--f-ui);
+  }
+  .samar-footer-inner {
+    position: relative;
+    width: 100%;
+    max-width: calc(var(--maxw) + 2 * var(--gutter));
+    margin-inline: auto;
+    padding: clamp(48px, 6vw, 80px) var(--gutter) clamp(28px, 3vw, 40px);
+    display: grid;
+    justify-items: center;
+    gap: 22px;
+    text-align: center;
+  }
+  /* the same rule as the nav's, at the top edge */
+  .samar-footer-inner::before {
+    content: "";
+    position: absolute;
+    inset-inline: var(--gutter);
+    top: 0;
+    height: 1px;
+    background: linear-gradient(
+      90deg,
+      var(--line-brass) calc(50% - 12px),
+      transparent calc(50% - 12px) calc(50% + 12px),
+      var(--line-brass) calc(50% + 12px)
+    );
+  }
+  .samar-footer-inner::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: -3px;
+    width: 7px;
+    height: 7px;
+    margin-left: -3.5px;
+    rotate: 45deg;
+    background: var(--brass);
+  }
+  .samar-footer a {
+    color: inherit;
+    text-decoration: none;
+    border-radius: 2px;
+  }
+  .samar-footer a:hover {
+    color: var(--text);
+    text-decoration: underline;
+    text-decoration-color: var(--line-brass-strong);
+    text-underline-offset: 5px;
+  }
+  .footer-tagline {
+    max-width: 52ch;
+    text-wrap: pretty;
+  }
+  /* rows of links set off by small brass lozenges */
+  .footer-row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    gap: 6px 0;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .footer-row > li {
+    display: inline-flex;
+    align-items: center;
+  }
+  .footer-row > li + li::before {
+    content: "";
+    width: 4px;
+    height: 4px;
+    margin-inline: 14px;
+    rotate: 45deg;
+    background: var(--brass);
+    opacity: 0.8;
+  }
+  .footer-row a {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 32px;
+  }
+  .footer-pages {
+    color: var(--text);
+    font-size: 15px;
+  }
+  .footer-label {
+    color: var(--text-muted);
+    margin-inline-end: 12px;
+  }
+  .footer-social {
+    display: inline-flex;
+    gap: 6px;
+    margin-inline-start: 14px;
+  }
+  .footer-social a {
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    border: 1px solid var(--line);
+  }
+  .footer-social a:hover {
+    border-color: var(--line-brass-strong);
+    text-decoration: none;
+  }
+  .footer-social svg {
+    width: 16px;
+    height: 16px;
+  }
+  .footer-small {
+    font-size: 12.5px;
+    line-height: 1.5;
+  }
+  /* phones: the pages as a small grid, no separators left dangling at a line start */
+  @media (max-width: 600px) {
+    .footer-row.footer-pages {
+      display: grid;
+      grid-template-columns: repeat(3, auto);
+      justify-content: center;
+      gap: 2px 22px;
+    }
+    .footer-row.footer-pages > li + li::before {
+      display: none;
+    }
+  }
+  @media (pointer: coarse) {
+    .footer-row a {
+      min-height: 44px;
+      min-width: 44px;
+      justify-content: center;
+    }
+    .footer-social a {
+      width: 44px;
+      height: 44px;
+    }
+  }
+}

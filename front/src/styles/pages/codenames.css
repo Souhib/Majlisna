@@ -1,0 +1,627 @@
+/* ============================================================================
+   Codenames (sketch C, the operative's board; sketch D, the spymaster's phone;
+   sketch H, the colophon). Markup: routes/_auth/game/codenames.$gameId.tsx and
+   components/games/codenames/*.
+
+   A card is cloth. Face down it is the bare card with bare warp at its edge; turned
+   over it is dyed in its team's wool and its selvedge is woven: madder with the
+   teeth (▲), indigo with the eye (◆), the bystander in plain weave (▬), the assassin
+   in black cloth with an ember edge (crossed ◇). A team is ALWAYS colour + glyph +
+   selvedge. The spymaster's key shows the glyph and the woven edge on the bare card.
+
+   The board keeps one left-to-right order in every language, so players at a mixed
+   table point at the same card ("the top-left one"); inside each card the text
+   follows the interface (Arabic leads in the Arabic interface).
+   ============================================================================ */
+
+@layer components {
+  /* --- page layout ------------------------------------------------------------ */
+  .cn-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "board" "side";
+    gap: 20px;
+    max-width: 1500px;
+    margin-inline: auto;
+  }
+  .cn-layout[data-finished="true"] {
+    grid-template-areas: "colophon" "board" "side";
+    gap: 28px;
+  }
+  .cn-area-board {
+    grid-area: board;
+    min-width: 0;
+  }
+  .cn-area-side {
+    grid-area: side;
+    min-width: 0;
+    display: grid;
+    gap: 20px;
+    align-content: start;
+  }
+  .cn-area-colophon {
+    grid-area: colophon;
+    min-width: 0;
+  }
+  @media (min-width: 1100px) {
+    .cn-layout {
+      grid-template-columns: minmax(0, 1fr) clamp(300px, 24vw, 380px);
+      grid-template-areas: "board side";
+      gap: 28px;
+      align-items: start;
+    }
+    .cn-layout[data-finished="true"] {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 520px);
+      grid-template-rows: auto 1fr;
+      grid-template-areas: "board colophon" "side colophon";
+      row-gap: 24px;
+    }
+    .cn-layout[data-finished="true"] .cn-area-side {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      align-items: start;
+    }
+    .cn-area-colophon {
+      position: sticky;
+      top: calc(var(--navh) + 16px);
+    }
+  }
+
+  /* --- header: name, who you are, the clock; the teams and whose turn ----------
+     One wrapping row with a forced break. Phones (sketch D): name + clock, then the
+     chips + whose turn. From 640 px (sketch C): name + chips, then whose turn + clock. */
+  .cn-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px 14px;
+    margin-block-end: 14px;
+  }
+  .cn-head-title {
+    order: 1;
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  .cn-head-clock {
+    order: 2;
+    flex: none;
+    width: 118px;
+  }
+  .cn-head-clock:empty {
+    display: none;
+  }
+  .cn-head-break {
+    order: 3;
+    flex-basis: 100%;
+    height: 0;
+  }
+  .cn-head-teams {
+    order: 4;
+    flex: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .cn-head-status {
+    order: 5;
+    flex: 1 1 0;
+    min-width: 0;
+    justify-content: flex-end;
+    text-align: end;
+  }
+  @media (min-width: 640px) {
+    .cn-head {
+      gap: 14px 24px;
+    }
+    .cn-head-teams {
+      order: 2;
+    }
+    .cn-head-status {
+      order: 4;
+      justify-content: flex-start;
+      text-align: start;
+    }
+    .cn-head-clock {
+      order: 5;
+      width: min(380px, 34vw);
+    }
+  }
+
+  /* --- the clue on the table --------------------------------------------------- */
+  .cn-clue {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 6px 14px;
+    padding: 10px 12px;
+    border: 1px solid var(--line-brass);
+    border-radius: 2px;
+    background: var(--surface-2);
+    margin-block-end: 12px;
+  }
+  @media (min-width: 640px) {
+    .cn-clue {
+      padding: 12px 16px;
+    }
+  }
+  .cn-clue[data-waiting="true"] {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .cn-clue-word {
+    font-family: var(--f-display);
+    font-weight: 400;
+    font-size: clamp(20px, 2vw, 30px);
+    line-height: 1.1;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    overflow-wrap: anywhere;
+  }
+  /* a clue written in Arabic is a player's hand: Aref Ruqaa, never letter-spaced */
+  .cn-clue-word[data-script="ar"] {
+    font-family: var(--f-hand);
+    font-weight: 700;
+    letter-spacing: 0;
+    text-transform: none;
+    line-height: 1.35;
+  }
+  .cn-clue-n {
+    font: 600 clamp(20px, 1.6vw, 24px) / 1 var(--f-ui);
+    font-variant-numeric: tabular-nums lining-nums;
+    color: var(--brass);
+  }
+  .cn-clue-rest {
+    text-align: end;
+    font: 400 12.5px / 1.4 var(--f-ui);
+    color: var(--text-muted);
+  }
+  .cn-clue[data-waiting="true"] {
+    border-style: dashed;
+    background: var(--surface);
+  }
+
+  /* --- the board ----------------------------------------------------------------- */
+  .cn-board-wrap {
+    container-type: inline-size;
+  }
+  .cn-board {
+    --cn-gap: 6px;
+    /* one card's width, from the board's own width */
+    --cw: calc((100cqi - 4 * var(--cn-gap)) / 5);
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: var(--cn-gap);
+  }
+  @media (min-width: 640px) {
+    .cn-board {
+      --cn-gap: 8px;
+    }
+  }
+  @media (min-width: 1280px) {
+    .cn-board {
+      --cn-gap: 10px;
+    }
+  }
+
+  .cn-card {
+    --cn-sel: 8px;
+    --cn-top: clamp(17px, calc(var(--cw) * 0.13), 22px);
+    --lat-max: clamp(11.5px, calc(var(--cw) * 0.05 + 9.2px), 20px);
+    --ar-max: clamp(15px, calc(var(--cw) * 0.065 + 11px), 26px);
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-width: 0;
+    min-height: max(64px, calc(var(--cw) / 1.5));
+    padding: var(--cn-top) 3px calc(var(--cn-sel) + 5px);
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    background: var(--card);
+    color: var(--text);
+    text-align: center;
+    font-family: var(--f-ui);
+    cursor: default;
+    -webkit-tap-highlight-color: transparent;
+    transition:
+      background-color var(--dur-authored) var(--ease-ink),
+      color var(--dur-authored) var(--ease-ink),
+      border-color var(--dur-state) var(--ease-out),
+      translate var(--dur-tap) var(--ease-out);
+  }
+  /* the selvedge: bare warp until the card is turned or keyed */
+  .cn-card::after {
+    content: "";
+    position: absolute;
+    inset-inline: 0;
+    bottom: 0;
+    height: var(--cn-sel);
+    background: repeating-linear-gradient(90deg, var(--warp) 0 1px, transparent 1px 5px);
+    background-position: left center;
+    pointer-events: none;
+  }
+  .cn-card[dir="rtl"]::after {
+    background-position: right center;
+  }
+
+  .cn-words {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    max-width: 100%;
+    min-width: 0;
+  }
+  /* Sized to fit the card: --em is the width of the word's longest unbreakable piece in
+     Readex 600 (components/games/codenames/model.ts, fitLatin), so every word gets the
+     largest size its card allows, up to the role's size. */
+  .cn-lat {
+    max-width: 100%;
+    font-weight: 600;
+    font-size: max(9px, min(var(--lat-max), calc((var(--cw) - 10px) / var(--em, 4))));
+    line-height: 1.15;
+    letter-spacing: -0.005em;
+    -webkit-hyphens: auto;
+    hyphens: auto;
+    overflow-wrap: anywhere;
+  }
+  /* Amiri 700 measures at most ~0.5 em a letter on a whole word. An Arabic word is never
+     broken inside (its letters join): it only wraps between words. */
+  .cn-ar {
+    max-width: 100%;
+    font-family: var(--f-nass);
+    font-weight: 700;
+    font-size: max(12px, min(var(--ar-max), calc((var(--cw) - 10px) / (var(--seg, 4) * 0.5))));
+    /* room above for the hamza and harakat, below for the ي tail: never touches the Latin */
+    line-height: 1.25;
+    padding-block: 0.32em 0.12em;
+    color: var(--text-muted);
+    text-wrap: balance;
+  }
+  /* the Arabic interface: the Arabic word leads, the Latin follows smaller */
+  .cn-card[data-lead="ar"] .cn-ar {
+    order: -1;
+    color: inherit;
+    font-size: max(12px, min(calc(var(--ar-max) * 1.12), calc((var(--cw) - 10px) / (var(--seg, 4) * 0.5))));
+    padding-block: 0.22em 0.3em;
+  }
+  .cn-card[data-lead="ar"] .cn-lat {
+    font-weight: 500;
+    font-size: max(9px, min(calc(var(--lat-max) * 0.86), calc((var(--cw) - 10px) / var(--em, 4))));
+    opacity: 0.92;
+  }
+
+  .cn-glyph {
+    position: absolute;
+    inset-block-start: 5px;
+    inset-inline-start: 5px;
+    width: clamp(9px, calc(var(--cw) * 0.075), 12px);
+    height: clamp(9px, calc(var(--cw) * 0.075), 12px);
+  }
+
+  /* teammates pointing: initials, brass */
+  .cn-ptr {
+    position: absolute;
+    inset-block-start: 2px;
+    inset-inline-end: 2px;
+    display: flex;
+    gap: 2px;
+  }
+  .cn-ptr > span {
+    display: grid;
+    place-items: center;
+    min-width: 14px;
+    height: 14px;
+    padding-inline: 2px;
+    border-radius: 999px;
+    background: var(--brass);
+    color: var(--on-brass);
+    font: 600 8.5px / 1 var(--f-ui);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0;
+  }
+  @media (min-width: 640px) {
+    .cn-ptr {
+      inset-block-start: 4px;
+      inset-inline-end: 4px;
+    }
+    .cn-ptr > span {
+      min-width: 18px;
+      height: 18px;
+      font-size: 9.5px;
+    }
+  }
+
+  /* --- faces ---------------------------------------------------------------------- */
+  .cn-card[data-face="bare"] .cn-glyph {
+    display: none;
+  }
+
+  .cn-card[data-face="wool"] {
+    border-color: transparent;
+  }
+  .cn-card[data-face="wool"] .cn-ar {
+    color: inherit;
+  }
+  .cn-card[data-face="wool"][data-team="madder"] {
+    background: var(--wool-madder);
+    color: var(--wool-ink);
+  }
+  .cn-card[data-face="wool"][data-team="indigo"] {
+    background: var(--wool-indigo);
+    color: var(--wool-on-indigo);
+    box-shadow: inset 0 0 0 1px oklch(0.975 0.008 85 / 0.28);
+  }
+  .cn-card[data-face="wool"][data-team="bystander"] {
+    background: var(--bystander);
+    color: var(--on-bystander);
+  }
+  .cn-card[data-face="wool"][data-team="assassin"] {
+    background: var(--assassin);
+    color: oklch(0.92 0.02 80);
+    border: 1.5px solid var(--ember);
+  }
+  .cn-card[data-face="wool"][data-team="assassin"] .cn-ar {
+    color: oklch(0.8 0.03 75);
+  }
+
+  /* the key: a 7 % wash of the team's wool on the bare card */
+  .cn-card[data-face="key"][data-team="madder"] {
+    background: color-mix(in oklch, var(--card), var(--wool-madder) 7%);
+  }
+  .cn-card[data-face="key"][data-team="indigo"] {
+    background: color-mix(in oklch, var(--card), var(--wool-indigo) 7%);
+  }
+  .cn-card[data-face="key"] .cn-glyph {
+    color: var(--text-muted);
+  }
+  .cn-card[data-face="key"][data-team="assassin"] .cn-glyph {
+    color: var(--ember);
+  }
+
+  /* the woven selvedges */
+  .cn-card:is([data-face="wool"], [data-face="key"])[data-team="madder"]::after {
+    background: var(--band-teeth) left center / auto 100% repeat-x;
+  }
+  .cn-card:is([data-face="wool"], [data-face="key"])[data-team="indigo"]::after {
+    background: var(--band-ayn) left center / auto 100% repeat-x;
+  }
+  .cn-card:is([data-face="wool"], [data-face="key"])[data-team="bystander"]::after {
+    background: var(--band-plain) left center / auto 100% repeat-x;
+  }
+  .cn-card:is([data-face="wool"], [data-face="key"])[data-team="assassin"]::after {
+    background: var(--band-goat) left center / auto 100% repeat-x;
+  }
+  .cn-card[dir="rtl"]:is([data-face="wool"], [data-face="key"])::after {
+    background-position: right center;
+  }
+  /* a card turned while you watch: its selvedge is woven once, from the reading start */
+  .cn-card[data-fresh="true"]::after {
+    animation: cn-weave var(--dur-authored) var(--ease-ink) both;
+  }
+  .cn-card[dir="rtl"][data-fresh="true"]::after {
+    animation-name: cn-weave-rtl;
+  }
+
+  /* --- acting on a card ----------------------------------------------------------- */
+  .cn-card[data-act="vote"] {
+    cursor: pointer;
+  }
+  .cn-card[data-act="meaning"] {
+    cursor: pointer;
+  }
+  @media (hover: hover) {
+    .cn-card[data-act="vote"]:hover {
+      border-color: var(--line-brass-strong);
+      background: color-mix(in oklch, var(--card), var(--brass) 7%);
+    }
+    .cn-card[data-act="meaning"][data-face="bare"]:hover,
+    .cn-card[data-act="meaning"][data-face="key"]:hover {
+      border-color: var(--line-brass-strong);
+    }
+  }
+  .cn-card[data-act="vote"]:active {
+    translate: 0 1px;
+    transition-duration: var(--dur-tap);
+  }
+  /* teammates pointing: a dashed brass outline; your own choice: solid */
+  .cn-card[data-pointed="true"] {
+    outline: 1.5px dashed var(--brass);
+    outline-offset: 2px;
+  }
+  .cn-card[data-mine="true"] {
+    outline: 2px solid var(--brass);
+    outline-offset: 2px;
+  }
+  .cn-card[data-act]:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 3px;
+  }
+  @media (min-width: 640px) {
+    .cn-card[data-pointed="true"],
+    .cn-card[data-mine="true"] {
+      outline-offset: 3px;
+    }
+  }
+
+  /* --- the legend ------------------------------------------------------------------ */
+  .cn-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 18px;
+    margin-block-start: 14px;
+    font: 400 12.5px / 1.3 var(--f-ui);
+    color: var(--text-muted);
+  }
+  .cn-legend > li {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .cn-legend .sw {
+    width: 22px;
+    height: 12px;
+    border-radius: 1px;
+    flex: none;
+  }
+
+  /* --- the composer: one word and a count ------------------------------------------ */
+  .cn-count {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 6px;
+  }
+  .cn-count > button {
+    height: 44px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    background: var(--surface);
+    color: var(--text);
+    font: 500 15px / 1 var(--f-ui);
+    font-variant-numeric: tabular-nums lining-nums;
+    cursor: pointer;
+    transition:
+      background-color var(--dur-state) var(--ease-out),
+      border-color var(--dur-state) var(--ease-out),
+      color var(--dur-state) var(--ease-out);
+  }
+  @media (hover: hover) {
+    .cn-count > button:hover {
+      border-color: var(--line-brass-strong);
+    }
+  }
+  .cn-count > button[aria-pressed="true"] {
+    border-color: var(--primary);
+    background: var(--primary);
+    color: var(--on-primary);
+  }
+  .cn-count > button:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+
+  /* --- the end-of-game veil ---------------------------------------------------------- */
+  .cn-veil {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: grid;
+    place-items: center;
+    padding: 24px var(--gutter);
+    background: color-mix(in oklch, var(--bg) 95%, transparent);
+    animation: fade-in var(--dur-state) var(--ease-out) both;
+  }
+  .cn-veil-tile {
+    position: relative;
+    width: 96px;
+    height: 64px;
+    display: grid;
+    place-items: center;
+    padding-block-end: 8px;
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .cn-veil-tile::after {
+    content: "";
+    position: absolute;
+    inset-inline: 0;
+    bottom: 0;
+    height: 8px;
+  }
+  .cn-veil-tile[data-team="madder"] {
+    background: var(--wool-madder);
+    color: var(--wool-ink);
+  }
+  .cn-veil-tile[data-team="madder"]::after {
+    background: var(--band-teeth) left center / auto 100% repeat-x;
+  }
+  .cn-veil-tile[data-team="indigo"] {
+    background: var(--wool-indigo);
+    color: var(--wool-on-indigo);
+  }
+  .cn-veil-tile[data-team="indigo"]::after {
+    background: var(--band-ayn) left center / auto 100% repeat-x;
+  }
+  .cn-veil-band {
+    width: min(320px, 70vw);
+    animation: cn-weave var(--dur-ceremony) var(--ease-ink) both;
+  }
+  [dir="rtl"] .cn-veil-band {
+    animation-name: cn-weave-rtl;
+  }
+
+  /* --- the colophon's other words ------------------------------------------------------ */
+  .cn-more > summary {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 44px;
+    cursor: pointer;
+    list-style: none;
+    font: 500 14.5px / 1.2 var(--f-ui);
+    color: var(--text);
+    text-decoration: underline;
+    text-decoration-color: var(--line-brass-strong);
+    text-underline-offset: 6px;
+  }
+  .cn-more > summary::-webkit-details-marker {
+    display: none;
+  }
+  .cn-more > summary::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    rotate: 45deg;
+    border: 1px solid var(--brass);
+    flex: none;
+    transition: background-color var(--dur-state) var(--ease-out);
+  }
+  .cn-more[open] > summary::before {
+    background: var(--brass);
+  }
+  .cn-more > summary:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 3px;
+  }
+}
+
+@keyframes cn-weave {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+@keyframes cn-weave-rtl {
+  from {
+    clip-path: inset(0 0 0 100%);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cn-card {
+    transition:
+      background-color var(--dur-state) linear,
+      color var(--dur-state) linear,
+      border-color var(--dur-state) linear;
+  }
+  .cn-card[data-fresh="true"]::after,
+  .cn-veil-band {
+    animation: fade-in 140ms linear both;
+  }
+}
+
+/* Outside the layers on purpose: the colophon's word size is a utility class in
+   components/brand/Colophon.tsx (text-[38px]). On a phone the board's words are often
+   two-word names (سُبْحَانَ اللَّه), so the meaning column needs the room. */
+@media (max-width: 480px) {
+  .cn-area-colophon [data-slot="colophon"] li > [lang="ar"] {
+    font-size: 30px;
+    min-width: 2.2em;
+  }
+}

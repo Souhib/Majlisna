@@ -1,13 +1,16 @@
 import { GoogleOAuthProvider } from "@react-oauth/google"
 import { createRootRoute, Outlet, useLocation } from "@tanstack/react-router"
-import { AnimatePresence, motion } from "motion/react"
+import { MotionConfig } from "motion/react"
 import React, { type ReactNode, Suspense, useEffect } from "react"
 import { useTranslation } from "react-i18next"
 import { ErrorBoundary } from "@/components/ErrorBoundary"
 import { Footer } from "@/components/layout/footer"
 import { MainNav } from "@/components/layout/main-nav"
 import { NotFound } from "@/components/NotFound"
-import { Toaster } from "sonner"
+import { setFallbackTitle } from "@/lib/document-title"
+import { titleForPath } from "@/lib/route-title"
+import { Toaster } from "@/components/ui/toaster"
+import { t as motionT } from "@/lib/motion"
 import { AuthProvider, QueryProvider, ThemeProvider } from "@/providers"
 
 import { LanguageWelcomeModal } from "@/components/language/LanguageWelcomeModal"
@@ -34,8 +37,16 @@ export const Route = createRootRoute({
 })
 
 function RootLayout() {
-  const location = useLocation()
-  const { i18n } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const { pathname } = useLocation()
+  // Game screens are the whole table: no footer under them.
+  const showFooter = !pathname.startsWith("/game/")
+
+  // The document title names the page, in its language (pages with a name from their
+  // data refine it with useDocumentTitle).
+  useEffect(() => {
+    setFallbackTitle(titleForPath(pathname, t))
+  }, [pathname, t, i18n.language])
 
   // Set document direction based on language (Arabic is RTL)
   useEffect(() => {
@@ -46,43 +57,34 @@ function RootLayout() {
 
   return (
     <GoogleOAuthWrapper>
+    {/* reducedMotion="user": under prefers-reduced-motion, motion drops transforms and
+        layout animation and keeps opacity and colour (the grammar's reduced form). */}
+    <MotionConfig reducedMotion="user" transition={motionT.state}>
     <ThemeProvider defaultTheme="system">
       <QueryProvider>
         <AuthProvider>
             <div className="min-h-screen bg-background text-foreground flex flex-col">
               <a
                 href="#main-content"
-                className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:px-4 focus:py-2 focus:bg-primary focus:text-primary-foreground focus:rounded-md focus:shadow-lg"
+                className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:start-3 focus:z-[60] focus:rounded-sm focus:bg-primary focus:px-4 focus:py-3 focus:text-[15px] focus:font-medium focus:text-primary-foreground"
               >
-                Skip to main content
+                {t("ui.skipToContent")}
               </a>
               <MainNav />
-              <main id="main-content" className="flex-1" tabIndex={-1}>
+              {/* At least one screen tall under the nav, so the footer starts below the fold:
+                  sitting at the bottom of a short loading page and then pushed down when
+                  the content arrived, it made layout shifts in the "poor" band (CLS 0.7
+                  on /achievements). */}
+              <main id="main-content" className="min-h-[calc(100svh-var(--navh))] flex-1" tabIndex={-1}>
+                {/* No route-level animation: sibling pages swap instantly (motion grammar,
+                    MOTION_DELIGHT §9). The old AnimatePresence mode="wait" held a blank
+                    screen for the exit on every navigation, game start included. */}
                 <ErrorBoundary>
-                  <AnimatePresence mode="wait">
-                    <motion.div
-                      key={location.pathname}
-                      initial={{ opacity: 0, scale: 0.99, y: 8 }}
-                      animate={{ opacity: 1, scale: 1, y: 0 }}
-                      exit={{ opacity: 0, scale: 0.99, y: -8 }}
-                      transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
-                    >
-                      <Outlet />
-                    </motion.div>
-                  </AnimatePresence>
+                  <Outlet />
                 </ErrorBoundary>
               </main>
-              <Footer />
-              <Toaster
-                position="top-center"
-                richColors
-                closeButton
-                expand
-                visibleToasts={3}
-                toastOptions={{
-                  className: "glass !rounded-2xl !border-border/50 !shadow-xl",
-                }}
-              />
+              {showFooter ? <Footer /> : null}
+              <Toaster />
               <LanguageWelcomeModal />
             </div>
             <Suspense>
@@ -91,6 +93,7 @@ function RootLayout() {
         </AuthProvider>
       </QueryProvider>
     </ThemeProvider>
+    </MotionConfig>
     </GoogleOAuthWrapper>
   )
 }

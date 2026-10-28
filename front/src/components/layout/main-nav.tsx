@@ -1,374 +1,291 @@
 import { Link, useLocation } from "@tanstack/react-router"
-import { BookOpen, Check, ChevronDown, Flame, LogOut, Menu, Moon, Sun, User, Users, X } from "lucide-react"
+import { Book, ChevronDown, LogOut, Menu, User, Users } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { trackEvent } from "@/lib/analytics"
-import { useAuth } from "@/providers/AuthProvider"
-import { useTheme } from "@/providers/ThemeProvider"
-import { cn } from "@/lib/utils"
+import { Lockup } from "@/components/brand"
 import { PrayerTimesNav } from "@/components/prayer-times/PrayerTimesNav"
+import { Avatar } from "@/components/ui/avatar"
+import { Button } from "@/components/ui/button"
+import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { Separator } from "@/components/ui/separator"
+import { useResolvedTheme } from "@/hooks/use-resolved-theme"
+import { useAuth } from "@/providers/AuthProvider"
+import { LanguageSwitch } from "./language-switch"
+import { ThemeToggle } from "./theme-toggle"
 
-function ThemeToggle() {
-  const { theme, setTheme } = useTheme()
-
-  const effectiveTheme =
-    theme === "system"
-      ? window.matchMedia("(prefers-color-scheme: dark)").matches
-        ? "dark"
-        : "light"
-      : theme
-
-  const toggle = () => {
-    const newTheme = effectiveTheme === "light" ? "dark" : "light"
-    trackEvent("theme-change", { theme: newTheme })
-    setTheme(newTheme)
-  }
-
-  const Icon = effectiveTheme === "dark" ? Sun : Moon
-
-  return (
-    <button
-      type="button"
-      onClick={toggle}
-      className="rounded-xl p-2 text-muted-foreground hover:text-primary hover:bg-glow transition-all duration-200"
-      aria-label={`Switch to ${effectiveTheme === "light" ? "dark" : "light"} mode`}
-    >
-      <Icon className="h-4 w-4" />
-    </button>
-  )
-}
-
-const LANGUAGES = [
-  { code: "en", fullName: "English", flag: "\u{1F1EC}\u{1F1E7}", dir: "ltr" },
-  { code: "fr", fullName: "Fran\u00E7ais", flag: "\u{1F1EB}\u{1F1F7}", dir: "ltr" },
-  { code: "ar", fullName: "\u0627\u0644\u0639\u0631\u0628\u064A\u0629", flag: "\u{1F1F5}\u{1F1F8}", dir: "rtl" },
+/**
+ * The nav of the Samar sketch: the lockup (مجلسنا │ MAJLISNA) at the reading start, the
+ * five links, then the prayer chip, the language switch, the theme toggle and the
+ * account. Qandil's brass rule runs under it, broken by one lozenge.
+ *
+ * Over the home sky it has no ground of its own until the page scrolls; everywhere else
+ * it is espresso with grain (`.samar-nav`, styles/shell.css). At 1180 px and below the
+ * row collapses to the lockup and a "Menu" button that opens a sheet with everything.
+ */
+const LINKS = [
+  { to: "/", key: "nav.play" },
+  { to: "/rooms", key: "nav.rooms" },
+  { to: "/challenges", key: "nav.challenges" },
+  { to: "/leaderboard", key: "nav.leaderboard" },
+  { to: "/about", key: "nav.about" },
 ] as const
 
-function LanguageSwitcher() {
-  const { i18n } = useTranslation()
-  const [open, setOpen] = useState(false)
-  const menuRef = useRef<HTMLDivElement>(null)
+type NavPath = (typeof LINKS)[number]["to"]
 
-  const currentLang = LANGUAGES.find((l) => l.code === (i18n.language?.startsWith("ar") ? "ar" : i18n.language?.startsWith("fr") ? "fr" : "en")) || LANGUAGES[0]
+function isCurrent(pathname: string, to: NavPath) {
+  if (to === "/") return pathname === "/"
+  return pathname === to || pathname.startsWith(`${to}/`)
+}
 
+/** True once the page has scrolled off its very top (the nav then takes its ground). */
+function useScrolled() {
+  const [scrolled, setScrolled] = useState(() => typeof window !== "undefined" && window.scrollY > 4)
   useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener("mousedown", handler)
-    return () => document.removeEventListener("mousedown", handler)
+    const onScroll = () => setScrolled(window.scrollY > 4)
+    onScroll()
+    window.addEventListener("scroll", onScroll, { passive: true })
+    return () => window.removeEventListener("scroll", onScroll)
   }, [])
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false)
-    }
-    document.addEventListener("keydown", handler)
-    return () => document.removeEventListener("keydown", handler)
-  }, [])
-
-  const changeLanguage = (langCode: string) => {
-    const lang = LANGUAGES.find((l) => l.code === langCode)
-    if (!lang) return
-    trackEvent("language-change", { lang: lang.code })
-    i18n.changeLanguage(lang.code)
-    localStorage.setItem("majlisna-language", lang.code)
-    document.documentElement.dir = lang.dir
-    document.documentElement.lang = lang.code
-    setOpen(false)
-  }
-
-  return (
-    <div className="relative" ref={menuRef}>
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-sm font-medium text-muted-foreground hover:text-primary hover:bg-glow transition-all duration-200"
-        aria-label="Switch language"
-      >
-        <span aria-hidden="true">{currentLang.flag}</span>
-        <span lang={currentLang.code}>{currentLang.fullName}</span>
-        <ChevronDown className={cn("h-3 w-3 opacity-50 transition-transform duration-200", open && "rotate-180")} />
-      </button>
-
-      {open && (
-        <div className="absolute end-0 top-full mt-2 w-44 glass rounded-2xl p-1.5 shadow-xl shadow-black/5 animate-scale-in z-50">
-          {LANGUAGES.map((lang) => (
-            <button
-              key={lang.code}
-              type="button"
-              onClick={() => changeLanguage(lang.code)}
-              className={cn(
-                "flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm transition-all duration-150",
-                i18n.language?.startsWith(lang.code)
-                  ? "bg-primary/10 text-primary font-medium"
-                  : "text-muted-foreground hover:text-foreground hover:bg-secondary",
-              )}
-            >
-              <span aria-hidden="true">{lang.flag}</span>
-              <span lang={lang.code} className="flex-1 text-start">{lang.fullName}</span>
-              {i18n.language?.startsWith(lang.code) && <Check className="h-4 w-4 text-primary" />}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  )
+  return scrolled
 }
 
 function UserMenu() {
   const { t } = useTranslation()
   const { user, logout } = useAuth()
-  const [open, setOpen] = useState(false)
-  const menuRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener("mousedown", handler)
-    return () => document.removeEventListener("mousedown", handler)
-  }, [])
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false)
-    }
-    document.addEventListener("keydown", handler)
-    return () => document.removeEventListener("keydown", handler)
-  }, [])
-
-  const initial = user?.username?.charAt(0).toUpperCase() ?? "?"
+  const name = user?.username ?? ""
 
   return (
-    <div className="relative" ref={menuRef}>
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 rounded-full bg-primary/10 pe-3 ps-0.5 py-0.5 text-sm font-medium text-foreground hover:bg-primary/15 transition-all duration-200"
-      >
-        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-primary to-primary/80 text-xs font-bold text-primary-foreground ring-2 ring-primary/20">
-          {initial}
-        </span>
-        <span className="max-w-[80px] truncate">{user?.username}</span>
-        <ChevronDown className={cn("h-3 w-3 opacity-60 transition-transform duration-200", open && "rotate-180")} />
-      </button>
-
-      {open && (
-        <div className="absolute end-0 top-full mt-2 w-48 glass rounded-2xl p-1.5 shadow-xl shadow-black/5 animate-scale-in z-50">
-          <Link
-            to="/profile"
-            className="flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-secondary transition-all duration-150"
-            onClick={() => setOpen(false)}
-          >
-            <User className="h-4 w-4" />
+    <DropdownMenu modal={false}>
+      <DropdownMenuTrigger asChild>
+        <button type="button" data-testid="user-menu-trigger" className="nav-account">
+          <Avatar name={name || "?"} size={32} aria-hidden="true" />
+          <span className="name" dir="auto">
+            {name}
+          </span>
+          <span className="sr-only">{t("nav.accountMenu")}</span>
+          <ChevronDown aria-hidden="true" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-[13rem]">
+        {user?.email ? <DropdownMenuLabel className="truncate">{user.email}</DropdownMenuLabel> : null}
+        <DropdownMenuItem asChild>
+          <Link to="/profile">
+            <User aria-hidden="true" />
             {t("nav.profile")}
           </Link>
-          <Link
-            to="/friends"
-            className="flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-secondary transition-all duration-150"
-            onClick={() => setOpen(false)}
-          >
-            <Users className="h-4 w-4" />
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link to="/notebook">
+            <Book aria-hidden="true" />
+            {t("notebook.nav")}
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link to="/friends">
+            <Users aria-hidden="true" />
             {t("nav.friends")}
           </Link>
-          <div className="my-1 border-t border-border/50" />
-          <button
-            type="button"
-            onClick={() => {
-              logout()
-              setOpen(false)
-            }}
-            className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm text-destructive hover:bg-destructive/10 transition-all duration-150"
-          >
-            <LogOut className="h-4 w-4" />
-            {t("nav.logout")}
-          </button>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => logout()} className="text-ember [&_svg]:text-ember!">
+          <LogOut aria-hidden="true" />
+          {t("nav.logout")}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+function MenuSheet({ pathname }: { pathname: string }) {
+  const { t } = useTranslation()
+  const { isAuthenticated, user, logout } = useAuth()
+  const [open, setOpen] = useState(false)
+  const firstLinkRef = useRef<HTMLAnchorElement>(null)
+
+  // A link inside the sheet navigates: close it when the page changes.
+  useEffect(() => {
+    setOpen(false)
+  }, [pathname])
+
+  return (
+    <Sheet open={open} onOpenChange={setOpen}>
+      {/* A Radix trigger, so closing the sheet (Escape, Close, a link) hands focus back to it */}
+      <SheetTrigger asChild>
+        <Button variant="secondary" size="sm" className="hidden max-[1180px]:inline-flex" iconStart={<Menu aria-hidden="true" />}>
+          {t("nav.menu")}
+        </Button>
+      </SheetTrigger>
+      <SheetContent
+        side="end"
+        className="gap-6"
+        // open on the first page link, not on the first button Radix finds (the prayer chip)
+        onOpenAutoFocus={(e) => {
+          if (!firstLinkRef.current) return
+          e.preventDefault()
+          firstLinkRef.current.focus()
+        }}
+        // any link in the sheet closes it, also the one to the page already open
+        onClick={(e) => {
+          if ((e.target as HTMLElement).closest("a[href]")) setOpen(false)
+        }}
+      >
+        <div className="pe-12">
+          <SheetTitle className="sr-only">{t("nav.menu")}</SheetTitle>
+          <SheetDescription className="sr-only">{t("nav.mainLabel")}</SheetDescription>
+          <Link to="/" aria-label={t("nav.homeLabel")} className="nav-lockup">
+            <Lockup size={30} />
+          </Link>
         </div>
-      )}
-    </div>
+
+        <nav aria-label={t("nav.mainLabel")}>
+          <ul className="menu-links">
+            {LINKS.map((link, i) => (
+              <li key={link.to}>
+                <Link
+                  ref={i === 0 ? firstLinkRef : undefined}
+                  to={link.to}
+                  aria-current={isCurrent(pathname, link.to) ? "page" : undefined}
+                >
+                  {t(link.key)}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </nav>
+
+        <div className="grid gap-5">
+          <div>
+            <p className="menu-group-label">{t("prayer.prayerTimes")}</p>
+            <PrayerTimesNav align="start" className="h-11" fallbackLabel={t("prayer.chooseCity")} />
+          </div>
+          <div>
+            <p className="menu-group-label">{t("nav.language")}</p>
+            <LanguageSwitch variant="full" />
+          </div>
+          <div>
+            <p className="menu-group-label">{t("nav.theme")}</p>
+            <ThemeToggle labelled />
+          </div>
+        </div>
+
+        <Separator />
+
+        {isAuthenticated ? (
+          <div className="grid gap-2">
+            <p className="flex items-center gap-3 text-[15px] text-foreground">
+              <Avatar name={user?.username || "?"} size={36} aria-hidden="true" />
+              <span className="min-w-0 truncate font-medium" dir="auto">
+                {user?.username}
+              </span>
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <Button asChild variant="secondary" iconStart={<User aria-hidden="true" />}>
+                <Link to="/profile">{t("nav.profile")}</Link>
+              </Button>
+              <Button asChild variant="secondary" iconStart={<Users aria-hidden="true" />}>
+                <Link to="/friends">{t("nav.friends")}</Link>
+              </Button>
+              <Button asChild variant="secondary" iconStart={<Book aria-hidden="true" />} className="col-span-2">
+                <Link to="/notebook">{t("notebook.nav")}</Link>
+              </Button>
+            </div>
+            <Button
+              variant="danger"
+              block
+              iconStart={<LogOut aria-hidden="true" />}
+              onClick={() => {
+                logout()
+                setOpen(false)
+              }}
+            >
+              {t("nav.logout")}
+            </Button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-2">
+            <Button asChild variant="secondary">
+              <Link to="/auth/login">{t("nav.login")}</Link>
+            </Button>
+            <Button asChild variant="primary">
+              <Link to="/auth/register">{t("nav.register")}</Link>
+            </Button>
+          </div>
+        )}
+      </SheetContent>
+    </Sheet>
   )
 }
 
 export function MainNav() {
   const { t } = useTranslation()
-  const { isAuthenticated, logout } = useAuth()
-  const location = useLocation()
-  const [mobileOpen, setMobileOpen] = useState(false)
-  const navRef = useRef<HTMLElement>(null)
+  const { isAuthenticated } = useAuth()
+  const { pathname } = useLocation()
+  const resolved = useResolvedTheme()
+  const scrolled = useScrolled()
+  const overSky = pathname === "/" && !scrolled
 
-  // Close mobile menu on outside click
+  // The browser's bar takes the nav's ground in the light on screen (index.html sets
+  // the first value before paint; this follows a toggle).
   useEffect(() => {
-    if (!mobileOpen) return
-    const handler = (e: MouseEvent) => {
-      if (navRef.current && !navRef.current.contains(e.target as Node)) {
-        setMobileOpen(false)
-      }
+    for (const meta of document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')) {
+      meta.removeAttribute("media")
+      meta.content = resolved === "dark" ? "#1c1611" : "#fefefc"
     }
-    document.addEventListener("mousedown", handler)
-    return () => document.removeEventListener("mousedown", handler)
-  }, [mobileOpen])
-
-  const centerLinks = isAuthenticated
-    ? [
-        { to: "/rooms" as const, label: t("nav.rooms"), icon: BookOpen },
-        { to: "/challenges" as const, label: t("nav.challenges"), icon: Flame },
-      ]
-    : []
+  }, [resolved])
 
   return (
-    <nav ref={navRef} className="sticky top-0 z-50 border-b border-border/50 bg-background/70 backdrop-blur-xl">
-      {/* Gradient bottom border accent */}
-      <div
-        className="absolute bottom-0 inset-x-0 h-px"
-        style={{
-          background: "linear-gradient(90deg, transparent, var(--gradient-start) 20%, var(--gradient-end) 80%, transparent)",
-          opacity: 0.2,
-        }}
-      />
+    <header className="samar-nav" data-over-sky={overSky}>
+      <div className="samar-nav-row">
+        <Link to="/" aria-label={t("nav.homeLabel")} className="nav-lockup">
+          <Lockup size="var(--lockup-size)" compactOnMobile />
+        </Link>
 
-      {/* 3-column grid: logo | center nav | actions */}
-      <div className="mx-auto grid h-14 max-w-7xl grid-cols-[1fr_auto_1fr] items-center px-4">
-        {/* Left — Logo */}
-        <div className="flex items-center">
-          <Link to="/" className="flex items-center gap-2.5 font-bold text-lg group">
-            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-primary/80 text-primary-foreground transition-transform duration-200 group-hover:scale-105">
-              <BookOpen className="h-4 w-4" />
-            </div>
-            <span className="gradient-text font-extrabold tracking-tight">Majlisna</span>
-          </Link>
-        </div>
+        <nav aria-label={t("nav.mainLabel")} className="nav-links max-[1180px]:hidden">
+          <ul>
+            {LINKS.map((link) => (
+              <li key={link.to}>
+                <Link to={link.to} aria-current={isCurrent(pathname, link.to) ? "page" : undefined}>
+                  {t(link.key)}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </nav>
 
-        {/* Center — Nav links */}
-        <div className="hidden md:flex items-center gap-1">
-          {centerLinks.map((link) => {
-            const isActive = location.pathname === link.to || location.pathname.startsWith(link.to + "/")
-            return (
-              <Link
-                key={link.to}
-                to={link.to}
-                className={cn(
-                  "relative rounded-xl px-3.5 py-1.5 text-sm font-medium transition-all duration-200",
-                  isActive
-                    ? "text-primary"
-                    : "text-muted-foreground hover:text-primary hover:bg-glow",
-                )}
-              >
-                {link.label}
-                {/* Animated active indicator */}
-                {isActive && (
-                  <span className="absolute inset-x-2 -bottom-[calc(0.5rem+1px)] h-0.5 rounded-full bg-gradient-to-r from-primary to-accent" />
-                )}
-              </Link>
-            )
-          })}
-        </div>
-
-        {/* Right — Actions */}
-        <div className="hidden md:flex items-center justify-end gap-1">
-          <PrayerTimesNav />
-          <LanguageSwitcher />
-          <ThemeToggle />
+        <div className="nav-end">
+          <PrayerTimesNav className="max-[1180px]:hidden" />
+          <LanguageSwitch className="max-[1180px]:hidden" />
+          <ThemeToggle className="max-[1180px]:hidden" />
           {isAuthenticated ? (
-            <UserMenu />
+            <div className="max-[1180px]:hidden">
+              <UserMenu />
+            </div>
           ) : (
-            <div className="flex items-center gap-2 ms-1">
-              <Link
-                to="/auth/login"
-                className="rounded-xl px-3.5 py-1.5 text-sm font-medium text-muted-foreground hover:text-primary hover:bg-glow transition-all duration-200"
-              >
+            <>
+              <Link to="/auth/login" className="nav-login max-[1180px]:hidden">
                 {t("nav.login")}
               </Link>
-              <Link
-                to="/auth/register"
-                className="rounded-xl bg-gradient-to-r from-primary to-primary/90 px-4 py-1.5 text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 hover:shadow-lg hover:shadow-primary/30 hover:-translate-y-px transition-all duration-200"
+              <Button
+                asChild
+                size="sm"
+                variant={resolved === "dark" ? "secondary" : "primary"}
+                className="max-[1180px]:hidden"
               >
-                {t("nav.register")}
-              </Link>
-            </div>
+                <Link to="/auth/register">{t("nav.register")}</Link>
+              </Button>
+            </>
           )}
-        </div>
-
-        {/* Mobile: prayer times + menu button */}
-        <div className="flex items-center justify-end gap-1 md:hidden col-start-3">
-          <PrayerTimesNav />
-          <button
-            type="button"
-            onClick={() => setMobileOpen(!mobileOpen)}
-            className="rounded-xl p-2 text-muted-foreground hover:text-primary hover:bg-glow transition-all duration-200"
-          >
-            {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-          </button>
+          <MenuSheet pathname={pathname} />
         </div>
       </div>
-
-      {/* Mobile menu */}
-      {mobileOpen && (
-        <div className="md:hidden border-t border-border/50 bg-background/95 backdrop-blur-xl px-4 py-3 space-y-1 animate-slide-up">
-          {isAuthenticated && (
-            <>
-              {[
-                { to: "/rooms" as const, label: t("nav.rooms"), icon: BookOpen },
-                { to: "/challenges" as const, label: t("nav.challenges"), icon: Flame },
-                { to: "/profile" as const, label: t("nav.profile"), icon: User },
-                { to: "/friends" as const, label: t("nav.friends"), icon: Users },
-              ].map((link) => (
-                <Link
-                  key={link.to}
-                  to={link.to}
-                  className={cn(
-                    "flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-150",
-                    location.pathname === link.to
-                      ? "bg-primary/10 text-primary"
-                      : "text-muted-foreground hover:text-primary hover:bg-glow",
-                  )}
-                  onClick={() => setMobileOpen(false)}
-                >
-                  <link.icon className="h-4 w-4" />
-                  {link.label}
-                </Link>
-              ))}
-            </>
-          )}
-          <div className="flex items-center gap-1 py-1">
-            <LanguageSwitcher />
-            <ThemeToggle />
-          </div>
-          {isAuthenticated ? (
-            <>
-              <div className="border-t border-border/50 my-1" />
-              <button
-                type="button"
-                onClick={() => {
-                  logout()
-                  setMobileOpen(false)
-                }}
-                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-medium text-destructive hover:bg-destructive/10 transition-all duration-150"
-              >
-                <LogOut className="h-4 w-4" />
-                {t("nav.logout")}
-              </button>
-            </>
-          ) : (
-            <div className="border-t border-border/50 my-1 pt-2 flex gap-2">
-              <Link
-                to="/auth/login"
-                className="flex-1 rounded-xl border border-border/50 px-3 py-2.5 text-center text-sm font-medium text-muted-foreground hover:text-primary hover:border-primary/30 transition-all duration-200"
-                onClick={() => setMobileOpen(false)}
-              >
-                {t("nav.login")}
-              </Link>
-              <Link
-                to="/auth/register"
-                className="flex-1 rounded-xl bg-gradient-to-r from-primary to-primary/90 px-3 py-2.5 text-center text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 transition-all duration-200"
-                onClick={() => setMobileOpen(false)}
-              >
-                {t("nav.register")}
-              </Link>
-            </div>
-          )}
-        </div>
-      )}
-    </nav>
+    </header>
   )
 }

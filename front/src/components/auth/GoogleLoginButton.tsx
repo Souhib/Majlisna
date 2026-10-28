@@ -4,6 +4,7 @@ import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import client, { getApiErrorMessage } from "@/api/client"
+import { Button } from "@/components/ui/button"
 import { useAuth } from "@/providers/AuthProvider"
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || ""
@@ -17,9 +18,9 @@ interface SocialLoginResponse {
   user: { id: string; username: string; email: string }
 }
 
-function GoogleIcon({ className }: { className?: string }) {
+function GoogleIcon() {
   return (
-    <svg className={className} viewBox="0 0 24 24" aria-hidden="true">
+    <svg viewBox="0 0 24 24" aria-hidden="true">
       <path
         d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"
         fill="#4285F4"
@@ -40,7 +41,7 @@ function GoogleIcon({ className }: { className?: string }) {
   )
 }
 
-export function GoogleLoginButton() {
+export function GoogleLoginButton({ redirectTo }: { redirectTo?: string }) {
   const { t } = useTranslation()
   const { login } = useAuth()
   const navigate = useNavigate()
@@ -73,7 +74,7 @@ export function GoogleLoginButton() {
           toast.success(t("auth.socialWelcomeBack"))
         }
 
-        navigate({ to: "/" })
+        navigate({ href: redirectTo ?? "/" })
       } catch (err: unknown) {
         toast.error(getApiErrorMessage(err, t("auth.socialLoginFailed")))
       } finally {
@@ -88,30 +89,28 @@ export function GoogleLoginButton() {
   if (!GOOGLE_CLIENT_ID) return null
 
   return (
-    <div className="mt-6">
-      <div className="relative mb-6">
-        <div className="absolute inset-0 flex items-center">
-          <span className="w-full border-t" />
-        </div>
-        <div className="relative flex justify-center text-xs uppercase">
-          <span className="bg-background px-2 text-muted-foreground">
-            {t("auth.orContinueWith")}
-          </span>
-        </div>
-      </div>
+    <div className="grid gap-5">
+      {/* "or" between two hairlines: no capitals, no letter-spacing (Arabic has neither) */}
+      <p className="flex items-center gap-4 text-[13px] leading-none text-muted-foreground">
+        <span aria-hidden="true" className="h-px flex-1 bg-line" />
+        {t("auth.orContinueWith")}
+        <span aria-hidden="true" className="h-px flex-1 bg-line" />
+      </p>
 
-      <button
-        type="button"
-        className="w-full flex items-center justify-center gap-2 rounded-2xl border border-border/50 bg-background/80 px-4 py-2.5 text-sm font-medium transition-all duration-200 hover:bg-accent disabled:opacity-50"
+      {/* Our frame (a secondary button), Google's own "G" in its own four colours,
+          unaltered, as its branding rules ask. */}
+      <Button
+        variant="secondary"
+        block
+        loading={isLoading}
+        iconStart={<GoogleIcon />}
         onClick={() => {
           if (!isLoading) googleLogin()
         }}
-        disabled={isLoading}
         data-testid="google-login-button"
       >
-        <GoogleIcon className="h-5 w-5 shrink-0" />
-        <span>{isLoading ? t("common.loading") : t("auth.continueWithGoogle")}</span>
-      </button>
+        {t("auth.continueWithGoogle")}
+      </Button>
     </div>
   )
 }

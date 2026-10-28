@@ -1,90 +1,149 @@
 import { useQueryClient } from "@tanstack/react-query"
-import { createFileRoute, useNavigate } from "@tanstack/react-router"
-import { Check, Copy, Crown, Eye, KeyRound, Link2, LogOut, UserPlus, Users, X } from "lucide-react"
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
+import { ArrowRight, Check, ChevronLeft, Eye, Share2, UserPlus } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { useTranslation } from "react-i18next"
+import { Trans, useTranslation } from "react-i18next"
 import { toast } from "sonner"
-import { getApiErrorMessage } from "@/api/client"
 import {
   useGetRoomStateApiV1RoomsRoomIdStateGet,
-  useStartUndercoverGameApiV1UndercoverGamesRoomIdStartPost,
-  useStartCodenamesGameApiV1CodenamesGamesRoomIdStartPost,
-  useStartWordquizGameApiV1WordquizGamesRoomIdStartPost,
-  useStartMcqquizGameApiV1McqquizGamesRoomIdStartPost,
-  useLeaveRoomApiV1RoomsLeavePatch,
   useKickPlayerApiV1RoomsRoomIdKickPatch,
+  useLeaveRoomApiV1RoomsLeavePatch,
+  useStartCodenamesGameApiV1CodenamesGamesRoomIdStartPost,
+  useStartMcqquizGameApiV1McqquizGamesRoomIdStartPost,
+  useStartUndercoverGameApiV1UndercoverGamesRoomIdStartPost,
+  useStartWordquizGameApiV1WordquizGamesRoomIdStartPost,
+  useUpdateRoomSettingsApiV1RoomsRoomIdSettingsPatch,
 } from "@/api/generated"
+import { queryKeys } from "@/api/queryKeys"
+import { CodeTiles, Halqa, Lozenge, type LozengeState } from "@/components/brand"
 import { ConnectionStatus } from "@/components/ConnectionStatus"
-import { ChatPanel } from "@/components/rooms/ChatPanel"
+import { ChatPanel, type ChatMessage } from "@/components/rooms/ChatPanel"
+import { roomErrorMessage } from "@/components/rooms/errors"
 import { InviteFriendModal } from "@/components/rooms/InviteFriendModal"
+import {
+  awayCountdown,
+  awayLabel,
+  GAME_NAME_KEY,
+  GAME_TYPES,
+  type GameType,
+  isGameType,
+  type LobbyEvent,
+  type LobbyMember,
+  rosterEvents,
+  seatLobby,
+  stableOrder,
+  tableState,
+  toMembers,
+} from "@/components/rooms/lobby"
+import { PlayerRoster } from "@/components/rooms/PlayerRoster"
 import { RoomSettings } from "@/components/rooms/RoomSettings"
+import { Alert } from "@/components/ui/alert"
+import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { useNow } from "@/components/games/shared/quiz-utils"
+import { useDocumentTitle } from "@/hooks/use-document-title"
 import { useSocket } from "@/hooks/use-socket"
 import { trackEvent } from "@/lib/analytics"
-import { useAuth } from "@/providers/AuthProvider"
-import { queryKeys } from "@/api/queryKeys"
-import { cn } from "@/lib/utils"
+import { noteRoomNotice } from "@/lib/room-notice"
 import { storeRoomIdForGame } from "@/lib/room-session"
-
-interface RoomData {
-  id: string
-  public_id: string
-  owner_id: string
-  password: string
-  active_game_id?: string | null
-  game_type?: string | null
-  settings?: Record<string, unknown> | null
-  users: { id: string; username: string; is_spectator?: boolean }[]
-}
-
-interface Player {
-  id: string
-  username: string
-  is_host: boolean
-  is_spectator?: boolean
-}
+import { cn } from "@/lib/utils"
+import { useAuth } from "@/providers/AuthProvider"
 
 export const Route = createFileRoute("/_auth/rooms/$roomId")({
   component: RoomLobbyPage,
 })
 
-type GameType = "undercover" | "codenames" | "word_quiz" | "mcq_quiz"
+const GAME_ROUTE = {
+  undercover: "/game/undercover/$gameId",
+  codenames: "/game/codenames/$gameId",
+  word_quiz: "/game/wordquiz/$gameId",
+  mcq_quiz: "/game/mcqquiz/$gameId",
+} as const
 
+const ACTIVITY_KEY: Record<LobbyEvent["kind"], string> = {
+  joined: "room.lobbyPage.activityJoined",
+  watching: "room.lobbyPage.activityWatching",
+  left: "room.lobbyPage.activityLeft",
+  away: "room.lobbyPage.activityAway",
+  back: "room.lobbyPage.activityBack",
+  host: "room.lobbyPage.activityHost",
+}
+
+/** Copy text, falling back to a hidden textarea where the async clipboard is refused. */
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch {
+    const textarea = document.createElement("textarea")
+    textarea.value = text
+    textarea.style.position = "fixed"
+    textarea.style.opacity = "0"
+    document.body.appendChild(textarea)
+    textarea.select()
+    const ok = document.execCommand("copy")
+    document.body.removeChild(textarea)
+    return ok
+  }
+}
+
+/**
+ * The lobby (sketch D, first phone): the room's name and who hosts it, the code and PIN
+ * as tiles to read aloud, the host's game picker, and the HALQA: the ring of seats with
+ * the host at the ṣadr, which closes when enough players are seated and wakes Start.
+ * Spectators are named under the ring, never seated. Under the buttons, one quiet line
+ * says what just happened (who sat down, who left): roster changes are not toasts.
+ *
+ * The ring is a picture; the real list (PlayerRoster, "Players (N)") sits beside it on
+ * wide screens and under it on phones, with the host's Remove buttons, then the settings
+ * and the chat.
+ *
+ * Real time: Socket.IO pushes room_state into the query cache; polling (2 s) only runs
+ * while the socket is down. When a game starts, every member is sent to it, with the
+ * room id stored for the game page (storeRoomIdForGame).
+ */
 function RoomLobbyPage() {
   const { roomId } = Route.useParams()
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { user } = useAuth()
   const navigate = useNavigate()
-  const [copied, setCopied] = useState("")
-  const [gameType, setGameType] = useState<GameType>("undercover")
-  const gameTypeSyncedRef = useRef(false)
   const queryClient = useQueryClient()
+  // The host's pick while it is on its way to the server (see `gameType` below).
+  const [pendingPick, setPendingPick] = useState<GameType | null>(null)
   const navigatingToGameRef = useRef(false)
-  const previousPlayerIdsRef = useRef<Map<string, string>>(new Map())
   const isLeavingRef = useRef(false)
-  const [showInviteModal, setShowInviteModal] = useState(false)
+  const kickedRef = useRef(false)
+  const [showInvite, setShowInvite] = useState(false)
+  const [shareCopied, setShareCopied] = useState(false)
+  const [kickingId, setKickingId] = useState<string | null>(null)
+  const [activity, setActivity] = useState<LobbyEvent | null>(null)
+  const previousMembersRef = useRef<LobbyMember[]>([])
 
   // Chat messages from Socket.IO
-  const [lastChatMessage, setLastChatMessage] = useState<{ id: string; room_id: string; user_id: string; username: string; message: string; created_at: string } | null>(null)
+  const [lastChatMessage, setLastChatMessage] = useState<ChatMessage | null>(null)
 
-  // Socket.IO for real-time updates
-  const handleKicked = useCallback(() => {
-    toast.error(t("youWereKicked"))
+  const leaveAfterKick = useCallback(() => {
+    if (kickedRef.current) return
+    kickedRef.current = true
+    // said on /rooms as a line on the page, not a toast: the player did not cause it
+    noteRoomNotice("kicked")
     navigate({ to: "/rooms" })
-  }, [navigate, t])
+  }, [navigate])
 
-  const handleChatMessage = useCallback((msg: { id: string; room_id: string; user_id: string; username: string; message: string; created_at: string }) => {
+  const handleChatMessage = useCallback((msg: ChatMessage) => {
     setLastChatMessage(msg)
   }, [])
 
   const { connected: socketConnected } = useSocket({
     roomId,
     enabled: !!user,
-    onKicked: handleKicked,
+    onKicked: leaveAfterKick,
     onChatMessage: handleChatMessage,
   })
 
   // Poll room state as fallback when Socket.IO is disconnected
-  const { data: rawRoomData, isLoading, error: queryError, failureCount } = useGetRoomStateApiV1RoomsRoomIdStateGet(
+  const { data: rawRoomData, dataUpdatedAt, isLoading, error: queryError, failureCount } = useGetRoomStateApiV1RoomsRoomIdStateGet(
     { room_id: roomId },
     {
       query: {
@@ -96,542 +155,476 @@ function RoomLobbyPage() {
     },
   )
 
-  // Transform raw API data to component shape (memoized to prevent child re-renders)
-  const roomData: RoomData | undefined = useMemo(() => {
+  // Socket.IO payloads land in the same cache: guard against a malformed one.
+  const room = useMemo(() => {
     if (!rawRoomData) return undefined
-    const raw = rawRoomData as Record<string, unknown>
-    // Guard against malformed Socket.IO payloads — required fields must exist
+    const raw = rawRoomData as unknown as Record<string, unknown>
     if (!raw.id || !raw.public_id || !raw.owner_id) return undefined
-    const playersArr = Array.isArray(raw.players) ? raw.players : []
     return {
       id: raw.id as string,
-      public_id: raw.public_id as string,
-      owner_id: raw.owner_id as string,
+      publicId: raw.public_id as string,
+      ownerId: raw.owner_id as string,
       password: (raw.password as string) ?? "",
-      active_game_id: raw.active_game_id as string | null,
-      game_type: raw.game_type as string | null,
-      settings: raw.settings as Record<string, unknown> | null,
-      users: playersArr.map((p: { user_id?: string; username?: string; is_spectator?: boolean }) => ({
-        id: p.user_id ?? "",
-        username: p.username ?? "",
-        is_spectator: p.is_spectator,
-      })),
+      activeGameId: (raw.active_game_id as string | null | undefined) ?? null,
+      gameType: (raw.game_type as string | null | undefined) ?? null,
+      settings: (raw.settings as Record<string, unknown> | null | undefined) ?? null,
+      members: toMembers(raw.players, raw.owner_id as string),
     }
   }, [rawRoomData])
 
-  // Derive players and spectators from room data (memoized)
-  const { allUsers, players, spectators, isHost, isSpectator } = useMemo(() => {
-    const all: Player[] = roomData
-      ? roomData.users.map((u) => ({
-          id: u.id,
-          username: u.username,
-          is_host: u.id === roomData.owner_id,
-          is_spectator: u.is_spectator,
-        }))
-      : []
-    return {
-      allUsers: all,
-      players: all.filter((u) => !u.is_spectator),
-      spectators: all.filter((u) => u.is_spectator),
-      isHost: roomData?.owner_id === user?.id,
-      isSpectator: all.some((u) => u.id === user?.id && u.is_spectator),
-    }
-  }, [roomData, user?.id])
+  const members = useMemo(() => room?.members ?? [], [room])
+  const me = members.find((m) => m.id === user?.id)
+  const isHost = !!room && room.ownerId === user?.id
+  const isSpectator = !!me?.isSpectator
+  const hostName = members.find((m) => m.isHost)?.username
 
-  // Sync game type from server on first load
+  // The game on the table is the room's, for everyone: the host's pick is stored in the
+  // room's settings and comes back in every member's room state. It used to live in the
+  // host's own state only, so a guest's status line, ring and legend described the game
+  // the room was opened for. While the host's pick is in flight, theirs is shown.
+  // the tab names the room as its heading does: "Yusuf’s majlis · Majlisna"
+  useDocumentTitle(hostName ? t("room.lobbyPage.title", { name: hostName }) : null)
+
+  const roomGameType: GameType = isGameType(room?.gameType) ? room.gameType : "undercover"
+  const gameType: GameType = (isHost && pendingPick) || roomGameType
+
+  // How long each away seat is still kept: the server's `away_seconds_left` (its own grace
+  // rule) counted down here from the moment that state arrived, a tick a second while
+  // someone is away. The next state (push or poll) resets it to the server's figure.
+  const someoneAway = members.some((m) => m.isAway && m.awaySecondsLeft != null)
+  const now = useNow(someoneAway, 1000)
+  const awayLeft = useMemo(() => awayCountdown(members, dataUpdatedAt, now), [members, dataUpdatedAt, now])
+
+  // Seats keep the order players were first seen in (stableOrder): idempotent, so
+  // updating the ref while rendering is safe under StrictMode's double render.
+  const seatOrderRef = useRef<string[]>([])
+  const seating = useMemo(() => {
+    seatOrderRef.current = stableOrder(seatOrderRef.current, members)
+    return seatLobby(
+      members,
+      gameType,
+      user?.id,
+      {
+        you: t("room.lobbyPage.seatYou"),
+        host: t("room.lobbyPage.seatHost"),
+        youHost: t("room.lobbyPage.seatYouHost"),
+        away: t("room.lobbyPage.seatAway"),
+      },
+      seatOrderRef.current,
+      awayLeft,
+    )
+  }, [members, gameType, user?.id, t, awayLeft])
+  const players = seating.seated
+  const table = tableState(players.length, gameType)
+  const gameName = t(GAME_NAME_KEY[gameType])
+
+  // What just happened, for the activity line (and its polite live region).
   useEffect(() => {
-    if (!gameTypeSyncedRef.current && roomData?.game_type) {
-      const serverType = roomData.game_type as GameType
-      if (["undercover", "codenames", "word_quiz", "mcq_quiz"].includes(serverType)) {
-        setGameType(serverType)
-      }
-      gameTypeSyncedRef.current = true
-    }
-  }, [roomData?.game_type])
-
-  // Toast notifications when players join or leave
-  useEffect(() => {
-    if (!allUsers.length || !user) return
-    const currentMap = new Map(allUsers.map((u) => [u.id, u.username]))
-    const previousMap = previousPlayerIdsRef.current
-
-    // Skip first render (ref is empty) to avoid toasting every existing player
-    if (previousMap.size > 0) {
-      for (const [id, username] of currentMap) {
-        if (!previousMap.has(id) && id !== user.id) {
-          toast.info(t("toast.playerJoined", { username }))
-        }
-      }
-      for (const [id, username] of previousMap) {
-        if (!currentMap.has(id) && id !== user.id) {
-          toast.info(t("toast.playerLeft", { username }))
-        }
-      }
-    }
-
-    previousPlayerIdsRef.current = currentMap
-  }, [allUsers, user, t])
+    if (!room) return
+    const events = rosterEvents(previousMembersRef.current, members, user?.id)
+    if (events.length > 0) setActivity(events[events.length - 1])
+    previousMembersRef.current = members
+  }, [room, members, user?.id])
 
   // Reset navigating ref when game ends (active_game_id disappears)
   useEffect(() => {
-    if (!roomData?.active_game_id) {
-      navigatingToGameRef.current = false
-    }
-  }, [roomData?.active_game_id])
+    if (!room?.activeGameId) navigatingToGameRef.current = false
+  }, [room?.activeGameId])
 
-  // Auto-navigate when game starts (active_game_id appears via Socket.IO for non-host players)
+  // Follow the table into the game when it starts (non-hosts learn it from the room state)
   useEffect(() => {
-    if (!roomData?.active_game_id || navigatingToGameRef.current) return
+    if (!room?.activeGameId || navigatingToGameRef.current) return
     navigatingToGameRef.current = true
-    storeRoomIdForGame(roomData.active_game_id, roomData.id)
-    const gt = roomData.game_type || gameType
-    if (gt === "codenames") {
-      navigate({ to: "/game/codenames/$gameId", params: { gameId: roomData.active_game_id } })
-    } else if (gt === "word_quiz") {
-      navigate({ to: "/game/wordquiz/$gameId", params: { gameId: roomData.active_game_id } })
-    } else if (gt === "mcq_quiz") {
-      navigate({ to: "/game/mcqquiz/$gameId", params: { gameId: roomData.active_game_id } })
-    } else {
-      navigate({ to: "/game/undercover/$gameId", params: { gameId: roomData.active_game_id } })
-    }
-  }, [roomData?.active_game_id, roomData?.game_type, gameType, navigate, t])
+    storeRoomIdForGame(room.activeGameId, room.id)
+    const gt = isGameType(room.gameType) ? room.gameType : gameType
+    navigate({ to: GAME_ROUTE[gt], params: { gameId: room.activeGameId } })
+  }, [room?.activeGameId, room?.gameType, room?.id, gameType, navigate])
 
-  const startUndercoverMutation = useStartUndercoverGameApiV1UndercoverGamesRoomIdStartPost({
+  const startOptions = (gt: GameType) => ({
     mutation: {
-      onSuccess: (data) => {
+      onSuccess: (data: unknown) => {
         const d = data as { game_id: string; room_id: string }
         navigatingToGameRef.current = true
         storeRoomIdForGame(d.game_id, d.room_id)
         toast.success(t("toast.gameStarting"))
-        navigate({ to: "/game/undercover/$gameId", params: { gameId: d.game_id } })
+        navigate({ to: GAME_ROUTE[gt], params: { gameId: d.game_id } })
       },
-      onError: (err) => toast.error(getApiErrorMessage(err, "Failed to start game")),
+      onError: (err: unknown) => toast.error(roomErrorMessage(err, t("room.lobbyPage.startFailed"))),
     },
   })
-
-  const startCodenamesMutation = useStartCodenamesGameApiV1CodenamesGamesRoomIdStartPost({
-    mutation: {
-      onSuccess: (data) => {
-        const d = data as { game_id: string; room_id: string }
-        navigatingToGameRef.current = true
-        storeRoomIdForGame(d.game_id, d.room_id)
-        toast.success(t("toast.gameStarting"))
-        navigate({ to: "/game/codenames/$gameId", params: { gameId: d.game_id } })
-      },
-      onError: (err) => toast.error(getApiErrorMessage(err, "Failed to start game")),
-    },
-  })
-
-  const startWordQuizMutation = useStartWordquizGameApiV1WordquizGamesRoomIdStartPost({
-    mutation: {
-      onSuccess: (data) => {
-        const d = data as { game_id: string; room_id: string }
-        navigatingToGameRef.current = true
-        storeRoomIdForGame(d.game_id, d.room_id)
-        toast.success(t("toast.gameStarting"))
-        navigate({ to: "/game/wordquiz/$gameId", params: { gameId: d.game_id } })
-      },
-      onError: (err) => toast.error(getApiErrorMessage(err, "Failed to start game")),
-    },
-  })
-
-  const startMcqQuizMutation = useStartMcqquizGameApiV1McqquizGamesRoomIdStartPost({
-    mutation: {
-      onSuccess: (data) => {
-        const d = data as { game_id: string; room_id: string }
-        navigatingToGameRef.current = true
-        storeRoomIdForGame(d.game_id, d.room_id)
-        toast.success(t("toast.gameStarting"))
-        navigate({ to: "/game/mcqquiz/$gameId", params: { gameId: d.game_id } })
-      },
-      onError: (err) => toast.error(getApiErrorMessage(err, "Failed to start game")),
-    },
-  })
-
-  const isStartingGame = startUndercoverMutation.isPending || startCodenamesMutation.isPending || startWordQuizMutation.isPending || startMcqQuizMutation.isPending
+  const startUndercover = useStartUndercoverGameApiV1UndercoverGamesRoomIdStartPost(startOptions("undercover"))
+  const startCodenames = useStartCodenamesGameApiV1CodenamesGamesRoomIdStartPost(startOptions("codenames"))
+  const startWordQuiz = useStartWordquizGameApiV1WordquizGamesRoomIdStartPost(startOptions("word_quiz"))
+  const startMcqQuiz = useStartMcqquizGameApiV1McqquizGamesRoomIdStartPost(startOptions("mcq_quiz"))
+  const isStartingGame = startUndercover.isPending || startCodenames.isPending || startWordQuiz.isPending || startMcqQuiz.isPending
 
   const handleStartGame = () => {
-    if (!roomData || isStartingGame) return
+    if (!room || isStartingGame || table.kind !== "ready") return
     trackEvent("game-start", { game: gameType, players: players.length })
-    if (gameType === "codenames") {
-      startCodenamesMutation.mutate({ room_id: roomData.id })
-    } else if (gameType === "word_quiz") {
-      startWordQuizMutation.mutate({ room_id: roomData.id })
-    } else if (gameType === "mcq_quiz") {
-      startMcqQuizMutation.mutate({ room_id: roomData.id })
-    } else {
-      startUndercoverMutation.mutate({ room_id: roomData.id })
-    }
+    const vars = { room_id: room.id }
+    if (gameType === "codenames") startCodenames.mutate(vars)
+    else if (gameType === "word_quiz") startWordQuiz.mutate(vars)
+    else if (gameType === "mcq_quiz") startMcqQuiz.mutate(vars)
+    else startUndercover.mutate(vars)
   }
 
   const leaveMutation = useLeaveRoomApiV1RoomsLeavePatch()
 
   const handleLeaveRoom = async () => {
     isLeavingRef.current = true
-    if (!user || !roomData) {
+    if (!user || !room) {
       navigate({ to: "/rooms" })
       return
     }
     try {
-      await leaveMutation.mutateAsync({ data: { room_id: roomData.id } })
+      await leaveMutation.mutateAsync({ data: { room_id: room.id } })
     } catch {
-      // Ignore errors — navigate anyway
+      // Leaving is best effort: the grace period frees the seat anyway.
     }
     toast.info(t("toast.youLeftRoom"))
     navigate({ to: "/rooms" })
   }
 
   // Detect being kicked: the current user was in the list and disappeared, without
-  // having left voluntarily.
-  //
-  // This tracks membership in its OWN ref. It used to read
-  // `previousPlayerIdsRef.current`, which the join/leave-toast effect above
-  // overwrites with the current roster — and effects run in declaration order, so
-  // by the time this one looked, "previous" already was "current" and the condition
-  // could never be true. The fallback was dead: with Socket.IO down (2s polling),
-  // where the `you_were_kicked` event never arrives, a kicked player just sat on a
-  // stale lobby.
+  // having left voluntarily. This tracks membership in its OWN ref (the activity effect
+  // above rewrites its own), so it still works on the 2 s polling fallback, where the
+  // `you_were_kicked` socket event never arrives.
   const wasRoomMemberRef = useRef(false)
   useEffect(() => {
-    if (!user || !roomData || isLeavingRef.current) return
-    const isInRoom = allUsers.some((u) => u.id === user.id)
+    if (!user || !room || isLeavingRef.current) return
+    const isInRoom = members.some((u) => u.id === user.id)
     if (wasRoomMemberRef.current && !isInRoom) {
       wasRoomMemberRef.current = false
-      toast.error(t("toast.youWereKicked"))
-      navigate({ to: "/rooms" })
+      leaveAfterKick()
       return
     }
     wasRoomMemberRef.current = isInRoom
-  }, [allUsers, user, roomData, navigate, t])
+  }, [members, user, room, leaveAfterKick])
 
   const kickMutation = useKickPlayerApiV1RoomsRoomIdKickPatch()
+  const pickMutation = useUpdateRoomSettingsApiV1RoomsRoomIdSettingsPatch()
 
-  const handleKickPlayer = async (userId: string) => {
-    if (!roomData) return
+  const handlePickGame = async (next: GameType) => {
+    if (!room || next === gameType) return
+    setPendingPick(next)
     try {
-      await kickMutation.mutateAsync({ room_id: roomData.id, data: { user_id: userId } })
-      queryClient.invalidateQueries({ queryKey: queryKeys.room.state(roomId) })
+      await pickMutation.mutateAsync({ room_id: room.id, data: { game_type: next } })
+      // the push (or the next poll) brings it back for everyone; write it now so the
+      // host's own screen does not step back to the old game in between
+      queryClient.setQueryData(queryKeys.room.state(roomId), (old: unknown) =>
+        old && typeof old === "object"
+          ? { ...old, game_type: next, settings: { ...(old as { settings?: object }).settings, game_type: next } }
+          : old,
+      )
     } catch (err) {
-      toast.error(getApiErrorMessage(err, "Failed to kick player"))
+      toast.error(roomErrorMessage(err, t("room.lobbyPage.pickFailed")))
+    } finally {
+      setPendingPick(null)
     }
   }
 
-  const minPlayers = gameType === "codenames" ? 4 : (gameType === "word_quiz" || gameType === "mcq_quiz") ? 1 : 3
-
-  const copyToClipboard = useCallback((text: string, key: string, label: string) => {
-    const onSuccess = () => {
-      setCopied(key)
-      toast.success(t("toast.copied", { label }))
-      setTimeout(() => setCopied(""), 1500)
+  const handleKickPlayer = async (member: LobbyMember) => {
+    if (!room) return
+    setKickingId(member.id)
+    try {
+      await kickMutation.mutateAsync({ room_id: room.id, data: { user_id: member.id } })
+      queryClient.invalidateQueries({ queryKey: queryKeys.room.state(roomId) })
+    } catch (err) {
+      toast.error(roomErrorMessage(err, t("room.lobbyPage.kickFailed")))
+    } finally {
+      setKickingId(null)
     }
-    if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(text).then(onSuccess, () => {
-        const textarea = document.createElement("textarea")
-        textarea.value = text
-        textarea.style.position = "fixed"
-        textarea.style.opacity = "0"
-        document.body.appendChild(textarea)
-        textarea.select()
-        document.execCommand("copy")
-        document.body.removeChild(textarea)
-        onSuccess()
-      })
-    } else {
-      const textarea = document.createElement("textarea")
-      textarea.value = text
-      textarea.style.position = "fixed"
-      textarea.style.opacity = "0"
-      document.body.appendChild(textarea)
-      textarea.select()
-      document.execCommand("copy")
-      document.body.removeChild(textarea)
-      onSuccess()
-    }
-  }, [t])
+  }
 
-  if (isLoading && !roomData) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <p className="text-muted-foreground">{t("common.loading")}</p>
-      </div>
-    )
+  const handleShare = async () => {
+    if (!room) return
+    const shareUrl = `${window.location.origin}/rooms/join?code=${room.publicId}&pin=${room.password}`
+    if (await copyText(shareUrl)) {
+      setShareCopied(true)
+      toast.success(t("room.lobbyPage.shareToast"))
+      setTimeout(() => setShareCopied(false), 1500)
+    }
+  }
+
+  if (isLoading && !room) {
+    return <LobbySkeleton />
   }
 
   // Full-page error only when there is nothing to show. When we already have a roster
-  // on screen, a failing refetch gets the banner further down instead — replacing a
-  // live lobby over one bad poll would be worse than the stale data.
-  if (queryError && !roomData && failureCount > 2) {
+  // on screen, a failing refetch gets the banner further down instead: replacing a live
+  // lobby over one bad poll would be worse than the stale data.
+  if (!room && queryError && failureCount > 2) {
     return (
-      <div className="mx-auto max-w-lg px-4 py-8">
-        <div className="glass rounded-2xl p-6 text-center text-destructive border-destructive/30">
-          {getApiErrorMessage(queryError, "Failed to load room details")}
+      <div className="page-wrap py-[clamp(48px,8vw,112px)]">
+        <div className="mx-auto grid max-w-[34rem] justify-items-start gap-4">
+          <h1 className="type-title">{t("room.lobbyPage.errorTitle")}</h1>
+          <p className="type-body text-muted-foreground">{t("room.lobbyPage.errorBody")}</p>
+          {roomErrorMessage(queryError, "") ? (
+            <p className="text-[14px] text-muted-foreground">{roomErrorMessage(queryError, "")}</p>
+          ) : null}
+          <Button asChild className="mt-2" iconStart={<ChevronLeft className="rtl-flip" aria-hidden="true" />}>
+            <Link to="/rooms">{t("room.lobbyPage.backToRooms")}</Link>
+          </Button>
         </div>
       </div>
     )
   }
 
-  return (
-    <div className="mx-auto max-w-lg px-4 py-8 animate-slide-up">
-      <ConnectionStatus connected={socketConnected} />
-      {/* The roster below is stale: the room state stopped refreshing. Say so rather
-          than let the player act on data that no longer matches the server. */}
-      {queryError && roomData && failureCount > 2 && (
-        <div className="glass mb-4 rounded-xl border-destructive/30 p-3 text-center text-xs text-destructive">
-          {getApiErrorMessage(queryError, t("room.staleState"))}
-        </div>
-      )}
-      <div className="flex items-center justify-between mb-8">
-        <h1 className="text-3xl font-extrabold tracking-tight gradient-text">{t("room.lobby")}</h1>
-        <button
-          type="button"
-          onClick={handleLeaveRoom}
-          className="inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all duration-200"
-        >
-          <LogOut className="h-3.5 w-3.5" />
-          {t("room.leave")}
-        </button>
+  if (!room) return <LobbySkeleton />
+
+  const sub = isHost ? t("room.lobbyPage.subHost") : isSpectator ? t("room.lobbyPage.subSpectator") : t("room.lobbyPage.subPlayer")
+  const title = hostName ? t("room.lobbyPage.title", { name: hostName }) : t("room.lobbyPage.titleFallback")
+  const openSeats = Math.max(0, seating.capacity - seating.seats.length)
+  const awayPlayers = players.filter((p) => p.isAway)
+
+  // one player away: the legend carries their countdown too ("Away · 9:58", sketch D)
+  const awayLegend = t("room.lobbyPage.legendAway")
+  const legend: { state: LozengeState; label: string }[] = [
+    { state: "host", label: t("room.lobbyPage.legendHost") },
+    ...(players.some((p) => !p.isHost && !p.isAway) ? [{ state: "ready" as const, label: t("room.lobbyPage.legendHere") }] : []),
+    ...(awayPlayers.length > 0
+      ? [{ state: "away" as const, label: awayPlayers.length === 1 ? awayLabel(awayLegend, awayLeft.get(awayPlayers[0].id)) : awayLegend }]
+      : []),
+    ...(openSeats > 0 ? [{ state: "open" as const, label: t("room.lobbyPage.legendOpen") }] : []),
+  ]
+
+  const statusTitle = isSpectator
+    ? t("room.lobbyPage.spectatorTitle")
+    : table.kind === "short"
+      ? t("room.lobbyPage.shortTitle")
+      : table.kind === "over"
+        ? t("room.lobbyPage.overTitle")
+        : isHost
+          ? t("room.lobbyPage.readyTitle")
+          : t("room.lobbyPage.guestReadyTitle", { host: hostName ?? "" })
+  const statusBody = isSpectator
+    ? t("room.lobbyPage.spectatorBody", { host: hostName ?? "" })
+    : table.kind === "short"
+      ? t("room.lobbyPage.shortBody", { game: gameName, count: seating.quorum })
+      : table.kind === "over"
+        ? t("room.lobbyPage.overBody", { game: gameName, count: table.max })
+        : null
+  const awayNote =
+    awayPlayers.length === 1
+      ? t("room.lobbyPage.awayOne", { name: awayPlayers[0].username })
+      : awayPlayers.length > 1
+        ? t("room.lobbyPage.awayMany")
+        : null
+
+  const startLabel = isStartingGame
+    ? t("room.lobbyPage.starting")
+    : table.kind === "short"
+      ? t("room.lobbyPage.waitingMore", { count: table.missing })
+      : t("room.lobbyPage.start", { game: gameName })
+
+  const stage = (
+    <div className="grid justify-items-center gap-4">
+      <div className="lobby-ring w-full max-w-[400px] lg:max-w-[460px] min-[2200px]:max-w-[540px]">
+        <Halqa
+          seats={seating.seats}
+          capacity={seating.capacity}
+          quorum={seating.quorum}
+          fontSize={13}
+          radius={100}
+          padX={95}
+          padY={56}
+          center={{ count: seating.seats.length, label: t("room.lobbyPage.centerPlayers", { count: seating.seats.length }) }}
+          label={t("room.lobbyPage.ringLabel", { count: seating.seats.length, open: openSeats })}
+        />
       </div>
 
-      {/* Room Info */}
-      {roomData && (
-        <div className="glass rounded-2xl p-6 mb-6 animate-scale-in">
-          <div className="flex items-center justify-between mb-4">
-            <span className="text-sm text-muted-foreground">{t("room.roomCode")}</span>
-            <button
-              type="button"
-              onClick={() => copyToClipboard(roomData.public_id, "code", t("room.roomCode"))}
-              className={cn(
-                "flex items-center gap-2.5 rounded-xl px-4 py-2 font-mono text-2xl font-extrabold transition-all duration-200",
-                copied === "code" ? "bg-primary/10 text-primary shadow-md shadow-primary/10" : "bg-muted/50 hover:bg-muted/80",
-              )}
-            >
-              <span className="tracking-[0.3em] tabular-nums">{roomData.public_id}</span>
-              {copied === "code" ? (
-                <Check className="h-4 w-4 text-primary" />
-              ) : (
-                <Copy className="h-4 w-4 text-muted-foreground" />
-              )}
-            </button>
-          </div>
-          <div className="flex items-center justify-between pt-4 border-t border-border/30">
-            <span className="text-sm text-muted-foreground">{t("room.password")}</span>
-            <button
-              type="button"
-              onClick={() => copyToClipboard(roomData.password, "pw", t("room.password"))}
-              className={cn(
-                "flex items-center gap-2.5 rounded-xl px-4 py-2 font-mono text-xl font-extrabold transition-all duration-200",
-                copied === "pw" ? "bg-primary/10 text-primary shadow-md shadow-primary/10" : "bg-muted/50 hover:bg-muted/80",
-              )}
-            >
-              <KeyRound className="h-4 w-4 text-muted-foreground" />
-              <span className="tracking-[0.3em] tabular-nums">{roomData.password}</span>
-              {copied === "pw" ? (
-                <Check className="h-4 w-4 text-primary" />
-              ) : (
-                <Copy className="h-4 w-4 text-muted-foreground" />
-              )}
-            </button>
-          </div>
-          <div className="pt-4 border-t border-border/30">
-            <button
-              type="button"
-              onClick={() => {
-                const shareUrl = `${window.location.origin}/rooms/join?code=${roomData.public_id}&pin=${roomData.password}`
-                copyToClipboard(shareUrl, "share", t("room.shareLink"))
-              }}
-              className={cn(
-                "w-full flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-all duration-200",
-                copied === "share" ? "bg-primary/10 text-primary shadow-md shadow-primary/10" : "bg-muted/50 hover:bg-muted/80",
-              )}
-            >
-              {copied === "share" ? (
-                <Check className="h-4 w-4 text-primary" />
-              ) : (
-                <Link2 className="h-4 w-4" />
-              )}
-              {copied === "share" ? t("room.linkCopied") : t("room.shareLink")}
-            </button>
-          </div>
-        </div>
-      )}
+      <ul aria-label={t("room.lobbyPage.legendLabel")} className="flex flex-wrap justify-center gap-x-3.5 gap-y-1.5 text-[12.5px] leading-tight text-muted-foreground">
+        {legend.map((item) => (
+          <li key={item.state} className="inline-flex items-center gap-1.5 num">
+            <Lozenge state={item.state} size={8} />
+            {item.label}
+          </li>
+        ))}
+      </ul>
 
-      {/* Players */}
-      <div className="glass rounded-2xl p-6 mb-6">
-        <div className="flex items-center gap-2 mb-4">
-          <Users className="h-5 w-5 text-primary" />
-          <h2 className="font-extrabold tracking-tight">
-            {t("room.players")} <span className="font-mono tabular-nums">({players.length})</span>
+      {seating.spectators.length > 0 ? (
+        <div className="flex max-w-full flex-wrap items-baseline justify-center gap-x-2 gap-y-1 text-[13.5px] leading-snug text-muted-foreground">
+          <h2 className="sr-only">
+            {t("room.spectators")} <span className="num">({seating.spectators.length})</span>
           </h2>
-        </div>
-
-        {players.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{t("room.waitingForPlayers")}</p>
-        ) : (
-          <div className="space-y-2">
-            {players.map((player) => (
-              <div
-                key={player.id}
-                className="flex items-center justify-between rounded-xl bg-muted/30 px-4 py-3 border border-border/30 hover:bg-muted/50 transition-all duration-200"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-primary to-primary/70 text-xs font-bold text-primary-foreground shadow-sm">
-                    {player.username.charAt(0).toUpperCase()}
-                  </div>
-                  <span className="text-sm font-medium">{player.username}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  {player.is_host && (
-                    <span className="flex items-center gap-1 rounded-lg bg-accent/10 px-2 py-1 text-xs font-bold text-accent">
-                      <Crown className="h-3 w-3" />
-                      {t("room.host")}
-                    </span>
-                  )}
-                  {isHost && player.id !== user?.id && (
-                    <button
-                      type="button"
-                      onClick={() => handleKickPlayer(player.id)}
-                      className="rounded-lg p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-all duration-200"
-                      title={t("room.kick")}
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  )}
-                </div>
-              </div>
+          <Eye className="size-[17px] shrink-0 translate-y-[3px]" aria-hidden="true" />
+          <span aria-hidden="true">{t("room.lobbyPage.watching")}</span>
+          <ul className="flex flex-wrap gap-x-1.5">
+            {seating.spectators.map((s, i) => (
+              <li key={s.id}>
+                <b dir="auto" className="font-medium text-foreground">
+                  {s.username}
+                </b>
+                {i < seating.spectators.length - 1 ? <span aria-hidden="true">{i18n.dir() === "rtl" ? "،" : ","}</span> : null}
+              </li>
             ))}
+          </ul>
+        </div>
+      ) : null}
+
+      <p className="max-w-[46ch] text-center text-[14px] leading-normal text-muted-foreground text-pretty">
+        <b className="font-medium text-foreground">{statusTitle}</b>
+        {statusBody ? ` ${statusBody}` : null}
+        {awayNote && !isSpectator ? ` ${awayNote}` : null}
+      </p>
+
+      {!isSpectator ? (
+        <div className="grid w-full max-w-[420px] gap-2.5">
+          {isHost ? (
+            <Button
+              block
+              onClick={handleStartGame}
+              disabled={table.kind !== "ready"}
+              loading={isStartingGame}
+              aria-label={startLabel}
+              iconEnd={table.kind === "ready" ? <ArrowRight className="rtl-flip" aria-hidden="true" /> : undefined}
+            >
+              {/* E2E finds this button by "Start Game"; the visible label names the game,
+                  drawn from data-label so the game's name is not in the button's text
+                  (the picker's tabs are found by those names). */}
+              <span className="sr-only">{t("room.startGame")}</span>
+              <span aria-hidden="true" data-label={startLabel} className="before:content-[attr(data-label)]" />
+            </Button>
+          ) : null}
+          <Button variant="secondary" block onClick={() => setShowInvite(true)} iconStart={<UserPlus aria-hidden="true" />}>
+            {t("room.lobbyPage.invite")}
+          </Button>
+        </div>
+      ) : null}
+
+      <p
+        role="status"
+        className="flex w-full max-w-[420px] items-baseline gap-2.5 border-t border-line pt-3 text-[13.5px] leading-normal text-muted-foreground [&_b]:font-medium [&_b]:text-foreground"
+      >
+        <Lozenge state="brass" size={5} className="-translate-y-0.5" />
+        <span className="min-w-0">
+          {activity ? (
+            <Trans i18nKey={ACTIVITY_KEY[activity.kind]} values={{ name: activity.name }} components={{ b: <b dir="auto" /> }} />
+          ) : isHost ? (
+            t("room.lobbyPage.hintHost")
+          ) : (
+            <Trans i18nKey="room.lobbyPage.hintGuest" values={{ host: hostName ?? "" }} components={{ b: <b dir="auto" /> }} />
+          )}
+        </span>
+      </p>
+    </div>
+  )
+
+  return (
+    <div className="page-wrap pt-4 pb-16 sm:pt-8 lg:pt-12">
+      <ConnectionStatus connected={socketConnected} />
+      <div className="mx-auto grid max-w-[1180px] gap-x-[clamp(32px,4.5vw,80px)] gap-y-6 lg:grid-cols-[minmax(0,1fr)_minmax(340px,400px)] lg:gap-y-10 min-[2200px]:max-w-[1360px] min-[2200px]:grid-cols-[minmax(0,1fr)_minmax(400px,460px)]">
+        {/* The roster below is stale: the room state stopped refreshing. Say so rather
+            than let the player act on data that no longer matches the server. */}
+        {queryError && failureCount > 2 ? (
+          <Alert className="lg:col-span-2">{roomErrorMessage(queryError, t("room.staleState"))}</Alert>
+        ) : null}
+
+        <header className="lobby-head lg:col-span-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleLeaveRoom}
+            loading={leaveMutation.isPending}
+            className="lh-back -ms-2 px-2 max-sm:w-11 max-sm:px-0 lg:mt-2"
+            iconStart={<ChevronLeft className="rtl-flip" aria-hidden="true" />}
+          >
+            <span className="max-sm:sr-only">{t("room.lobbyPage.leave")}</span>
+          </Button>
+          <div className="lh-title pt-1 sm:pt-0.5">
+            <h1 dir="auto" className="type-title text-[24px] break-words sm:text-[28px] lg:text-[40px]">
+              {title}
+            </h1>
+            <p className="mt-0.5 text-[13.5px] leading-snug text-muted-foreground lg:mt-1.5 lg:text-[15px]">{sub}</p>
           </div>
-        )}
+          {/* code then PIN, left to right in every language, as on the home's join row and
+              /rooms: one order for the pair everywhere (labels stay translated) */}
+          <div dir="ltr" className="lh-codes flex items-end justify-between gap-x-4 sm:justify-start sm:gap-x-8 lg:gap-x-6">
+            <CodeTiles label={t("room.codeLabel")} value={room.publicId} />
+            <CodeTiles label={t("room.pinLabel")} value={room.password} kind="pin" className="max-sm:justify-items-end" />
+          </div>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={handleShare}
+            className="lh-share max-sm:size-11 max-sm:px-0 lg:h-[52px]"
+            iconStart={shareCopied ? <Check aria-hidden="true" /> : <Share2 aria-hidden="true" />}
+          >
+            <span className="max-sm:sr-only">{shareCopied ? t("room.lobbyPage.shareCopied") : t("room.lobbyPage.share")}</span>
+          </Button>
+        </header>
+
+        <section aria-label={title} className="grid min-w-0 content-start gap-5">
+          {isHost && !isSpectator ? (
+            // Radix stamps dir="ltr" on the root unless told otherwise (no DirectionProvider):
+            // that turned the whole Arabic stage left to right and reversed the arrow keys.
+            <Tabs dir={i18n.dir()} value={gameType} onValueChange={(v) => isGameType(v) && void handlePickGame(v)}>
+              <TabsList aria-label={t("room.lobbyPage.gamePicker")} className="mx-auto w-full max-w-[560px]">
+                {GAME_TYPES.map((g) => (
+                  <TabsTrigger
+                    key={g}
+                    value={g}
+                    className="text-[12px] min-[400px]:text-[13px]"
+                    // only the open panel exists: an inactive tab must not point at a missing id
+                    {...(g === gameType ? {} : { "aria-controls": undefined })}
+                  >
+                    {t(GAME_NAME_KEY[g])}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+              <TabsContent value={gameType} tabIndex={-1} className="mt-5">
+                {stage}
+              </TabsContent>
+            </Tabs>
+          ) : (
+            stage
+          )}
+        </section>
+
+        <aside className="grid min-w-0 content-start gap-4" aria-label={t("room.players")}>
+          <PlayerRoster
+            players={players}
+            myId={user?.id}
+            canKick={isHost}
+            kickingId={kickingId}
+            onKick={handleKickPlayer}
+            awayLeft={awayLeft}
+          />
+          {isHost && !isSpectator ? (
+            <RoomSettings roomId={room.id} settings={room.settings} gameType={gameType} playerCount={players.length} />
+          ) : null}
+          {user ? <ChatPanel roomId={roomId} currentUserId={user.id} incomingMessage={lastChatMessage} /> : null}
+        </aside>
       </div>
 
-      {/* Spectators */}
-      {spectators.length > 0 && (
-        <div className="glass rounded-2xl p-6 mb-6">
-          <div className="flex items-center gap-2 mb-4">
-            <Eye className="h-5 w-5 text-muted-foreground" />
-            <h2 className="font-extrabold tracking-tight">
-              {t("room.spectators")} <span className="font-mono tabular-nums">({spectators.length})</span>
-            </h2>
-          </div>
-          <div className="space-y-2">
-            {spectators.map((spec) => (
-              <div key={spec.id} className="flex items-center rounded-xl bg-muted/20 border border-border/30 px-4 py-2.5 transition-all duration-200">
-                <Eye className="mr-2 h-3 w-3 text-muted-foreground" />
-                <span className="text-sm text-muted-foreground">{spec.username}</span>
-              </div>
-            ))}
-          </div>
+      <InviteFriendModal roomId={room.id} open={showInvite} onOpenChange={setShowInvite} />
+    </div>
+  )
+}
+
+/** The lobby before its first state: bare warp where the code, the ring and the list will be. */
+function LobbySkeleton() {
+  const { t } = useTranslation()
+  return (
+    <div className="page-wrap pt-4 pb-16 sm:pt-8 lg:pt-12" aria-busy="true">
+      <p className="sr-only" role="status">
+        {t("room.lobbyPage.loading")}
+      </p>
+      <div className="mx-auto grid max-w-[1180px] gap-x-[clamp(32px,4.5vw,80px)] gap-y-6 lg:grid-cols-[minmax(0,1fr)_minmax(340px,400px)] min-[2200px]:max-w-[1360px] min-[2200px]:grid-cols-[minmax(0,1fr)_minmax(400px,460px)]">
+        <div className="grid gap-3 lg:col-span-2">
+          <Skeleton className="h-8 w-56" />
+          <Skeleton className="h-4 w-32" />
+          <Skeleton className="mt-2 h-12 w-72" />
         </div>
-      )}
-
-      {/* Invite Friend Button */}
-      {roomData && !isSpectator && (
-        <div className="mb-6">
-          <button
-            type="button"
-            onClick={() => setShowInviteModal(true)}
-            className="w-full flex items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-primary/30 bg-primary/5 px-4 py-3.5 text-sm font-medium text-primary hover:bg-primary/10 hover:border-primary/50 transition-all duration-200"
-          >
-            <UserPlus className="h-4 w-4" />
-            {t("room.inviteFriend")}
-          </button>
+        <div className="grid justify-items-center gap-4">
+          <Skeleton className="h-10 w-full max-w-[560px]" />
+          <Skeleton className={cn("aspect-square w-full max-w-[320px]")} />
         </div>
-      )}
-
-      {/* Chat Panel — integrated inline */}
-      {user && <ChatPanel roomId={roomId} currentUserId={user.id} incomingMessage={lastChatMessage} />}
-
-      {/* Room Settings (host only, not for word_quiz which uses defaults) */}
-      {isHost && !isSpectator && roomData && (
-        <div className="mt-6">
-        <RoomSettings
-          roomId={roomData.id}
-          settings={roomData.settings ?? null}
-          gameType={gameType}
-          playerCount={players.length}
-        />
+        <div className="grid content-start gap-4">
+          <Skeleton className="h-48 w-full" />
+          <Skeleton className="h-24 w-full" />
         </div>
-      )}
-
-      {/* Game Type Selector + Start Button (host only) */}
-      {isHost && !isSpectator && (
-        <div className="mt-4 space-y-4 scroll-mt-20">
-          <div className="glass rounded-2xl p-5">
-            <h3 className="text-sm font-extrabold tracking-tight mb-3">{t("room.gameType")}</h3>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setGameType("undercover")}
-                className={cn(
-                  "flex-1 rounded-xl px-4 py-2.5 text-sm font-medium transition-all duration-200 cursor-pointer",
-                  gameType === "undercover"
-                    ? "bg-gradient-to-r from-primary to-primary/90 text-primary-foreground shadow-md shadow-primary/20"
-                    : "glass hover:bg-muted/80",
-                )}
-              >
-                Undercover
-              </button>
-              <button
-                type="button"
-                onClick={() => setGameType("codenames")}
-                className={cn(
-                  "flex-1 rounded-xl px-4 py-2.5 text-sm font-medium transition-all duration-200 cursor-pointer",
-                  gameType === "codenames"
-                    ? "bg-gradient-to-r from-primary to-primary/90 text-primary-foreground shadow-md shadow-primary/20"
-                    : "glass hover:bg-muted/80",
-                )}
-              >
-                Codenames
-              </button>
-              <button
-                type="button"
-                onClick={() => setGameType("word_quiz")}
-                className={cn(
-                  "flex-1 rounded-xl px-4 py-2.5 text-sm font-medium transition-all duration-200 cursor-pointer",
-                  gameType === "word_quiz"
-                    ? "bg-gradient-to-r from-primary to-primary/90 text-primary-foreground shadow-md shadow-primary/20"
-                    : "glass hover:bg-muted/80",
-                )}
-              >
-                {t("games.wordQuiz.name")}
-              </button>
-              <button
-                type="button"
-                onClick={() => setGameType("mcq_quiz")}
-                className={cn(
-                  "flex-1 rounded-xl px-4 py-2.5 text-sm font-medium transition-all duration-200 cursor-pointer",
-                  gameType === "mcq_quiz"
-                    ? "bg-gradient-to-r from-primary to-primary/90 text-primary-foreground shadow-md shadow-primary/20"
-                    : "glass hover:bg-muted/80",
-                )}
-              >
-                {t("games.mcqQuiz.name")}
-              </button>
-            </div>
-          </div>
-
-          {players.length < minPlayers && (
-            <p className="text-center text-sm text-muted-foreground font-mono tabular-nums">
-              {t("room.minPlayers", { count: minPlayers })}
-            </p>
-          )}
-          <button
-            type="button"
-            onClick={handleStartGame}
-            disabled={players.length < minPlayers || isStartingGame}
-            className="w-full rounded-xl bg-gradient-to-r from-primary to-primary/90 px-5 py-3.5 text-base font-extrabold tracking-tight text-primary-foreground shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 hover:-translate-y-0.5 disabled:opacity-50 transition-all duration-200 cursor-pointer"
-          >
-            {isStartingGame ? t("common.loading") : t("room.startGame")}
-          </button>
-        </div>
-      )}
-
-      {/* Invite Friend Modal */}
-      {showInviteModal && roomData && (
-        <InviteFriendModal
-          roomId={roomData.id}
-          onClose={() => setShowInviteModal(false)}
-        />
-      )}
+      </div>
     </div>
   )
 }

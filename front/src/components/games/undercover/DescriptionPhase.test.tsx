@@ -4,8 +4,6 @@ import { DescriptionPhase } from './DescriptionPhase'
 
 describe('DescriptionPhase', () => {
   const defaultProps = {
-    myRole: 'civilian',
-    myWord: 'Mosque',
     descriptionOrder: [
       { user_id: 'u1', username: 'Alice' },
       { user_id: 'u2', username: 'Bob' },
@@ -23,105 +21,102 @@ describe('DescriptionPhase', () => {
     onSubmitDescription: vi.fn(),
   }
 
-  it('shows word reminder for non-mr_white', () => {
-    render(<DescriptionPhase {...defaultProps} myRole="civilian" myWord="Mosque" />)
-    expect(screen.getByText('Mosque')).toBeInTheDocument()
-    expect(screen.getByText(/game\.undercover\.yourWordReminder/)).toBeInTheDocument()
-  })
-
-  it('hides word reminder for mr_white', () => {
-    render(<DescriptionPhase {...defaultProps} myRole="mr_white" myWord={undefined} />)
-    expect(screen.queryByText('game.undercover.yourWordReminder')).not.toBeInTheDocument()
-  })
-
-  it('shows description order list', () => {
-    render(<DescriptionPhase {...defaultProps} />)
-    expect(screen.getByText(/Alice/)).toBeInTheDocument()
-    expect(screen.getByText(/Bob/)).toBeInTheDocument()
-    expect(screen.getByText(/Charlie/)).toBeInTheDocument()
-  })
-
-  it('highlights current describer', () => {
-    const { container } = render(<DescriptionPhase {...defaultProps} currentDescriberIndex={1} />)
-    const highlightedEntry = container.querySelector('.bg-primary\\/10')
-    expect(highlightedEntry).toBeInTheDocument()
-    expect(highlightedEntry).toHaveTextContent('Bob')
-  })
-
-  it('shows "(you)" for current user', () => {
+  it('lists everyone in speaking order, "You" for the current user', () => {
     render(<DescriptionPhase {...defaultProps} currentUserId="u2" />)
-    expect(screen.getByText(/\(you\)/)).toBeInTheDocument()
+    const list = screen.getByRole('list', { name: 'game.undercover.descriptionOrder' })
+    expect(list).toHaveTextContent('Alice')
+    expect(list).toHaveTextContent('game.undercover.you')
+    expect(list).toHaveTextContent('Charlie')
   })
 
-  it('shows submitted descriptions', () => {
-    render(
-      <DescriptionPhase
-        {...defaultProps}
-        descriptions={{ u1: 'big building' }}
-      />,
-    )
-    expect(screen.getByText('big building')).toBeInTheDocument()
+  it('heads the phase with whoever is describing', () => {
+    render(<DescriptionPhase {...defaultProps} currentDescriberIndex={1} currentUserId="u3" />)
+    expect(screen.getByRole('heading', { name: 'game.undercover.describingTitle' })).toBeInTheDocument()
   })
 
-  it('shows input when isMyTurnToDescribe and isAlive', () => {
+  it('marks the current describer\'s row', () => {
+    const { container } = render(<DescriptionPhase {...defaultProps} currentDescriberIndex={1} currentUserId="u3" />)
+    const current = container.querySelector('[data-current]')
+    expect(current).toHaveTextContent('Bob')
+    expect(current).toHaveTextContent('game.undercover.describingNow')
+  })
+
+  it('says "your turn" (in brass) on your own row and in the heading', () => {
+    render(<DescriptionPhase {...defaultProps} isMyTurnToDescribe={true} />)
+    expect(screen.getByRole('heading', { name: 'game.undercover.yourTurnToDescribe' })).toBeInTheDocument()
+    expect(screen.getByText('game.undercover.yourTurn')).toHaveClass('text-brass')
+  })
+
+  it('shows Latin descriptions in quotes and Arabic ones in the hand', () => {
+    render(<DescriptionPhase {...defaultProps} descriptions={{ u1: 'patience', u2: 'كظم' }} currentDescriberIndex={2} />)
+    expect(screen.getByText('patience').closest('.uc-said')).toBeInTheDocument()
+    const arabic = screen.getByText('كظم')
+    expect(arabic).toHaveClass('uc-hand')
+    expect(arabic).toHaveAttribute('lang', 'ar')
+  })
+
+  it('gives the describer the #description-input composer', () => {
     render(<DescriptionPhase {...defaultProps} isMyTurnToDescribe={true} isAlive={true} />)
-    expect(screen.getByRole('textbox', { name: /game.undercover.describeYourWord/i })).toBeInTheDocument()
+    const input = screen.getByRole('textbox', { name: 'game.undercover.describeInOneWord' })
+    expect(input).toHaveAttribute('id', 'description-input')
   })
 
-  it('hides input when not my turn', () => {
+  it('hides the composer when it is not your turn', () => {
     render(<DescriptionPhase {...defaultProps} isMyTurnToDescribe={false} />)
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
   })
 
-  it('calls onSubmitDescription on button click', () => {
+  it('hides the composer from an eliminated player', () => {
+    render(<DescriptionPhase {...defaultProps} isMyTurnToDescribe={true} isAlive={false} />)
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+  })
+
+  it('submits with the button and with Enter', () => {
     const onSubmitDescription = vi.fn()
     render(
-      <DescriptionPhase
-        {...defaultProps}
-        isMyTurnToDescribe={true}
-        isAlive={true}
-        descriptionInput="a word"
-        onSubmitDescription={onSubmitDescription}
-      />,
+      <DescriptionPhase {...defaultProps} isMyTurnToDescribe={true} descriptionInput="word" onSubmitDescription={onSubmitDescription} />,
     )
-    fireEvent.click(screen.getByText('game.undercover.submitDescription'))
-    expect(onSubmitDescription).toHaveBeenCalledOnce()
+    fireEvent.click(screen.getByRole('button', { name: 'game.undercover.submitDescription' }))
+    fireEvent.submit(screen.getByRole('textbox'))
+    expect(onSubmitDescription).toHaveBeenCalledTimes(2)
   })
 
-  it('shows error message when descriptionError set', () => {
+  it('reports the input change', () => {
+    const onDescriptionInputChange = vi.fn()
+    render(<DescriptionPhase {...defaultProps} isMyTurnToDescribe={true} onDescriptionInputChange={onDescriptionInputChange} />)
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'hilm' } })
+    expect(onDescriptionInputChange).toHaveBeenCalledWith('hilm')
+  })
+
+  it('shows the error as an alert tied to the field', () => {
+    render(<DescriptionPhase {...defaultProps} isMyTurnToDescribe={true} descriptionError="Use one word" />)
+    expect(screen.getByRole('alert')).toHaveTextContent('Use one word')
+    expect(screen.getByRole('textbox')).toHaveAttribute('aria-invalid', 'true')
+  })
+
+  it('keeps the submit button disabled while the input is empty', () => {
+    render(<DescriptionPhase {...defaultProps} isMyTurnToDescribe={true} descriptionInput="" />)
+    expect(screen.getByRole('button', { name: 'game.undercover.submitDescription' })).toBeDisabled()
+  })
+
+  it('is the whole table: the Mayor on their row, an emptied seat with its role at the end', () => {
     render(
       <DescriptionPhase
         {...defaultProps}
-        isMyTurnToDescribe={true}
-        isAlive={true}
-        descriptionError="Too short"
+        players={[
+          { id: 'u1', username: 'Alice', is_alive: true },
+          { id: 'u2', username: 'Bob', is_alive: true, is_mayor: true },
+          { id: 'u3', username: 'Charlie', is_alive: true },
+          { id: 'u4', username: 'Dave', is_alive: false },
+        ]}
+        eliminated={[{ user_id: 'u4', role: 'civilian' }]}
       />,
     )
-    expect(screen.getByText('Too short')).toBeInTheDocument()
-  })
-
-  it('submit button disabled when input empty', () => {
-    render(
-      <DescriptionPhase
-        {...defaultProps}
-        isMyTurnToDescribe={true}
-        isAlive={true}
-        descriptionInput=""
-      />,
-    )
-    const submitButton = screen.getByText('game.undercover.submitDescription')
-    expect(submitButton).toBeDisabled()
-  })
-
-  it('shows waiting message when not my turn and there is a current describer', () => {
-    render(
-      <DescriptionPhase
-        {...defaultProps}
-        isMyTurnToDescribe={false}
-        currentDescriberIndex={1}
-        currentUserId="u3"
-      />,
-    )
-    expect(screen.getByText('game.undercover.waitingForDescription')).toBeInTheDocument()
+    const rows = screen.getByRole('list', { name: 'game.undercover.descriptionOrder' }).querySelectorAll('li')
+    expect(rows).toHaveLength(4)
+    expect(rows[1]).toHaveTextContent('game.undercover.mayorLabel')
+    expect(rows[3]).toHaveTextContent('Dave')
+    expect(rows[3]).toHaveTextContent('game.eliminated · games.undercover.roles.civilian')
+    expect(rows[3]).toHaveAttribute('data-out')
   })
 })

@@ -5,6 +5,7 @@
  * Do not edit manually.
  */
 
+import { gamePauseSchema } from "./gamePauseSchema.ts";
 import { mcqQuizPlayerStateSchema } from "./mcqQuizPlayerStateSchema.ts";
 import { mcqQuizRoundResultSchema } from "./mcqQuizRoundResultSchema.ts";
 import { playerUnlockedAchievementsSchema } from "./playerUnlockedAchievementsSchema.ts";
@@ -33,6 +34,9 @@ export const mcqQuizGameStateSchema = z.object({
   get round_results() {
     return z.array(mcqQuizRoundResultSchema);
   },
+  choice_tallies: z.optional(z.union([z.array(z.int()), z.null()])),
+  my_choice_index: z.optional(z.union([z.int(), z.null()])),
+  my_answer_time_ms: z.optional(z.union([z.int(), z.null()])),
   winner: z.optional(z.union([z.string(), z.null()])),
   get leaderboard() {
     return z.array(mcqQuizPlayerStateSchema);
@@ -46,11 +50,19 @@ export const mcqQuizGameStateSchema = z.object({
       .union([
         z.array(
           playerUnlockedAchievementsSchema.describe(
-            'Badges earned by one player at the end of a game.\n\nEvery game controller wrote this into ``live_state["newly_unlocked_achievements"]``\nbut no game-state schema declared it, and ``BaseModel`` is ``extra="forbid"`` — so\nit never left the server. The client has always been ready for it\n(``useAchievementNotifications`` + ``AchievementToast``); the toast simply had no\ndata. Declaring the field is what connects the two.',
+            'Badges earned by one player at the end of a game.\n\nEvery game controller writes this into ``live_state["newly_unlocked_achievements"]``,\nand every game-state schema declares it: ``BaseModel`` is ``extra="forbid"``, so an\nundeclared field never leaves the server (it once did not). The client shows them as\nseals on the game-over colophon (``useAchievementSeals``), never as a toast mid-game.',
           ),
         ),
         z.null(),
       ])
       .optional();
   },
+  get paused() {
+    return z.union([gamePauseSchema, z.null()]).optional();
+  },
+  can_pause: z.optional(z.boolean().default(false)),
+  can_resume: z.optional(z.boolean().default(false)),
+  host_username: z.optional(z.union([z.string(), z.null()])),
+  started_at: z.optional(z.union([z.iso.datetime(), z.null()])),
+  ended_at: z.optional(z.union([z.iso.datetime(), z.null()])),
 });

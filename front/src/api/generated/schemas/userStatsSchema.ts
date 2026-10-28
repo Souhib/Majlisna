@@ -20,7 +20,7 @@ export const userStatsSchema = z
         .datetime()
         .describe("Timestamp when the record was last updated (UTC)"),
     ),
-    id: z.optional(z.union([z.uuid(), z.null()])),
+    id: z.optional(z.uuid()),
     user_id: z.uuid(),
     total_games_played: z.optional(z.int().default(0)),
     total_games_won: z.optional(z.int().default(0)),

@@ -14,8 +14,11 @@ const mockGetStoredToken = vi.fn()
 const mockGetStoredUserData = vi.fn()
 const mockGetTokenExpiry = vi.fn()
 const mockStoreAuthData = vi.fn()
+const mockHasStoredSession = vi.fn()
 vi.mock("@/lib/auth", () => ({
   clearAuthData: () => mockClearAuthData(),
+  getStoredRefreshToken: () => null,
+  hasStoredSession: () => mockHasStoredSession(),
   getStoredToken: () => mockGetStoredToken(),
   getStoredUserData: () => mockGetStoredUserData(),
   getTokenExpiry: () => mockGetTokenExpiry(),
@@ -38,12 +41,27 @@ describe("AuthProvider", () => {
     mockGetStoredToken.mockReturnValue(null)
     mockGetStoredUserData.mockReturnValue(null)
     mockGetTokenExpiry.mockReturnValue(null)
+    // a session is stored unless a test says otherwise (the cookie paths need /me)
+    mockHasStoredSession.mockReturnValue(true)
   })
 
-  it("starts in loading state", () => {
+  it("does not ask /me when this browser holds no session", async () => {
+    // A logged-out visitor's every page load used to spend a 401 on GET /auth/me.
+    mockHasStoredSession.mockReturnValue(false)
+
+    const { result } = renderHook(() => useAuth(), { wrapper })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    expect(result.current.isAuthenticated).toBe(false)
+    expect(mockApiClient).not.toHaveBeenCalled()
+  })
+
+  it("starts in loading state", async () => {
     const { result } = renderHook(() => useAuth(), { wrapper })
     expect(result.current.isLoading).toBe(true)
     expect(result.current.isAuthenticated).toBe(false)
+    // Let the initial /me check settle inside act, so its state update is not left dangling
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
   })
 
   it("finishes loading when no stored auth", async () => {
@@ -66,7 +84,7 @@ describe("AuthProvider", () => {
   })
 
   it("authenticates via /me endpoint (cookie auth)", async () => {
-    const userData = { id: "u2", username: "Bob", email: "b@b.com" }
+    const userData = { id: "u2", username: "Bob", email_address: "b@b.com" }
     mockApiClient.mockResolvedValueOnce({ data: userData })
 
     const { result } = renderHook(() => useAuth(), { wrapper })
@@ -76,6 +94,18 @@ describe("AuthProvider", () => {
     expect(result.current.user?.username).toBe("Bob")
   })
 
+  it("reads the address from /me's email_address, so a reloaded tab still knows the player's email", async () => {
+    // Prepare: GET /me answers a UserView, whose field is email_address (not email)
+    mockApiClient.mockResolvedValueOnce({ data: { id: "u5", username: "Eve", email_address: "eve@b.com", email_verified: true } })
+
+    // Act
+    const { result } = renderHook(() => useAuth(), { wrapper })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    // Assert
+    expect(result.current.user).toEqual({ id: "u5", username: "Eve", email: "eve@b.com" })
+  })
+
   it("mints a fresh token pair after cookie auth so the session can outlive the access token", async () => {
     // Regression guard: the cookie path used to set a "cookie-auth" sentinel and
     // return without scheduling any refresh. Every reloaded tab then ran on
@@ -83,7 +113,7 @@ describe("AuthProvider", () => {
     // the next request 401'd and bounced the player to /auth/login mid-game. It
     // also left a stale token behind, which is what useSocket authenticates the
     // Socket.IO handshake with — so real-time silently fell back to polling.
-    const userData = { id: "u3", username: "Cookie", email: "c@b.com" }
+    const userData = { id: "u3", username: "Cookie", email_address: "c@b.com" }
     mockApiClient.mockResolvedValueOnce({ data: userData }) // GET /me
     mockApiClient.mockResolvedValueOnce({
       data: { access_token: "fresh-access", refresh_token: "fresh-refresh", expires_in: 900 },
@@ -100,7 +130,7 @@ describe("AuthProvider", () => {
   })
 
   it("falls back to the cookie-auth sentinel when the refresh call fails", async () => {
-    const userData = { id: "u4", username: "Dana", email: "d@b.com" }
+    const userData = { id: "u4", username: "Dana", email_address: "d@b.com" }
     mockApiClient.mockResolvedValueOnce({ data: userData }) // GET /me
     // Every later call rejects (default mock) → both refresh attempts fail.
 

@@ -2,27 +2,8 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { VoteHistory } from './VoteHistory'
 
-interface VoteEntry {
-  voter: string
-  voter_id: string
-  target: string
-  target_id: string
-}
-
-interface EliminatedInfo {
-  username: string
-  role: string
-  user_id: string
-}
-
-interface VoteRound {
-  round: number
-  votes: VoteEntry[]
-  eliminated: EliminatedInfo | null
-}
-
 describe('VoteHistory', () => {
-  const sampleHistory: VoteRound[] = [
+  const sampleHistory = [
     {
       round: 1,
       votes: [
@@ -33,75 +14,49 @@ describe('VoteHistory', () => {
     },
     {
       round: 2,
-      votes: [
-        { voter: 'Alice', voter_id: 'u1', target: 'Charlie', target_id: 'u3' },
-      ],
+      votes: [{ voter: 'Alice', voter_id: 'u1', target: 'Charlie', target_id: 'u3' }],
       eliminated: { username: 'Charlie', role: 'civilian', user_id: 'u3' },
     },
   ]
 
-  it('returns null when history empty', () => {
+  const roundButton = (n: number) => screen.getAllByRole('button')[n]
+
+  it('renders nothing without history', () => {
     const { container } = render(<VoteHistory history={[]} />)
     expect(container.innerHTML).toBe('')
   })
 
-  it('renders round entries', () => {
+  it('lists every round with the seat that emptied and its role', () => {
     render(<VoteHistory history={sampleHistory} />)
-    const roundLabels = screen.getAllByText('game.undercover.round')
-    expect(roundLabels).toHaveLength(2)
+    expect(screen.getAllByText('game.undercover.round')).toHaveLength(2)
+    expect(roundButton(0)).toHaveTextContent('Bob')
+    expect(roundButton(0)).toHaveTextContent('games.undercover.roles.undercover')
+    expect(roundButton(1)).toHaveTextContent('games.undercover.roles.civilian')
   })
 
-  it('expands round on click - shows vote details', () => {
+  it('opens the latest round only', () => {
     render(<VoteHistory history={sampleHistory} />)
-    // Click the first round button (the round label spans)
-    const roundLabels = screen.getAllByText('game.undercover.round')
-    fireEvent.click(roundLabels[0])
-    // After expanding, vote arrows should be visible
-    expect(screen.getByText('Alice')).toBeInTheDocument()
+    expect(roundButton(0)).toHaveAttribute('aria-expanded', 'false')
+    expect(roundButton(1)).toHaveAttribute('aria-expanded', 'true')
   })
 
-  it('shows eliminated player name in collapsed view', () => {
+  it('toggles a round open and closed', () => {
     render(<VoteHistory history={sampleHistory} />)
-    // Eliminated names appear in the collapsed headers.
-    // The latest round auto-expands, so 'Charlie' may appear multiple times
-    // (collapsed header + expanded vote details). Use getAllByText.
-    expect(screen.getByText('Bob')).toBeInTheDocument()
-    expect(screen.getAllByText('Charlie').length).toBeGreaterThanOrEqual(1)
+    fireEvent.click(roundButton(0))
+    expect(roundButton(0)).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByText('Alice and Charlie')).toBeVisible()
+    fireEvent.click(roundButton(0))
+    expect(roundButton(0)).toHaveAttribute('aria-expanded', 'false')
   })
 
-  it('shows vote arrows (voter -> target) when expanded', () => {
-    render(<VoteHistory history={sampleHistory} />)
-    const roundButtons = screen.getAllByText('game.undercover.round')
-    fireEvent.click(roundButtons[0])
-    // Voter and target names should be visible in the expanded section
-    expect(screen.getByText('Alice')).toBeInTheDocument()
-    // The arrow character is &rarr; (→)
-    const arrowElements = screen.getAllByText('→')
-    expect(arrowElements.length).toBeGreaterThan(0)
+  it('at the end, shows every round open without toggles', () => {
+    render(<VoteHistory history={sampleHistory} expandAll />)
+    expect(screen.queryAllByRole('button')).toHaveLength(0)
+    expect(screen.getByText('Alice and Charlie')).toBeVisible()
   })
 
-  it('shows elimination details when expanded', () => {
-    render(<VoteHistory history={sampleHistory} />)
-    const roundButtons = screen.getAllByText('game.undercover.round')
-    fireEvent.click(roundButtons[0])
-    expect(screen.getByText('game.undercover.wasEliminated')).toBeInTheDocument()
-  })
-
-  it('collapses on second click (toggle)', () => {
-    render(<VoteHistory history={sampleHistory} />)
-    const roundButtons = screen.getAllByText('game.undercover.round')
-    // Expand
-    fireEvent.click(roundButtons[0])
-    expect(screen.getByText('game.undercover.wasEliminated')).toBeInTheDocument()
-    // Collapse
-    fireEvent.click(roundButtons[0])
-    expect(screen.queryByText('game.undercover.wasEliminated')).not.toBeInTheDocument()
-  })
-
-  it('applies role color for eliminated undercover - "text-red-600" class', () => {
-    render(<VoteHistory history={sampleHistory} />)
-    // Bob is eliminated as undercover in round 1 - shown in collapsed view
-    const bobSpan = screen.getByText('Bob')
-    expect(bobSpan.className).toContain('text-red-600')
+  it('says when a round emptied no seat', () => {
+    render(<VoteHistory history={[{ round: 1, votes: [], eliminated: null }]} />)
+    expect(screen.getByText('game.undercover.noElimination')).toBeInTheDocument()
   })
 })

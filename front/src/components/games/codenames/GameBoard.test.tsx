@@ -1,8 +1,9 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { GameBoard } from './GameBoard'
+import type { CodenamesCard } from './model'
 
-function makeBoard() {
+function makeBoard(): CodenamesCard[] {
   return Array.from({ length: 25 }, (_, i) => ({
     word: `WORD${i}`,
     card_type: 'neutral' as const,
@@ -21,48 +22,47 @@ function defaultProps(overrides: Record<string, unknown> = {}) {
   }
 }
 
+const players = [
+  { user_id: 'user-1', username: 'Maryam', team: 'red', role: 'operative' },
+  { user_id: 'user-2', username: 'Idris', team: 'red', role: 'operative' },
+  { user_id: 'user-3', username: 'Bilal', team: 'red', role: 'operative' },
+]
+
 describe('GameBoard', () => {
-  it('renders 25 cards', () => {
+  it('renders 25 cards inside the board hook', () => {
     render(<GameBoard {...defaultProps()} />)
-    const buttons = screen.getAllByRole('button')
-    expect(buttons).toHaveLength(25)
+    const board = screen.getByTestId('codenames-board')
+    expect(board.querySelectorAll('[data-testid="codenames-card"]')).toHaveLength(25)
+    expect(screen.getAllByRole('button')).toHaveLength(25)
   })
 
-  it('computes voteCounts from cardVotes', () => {
-    const cardVotes = {
-      'user-1': 3,
-      'user-2': 3,
-      'user-3': 7,
-    }
-    render(<GameBoard {...defaultProps({ cardVotes })} />)
-    // Card at index 3 should show vote count of 2
-    expect(screen.getByText('2')).toBeInTheDocument()
-    // Card at index 7 should show vote count of 1
-    expect(screen.getByText('1')).toBeInTheDocument()
+  it('keeps one left-to-right order in every language', () => {
+    render(<GameBoard {...defaultProps()} />)
+    expect(screen.getByTestId('codenames-board')).toHaveAttribute('dir', 'ltr')
   })
 
-  it('identifies myVote from currentUserId', () => {
-    const cardVotes = {
-      'user-1': 5,
-      'user-2': 10,
-    }
-    render(<GameBoard {...defaultProps({ cardVotes, currentUserId: 'user-1' })} />)
-    // The card at index 5 should have the ring class (myVote)
-    const buttons = screen.getAllByRole('button')
-    expect(buttons[5].className).toContain('ring-2')
-    expect(buttons[5].className).toContain('ring-primary')
-    // Other cards should not have the ring class
-    expect(buttons[10].className).not.toContain('ring-2')
+  it('draws the initials of whoever points at each card', () => {
+    const cardVotes = { 'user-1': 3, 'user-2': 3, 'user-3': 7 }
+    render(<GameBoard {...defaultProps({ cardVotes, players })} />)
+    const cards = screen.getAllByTestId('codenames-card')
+    expect(cards[3]).toHaveTextContent('MA')
+    expect(cards[3]).toHaveTextContent('ID')
+    expect(cards[7]).toHaveTextContent('BI')
+    expect(cards[0]).not.toHaveAttribute('data-pointed')
   })
 
-  it('shows no vote badges when cardVotes is undefined', () => {
-    render(<GameBoard {...defaultProps({ cardVotes: undefined })} />)
-    // No span badges should exist inside buttons
-    const buttons = screen.getAllByRole('button')
-    for (const button of buttons) {
-      const spans = button.querySelectorAll('span')
-      expect(spans.length).toBe(0)
-    }
+  it('identifies your own choice from currentUserId', () => {
+    const cardVotes = { 'user-1': 5, 'user-2': 10 }
+    render(<GameBoard {...defaultProps({ cardVotes, players, currentUserId: 'user-1' })} />)
+    const cards = screen.getAllByTestId('codenames-card')
+    expect(cards[5]).toHaveAttribute('data-mine', 'true')
+    expect(cards[10]).not.toHaveAttribute('data-mine')
+    expect(cards[10]).toHaveAttribute('data-pointed', 'true')
+  })
+
+  it('shows no pointing when cardVotes is undefined', () => {
+    const { container } = render(<GameBoard {...defaultProps({ cardVotes: undefined })} />)
+    expect(container.querySelectorAll('.cn-ptr')).toHaveLength(0)
   })
 
   it('forwards canGuess and isSpymaster to cards', () => {
@@ -71,12 +71,17 @@ describe('GameBoard', () => {
 
     render(<GameBoard {...defaultProps({ board, canGuess: false, isSpymaster: true })} />)
 
-    const buttons = screen.getAllByRole('button')
-    // All buttons should be disabled since canGuess is false
-    for (const button of buttons) {
-      expect(button).toBeDisabled()
-    }
-    // The first card (red, unrevealed) should show red color since isSpymaster is true
-    expect(buttons[0].className).toContain('bg-red-200')
+    const cards = screen.getAllByTestId('codenames-card')
+    for (const card of cards) expect(card).toBeDisabled()
+    expect(cards[0]).toHaveAttribute('data-face', 'key')
+    expect(cards[0]).toHaveAttribute('data-team', 'madder')
+  })
+
+  it('at the end, turned cards are wool and the rest read as the key', () => {
+    const board = makeBoard().map((c) => ({ ...c, revealed: true }))
+    render(<GameBoard {...defaultProps({ board, isFinished: true, playedWords: ['WORD0'] })} />)
+    const cards = screen.getAllByTestId('codenames-card')
+    expect(cards[0]).toHaveAttribute('data-face', 'wool')
+    expect(cards[1]).toHaveAttribute('data-face', 'key')
   })
 })

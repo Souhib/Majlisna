@@ -1,29 +1,49 @@
-import { Clock, MapPin, Moon, ChevronDown } from "lucide-react"
-import { useCallback, useEffect, useRef, useState } from "react"
+import { MapPin, Moon, Sunset } from "lucide-react"
+import { useCallback, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
+import { Lozenge } from "@/components/brand"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { usePrayerTimes } from "@/hooks/use-prayer-times"
+import { cn } from "@/lib/utils"
 import { CitySelector, autoDetectLocationByIP, loadStoredCity, refreshTimezoneIfMissing, type CityCoordinates } from "./CitySelector"
 
-const PRAYER_ICONS: Record<string, string> = {
-  fajr: "\u{1F305}",
-  sunrise: "\u{2600}\uFE0F",
-  dhuhr: "\u{1F31E}",
-  asr: "\u{26C5}",
-  maghrib: "\u{1F307}",
-  isha: "\u{1F319}",
+/**
+ * Clock times are read aloud at mixed tables: 24-hour, Western digits, in every
+ * language (DESIGN.md, "Type"). The city's own time zone when we know it.
+ */
+export function formatPrayerTime(date: Date, timezone?: string): string {
+  try {
+    return new Intl.DateTimeFormat("en-GB", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+      ...(timezone ? { timeZone: timezone } : {}),
+    }).format(date)
+  } catch {
+    // an unknown time zone string from an old stored city
+    return new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(date)
+  }
 }
 
-function formatTime(date: Date, timezone?: string): string {
-  const options: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit" }
-  if (timezone) options.timeZone = timezone
-  return date.toLocaleTimeString([], options)
-}
-
-export function PrayerTimesNav() {
+/**
+ * The prayer chip of the nav ("Maghrib 18:42", the next prayer and its time) and, on
+ * tap, the day's times, the last third of the night and the city picker. Times are
+ * computed on the device (adhan, Muslim World League); the location comes from the
+ * stored city, IP auto-detection or the browser's geolocation (CitySelector).
+ */
+export function PrayerTimesNav({
+  className,
+  align = "end",
+  fallbackLabel,
+}: {
+  className?: string
+  align?: "start" | "center" | "end"
+  /** The chip's text while no prayer time is known (no city yet). Default "Prayer Times";
+   *  the menu sheet, which labels the chip "Prayer Times" already, says "Choose a city". */
+  fallbackLabel?: string
+}) {
   const { t } = useTranslation()
   const [coordinates, setCoordinates] = useState<CityCoordinates | null>(() => loadStoredCity())
-  const [open, setOpen] = useState(false)
-  const dropdownRef = useRef<HTMLDivElement>(null)
 
   // Auto-detect location by IP if no stored city
   useEffect(() => {
@@ -52,121 +72,86 @@ export function PrayerTimesNav() {
     setCoordinates(data)
   }, [])
 
-  // Close on outside click
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setOpen(false)
-      }
-    }
-    document.addEventListener("mousedown", handler)
-    return () => document.removeEventListener("mousedown", handler)
-  }, [])
-
-  // Close on Escape
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false)
-    }
-    document.addEventListener("keydown", handler)
-    return () => document.removeEventListener("keydown", handler)
-  }, [])
+  const name = (key: string) => t(`prayer.names.${key}`)
+  const nextName = nextPrayer ? name(nextPrayer.key) : ""
+  const nextTime = nextPrayer ? formatPrayerTime(nextPrayer.time, timezone) : ""
 
   return (
-    <div className="relative" ref={dropdownRef}>
-      {/* Trigger button */}
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm font-medium text-muted-foreground hover:text-primary hover:bg-secondary transition-colors"
-      >
-        {coordinates && nextPrayer ? (
-          <>
-            <Clock className="h-3.5 w-3.5" />
-            <span>{nextPrayer.name}</span>
-            <span className="tabular-nums font-bold text-primary">{countdown}</span>
-            <ChevronDown className="h-3 w-3 opacity-50" />
-          </>
-        ) : (
-          <>
-            <MapPin className="h-3.5 w-3.5" />
-            <span>{t("prayer.prayerTimes")}</span>
-          </>
-        )}
-      </button>
-
-      {/* Dropdown panel */}
-      {open && (
-        <div className="absolute top-full mt-2 w-[min(20rem,calc(100vw-2rem))] rounded-xl border bg-popover p-4 shadow-lg z-50 right-0">
-          {/* Header with city */}
-          {coordinates && (
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-1.5 text-sm">
-                <MapPin className="h-3.5 w-3.5 text-primary" />
-                <span className="font-medium">{coordinates.city}</span>
-              </div>
-              {nextPrayer && (
-                <span className="text-xs text-muted-foreground">
-                  {t("prayer.next")}: <span className="font-medium text-primary">{nextPrayer.name}</span>
-                </span>
-              )}
-            </div>
+    <Popover>
+      <PopoverTrigger asChild>
+        <button type="button" className={cn("prayer-chip", className)} data-fallback={!(coordinates && nextPrayer) || undefined}>
+          {coordinates && nextPrayer ? (
+            <>
+              <Sunset aria-hidden="true" />
+              <span className="sr-only">{t("prayer.prayerTimes")}: </span>
+              <span className="pn">{nextName}</span>
+              <b className="num" dir="ltr">
+                {nextTime}
+              </b>
+            </>
+          ) : (
+            <>
+              {/* .pn: at 1440 px and below the nav keeps the pin only (the label stays for
+                  assistive tech); the next prayer's name goes at 1360 (shell.css) */}
+              <MapPin aria-hidden="true" />
+              <span className="pn">{fallbackLabel ?? t("prayer.prayerTimes")}</span>
+            </>
           )}
+        </button>
+      </PopoverTrigger>
 
-          {/* Prayer times grid */}
-          {coordinates && prayers.length > 0 && (
-            <div className="grid grid-cols-3 gap-2 mb-3">
+      <PopoverContent align={align} className="w-[min(22rem,calc(100vw-32px))] p-4">
+        <div className="grid gap-3.5">
+          {coordinates && nextPrayer ? (
+            <p className="text-[14px] text-muted-foreground">
+              {/* "Maghrib in" / "Maghrib dans" / "المغرب بعد": the time ends the phrase in
+                  all three languages, and is drawn on its own in tabular figures. */}
+              {t("prayer.nextIn", { name: nextName, time: "" }).trim()}{" "}
+              <span className="num font-medium text-foreground" dir="ltr">
+                {countdown}
+              </span>
+            </p>
+          ) : null}
+
+          {coordinates && prayers.length > 0 ? (
+            <ul className="prayer-grid">
               {prayers.map((prayer) => {
                 const isNext = nextPrayer?.key === prayer.key
                 return (
-                  <div
-                    key={prayer.key}
-                    className={`rounded-lg p-2 text-center transition-colors ${
-                      isNext
-                        ? "bg-primary/10 ring-1 ring-primary/30"
-                        : "bg-muted/50"
-                    }`}
-                  >
-                    <span className="text-sm">{PRAYER_ICONS[prayer.key] || ""}</span>
-                    <p className={`text-xs font-medium ${isNext ? "text-primary" : "text-muted-foreground"}`}>
-                      {prayer.name}
-                    </p>
-                    <p className={`text-xs font-bold tabular-nums ${isNext ? "text-primary" : ""}`}>
-                      {formatTime(prayer.time, timezone)}
-                    </p>
-                  </div>
+                  <li key={prayer.key} data-next={isNext || undefined} aria-current={isNext ? "time" : undefined}>
+                    <span className="pname">
+                      {isNext ? <Lozenge state="brass" size={6} /> : null}
+                      {name(prayer.key)}
+                    </span>
+                    <span className="ptime">{formatPrayerTime(prayer.time, timezone)}</span>
+                  </li>
                 )
               })}
-            </div>
-          )}
+            </ul>
+          ) : null}
 
-          {/* Tahajjud */}
-          {coordinates && tahajjud && (
-            <div className="rounded-lg bg-primary/5 border border-primary/10 p-3 mb-3">
-              <div className="flex items-start gap-2">
-                <Moon className="h-4 w-4 text-primary mt-0.5 shrink-0" />
-                <div>
-                  <div className="flex items-baseline gap-1.5">
-                    <span className="text-xs font-bold">{t("prayer.tahajjud")}</span>
-                    <span className="text-xs font-bold tabular-nums text-primary">
-                      {formatTime(tahajjud, timezone)}
-                    </span>
-                  </div>
-                  <p className="text-[10px] text-muted-foreground mt-1 leading-relaxed italic">
-                    "{t("prayer.tahajjudHadith")}"
-                    <span className="not-italic ml-0.5 opacity-70">— {t("prayer.tahajjudSource")}</span>
-                  </p>
-                </div>
-              </div>
+          {coordinates && tahajjud ? (
+            <div className="grid gap-1.5 border-t border-line pt-3">
+              <p className="flex items-center gap-2 text-[14px]">
+                <Moon className="size-4 shrink-0 text-brass" aria-hidden="true" />
+                <span className="font-medium text-foreground">{t("prayer.tahajjud")}</span>
+                <span className="num font-medium text-foreground" dir="ltr">
+                  {formatPrayerTime(tahajjud, timezone)}
+                </span>
+              </p>
+              <p className="text-[13px] leading-relaxed text-muted-foreground">
+                {t("prayer.tahajjudHadith")}
+                <span className="ms-1.5 whitespace-nowrap">({t("prayer.tahajjudSource")})</span>
+              </p>
             </div>
-          )}
+          ) : null}
 
-          {/* City selector */}
-          <div className="border-t pt-3">
+          <div className="border-t border-line pt-3">
             <CitySelector onSelect={handleCitySelect} initialCity={coordinates?.city} />
           </div>
+          {coordinates ? <p className="type-meta">{t("prayer.method")}</p> : null}
         </div>
-      )}
-    </div>
+      </PopoverContent>
+    </Popover>
   )
 }

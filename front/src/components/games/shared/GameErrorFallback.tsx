@@ -1,45 +1,46 @@
-import { AlertTriangle } from "lucide-react"
-import { useTranslation } from "react-i18next"
 import { useNavigate } from "@tanstack/react-router"
+import { useTranslation } from "react-i18next"
+import { getApiErrorMessage } from "@/api/client"
+import { Alert } from "@/components/ui/alert"
+import { Button } from "@/components/ui/button"
+import { Panel } from "@/components/ui/panel"
 
 interface GameErrorFallbackProps {
   error?: Error
   onReset?: () => void
 }
 
+/**
+ * What a game screen shows when it crashed: says so plainly, names the way out (try
+ * again, or back to the rooms), and shows the error's own message when there is one.
+ * A flat panel with an ember-edged alert: no icon in a tinted square, no float.
+ *
+ * A failed request shows the server's message in the reader's language
+ * (`getApiErrorMessage`), never ky's "Request failed with status code 404: GET http://…",
+ * whose unbroken URL also pushed a 390 px page sideways.
+ */
 export function GameErrorFallback({ error, onReset }: GameErrorFallbackProps) {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const message = error ? getApiErrorMessage(error, error.message) : null
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-8">
-      <div className="glass rounded-2xl p-8 text-center border-destructive/20 animate-scale-in">
-        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-destructive/10">
-          <AlertTriangle className="h-8 w-8 text-destructive animate-float" />
-        </div>
-        <h2 className="text-xl font-bold text-destructive mb-2">{t("common.error")}</h2>
-        {error && (
-          <p className="text-sm text-muted-foreground mb-6">{error.message}</p>
-        )}
-        <div className="flex items-center justify-center gap-3">
-          {onReset && (
-            <button
-              type="button"
-              onClick={onReset}
-              className="rounded-xl bg-gradient-to-r from-primary to-primary/90 px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 hover:shadow-lg hover:-translate-y-px transition-all duration-200"
-            >
-              {t("common.retry")}
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => navigate({ to: "/rooms" })}
-            className="rounded-xl border border-border/50 px-5 py-2.5 text-sm font-medium hover:bg-glow transition-all duration-200"
-          >
+    <div className="page-wrap pt-10 pb-14">
+      <Panel className="mx-auto max-w-[560px]">
+        <h2 className="type-title">{t("common.error")}</h2>
+        <p className="mt-2 text-[15px] leading-normal">{t("game.quiz.errorBody")}</p>
+        {message ? (
+          <Alert className="mt-4 wrap-anywhere" data-testid="game-error-message">
+            {message}
+          </Alert>
+        ) : null}
+        <div className="mt-5 flex flex-wrap gap-2.5">
+          {onReset ? <Button onClick={onReset}>{t("common.retry")}</Button> : null}
+          <Button variant={onReset ? "secondary" : "primary"} onClick={() => navigate({ to: "/rooms" })}>
             {t("game.backToRoom")}
-          </button>
+          </Button>
         </div>
-      </div>
+      </Panel>
     </div>
   )
 }

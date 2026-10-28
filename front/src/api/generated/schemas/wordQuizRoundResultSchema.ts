@@ -13,4 +13,6 @@ export const wordQuizRoundResultSchema = z.object({
   answered_at_hint: z.union([z.int(), z.null()]),
   points: z.int(),
   answer_time_ms: z.optional(z.union([z.int(), z.null()])),
+  typed_answer: z.optional(z.union([z.string(), z.null()])),
+  attempts: z.optional(z.int().default(0)),
 });

@@ -13,5 +13,5 @@ export const wordSchema = z.object({
   short_description: z.string(),
   long_description: z.string(),
   hint: z.optional(z.union([z.object({}).catchall(z.any()), z.null()])),
-  id: z.optional(z.union([z.uuid(), z.null()])),
+  id: z.optional(z.uuid()),
 });

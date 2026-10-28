@@ -1,5 +1,42 @@
 import * as Sentry from "@sentry/react"
 import { Component, type ErrorInfo, type ReactNode } from "react"
+import { useTranslation } from "react-i18next"
+import { Button } from "@/components/ui/button"
+import { EmptyState } from "@/components/ui/empty-state"
+
+/**
+ * What a crashed page shows: said plainly, with the repair (try again, then reload).
+ * The technical message stays visible but quiet, for a screenshot sent to the maker.
+ */
+function ErrorFallback({ message, onRetry }: { message?: string; onRetry: () => void }) {
+  const { t } = useTranslation()
+  return (
+    <div className="page-wrap grid min-h-[50vh] place-items-center py-16" role="alert">
+      <EmptyState
+        titleAs="h2"
+        title={<span className="type-title text-[28px]">{t("ui.errorTitle")}</span>}
+        description={
+          <>
+            {t("ui.errorBody")}
+            {message ? (
+              <span className="mt-3 block text-[13px] text-muted-foreground" dir="auto">
+                {message}
+              </span>
+            ) : null}
+          </>
+        }
+        action={
+          <>
+            <Button onClick={onRetry}>{t("ui.tryAgain")}</Button>
+            <Button variant="secondary" onClick={() => window.location.reload()}>
+              {t("ui.reload")}
+            </Button>
+          </>
+        }
+      />
+    </div>
+  )
+}
 
 interface Props {
   children: ReactNode
@@ -29,26 +66,7 @@ export class ErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.hasError) {
       if (this.props.fallback) return this.props.fallback
-      return (
-        <div className="flex min-h-[400px] items-center justify-center">
-          <div className="text-center animate-scale-in">
-            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-destructive/10">
-              <svg className="h-8 w-8 text-destructive animate-float" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
-              </svg>
-            </div>
-            <h2 className="text-2xl font-extrabold tracking-tight text-destructive">Something went wrong</h2>
-            <p className="mt-2 text-muted-foreground">{this.state.error?.message}</p>
-            <button
-              type="button"
-              className="mt-6 rounded-xl bg-gradient-to-r from-primary to-primary/90 px-6 py-2.5 text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 hover:shadow-lg hover:-translate-y-px transition-all duration-200"
-              onClick={() => this.setState({ hasError: false, error: undefined })}
-            >
-              Try again
-            </button>
-          </div>
-        </div>
-      )
+      return <ErrorFallback message={this.state.error?.message} onRetry={() => this.setState({ hasError: false, error: undefined })} />
     }
     return this.props.children
   }

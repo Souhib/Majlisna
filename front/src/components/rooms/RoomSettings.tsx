@@ -1,27 +1,91 @@
-import { ChevronDown, Settings } from "lucide-react"
-import { memo, useCallback, useEffect, useState } from "react"
+import { ChevronDown, SlidersHorizontal } from "lucide-react"
+import { memo, useCallback, useEffect, useId, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
-import { getApiErrorMessage } from "@/api/client"
 import { useUpdateRoomSettingsApiV1RoomsRoomIdSettingsPatch } from "@/api/generated"
+import { Button } from "@/components/ui/button"
+import { Panel } from "@/components/ui/panel"
+import { Switch } from "@/components/ui/switch"
+import { roomErrorMessage } from "./errors"
 import { cn } from "@/lib/utils"
+import { GAME_NAME_KEY, type GameType } from "./lobby"
 
 interface RoomSettingsProps {
   roomId: string
   settings: Record<string, unknown> | null
-  gameType: "undercover" | "codenames" | "word_quiz" | "mcq_quiz"
+  gameType: GameType
   playerCount: number
+  className?: string
 }
 
 const TIMER_OPTIONS = [0, 15, 30, 45, 60, 90, 120, 180]
+// Mirrors UNDERCOVER_MR_WHITE_MIN_PLAYERS: below 5, one undercover plus one Mr. White
+// already tie the civilians, and the impostors win at parity.
+export const MR_WHITE_MIN_PLAYERS = 5
+const DIFFICULTIES = ["mixed", "easy", "medium", "hard"] as const
 
-export const RoomSettings = memo(function RoomSettings({
-  roomId,
-  settings,
-  gameType,
-  playerCount,
-}: RoomSettingsProps) {
+interface Option<T> {
+  value: T
+  label: string
+}
+
+/**
+ * One setting: a row of chips that are native radio buttons underneath (one tab stop,
+ * arrow keys move the choice, the legend names the group). The chosen chip takes the
+ * primary fill; figures are tabular.
+ */
+function OptionGroup<T extends string | number>({
+  legend,
+  value,
+  options,
+  onChange,
+}: {
+  legend: string
+  value: T
+  options: Option<T>[]
+  onChange: (value: T) => void
+}) {
+  const name = useId()
+  return (
+    <fieldset className="grid gap-2">
+      <legend className="type-label mb-2">{legend}</legend>
+      <div className="flex flex-wrap gap-1.5">
+        {options.map((o) => (
+          <label key={String(o.value)} className="relative cursor-pointer">
+            <input
+              type="radio"
+              name={name}
+              className="peer sr-only"
+              checked={value === o.value}
+              onChange={() => onChange(o.value)}
+            />
+            <span
+              className={cn(
+                "inline-flex h-10 min-w-12 items-center justify-center rounded-sm border border-line bg-surface px-3 text-[14px] font-medium leading-none text-muted-foreground num pointer-coarse:h-11",
+                "transition-[background-color,border-color,color] duration-(--dur-state) ease-out hover:border-line-brass-strong hover:text-foreground",
+                "peer-checked:border-primary peer-checked:bg-primary peer-checked:text-primary-foreground",
+                "peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-focus",
+              )}
+            >
+              {o.label}
+            </span>
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  )
+}
+
+/**
+ * The host's settings for the game chosen in the lobby: a hairline panel that opens from
+ * its header. Values come from the room and are saved explicitly.
+ */
+export const RoomSettings = memo(function RoomSettings({ roomId, settings, gameType, playerCount, className }: RoomSettingsProps) {
   const { t } = useTranslation()
+  const uid = useId()
+  const bodyId = `${uid}-body`
+  const mrWhiteId = `${uid}-mr-white`
+  const mrWhiteHintId = `${uid}-mr-white-hint`
   const [isOpen, setIsOpen] = useState(false)
   const settingsMutation = useUpdateRoomSettingsApiV1RoomsRoomIdSettingsPatch()
 
@@ -38,25 +102,36 @@ export const RoomSettings = memo(function RoomSettings({
   const [wordQuizDifficulty, setWordQuizDifficulty] = useState("mixed")
   const [mcqQuizDifficulty, setMcqQuizDifficulty] = useState("mixed")
 
+  // Every room_state push carries a NEW settings object, so syncing on the object reset
+  // the host's unsaved choices whenever anyone joined or reconnected. Sync on the values.
+  const settingsKey = settings ? JSON.stringify(settings) : ""
   useEffect(() => {
-    if (settings) {
-      if (settings.description_timer != null) setDescriptionTimer(settings.description_timer as number)
-      if (settings.voting_timer != null) setVotingTimer(settings.voting_timer as number)
-      if (settings.codenames_clue_timer != null) setCodenamesClueTimer(settings.codenames_clue_timer as number)
-      if (settings.codenames_guess_timer != null) setCodenamesGuessTimer(settings.codenames_guess_timer as number)
-      if (settings.enable_mr_white != null) setEnableMrWhite(settings.enable_mr_white as boolean)
-      if (settings.word_quiz_turn_duration != null) setWordQuizTurnDuration(settings.word_quiz_turn_duration as number)
-      if (settings.word_quiz_rounds != null) setWordQuizRounds(settings.word_quiz_rounds as number)
-      if (settings.word_quiz_hint_interval != null) setWordQuizHintInterval(settings.word_quiz_hint_interval as number)
-      if (settings.mcq_quiz_turn_duration != null) setMcqQuizTurnDuration(settings.mcq_quiz_turn_duration as number)
-      if (settings.mcq_quiz_rounds != null) setMcqQuizRounds(settings.mcq_quiz_rounds as number)
-      if (settings.word_quiz_difficulty != null) setWordQuizDifficulty(settings.word_quiz_difficulty as string)
-      if (settings.mcq_quiz_difficulty != null) setMcqQuizDifficulty(settings.mcq_quiz_difficulty as string)
-    }
-  }, [settings])
+    if (!settings) return
+    if (settings.description_timer != null) setDescriptionTimer(settings.description_timer as number)
+    if (settings.voting_timer != null) setVotingTimer(settings.voting_timer as number)
+    if (settings.codenames_clue_timer != null) setCodenamesClueTimer(settings.codenames_clue_timer as number)
+    if (settings.codenames_guess_timer != null) setCodenamesGuessTimer(settings.codenames_guess_timer as number)
+    if (settings.enable_mr_white != null) setEnableMrWhite(settings.enable_mr_white as boolean)
+    if (settings.word_quiz_turn_duration != null) setWordQuizTurnDuration(settings.word_quiz_turn_duration as number)
+    if (settings.word_quiz_rounds != null) setWordQuizRounds(settings.word_quiz_rounds as number)
+    if (settings.word_quiz_hint_interval != null) setWordQuizHintInterval(settings.word_quiz_hint_interval as number)
+    if (settings.mcq_quiz_turn_duration != null) setMcqQuizTurnDuration(settings.mcq_quiz_turn_duration as number)
+    if (settings.mcq_quiz_rounds != null) setMcqQuizRounds(settings.mcq_quiz_rounds as number)
+    if (settings.word_quiz_difficulty != null) setWordQuizDifficulty(settings.word_quiz_difficulty as string)
+    if (settings.mcq_quiz_difficulty != null) setMcqQuizDifficulty(settings.mcq_quiz_difficulty as string)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the values, see above
+  }, [settingsKey])
 
-  const timerLabel = (val: number) => (val === 0 ? t("room.noLimit") : `${val}s`)
+  const seconds = (val: number) => (val === 0 ? t("room.noLimit") : t("room.settingsPanel.seconds", { count: val }))
+  const timerOptions = TIMER_OPTIONS.map((v) => ({ value: v, label: seconds(v) }))
+  const secondsOptions = (values: number[]) => values.map((v) => ({ value: v, label: seconds(v) }))
+  const countOptions = (values: number[]) => values.map((v) => ({ value: v, label: String(v) }))
+  const difficultyOptions = DIFFICULTIES.map((v) => ({
+    value: v as string,
+    label: t(`room.difficulty${v.charAt(0).toUpperCase() + v.slice(1)}`),
+  }))
 
+  const mrWhitePossible = playerCount >= MR_WHITE_MIN_PLAYERS
   const isSaving = settingsMutation.isPending
 
   const handleSave = useCallback(async () => {
@@ -82,103 +157,50 @@ export const RoomSettings = memo(function RoomSettings({
       await settingsMutation.mutateAsync({ room_id: roomId, data: payload })
       toast.success(t("room.settingsSaved"))
     } catch (err) {
-      toast.error(getApiErrorMessage(err, "Failed to save settings"))
+      toast.error(roomErrorMessage(err, t("room.settingsPanel.saveFailed")))
     }
   }, [roomId, gameType, descriptionTimer, votingTimer, codenamesClueTimer, codenamesGuessTimer, enableMrWhite, wordQuizTurnDuration, wordQuizRounds, wordQuizHintInterval, wordQuizDifficulty, mcqQuizTurnDuration, mcqQuizRounds, mcqQuizDifficulty, t, settingsMutation])
 
   return (
-    <div className="glass rounded-2xl p-5">
-      <button
-        type="button"
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 w-full text-left"
-      >
-        <Settings className="h-4 w-4 text-primary" />
-        <h3 className="text-sm font-bold flex-1">{t("room.settings")}</h3>
-        <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform duration-200", isOpen && "rotate-180")} />
-      </button>
+    <Panel flush className={cn("overflow-hidden", className)}>
+      <h2 className="type-panel">
+        <button
+          type="button"
+          onClick={() => setIsOpen((open) => !open)}
+          aria-expanded={isOpen}
+          aria-controls={bodyId}
+          className="flex min-h-12 w-full cursor-pointer items-center gap-3 px-4 py-3 text-start transition-colors duration-(--dur-state) hover:bg-[color-mix(in_oklch,var(--brass)_6%,transparent)] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus sm:px-5"
+        >
+          <SlidersHorizontal className="size-[18px] shrink-0 text-brass" aria-hidden="true" />
+          <span>{t("room.settingsPanel.title", { game: t(GAME_NAME_KEY[gameType]) })}</span>
+          <ChevronDown
+            className={cn("ms-auto size-4 shrink-0 text-muted-foreground transition-transform duration-(--dur-state) motion-reduce:transition-none", isOpen && "rotate-180")}
+            aria-hidden="true"
+          />
+        </button>
+      </h2>
 
-      <div className={cn(
-        "grid transition-all duration-300",
-        isOpen ? "grid-rows-[1fr] opacity-100 mt-5" : "grid-rows-[0fr] opacity-0",
-      )}>
-        <div className="overflow-hidden space-y-5">
+      {isOpen ? (
+        <div id={bodyId} className="grid gap-5 border-t border-line p-4 sm:p-5">
           {gameType === "undercover" ? (
             <>
-              {/* Description Timer */}
-              <div>
-                <label className="text-xs font-semibold text-muted-foreground block mb-2">
-                  {t("room.descriptionTimer")}
-                </label>
-                <div className="flex gap-1.5 flex-wrap">
-                  {TIMER_OPTIONS.map((val) => (
-                    <button
-                      key={val}
-                      type="button"
-                      onClick={() => setDescriptionTimer(val)}
-                      className={cn(
-                        "rounded-xl px-3 py-1.5 text-xs font-medium transition-all duration-200",
-                        descriptionTimer === val
-                          ? "bg-gradient-to-r from-primary to-primary/90 text-primary-foreground shadow-sm"
-                          : "bg-muted text-muted-foreground hover:bg-muted/80",
-                      )}
-                    >
-                      {timerLabel(val)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Voting Timer */}
-              <div>
-                <label className="text-xs font-semibold text-muted-foreground block mb-2">
-                  {t("room.votingTimer")}
-                </label>
-                <div className="flex gap-1.5 flex-wrap">
-                  {TIMER_OPTIONS.map((val) => (
-                    <button
-                      key={val}
-                      type="button"
-                      onClick={() => setVotingTimer(val)}
-                      className={cn(
-                        "rounded-xl px-3 py-1.5 text-xs font-medium transition-all duration-200",
-                        votingTimer === val
-                          ? "bg-gradient-to-r from-primary to-primary/90 text-primary-foreground shadow-sm"
-                          : "bg-muted text-muted-foreground hover:bg-muted/80",
-                      )}
-                    >
-                      {timerLabel(val)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Mr. White Toggle */}
-              <div>
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold text-muted-foreground">
+              <OptionGroup legend={t("room.settingsPanel.descriptionTimer")} value={descriptionTimer} options={timerOptions} onChange={setDescriptionTimer} />
+              <OptionGroup legend={t("room.settingsPanel.votingTimer")} value={votingTimer} options={timerOptions} onChange={setVotingTimer} />
+              <div className="grid gap-1.5">
+                <div className="flex items-center justify-between gap-4">
+                  <label htmlFor={mrWhiteId} className="text-[15px] leading-snug text-foreground">
                     {t("room.enableMrWhite")}
                   </label>
-                  <button
-                    type="button"
-                    onClick={() => playerCount >= 4 && setEnableMrWhite(!enableMrWhite)}
-                    disabled={playerCount < 4}
-                    className={cn(
-                      "relative inline-flex h-6 w-11 items-center rounded-full transition-all duration-200",
-                      enableMrWhite && playerCount >= 4 ? "bg-gradient-to-r from-primary to-primary/90" : "bg-muted",
-                      playerCount < 4 && "opacity-50 cursor-not-allowed",
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        "inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform duration-200",
-                        enableMrWhite && playerCount >= 4 ? "translate-x-6" : "translate-x-1",
-                      )}
-                    />
-                  </button>
+                  <Switch
+                    id={mrWhiteId}
+                    checked={enableMrWhite && mrWhitePossible}
+                    disabled={!mrWhitePossible}
+                    onCheckedChange={setEnableMrWhite}
+                    aria-describedby={mrWhitePossible ? undefined : mrWhiteHintId}
+                  />
                 </div>
-                {playerCount < 4 && (
-                  <p className="text-xs text-muted-foreground/70 mt-1">
+                {!mrWhitePossible && (
+                  <p id={mrWhiteHintId} className="text-[13px] leading-[1.45] text-muted-foreground">
                     {t("room.mrWhiteMinPlayers")}
                   </p>
                 )}
@@ -186,177 +208,29 @@ export const RoomSettings = memo(function RoomSettings({
             </>
           ) : gameType === "codenames" ? (
             <>
-              {/* Clue Timer */}
-              <div>
-                <label className="text-xs font-semibold text-muted-foreground block mb-2">
-                  {t("room.clueTimer")}
-                </label>
-                <div className="flex gap-1.5 flex-wrap">
-                  {TIMER_OPTIONS.map((val) => (
-                    <button
-                      key={val}
-                      type="button"
-                      onClick={() => setCodenamesClueTimer(val)}
-                      className={cn(
-                        "rounded-xl px-3 py-1.5 text-xs font-medium transition-all duration-200",
-                        codenamesClueTimer === val
-                          ? "bg-gradient-to-r from-primary to-primary/90 text-primary-foreground shadow-sm"
-                          : "bg-muted text-muted-foreground hover:bg-muted/80",
-                      )}
-                    >
-                      {timerLabel(val)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Guess Timer */}
-              <div>
-                <label className="text-xs font-semibold text-muted-foreground block mb-2">
-                  {t("room.guessTimer")}
-                </label>
-                <div className="flex gap-1.5 flex-wrap">
-                  {TIMER_OPTIONS.map((val) => (
-                    <button
-                      key={val}
-                      type="button"
-                      onClick={() => setCodenamesGuessTimer(val)}
-                      className={cn(
-                        "rounded-xl px-3 py-1.5 text-xs font-medium transition-all duration-200",
-                        codenamesGuessTimer === val
-                          ? "bg-gradient-to-r from-primary to-primary/90 text-primary-foreground shadow-sm"
-                          : "bg-muted text-muted-foreground hover:bg-muted/80",
-                      )}
-                    >
-                      {timerLabel(val)}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <OptionGroup legend={t("room.settingsPanel.clueTimer")} value={codenamesClueTimer} options={timerOptions} onChange={setCodenamesClueTimer} />
+              <OptionGroup legend={t("room.settingsPanel.guessTimer")} value={codenamesGuessTimer} options={timerOptions} onChange={setCodenamesGuessTimer} />
             </>
           ) : gameType === "word_quiz" ? (
             <>
-              {/* Difficulty */}
-              <div>
-                <label className="text-xs font-semibold text-muted-foreground block mb-2">
-                  {t("room.difficulty")}
-                </label>
-                <div className="flex gap-1.5 flex-wrap">
-                  {(["mixed", "easy", "medium", "hard"] as const).map((val) => (
-                    <button key={val} type="button" onClick={() => setWordQuizDifficulty(val)}
-                      className={cn("rounded-xl px-3 py-1.5 text-xs font-medium transition-all duration-200",
-                        wordQuizDifficulty === val ? "bg-gradient-to-r from-primary to-primary/90 text-primary-foreground shadow-sm" : "bg-muted text-muted-foreground hover:bg-muted/80")}>
-                      {t(`room.difficulty${val.charAt(0).toUpperCase() + val.slice(1)}`)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              {/* Turn Duration */}
-              <div>
-                <label className="text-xs font-semibold text-muted-foreground block mb-2">
-                  {t("room.wordQuizTurnDuration")}
-                </label>
-                <div className="flex gap-1.5 flex-wrap">
-                  {[30, 45, 60, 90, 120, 180].map((val) => (
-                    <button key={val} type="button" onClick={() => setWordQuizTurnDuration(val)}
-                      className={cn("rounded-xl px-3 py-1.5 text-xs font-medium transition-all duration-200",
-                        wordQuizTurnDuration === val ? "bg-gradient-to-r from-primary to-primary/90 text-primary-foreground shadow-sm" : "bg-muted text-muted-foreground hover:bg-muted/80")}>
-                      {val}s
-                    </button>
-                  ))}
-                </div>
-              </div>
-              {/* Number of Rounds */}
-              <div>
-                <label className="text-xs font-semibold text-muted-foreground block mb-2">
-                  {t("room.wordQuizRounds")}
-                </label>
-                <div className="flex gap-1.5 flex-wrap">
-                  {[3, 5, 7, 10, 15, 20].map((val) => (
-                    <button key={val} type="button" onClick={() => setWordQuizRounds(val)}
-                      className={cn("rounded-xl px-3 py-1.5 text-xs font-medium transition-all duration-200",
-                        wordQuizRounds === val ? "bg-gradient-to-r from-primary to-primary/90 text-primary-foreground shadow-sm" : "bg-muted text-muted-foreground hover:bg-muted/80")}>
-                      {val}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              {/* Hint Interval */}
-              <div>
-                <label className="text-xs font-semibold text-muted-foreground block mb-2">
-                  {t("room.wordQuizHintInterval")}
-                </label>
-                <div className="flex gap-1.5 flex-wrap">
-                  {[5, 10, 15, 20, 30].map((val) => (
-                    <button key={val} type="button" onClick={() => setWordQuizHintInterval(val)}
-                      className={cn("rounded-xl px-3 py-1.5 text-xs font-medium transition-all duration-200",
-                        wordQuizHintInterval === val ? "bg-gradient-to-r from-primary to-primary/90 text-primary-foreground shadow-sm" : "bg-muted text-muted-foreground hover:bg-muted/80")}>
-                      {val}s
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <OptionGroup legend={t("room.difficulty")} value={wordQuizDifficulty} options={difficultyOptions} onChange={setWordQuizDifficulty} />
+              <OptionGroup legend={t("room.settingsPanel.wordQuizTurn")} value={wordQuizTurnDuration} options={secondsOptions([30, 45, 60, 90, 120, 180])} onChange={setWordQuizTurnDuration} />
+              <OptionGroup legend={t("room.settingsPanel.wordQuizRounds")} value={wordQuizRounds} options={countOptions([3, 5, 7, 10, 15, 20])} onChange={setWordQuizRounds} />
+              <OptionGroup legend={t("room.settingsPanel.wordQuizHintInterval")} value={wordQuizHintInterval} options={secondsOptions([5, 10, 15, 20, 30])} onChange={setWordQuizHintInterval} />
             </>
           ) : (
             <>
-              {/* Difficulty */}
-              <div>
-                <label className="text-xs font-semibold text-muted-foreground block mb-2">
-                  {t("room.difficulty")}
-                </label>
-                <div className="flex gap-1.5 flex-wrap">
-                  {(["mixed", "easy", "medium", "hard"] as const).map((val) => (
-                    <button key={val} type="button" onClick={() => setMcqQuizDifficulty(val)}
-                      className={cn("rounded-xl px-3 py-1.5 text-xs font-medium transition-all duration-200",
-                        mcqQuizDifficulty === val ? "bg-gradient-to-r from-primary to-primary/90 text-primary-foreground shadow-sm" : "bg-muted text-muted-foreground hover:bg-muted/80")}>
-                      {t(`room.difficulty${val.charAt(0).toUpperCase() + val.slice(1)}`)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              {/* MCQ Quiz — Time per question */}
-              <div>
-                <label className="text-xs font-semibold text-muted-foreground block mb-2">
-                  {t("room.mcqQuizTurnDuration")}
-                </label>
-                <div className="flex gap-1.5 flex-wrap">
-                  {[10, 15, 20, 30, 45, 60].map((val) => (
-                    <button key={val} type="button" onClick={() => setMcqQuizTurnDuration(val)}
-                      className={cn("rounded-xl px-3 py-1.5 text-xs font-medium transition-all duration-200",
-                        mcqQuizTurnDuration === val ? "bg-gradient-to-r from-primary to-primary/90 text-primary-foreground shadow-sm" : "bg-muted text-muted-foreground hover:bg-muted/80")}>
-                      {val}s
-                    </button>
-                  ))}
-                </div>
-              </div>
-              {/* MCQ Quiz — Number of questions */}
-              <div>
-                <label className="text-xs font-semibold text-muted-foreground block mb-2">
-                  {t("room.mcqQuizRounds")}
-                </label>
-                <div className="flex gap-1.5 flex-wrap">
-                  {[5, 10, 15, 20, 30].map((val) => (
-                    <button key={val} type="button" onClick={() => setMcqQuizRounds(val)}
-                      className={cn("rounded-xl px-3 py-1.5 text-xs font-medium transition-all duration-200",
-                        mcqQuizRounds === val ? "bg-gradient-to-r from-primary to-primary/90 text-primary-foreground shadow-sm" : "bg-muted text-muted-foreground hover:bg-muted/80")}>
-                      {val}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <OptionGroup legend={t("room.difficulty")} value={mcqQuizDifficulty} options={difficultyOptions} onChange={setMcqQuizDifficulty} />
+              <OptionGroup legend={t("room.settingsPanel.mcqQuizTurn")} value={mcqQuizTurnDuration} options={secondsOptions([10, 15, 20, 30, 45, 60])} onChange={setMcqQuizTurnDuration} />
+              <OptionGroup legend={t("room.settingsPanel.mcqQuizRounds")} value={mcqQuizRounds} options={countOptions([5, 10, 15, 20, 30])} onChange={setMcqQuizRounds} />
             </>
           )}
 
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={isSaving}
-            className="w-full rounded-xl bg-gradient-to-r from-primary to-primary/90 px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 hover:shadow-lg disabled:opacity-50 transition-all duration-200"
-          >
-            {isSaving ? t("common.loading") : t("common.save")}
-          </button>
+          <Button variant="secondary" onClick={handleSave} loading={isSaving} className="w-full sm:w-auto sm:justify-self-start">
+            {t("common.save")}
+          </Button>
         </div>
-      </div>
-    </div>
+      ) : null}
+    </Panel>
   )
 })

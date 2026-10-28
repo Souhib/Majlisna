@@ -1,12 +1,13 @@
-import { memo, useCallback } from "react"
-import { HintButton } from "@/components/games/shared/HintButton"
-import { cn } from "@/lib/utils"
+import { type CSSProperties, memo, useCallback, useEffect, useRef, useState } from "react"
+import { useTranslation } from "react-i18next"
+import { TeamGlyph } from "@/components/brand"
+import { initialsOf } from "@/components/ui/avatar"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { arabicForm, cardFace, cardGlyph, type CodenamesCard, fitLatin, longestSegment } from "./model"
 
-interface CodenamesCard {
-  word: string
-  card_type: "red" | "blue" | "neutral" | "assassin" | null
-  revealed: boolean
-  hint?: string | null
+export interface CardVoter {
+  id: string
+  name: string
 }
 
 interface CardCellProps {
@@ -16,11 +17,30 @@ interface CardCellProps {
   canGuess: boolean
   isFinished: boolean
   onGuess: (index: number) => void
+  /** Teammates pointing at this card (the current team's operatives). */
+  voters?: CardVoter[]
+  /** Legacy count, used when the voters are not known by name. */
   voteCount?: number
   isMyVote?: boolean
   onHintViewed?: (word: string) => void
+  /** End of game: whether the card was turned during play (unturned cards read as the key). */
+  played?: boolean
+  /** The interface is Arabic: the Arabic word leads. */
+  arabicLeads?: boolean
 }
 
+const MAX_BADGES = 3
+
+/**
+ * One card of the 5 × 5 board (sketch C/D). A card is cloth: face down it is the bare
+ * card with bare warp at its edge; turned over it is dyed in its team's wool with the
+ * team's glyph and woven selvedge; the spymaster sees the glyph and the selvedge on the
+ * bare card. Teammates pointing draw a dashed brass outline and their initials.
+ *
+ * The card is ONE control. While the viewer may guess it, a tap points at it (votes);
+ * otherwise, when the server has given its meaning, a tap opens the meaning; otherwise
+ * it is inert. (The old card nested an info button inside the card button.)
+ */
 export const CardCell = memo(function CardCell({
   card,
   index,
@@ -28,76 +48,124 @@ export const CardCell = memo(function CardCell({
   canGuess,
   isFinished,
   onGuess,
+  voters,
   voteCount,
-  isMyVote,
+  isMyVote = false,
   onHintViewed,
+  played,
+  arabicLeads = false,
 }: CardCellProps) {
-  const handleHintView = useCallback(() => {
-    if (onHintViewed) onHintViewed(card.word)
-  }, [onHintViewed, card.word])
-  // Show color if: card revealed, player is spymaster, or game is finished (full reveal)
-  const showColor = card.revealed || isSpymaster || isFinished
-  let bgColor = "bg-surface hover:bg-muted/60 border-border/50"
+  const { t } = useTranslation()
+  const face = cardFace(card, { isSpymaster, isFinished, played })
+  const team = face === "bare" ? null : cardGlyph(card.card_type)
+  const ar = arabicForm(card)
+  const latin = fitLatin(card.word)
+  const canVote = canGuess && !card.revealed && !isFinished
+  const hasMeaning = !canVote && !!card.hint && face !== "bare"
+  const act = canVote ? "vote" : hasMeaning ? "meaning" : undefined
 
-  if (showColor) {
-    const isRevealed = card.revealed
-    switch (card.card_type) {
-      case "red":
-        bgColor = isRevealed
-          ? "bg-red-500 text-white border-red-600 shadow-red-500/20 shadow-md"
-          : isFinished
-            ? "bg-red-200 dark:bg-red-900/40 text-red-900 dark:text-red-200 border-red-300 dark:border-red-800"
-            : "bg-red-200/80 dark:bg-red-900/30 text-red-900 dark:text-red-200 border-red-300/50 dark:border-red-800/50"
-        break
-      case "blue":
-        bgColor = isRevealed
-          ? "bg-blue-500 text-white border-blue-600 shadow-blue-500/20 shadow-md"
-          : isFinished
-            ? "bg-blue-200 dark:bg-blue-900/40 text-blue-900 dark:text-blue-200 border-blue-300 dark:border-blue-800"
-            : "bg-blue-200/80 dark:bg-blue-900/30 text-blue-900 dark:text-blue-200 border-blue-300/50 dark:border-blue-800/50"
-        break
-      case "neutral":
-        bgColor = isRevealed
-          ? "bg-amber-200 dark:bg-amber-900/40 text-amber-900 dark:text-amber-200 border-amber-300"
-          : isFinished
-            ? "bg-amber-100 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800"
-            : "bg-amber-50 dark:bg-amber-950/20 border-amber-200/50 dark:border-amber-800/30"
-        break
-      case "assassin":
-        bgColor = isRevealed
-          ? "bg-gray-900 text-white border-gray-700 shadow-gray-900/30 shadow-md"
-          : isFinished
-            ? "bg-gray-800 text-white border-gray-600"
-            : "bg-gray-800 text-white border-gray-700"
-        break
-    }
+  const pointing = !card.revealed && !isFinished ? (voters ?? []) : []
+  const count = !card.revealed && !isFinished ? Math.max(pointing.length, voteCount ?? 0) : 0
+  const pointed = count > 0
+  const mine = isMyVote && !card.revealed && !isFinished
+
+  // A card turned while this screen is open weaves its selvedge once (not on load).
+  const previousFace = useRef(face)
+  const [fresh, setFresh] = useState(false)
+  useEffect(() => {
+    if (previousFace.current !== "wool" && face === "wool") setFresh(true)
+    previousFace.current = face
+  }, [face])
+
+  const notified = useRef(false)
+  const handleOpenChange = useCallback(
+    (open: boolean) => {
+      if (open && !notified.current && onHintViewed) {
+        notified.current = true
+        onHintViewed(card.word)
+      }
+    },
+    [onHintViewed, card.word],
+  )
+
+  // The accessible name starts with the word (the E2E helpers match /^Word\b/).
+  const words = arabicLeads && ar ? `${ar}، ${card.word}` : card.word
+  const state: string[] = []
+  if (team) {
+    const teamName = t(`game.codenames.card.${team}`)
+    state.push(face === "wool" && !isFinished ? t("game.codenames.card.turned", { team: teamName }) : teamName)
   }
+  if (mine) state.push(t("game.codenames.card.yourChoice"))
+  if (pointing.length > 0) state.push(t("game.codenames.card.pointedBy", { names: pointing.map((v) => v.name).join(", ") }))
+  else if (count > 0) state.push(t("game.codenames.card.pointedCount", { count }))
+  if (hasMeaning) state.push(t("game.codenames.card.meaning"))
+  const label = [words, ...state].join(", ")
+
+  const badges = pointing.length > 0 ? pointing.slice(0, MAX_BADGES).map((v) => initialsOf(v.name)) : count > 0 ? [String(count)] : []
+  const extra = pointing.length > MAX_BADGES ? pointing.length - MAX_BADGES : 0
+
+  const button = (
+    <button
+      data-testid="codenames-card"
+      type="button"
+      className="cn-card"
+      data-face={face}
+      data-team={team ?? undefined}
+      data-act={act}
+      data-pointed={pointed && !mine ? "true" : undefined}
+      data-mine={mine ? "true" : undefined}
+      data-lead={arabicLeads ? "ar" : "lat"}
+      data-fresh={fresh ? "true" : undefined}
+      dir={arabicLeads ? "rtl" : "ltr"}
+      aria-label={label}
+      disabled={!act}
+      onClick={canVote ? () => onGuess(index) : undefined}
+    >
+      {team ? <TeamGlyph team={team} className="cn-glyph" /> : null}
+      {badges.length > 0 ? (
+        <span className="cn-ptr" aria-hidden="true">
+          {badges.map((b, i) => (
+            <span key={i}>{b}</span>
+          ))}
+          {extra > 0 ? <span>+{extra}</span> : null}
+        </span>
+      ) : null}
+      <span className="cn-words" aria-hidden="true">
+        <span
+          className="cn-lat"
+          dir="ltr"
+          // hyphenation needs a Latin dictionary: the Arabic page's own lang has none
+          lang={arabicLeads ? "en" : undefined}
+          style={{ "--em": latin.em } as CSSProperties}
+        >
+          {latin.text}
+        </span>
+        {ar ? (
+          <span className="cn-ar" lang="ar" dir="rtl" style={{ "--seg": longestSegment(ar) } as CSSProperties}>
+            {ar}
+          </span>
+        ) : null}
+      </span>
+    </button>
+  )
+
+  if (act !== "meaning") return button
 
   return (
-    <button
-      type="button"
-      onClick={() => onGuess(index)}
-      disabled={!canGuess || card.revealed || isFinished}
-      className={cn(
-        "relative rounded-xl border p-1.5 sm:p-3 text-center text-[10px] sm:text-sm font-semibold transition-all duration-200 min-h-[44px] sm:min-h-[60px] flex items-center justify-center",
-        bgColor,
-        card.revealed && "opacity-80 scale-[0.97]",
-        canGuess && !card.revealed && !isFinished && "cursor-pointer hover:shadow-lg hover:-translate-y-0.5 active:scale-[0.97]",
-        (!canGuess || card.revealed || isFinished) && "cursor-default",
-        isMyVote && !card.revealed && "ring-2 ring-primary ring-offset-2 ring-offset-background animate-glow-pulse",
-      )}
-    >
-      {card.word}
-      {card.hint && (card.revealed || isSpymaster || isFinished) && (
-        <span className="absolute top-0.5 left-0.5">
-          <HintButton hint={card.hint} onView={handleHintView} className="p-0.5" />
-        </span>
-      )}
-      {!!voteCount && voteCount > 0 && !card.revealed && (
-        <span className="absolute -top-2 -right-2 flex h-5 w-5 items-center justify-center rounded-full bg-gradient-to-br from-primary to-primary/80 text-[10px] font-bold text-primary-foreground shadow-md shadow-primary/30">
-          {voteCount}
-        </span>
-      )}
-    </button>
+    <Popover onOpenChange={handleOpenChange}>
+      <PopoverTrigger asChild>{button}</PopoverTrigger>
+      <PopoverContent arrow className="w-72">
+        {ar ? (
+          <p lang="ar" dir="rtl" className="type-word text-start text-[30px] text-foreground">
+            {ar}
+          </p>
+        ) : null}
+        <p className="flex items-center gap-2 text-[15px] font-medium leading-tight">
+          {team ? <TeamGlyph team={team} className={team === "assassin" ? undefined : "text-muted-foreground"} /> : null}
+          <span dir="ltr">{card.word}</span>
+        </p>
+        <p className="mt-2 text-[14px] leading-normal text-muted-foreground">{card.hint}</p>
+      </PopoverContent>
+    </Popover>
   )
 })

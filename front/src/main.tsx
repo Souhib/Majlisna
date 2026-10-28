@@ -2,6 +2,9 @@
 // before any module that constructs a schema (the generated API schemas are built at
 // import time). See lib/zod-jitless.ts.
 import "./lib/zod-jitless"
+// Self-hosted faces (no font CDN under the enforced CSP). Before index.css so the
+// @font-face rules are registered before the first styled paint.
+import "./fonts"
 
 import * as Sentry from "@sentry/react"
 import { createRouter, RouterProvider } from "@tanstack/react-router"

@@ -13,6 +13,8 @@ export type CodenamesClueGuess = {
    * @type string
    */
   word: string;
+  word_ar?: string | null;
+  word_ar_vocalized?: string | null;
   /**
    * @type string
    */

@@ -8,27 +8,25 @@ vi.mock('@tanstack/react-router', () => ({
 }))
 
 describe('GameErrorFallback', () => {
-  it('renders error heading', () => {
+  it('renders the error heading and says what to do', () => {
     render(<GameErrorFallback />)
-    expect(screen.getByText('common.error')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'common.error' })).toBeInTheDocument()
+    expect(screen.getByText('game.quiz.errorBody')).toBeInTheDocument()
   })
 
-  it('renders error message when error is provided', () => {
+  it('renders the error message in an alert when there is one', () => {
     render(<GameErrorFallback error={new Error('Something went wrong')} />)
-    expect(screen.getByText('Something went wrong')).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('Something went wrong')
   })
 
-  it('does not render error message when no error', () => {
-    const { container } = render(<GameErrorFallback />)
-    const paragraphs = container.querySelectorAll('p')
-    // Only the heading text, no error message paragraph
-    const errorParagraphs = Array.from(paragraphs).filter((p) => p.classList.contains('text-muted-foreground'))
-    expect(errorParagraphs).toHaveLength(0)
+  it('does not render an error alert when there is no error', () => {
+    render(<GameErrorFallback />)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
   it('renders retry button when onReset is provided', () => {
     render(<GameErrorFallback onReset={vi.fn()} />)
-    expect(screen.getByText('common.retry')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'common.retry' })).toBeInTheDocument()
   })
 
   it('does not render retry button when onReset is not provided', () => {
@@ -43,14 +41,9 @@ describe('GameErrorFallback', () => {
     expect(onReset).toHaveBeenCalledOnce()
   })
 
-  it('renders back to room button', () => {
-    render(<GameErrorFallback />)
-    expect(screen.getByText('game.backToRoom')).toBeInTheDocument()
-  })
-
   it('navigates to /rooms when back button is clicked', () => {
     render(<GameErrorFallback />)
-    fireEvent.click(screen.getByText('game.backToRoom'))
+    fireEvent.click(screen.getByRole('button', { name: 'game.backToRoom' }))
     expect(mockNavigate).toHaveBeenCalledWith({ to: '/rooms' })
   })
 })

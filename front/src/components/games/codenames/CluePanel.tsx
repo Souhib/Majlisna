@@ -1,6 +1,7 @@
-import { memo } from "react"
+import { memo, type FormEvent } from "react"
 import { useTranslation } from "react-i18next"
-import { cn } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
+import { Field, Input } from "@/components/ui/field"
 
 interface CluePanelProps {
   clueWord: string
@@ -11,6 +12,13 @@ interface CluePanelProps {
   onSubmit: () => void
 }
 
+/** The counts a spymaster can give: 1–4 and "no limit" (0 on the wire). */
+export const CLUE_COUNTS = [1, 2, 3, 4, 0] as const
+
+/**
+ * The spymaster's composer (sketch D): one word, how many cards it covers (1–4 or no
+ * limit), "Give clue". Under the board, so the key stays in view while typing.
+ */
 export const CluePanel = memo(function CluePanel({
   clueWord,
   clueNumber,
@@ -20,41 +28,79 @@ export const CluePanel = memo(function CluePanel({
   onSubmit,
 }: CluePanelProps) {
   const { t } = useTranslation()
+  const empty = !clueWord.trim()
+
+  const handleSubmit = (e: FormEvent) => {
+    e.preventDefault()
+    if (empty || isSubmitting) return
+    onSubmit()
+  }
 
   return (
-    <div className="glass rounded-2xl p-5 mb-4 border-primary/10">
-      <h3 className="font-bold mb-1.5">{t("game.codenames.giveClue")}</h3>
-      <p className="text-xs text-muted-foreground mb-4">
-        {t("game.codenames.guessesRemaining", { made: 0, max: clueNumber + 1 })}
-      </p>
-      <div className="flex gap-3">
-        <input
-          type="text"
-          value={clueWord}
-          onChange={(e) => onClueWordChange(e.target.value)}
-          placeholder={t("game.codenames.cluePlaceholder")}
-          className="flex-1 rounded-xl border border-border/50 bg-background/80 px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/30 transition-all duration-200"
-        />
-        <input
-          type="number"
-          value={clueNumber}
-          onChange={(e) => onClueNumberChange(parseInt(e.target.value) || 1)}
-          min={1}
-          max={9}
-          className="w-16 rounded-xl border border-border/50 bg-background/80 px-3 py-2.5 text-sm font-mono font-bold text-center focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/30 transition-all duration-200"
-        />
-        <button
-          type="button"
-          onClick={onSubmit}
-          disabled={isSubmitting}
-          className={cn(
-            "rounded-xl bg-gradient-to-r from-primary to-primary/90 px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 hover:shadow-lg hover:-translate-y-px transition-all duration-200",
-            isSubmitting && "opacity-50 cursor-not-allowed",
-          )}
-        >
-          {isSubmitting ? t("game.codenames.sending") : t("common.submit")}
-        </button>
+    <form onSubmit={handleSubmit} className="mt-4 grid gap-3" aria-label={t("game.codenames.giveClue")}>
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
+        <Field label={t("game.codenames.composer.label")} hideLabel hint={t("game.codenames.composer.hint")}>
+          <Input
+            value={clueWord}
+            onChange={(e) => onClueWordChange(e.target.value)}
+            placeholder={t("game.codenames.cluePlaceholder")}
+            autoComplete="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            enterKeyHint="send"
+            maxLength={50}
+            dir="auto"
+          />
+        </Field>
+        <Button type="submit" loading={isSubmitting} disabled={empty && !isSubmitting}>
+          {t("game.codenames.composer.give")}
+        </Button>
       </div>
-    </div>
+      <div>
+        <p id="cn-count-label" className="type-label mb-1.5">
+          {t("game.codenames.composer.count")}
+        </p>
+        <div className="cn-count" role="group" aria-labelledby="cn-count-label">
+          {CLUE_COUNTS.map((n) => (
+            <button
+              key={n}
+              type="button"
+              aria-pressed={clueNumber === n}
+              aria-label={n === 0 ? t("game.codenames.composer.unlimited") : undefined}
+              onClick={() => onClueNumberChange(n)}
+            >
+              {n === 0 ? <span aria-hidden="true">∞</span> : n}
+            </button>
+          ))}
+        </div>
+      </div>
+    </form>
   )
 })
+
+interface ClueAnnouncerProps {
+  /** The clue on the table, or nothing while the spymaster is choosing. */
+  clueWord?: string | null
+  clueNumber?: number | null
+  /** The team the clue is for, as `game.codenames.teams` names it (Red / Blue). */
+  teamName: string
+}
+
+/**
+ * Reads a clue out once, when it lands on the table. The header's live line only says
+ * whose turn it is ("Your turn to guess"), never the word, so a player on a screen
+ * reader learned the clue by going to look for it. Mount it once on the page, whatever
+ * the player's role: it is always in the DOM (a live region inserted together with its
+ * text is not read), its text changes only when a new clue arrives, and an unchanged
+ * text is never read twice.
+ */
+export function ClueAnnouncer({ clueWord, clueNumber, teamName }: ClueAnnouncerProps) {
+  const { t } = useTranslation()
+  const word = clueWord?.trim()
+  const number = clueNumber === 0 ? t("game.codenames.composer.unlimited") : (clueNumber ?? "")
+  return (
+    <p className="sr-only" role="status" aria-atomic="true">
+      {word ? t("game.codenames.clueAnnounce", { team: teamName, word, number }) : ""}
+    </p>
+  )
+}

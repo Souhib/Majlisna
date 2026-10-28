@@ -1,24 +1,33 @@
-import { memo } from "react"
+import { memo, type ReactNode } from "react"
 import { useTranslation } from "react-i18next"
+import { TeamGlyph } from "@/components/brand"
+import { Chip } from "@/components/ui/chip"
 import { cn } from "@/lib/utils"
-
-interface CodenamesTurn {
-  team: "red" | "blue"
-  clue_word: string | null
-  clue_number: number
-  guesses_made: number
-  max_guesses: number | null
-}
+import { type CodenamesTurn, type TeamId, teamWool } from "./model"
 
 interface ScorePanelProps {
   redRemaining: number
   blueRemaining: number
-  currentTeam: "red" | "blue"
-  currentTurn: CodenamesTurn | null
+  currentTeam: TeamId
+  currentTurn: Pick<CodenamesTurn, "clue_word"> | null
   isMyTurn: boolean
   isFinished: boolean
+  isSpymaster?: boolean
+  winner?: TeamId | null
+  /** Who you are at this table ("You are the Red spymaster"): <CodenamesMyInfo />. */
+  myInfo?: ReactNode
+  /** The thread clock, when the turn has one. */
+  clock?: ReactNode
+  /** The prayer pause control (<PauseControl />): renders nothing for whoever cannot use it. */
+  pause?: ReactNode
 }
 
+/**
+ * The board's header (sketch C panel head + sketch D phone top): the game's name and
+ * who you are, the clock (and the host's prayer-pause control); the two teams as woven chips (swatch + glyph + words left)
+ * and whose turn it is. On phones the clock sits beside the name and the turn beside
+ * the chips; from 640 px the chips move up and the clock runs under them.
+ */
 export const ScorePanel = memo(function ScorePanel({
   redRemaining,
   blueRemaining,
@@ -26,94 +35,72 @@ export const ScorePanel = memo(function ScorePanel({
   currentTurn,
   isMyTurn,
   isFinished,
+  isSpymaster = false,
+  winner = null,
+  myInfo,
+  clock,
+  pause,
 }: ScorePanelProps) {
   const { t } = useTranslation()
+  const teamName = (team: TeamId) => t(`game.codenames.teams.${team}`)
+  const clueGiven = !!currentTurn?.clue_word
 
-  const guessProgress =
-    currentTurn?.max_guesses && currentTurn.max_guesses > 0
-      ? (currentTurn.guesses_made / currentTurn.max_guesses) * 100
-      : 0
+  let status: string
+  let statusTeam: TeamId = currentTeam
+  let yours = false
+  if (isFinished && winner) {
+    status = t("game.codenames.status.won", { team: teamName(winner) })
+    statusTeam = winner
+  } else if (!clueGiven) {
+    yours = isMyTurn && isSpymaster
+    status = yours ? t("game.codenames.status.yourClue") : t("game.codenames.status.theirClue", { team: teamName(currentTeam) })
+  } else {
+    yours = isMyTurn && !isSpymaster
+    status = yours ? t("game.codenames.status.yourGuess") : t("game.codenames.status.guessing", { team: teamName(currentTeam) })
+  }
 
   return (
-    <>
-      {/* Header scores */}
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-extrabold tracking-tight">{t("games.codenames.name")}</h1>
-        <div className="flex items-center gap-4">
-          {/* Red team banner */}
-          <div className={cn(
-            "flex items-center gap-2 rounded-xl px-4 py-2 transition-all duration-300",
-            currentTeam === "red" && !isFinished
-              ? "bg-red-500/15 ring-2 ring-red-500/30"
-              : "bg-muted/50",
-          )}>
-            <div className="h-3.5 w-3.5 rounded-full bg-gradient-to-br from-red-400 to-red-600 shadow-sm shadow-red-500/30" />
-            <span className="text-xl font-bold font-mono tabular-nums text-red-600 dark:text-red-400">{redRemaining}</span>
-          </div>
-          {/* Blue team banner */}
-          <div className={cn(
-            "flex items-center gap-2 rounded-xl px-4 py-2 transition-all duration-300",
-            currentTeam === "blue" && !isFinished
-              ? "bg-blue-500/15 ring-2 ring-blue-500/30"
-              : "bg-muted/50",
-          )}>
-            <div className="h-3.5 w-3.5 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 shadow-sm shadow-blue-500/30" />
-            <span className="text-xl font-bold font-mono tabular-nums text-blue-600 dark:text-blue-400">{blueRemaining}</span>
-          </div>
-        </div>
+    <header className="cn-head">
+      <div className="cn-head-title flex flex-col gap-x-3.5 gap-y-1 sm:flex-row sm:flex-wrap sm:items-baseline">
+        <h1 className="type-panel sm:text-[19px]">{t("games.codenames.name")}</h1>
+        {myInfo}
       </div>
-
-      {/* Your Turn Indicator */}
-      {isMyTurn && !isFinished && (
-        <div className="mb-4 rounded-2xl bg-gradient-to-r from-primary/10 to-accent/10 border border-primary/20 p-3.5 text-center animate-glow-pulse">
-          <span className="font-bold text-primary">{t("game.codenames.yourTurn")}</span>
-        </div>
-      )}
-
-      {/* Turn Info */}
-      <div className="mb-4 glass rounded-2xl p-4">
-        <div className="text-center">
-          <span
-            className={cn(
-              "font-bold",
-              currentTeam === "red" ? "text-red-600 dark:text-red-400" : "text-blue-600 dark:text-blue-400",
-            )}
-          >
-            {currentTeam === "red"
-              ? t("games.codenames.teams.red")
-              : t("games.codenames.teams.blue")}
-          </span>
-          {currentTurn?.clue_word && (
-            <span className="ml-2 text-muted-foreground">
-              — <span className="font-mono font-semibold text-foreground">{currentTurn.clue_word}</span> ({currentTurn.clue_number})
-            </span>
-          )}
-        </div>
-        {/* Guess progress bar */}
-        {currentTurn?.clue_word && currentTurn.max_guesses != null && currentTurn.max_guesses > 0 && (
-          <div className="mt-3">
-            <div className="flex items-center justify-between text-xs text-muted-foreground mb-1.5">
-              <span>
-                {t("game.codenames.guessesRemaining", {
-                  made: currentTurn.guesses_made,
-                  max: currentTurn.max_guesses,
-                })}
-              </span>
-            </div>
-            <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
-              <div
-                className={cn(
-                  "h-full rounded-full transition-all duration-500",
-                  currentTeam === "red"
-                    ? "bg-gradient-to-r from-red-400 to-red-600"
-                    : "bg-gradient-to-r from-blue-400 to-blue-600",
-                )}
-                style={{ width: `${Math.min(guessProgress, 100)}%` }}
-              />
-            </div>
-          </div>
+      {/* the host's pause: beside the clock on phones, at the end of the first row from 640 px */}
+      <div className="order-2 flex flex-none empty:hidden sm:order-3">{pause}</div>
+      <div className="cn-head-clock">{clock}</div>
+      <span className="cn-head-break" aria-hidden="true" />
+      <div className="cn-head-teams" role="group" aria-label={t("game.codenames.wordsLeft")}>
+        <TeamChip team="red" name={teamName("red")} count={redRemaining} />
+        <TeamChip team="blue" name={teamName("blue")} count={blueRemaining} />
+      </div>
+      {/* At the end the colophon's title says who won ("The Blue team wins."): the line
+          here would print it a second time beside it, so it is only spoken (still the
+          live line that announces the end), not shown. */}
+      <p
+        className={cn(
+          "cn-head-status flex items-center gap-2 text-[13.5px] leading-snug sm:text-[14.5px]",
+          yours ? "font-medium text-brass" : "text-muted-foreground",
+          isFinished && "sr-only",
         )}
-      </div>
-    </>
+        aria-live="polite"
+      >
+        <TeamGlyph team={teamWool(statusTeam)} className="hidden sm:block" />
+        <span>{status}</span>
+      </p>
+    </header>
   )
 })
+
+function TeamChip({ team, name, count }: { team: TeamId; name: string; count: number }) {
+  const { t } = useTranslation()
+  const wool = teamWool(team)
+  return (
+    <Chip swatch={wool === "madder" ? "teeth" : "ayn"} mark={<TeamGlyph team={wool} className="text-muted-foreground" />}>
+      <span className="max-sm:sr-only">{name}</span>
+      <b className="num font-medium" aria-hidden="true">
+        {count}
+      </b>
+      <span className="sr-only">{t("game.codenames.left", { count })}</span>
+    </Chip>
+  )
+}

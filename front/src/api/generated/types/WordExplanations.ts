@@ -13,10 +13,14 @@ export type WordExplanations = {
    * @type string
    */
   civilian_word: string;
+  civilian_word_ar?: string | null;
+  civilian_word_ar_vocalized?: string | null;
   civilian_word_hint: string | null;
   /**
    * @type string
    */
   undercover_word: string;
+  undercover_word_ar?: string | null;
+  undercover_word_ar_vocalized?: string | null;
   undercover_word_hint: string | null;
 };

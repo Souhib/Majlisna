@@ -1,110 +1,92 @@
-import { ChevronDown, ChevronUp } from "lucide-react"
+import { ChevronDown } from "lucide-react"
 import { memo, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
-
-interface VoteEntry {
-  voter: string
-  voter_id: string
-  target: string
-  target_id: string
-}
-
-interface EliminatedInfo {
-  username: string
-  role: string
-  user_id: string
-}
-
-interface VoteRound {
-  round: number
-  votes: VoteEntry[]
-  eliminated: EliminatedInfo | null
-}
+import { RoleMark, roleLabelKey } from "./Lawh"
+import { type VerdictRound, VoteLines } from "./Verdict"
 
 interface VoteHistoryProps {
-  history: VoteRound[]
+  history: VerdictRound[]
+  /** Open every round (the end of the game). Otherwise the latest is open. */
+  expandAll?: boolean
 }
 
-const roleColors: Record<string, string> = {
-  civilian: "text-green-600 dark:text-green-400",
-  undercover: "text-red-600 dark:text-red-400",
-  mr_white: "text-purple-600 dark:text-purple-400",
-}
-
-const roleBg: Record<string, string> = {
-  civilian: "bg-green-500/5 border-green-500/20",
-  undercover: "bg-red-500/5 border-red-500/20",
-  mr_white: "bg-purple-500/5 border-purple-500/20",
-}
-
-export const VoteHistory = memo(function VoteHistory({ history }: VoteHistoryProps) {
+/**
+ * The rounds so far: whose seat emptied (with the role it held) and who voted for whom.
+ * Each round is a disclosure; the latest is open. Lives below the vote so the E2E helpers'
+ * `button:has-text(<name>)` finds a vote button first.
+ */
+export const VoteHistory = memo(function VoteHistory({ history, expandAll = false }: VoteHistoryProps) {
   const { t } = useTranslation()
-  const [expandedRound, setExpandedRound] = useState<number | null>(null)
+  const [expanded, setExpanded] = useState<Set<number>>(() => new Set(history.length ? [history[history.length - 1].round] : []))
 
-  // Auto-expand the latest round when history changes
+  // A new round opens itself; the ones a player opened stay open.
+  const latest = history.length ? history[history.length - 1].round : null
   useEffect(() => {
-    if (history.length > 0) {
-      setExpandedRound(history[history.length - 1].round)
-    }
-  }, [history.length])
+    if (latest !== null) setExpanded((prev) => new Set(prev).add(latest))
+  }, [latest])
 
   if (history.length === 0) return null
 
+  const toggle = (round: number) =>
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(round)) next.delete(round)
+      else next.add(round)
+      return next
+    })
+
   return (
-    <div className="glass rounded-2xl p-5 mb-6">
-      <h3 className="font-bold mb-3">{t("game.undercover.voteHistory")}</h3>
-      <div className="space-y-2">
-        {history.map((round) => (
-          <div key={round.round} className={cn(
-            "rounded-xl border transition-all duration-200",
-            expandedRound === round.round ? "bg-muted/30" : "bg-muted/10 hover:bg-muted/20",
-          )}>
-            <button
-              type="button"
-              onClick={() => setExpandedRound(expandedRound === round.round ? null : round.round)}
-              className="w-full flex items-center justify-between px-4 py-2.5 text-sm font-semibold"
-            >
-              <span>{t("game.undercover.round", { number: round.round })}</span>
-              <div className="flex items-center gap-2">
-                {round.eliminated && (
-                  <span className={cn("text-xs font-bold", roleColors[round.eliminated.role] || "text-muted-foreground")}>
-                    {round.eliminated.username}
-                  </span>
-                )}
-                {expandedRound === round.round ? (
-                  <ChevronUp className="h-4 w-4 text-muted-foreground" />
+    <section aria-labelledby="uc-history-title" className="grid content-start gap-3">
+      <h3 id="uc-history-title" className="type-label">
+        {t("game.undercover.voteHistory")}
+      </h3>
+      <ul className="border-t border-line">
+        {history.map((round) => {
+          const open = expandAll || expanded.has(round.round)
+          const panelId = `uc-round-${round.round}`
+          const summary = (
+            <>
+              <span className="shrink-0 font-medium">{t("game.undercover.round", { number: round.round })}</span>
+              <span className="flex min-w-0 flex-1 items-center justify-end gap-2 text-muted-foreground">
+                {round.eliminated ? (
+                  <>
+                    <RoleMark role={round.eliminated.role} size={9} />
+                    <span className="truncate text-foreground">{round.eliminated.username}</span>
+                    <span className="shrink-0">· {t(roleLabelKey(round.eliminated.role))}</span>
+                  </>
                 ) : (
-                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                  <span>{t("game.undercover.noElimination")}</span>
                 )}
+              </span>
+            </>
+          )
+          return (
+            <li key={round.round} className="border-b border-line">
+              {expandAll ? (
+                <div className="flex min-h-12 w-full items-center gap-3 py-2 text-[14.5px]">{summary}</div>
+              ) : (
+                <button
+                  type="button"
+                  aria-expanded={open}
+                  aria-controls={panelId}
+                  onClick={() => toggle(round.round)}
+                  className="flex min-h-12 w-full items-center gap-3 py-2 text-start text-[14.5px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+                >
+                  {summary}
+                  <ChevronDown
+                    aria-hidden="true"
+                    className={cn("size-4 shrink-0 text-muted-foreground transition-transform duration-(--dur-state) motion-reduce:transition-none", open && "rotate-180")}
+                  />
+                </button>
+              )}
+              <div id={panelId} hidden={!open} className="pb-3">
+                <VoteLines votes={round.votes} />
               </div>
-            </button>
-            {expandedRound === round.round && (
-              <div className="px-4 pb-3.5 space-y-1.5">
-                {round.votes.map((vote) => (
-                  <div key={vote.voter_id} className="flex items-center text-xs text-muted-foreground">
-                    <span className="font-semibold text-foreground">{vote.voter}</span>
-                    <span className="mx-1.5 text-primary">&rarr;</span>
-                    <span className="font-semibold text-foreground">{vote.target}</span>
-                  </div>
-                ))}
-                {round.eliminated && (
-                  <div className={cn(
-                    "text-xs font-bold mt-2.5 pt-2.5 border-t rounded-lg px-3 py-2",
-                    roleBg[round.eliminated.role] || "",
-                    roleColors[round.eliminated.role] || "text-muted-foreground",
-                  )}>
-                    {t("game.undercover.wasEliminated", {
-                      username: round.eliminated.username,
-                      role: round.eliminated.role,
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-    </div>
+            </li>
+          )
+        })}
+      </ul>
+    </section>
   )
 })

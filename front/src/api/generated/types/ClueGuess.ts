@@ -14,6 +14,9 @@ export type ClueGuess = {
    * @type string
    */
   word: string;
+  word_ar?: string | null;
+  word_ar_vocalized?: string | null;
+  hint?: string | null;
   /**
    * @type string
    */

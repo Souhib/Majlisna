@@ -45,6 +45,30 @@ function formatCountdown(ms: number): string {
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
 }
 
+/** A prayer whose time has come: its key (`fajr`, `dhuhr`, `asr`, `maghrib`, `isha`) and adhan time. */
+export interface AdhanEntry {
+  key: string
+  time: Date
+}
+
+/**
+ * The prayer whose adhan came at most `windowMs` before `now`, or null (sunrise is a
+ * time, not a prayer). Pure and computed on the device like the nav's times (Muslim
+ * World League), so a game page can ask it on its own schedule: the prayer pause's
+ * suggestion to the host.
+ */
+export function recentAdhan(coordinates: { lat: number; lng: number }, now: Date, windowMs: number): AdhanEntry | null {
+  const times = new PrayerTimes(new Coordinates(coordinates.lat, coordinates.lng), now, CalculationMethod.MuslimWorldLeague())
+  for (const { prayer, key } of PRAYER_KEYS) {
+    if (key === "sunrise") continue
+    const time = times.timeForPrayer(prayer)
+    if (!time) continue
+    const since = now.getTime() - time.getTime()
+    if (since >= 0 && since <= windowMs) return { key, time }
+  }
+  return null
+}
+
 export function usePrayerTimes(
   coordinates: { lat: number; lng: number } | null,
 ): UsePrayerTimesResult {

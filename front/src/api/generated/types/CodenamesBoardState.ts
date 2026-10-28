@@ -10,6 +10,7 @@ import type { CodenamesClueHistoryEntry } from "./CodenamesClueHistoryEntry.ts";
 import type { CodenamesPlayerView } from "./CodenamesPlayerView.ts";
 import type { CodenamesTimerConfig } from "./CodenamesTimerConfig.ts";
 import type { CodenamesTurnState } from "./CodenamesTurnState.ts";
+import type { GamePause } from "./GamePause.ts";
 import type { PlayerUnlockedAchievements } from "./PlayerUnlockedAchievements.ts";
 
 /**
@@ -77,4 +78,18 @@ export type CodenamesBoardState = {
    */
   players: CodenamesPlayerView[];
   newly_unlocked_achievements?: PlayerUnlockedAchievements[] | null;
+  paused?: GamePause | null;
+  /**
+   * @default false
+   * @type boolean | undefined
+   */
+  can_pause?: boolean;
+  /**
+   * @default false
+   * @type boolean | undefined
+   */
+  can_resume?: boolean;
+  host_username?: string | null;
+  started_at?: string | null;
+  ended_at?: string | null;
 };

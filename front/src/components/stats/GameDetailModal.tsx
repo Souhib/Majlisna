@@ -1,208 +1,313 @@
-import { X } from "lucide-react"
-import { useEffect } from "react"
-import { useTranslation } from "react-i18next"
+import { ArrowRight } from "lucide-react"
+import { type ReactNode } from "react"
+import { Trans, useTranslation } from "react-i18next"
 import { useGetGameSummaryApiV1GamesGameIdSummaryGet } from "@/api/generated"
+import type { ClueHistoryEntry, GameSummary, GameSummaryPlayer, UndercoverWordExplanations, VoteRound } from "@/api/generated"
+import { Lozenge, TeamGlyph } from "@/components/brand"
+import { Alert } from "@/components/ui/alert"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Skeleton } from "@/components/ui/skeleton"
+import { getApiErrorMessage } from "@/api/client"
 import { cn } from "@/lib/utils"
+import {
+  cardGlyph,
+  formatDuration,
+  gameName,
+  groupVotes,
+  joinNames,
+  latnLocale,
+  roleLozenge,
+  roleName,
+  secondsBetween,
+  teamName,
+  teamOf,
+  winnerLine,
+} from "./format"
 
-interface GameSummaryPlayer {
-  user_id: string
-  username: string
-  role: string
-  team?: string | null
-}
-
-interface GameSummary {
-  id: string
-  type: "undercover" | "codenames"
-  start_time: string
-  end_time: string | null
-  number_of_players: number
-  winner: string | null
-  game_status: string | null
-  players: GameSummaryPlayer[]
-  vote_history?: { round: number; votes: { voter: string; target: string }[]; eliminated: { username: string; role: string } | null }[] | null
-  clue_history?: { team: string; clue_word: string; clue_number: number; guesses: { word: string; correct: boolean }[] }[] | null
-  word_explanations?: { civilian_word: string | null; undercover_word: string | null } | null
-}
+const ARABIC = /[\u0600-\u06FF]/
 
 interface GameDetailModalProps {
   gameId: string
-  gameType: "undercover" | "codenames"
+  gameType: string
   onClose: () => void
 }
 
+/**
+ * A finished game, after the fact (the summary endpoint answers only for players who
+ * took part, and only once the game is over). Who held which role, the words with their
+ * Arabic in Amiri, and how the table got there: the votes (Undercover) or the clues
+ * (Codenames). Roles read as in the game: Civilian undyed, Undercover madder, Mr. White
+ * an empty lozenge; teams as wool + glyph.
+ */
 export function GameDetailModal({ gameId, gameType, onClose }: GameDetailModalProps) {
-  const { t } = useTranslation()
-  const { data: summary, isLoading } = useGetGameSummaryApiV1GamesGameIdSummaryGet(
-    { game_id: gameId },
-  ) as { data: GameSummary | undefined; isLoading: boolean }
+  const { t, i18n } = useTranslation()
+  // the words' meanings (`*_hint`, `guesses[].hint`) come resolved in this language
+  const { data: summary, isLoading, error } = useGetGameSummaryApiV1GamesGameIdSummaryGet({ game_id: gameId }, { lang: i18n.language }) as {
+    data: GameSummary | undefined
+    isLoading: boolean
+    error: unknown
+  }
 
-  useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose()
-    }
-    window.addEventListener("keydown", handleEscape)
-    return () => window.removeEventListener("keydown", handleEscape)
-  }, [onClose])
+  const type = summary?.type ?? gameType
+  const result = summary ? winnerLine(type, summary.winner, t) : null
+  const winnerTeam = type === "codenames" ? teamOf(summary?.winner) : null
+  const when = summary?.start_time
+    ? new Date(summary.start_time).toLocaleDateString(latnLocale(i18n.language), { day: "numeric", month: "long", year: "numeric" })
+    : null
+  const seconds = secondsBetween(summary?.start_time, summary?.end_time)
+  const meta = [when, seconds ? formatDuration(seconds, t) : null, summary ? t("stats.playerCount", { count: summary.number_of_players }) : null]
+    .filter(Boolean)
+    .join(" · ")
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-xl" onClick={onClose}>
-      <div
-        className="relative mx-4 max-h-[85vh] w-full max-w-lg overflow-y-auto glass rounded-2xl p-6 shadow-2xl shadow-black/10 animate-scale-in"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <button
-          type="button"
-          onClick={onClose}
-          className="absolute top-4 right-4 rounded-xl p-1.5 text-muted-foreground hover:text-foreground hover:bg-glow transition-all duration-200"
-        >
-          <X className="h-5 w-5" />
-        </button>
-
-        <h2 className="text-xl font-bold mb-5">{t("stats.gameDetail")}</h2>
+    <Dialog open onOpenChange={(open) => (open ? undefined : onClose())}>
+      <DialogContent className="max-w-xl gap-0">
+        <DialogHeader className="mb-5">
+          <DialogTitle>{gameName(type, t)}</DialogTitle>
+          <DialogDescription>{meta || t("stats.gameDetail")}</DialogDescription>
+        </DialogHeader>
 
         {isLoading ? (
-          <div className="py-8 text-center text-muted-foreground">{t("common.loading")}</div>
+          <div className="grid gap-3" aria-busy="true">
+            <Skeleton className="h-6 w-48" />
+            <Skeleton className="h-24 w-full" />
+            <Skeleton className="h-16 w-full" />
+          </div>
         ) : !summary ? (
-          <div className="py-8 text-center text-muted-foreground">{t("errors.loadFailed")}</div>
+          <Alert>{error ? getApiErrorMessage(error, t("errors.loadFailed")) : t("errors.loadFailed")}</Alert>
         ) : (
-          <div className="space-y-5">
-            {/* Game info */}
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">
-                {gameType === "undercover" ? t("games.undercover.name") : t("games.codenames.name")}
-              </span>
-              {summary.winner && (
-                <span className="rounded-xl bg-gradient-to-r from-primary/15 to-accent/10 px-3 py-1 text-xs font-bold text-primary">
-                  {summary.winner}
-                </span>
-              )}
-            </div>
-
-            {/* Players */}
-            <div>
-              <h3 className="text-sm font-bold mb-2">{t("stats.playerRoles")}</h3>
-              <div className="space-y-1.5">
-                {summary.players.map((p) => (
-                  <div
-                    key={p.user_id}
-                    className={cn(
-                      "flex items-center justify-between rounded-xl px-3.5 py-2.5 text-sm",
-                      p.team === "red" ? "bg-red-50 dark:bg-red-950/20" :
-                      p.team === "blue" ? "bg-blue-50 dark:bg-blue-950/20" :
-                      "bg-muted/30",
-                    )}
-                  >
-                    <span className="font-semibold">{p.username}</span>
-                    <span className="text-xs text-muted-foreground capitalize">{p.role}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Word Explanations (Undercover) */}
-            {summary.word_explanations && (
-              <div>
-                <h3 className="text-sm font-bold mb-2">{t("game.wordExplanations")}</h3>
-                <div className="grid grid-cols-2 gap-2">
-                  {summary.word_explanations.civilian_word && (
-                    <div className="rounded-xl bg-surface border border-border/30 p-3">
-                      <p className="text-xs text-muted-foreground font-medium">{t("game.undercover.civilianWord")}</p>
-                      <p className="font-bold text-sm mt-0.5">{summary.word_explanations.civilian_word}</p>
-                    </div>
-                  )}
-                  {summary.word_explanations.undercover_word && (
-                    <div className="rounded-xl bg-surface border border-border/30 p-3">
-                      <p className="text-xs text-muted-foreground font-medium">{t("game.undercover.undercoverWord")}</p>
-                      <p className="font-bold text-sm mt-0.5">{summary.word_explanations.undercover_word}</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Vote History (Undercover) */}
-            {summary.vote_history && summary.vote_history.length > 0 && (
-              <div>
-                <h3 className="text-sm font-bold mb-2">{t("stats.voteHistory")}</h3>
-                <div className="space-y-3">
-                  {summary.vote_history.map((round) => (
-                    <div key={round.round} className="rounded-xl border border-border/30 p-3.5">
-                      <p className="text-xs font-bold text-muted-foreground mb-1.5">
-                        {t("game.undercover.round", { number: round.round })}
-                      </p>
-                      <div className="space-y-1">
-                        {round.votes.map((v, i) => (
-                          <p key={i} className="text-xs text-muted-foreground">
-                            <span className="font-semibold text-foreground">{v.voter}</span> <span className="text-primary">&rarr;</span> <span className="font-semibold text-foreground">{v.target}</span>
-                          </p>
-                        ))}
-                      </div>
-                      {round.eliminated && (
-                        <p className="mt-1.5 text-xs font-bold text-destructive">
-                          {round.eliminated.username} ({round.eliminated.role})
-                        </p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Clue History (Codenames) */}
-            {summary.clue_history && summary.clue_history.length > 0 && (
-              <div>
-                <h3 className="text-sm font-bold mb-2">{t("stats.clueHistory")}</h3>
-                <div className="space-y-2">
-                  {summary.clue_history.map((clue, i) => (
-                    <div key={i} className="rounded-xl border border-border/30 p-3.5">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className={cn(
-                          "text-xs font-bold",
-                          clue.team === "red" ? "text-red-600 dark:text-red-400" : "text-blue-600 dark:text-blue-400",
-                        )}>
-                          {clue.team === "red" ? t("games.codenames.teams.red") : t("games.codenames.teams.blue")}
-                        </span>
-                        <span className="text-sm font-semibold">{clue.clue_word} <span className="font-mono text-muted-foreground">({clue.clue_number})</span></span>
-                      </div>
-                      {clue.guesses.length > 0 && (
-                        <div className="flex flex-wrap gap-1.5 mt-1.5">
-                          {clue.guesses.map((g, j) => (
-                            <span
-                              key={j}
-                              className={cn(
-                                "rounded-lg px-2 py-0.5 text-[10px] font-medium",
-                                g.correct ? "bg-primary/10 text-primary" : "bg-destructive/10 text-destructive",
-                              )}
-                            >
-                              {g.word}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Duration */}
-            {summary.start_time && summary.end_time && (
-              <div className="text-xs text-muted-foreground text-center pt-2 border-t border-border/30">
-                {t("stats.duration")}: <span className="font-mono font-bold">{formatDuration(summary.start_time, summary.end_time)}</span>
-              </div>
-            )}
+          <div className="grid gap-6">
+            {result ? (
+              <p className="type-title flex items-center gap-3 text-[24px]">
+                {winnerTeam ? <TeamMark team={winnerTeam} size="lg" /> : null}
+                {result}
+              </p>
+            ) : null}
+            {summary.word_explanations ? <Words words={summary.word_explanations} /> : null}
+            <Players players={summary.players} type={type} />
+            {summary.vote_history && summary.vote_history.length > 0 ? <Votes rounds={summary.vote_history} /> : null}
+            {summary.clue_history && summary.clue_history.length > 0 ? <Clues clues={summary.clue_history} /> : null}
           </div>
         )}
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 
-function formatDuration(start: string, end: string): string {
-  const ms = new Date(end).getTime() - new Date(start).getTime()
-  const minutes = Math.floor(ms / 60000)
-  const seconds = Math.floor((ms % 60000) / 1000)
-  if (minutes > 0) return `${minutes}m ${seconds}s`
-  return `${seconds}s`
+/** A Codenames team as everywhere else: its wool with its glyph (never the colour alone). */
+function TeamMark({ team, size = "md" }: { team: NonNullable<ReturnType<typeof teamOf>>; size?: "md" | "lg" }) {
+  return (
+    <span
+      className={cn(
+        "grid shrink-0 place-items-center rounded-[1px]",
+        size === "lg" ? "size-7" : "size-5",
+        team === "madder" ? "bg-wool-madder text-wool-ink" : "bg-wool-indigo text-wool-on-indigo",
+      )}
+    >
+      <TeamGlyph team={team} size={size === "lg" ? 13 : 10} />
+    </span>
+  )
+}
+
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="grid gap-2.5 border-t border-line pt-4">
+      <h3 className="type-label">{title}</h3>
+      {children}
+    </section>
+  )
+}
+
+/** The pair of Undercover words: Latin name, Arabic in Amiri beside it, then its meaning. */
+function Words({ words }: { words: UndercoverWordExplanations }) {
+  const { t } = useTranslation()
+  const pairs = [
+    {
+      key: "civ",
+      label: t("game.undercover.civilianWord"),
+      mark: "undyed" as const,
+      latin: words.civilian_word,
+      arabic: words.civilian_word_ar_vocalized ?? words.civilian_word_ar,
+      meaning: words.civilian_word_hint,
+    },
+    {
+      key: "uc",
+      label: t("game.undercover.undercoverWord"),
+      mark: "madder" as const,
+      latin: words.undercover_word,
+      arabic: words.undercover_word_ar_vocalized ?? words.undercover_word_ar,
+      meaning: words.undercover_word_hint,
+    },
+  ].filter((p) => p.latin)
+  if (pairs.length === 0) return null
+  return (
+    <Section title={t("stats.words")}>
+      <dl className="grid gap-3 sm:grid-cols-2">
+        {pairs.map((p) => (
+          <div key={p.key} className="rounded-sm border border-line bg-surface-2 px-4 py-3">
+            <dt className="type-meta flex items-center gap-2">
+              <Lozenge state={p.mark} size={8} />
+              {p.label}
+            </dt>
+            <dd className="mt-1 flex flex-wrap items-baseline justify-between gap-x-4">
+              <span lang="en" dir="ltr" className="bidi-isolate text-[17px] font-medium">
+                {p.latin}
+              </span>
+              {p.arabic ? (
+                <span lang="ar" dir="rtl" className="type-word text-[26px] leading-none">
+                  {p.arabic}
+                </span>
+              ) : null}
+            </dd>
+            {p.meaning ? (
+              // the server can fall back to another language for a meaning: it keeps its own direction
+              <dd dir="auto" className="mt-1.5 text-[14px] leading-snug text-muted-foreground">
+                {p.meaning}
+              </dd>
+            ) : null}
+          </div>
+        ))}
+      </dl>
+    </Section>
+  )
+}
+
+function Players({ players, type }: { players: GameSummaryPlayer[]; type: string }) {
+  const { t } = useTranslation()
+  return (
+    <Section title={t("stats.playerRoles")}>
+      <ul className="grid">
+        {players.map((p) => {
+          const team = teamOf(p.team)
+          const mark = roleLozenge(p.role)
+          return (
+            <li key={p.user_id} className="flex min-h-11 items-center justify-between gap-3 border-b border-line py-2 last:border-b-0">
+              <span className="flex min-w-0 items-center gap-2.5">
+                {team ? <TeamMark team={team} /> : null}
+                <span className="truncate font-medium">{p.username}</span>
+              </span>
+              {p.role ? (
+                <span className="flex shrink-0 items-center gap-2 text-[14px] text-muted-foreground">
+                  {mark ? <Lozenge state={mark} size={9} /> : null}
+                  {roleName(p.role, t)}
+                  {team ? <span className="sr-only">, {teamName(p.team, t)}</span> : null}
+                </span>
+              ) : type === "codenames" && p.team ? (
+                <span className="text-[14px] text-muted-foreground">{teamName(p.team, t)}</span>
+              ) : null}
+            </li>
+          )
+        })}
+      </ul>
+    </Section>
+  )
+}
+
+/** Each round's votes grouped by who they named, and who left the table. */
+function Votes({ rounds }: { rounds: VoteRound[] }) {
+  const { t, i18n } = useTranslation()
+  return (
+    <Section title={t("stats.voteHistory")}>
+      <ol className="grid gap-4">
+        {rounds.map((round) => (
+          <li key={round.round} className="grid gap-1.5">
+            <p className="text-[13px] font-medium text-brass">{t("game.undercover.round", { number: round.round })}</p>
+            <ul className="grid gap-1 text-[15px] leading-snug">
+              {groupVotes(round.votes).map((line) => (
+                <li key={line.target}>
+                  <Trans
+                    i18nKey="stats.votedFor"
+                    values={{ voters: joinNames(line.voters, i18n.language), target: line.target }}
+                    components={{ b: <bdi className="font-medium" /> }}
+                  />
+                </li>
+              ))}
+            </ul>
+            {round.eliminated ? (
+              <p className="flex flex-wrap items-center gap-x-2 text-[14px] text-muted-foreground">
+                <ArrowRight className="size-3.5 shrink-0 text-brass rtl-flip" aria-hidden="true" />
+                <span>
+                  <Trans
+                    i18nKey="stats.leftTable"
+                    values={{ name: round.eliminated.username }}
+                    components={{ b: <bdi className="font-medium text-foreground" /> }}
+                  />
+                </span>
+                <span className="inline-flex items-center gap-1.5 text-foreground">
+                  {roleLozenge(round.eliminated.role) ? <Lozenge state={roleLozenge(round.eliminated.role)!} size={8} /> : null}
+                  {roleName(round.eliminated.role, t)}
+                </span>
+              </p>
+            ) : null}
+          </li>
+        ))}
+      </ol>
+    </Section>
+  )
+}
+
+/** Codenames: each clue with its team, and the cards it turned (each named by its glyph). */
+function Clues({ clues }: { clues: ClueHistoryEntry[] }) {
+  const { t } = useTranslation()
+  const cardLabel: Record<string, string> = {
+    madder: t("game.codenames.teams.red"),
+    indigo: t("game.codenames.teams.blue"),
+    bystander: t("stats.card.bystander"),
+    assassin: t("stats.card.assassin"),
+  }
+  return (
+    <Section title={t("stats.clueHistory")}>
+      <ol className="grid">
+        {clues.map((clue, i) => {
+          const team = teamOf(clue.team)
+          return (
+            <li key={i} className="grid gap-2 border-b border-line py-3 first:pt-1 last:border-b-0">
+              <p className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                {team ? (
+                  <span className="flex items-center gap-1.5 text-[13px] text-muted-foreground">
+                    <TeamMark team={team} />
+                    {teamName(clue.team, t)}
+                  </span>
+                ) : null}
+                {/* what the spymaster wrote: their hand when it is Arabic, Marcellus caps otherwise */}
+                <span
+                  dir="auto"
+                  className={cn(
+                    "bidi-isolate",
+                    ARABIC.test(clue.clue_word) ? "type-hand text-[22px]" : "font-display text-[20px] uppercase tracking-[0.04em]",
+                  )}
+                >
+                  {clue.clue_word}
+                </span>
+                <span className="num text-[18px] font-medium text-brass">{clue.clue_number}</span>
+              </p>
+              {clue.guesses && clue.guesses.length > 0 ? (
+                <ul className="flex flex-wrap gap-1.5">
+                  {clue.guesses.map((g, j) => {
+                    const glyph = cardGlyph(g.card_type)
+                    return (
+                      <li
+                        key={j}
+                        className="inline-flex h-[30px] items-center gap-2 rounded-sm border border-line bg-surface-2 px-2.5 text-[13.5px]"
+                      >
+                          <TeamGlyph team={glyph} size={10} label={cardLabel[glyph]} />
+                          <span lang="en" dir="ltr" className="bidi-isolate font-medium">
+                            {g.word}
+                          </span>
+                          {g.word_ar ? (
+                            <span lang="ar" dir="rtl" className="font-nass text-[16px] leading-none">
+                              {g.word_ar_vocalized ?? g.word_ar}
+                            </span>
+                          ) : null}
+                      </li>
+                    )
+                  })}
+                </ul>
+              ) : null}
+            </li>
+          )
+        })}
+      </ol>
+    </Section>
+  )
 }

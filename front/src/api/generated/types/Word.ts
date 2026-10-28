@@ -28,5 +28,8 @@ export type Word = {
   hint?: {
     [key: string]: any;
   } | null;
-  id?: string | null;
+  /**
+   * @type string | undefined, uuid
+   */
+  id?: string;
 };

@@ -1,6 +1,7 @@
-import { Timer } from "lucide-react"
 import { memo, useEffect, useMemo, useRef, useState } from "react"
-import { cn } from "@/lib/utils"
+import { useTranslation } from "react-i18next"
+import { ThreadClock } from "@/components/brand/ThreadClock"
+import { serverNow } from "@/lib/server-clock"
 
 /** How long before a still-expired timer may fire `onExpired` again. */
 const EXPIRED_RETRY_MS = 15_000
@@ -10,34 +11,52 @@ interface PhaseTimerProps {
   durationSeconds: number
   onExpired?: () => void
   className?: string
+  /**
+   * The prayer pause: while true the clock stands still (no tick, no thread movement)
+   * and `onExpired` is never fired. It shows `frozenRemaining` when given (the server's
+   * frozen countdown, `paused.remaining_seconds`), otherwise the time it last showed.
+   * On resume the server moves `timerStartedAt` forward, so the clock simply continues
+   * from where it stopped.
+   */
+  paused?: boolean
+  frozenRemaining?: number | null
 }
 
+/**
+ * The phase clock of every game: ticks every 500 ms from the server's start time, read
+ * on the server's clock as this device estimates it (lib/server-clock), fires
+ * `onExpired` once per timer window (see below), and renders the Samar thread clock
+ * (<ThreadClock>: a contracting woven thread, five brass lozenges for the last five
+ * seconds, a knot at zero, never red).
+ */
 export const PhaseTimer = memo(function PhaseTimer({
   timerStartedAt,
   durationSeconds,
   onExpired,
   className,
+  paused = false,
+  frozenRemaining = null,
 }: PhaseTimerProps) {
-  const [now, setNow] = useState(() => Date.now())
+  const { t } = useTranslation()
+  // the server's clock (lib/server-clock): `timerStartedAt` is a server timestamp
+  const [now, setNow] = useState(() => serverNow())
 
   useEffect(() => {
-    const interval = setInterval(() => setNow(Date.now()), 500)
+    // a paused clock does not tick; on resume it reads the clock afresh
+    if (paused) return
+    setNow(serverNow())
+    const interval = setInterval(() => setNow(serverNow()), 500)
     return () => clearInterval(interval)
-  }, [])
+  }, [paused])
 
-  const remaining = useMemo(() => {
+  const running = useMemo(() => {
     if (!timerStartedAt) return durationSeconds
     const startMs = new Date(timerStartedAt).getTime()
     const elapsedSec = (now - startMs) / 1000
     return Math.max(0, Math.ceil(durationSeconds - elapsedSec))
   }, [timerStartedAt, durationSeconds, now])
-
-  const progress = useMemo(() => {
-    if (!timerStartedAt || !durationSeconds) return 100
-    const startMs = new Date(timerStartedAt).getTime()
-    const elapsedSec = (now - startMs) / 1000
-    return Math.max(0, Math.min(100, ((durationSeconds - elapsedSec) / durationSeconds) * 100))
-  }, [timerStartedAt, durationSeconds, now])
+  const remaining =
+    paused && frozenRemaining != null ? Math.max(0, Math.min(durationSeconds, Math.ceil(frozenRemaining))) : running
 
   // Fire onExpired ONCE per timer window (identified by start + duration).
   //
@@ -48,8 +67,8 @@ export const PhaseTimer = memo(function PhaseTimer({
   // re-renders the parent: a self-sustaining loop, one POST + one server
   // broadcast per cycle, for as long as the phase kept the timer expired.
   //
-  // The retry window is a liveness valve, not a retry-as-fix: only the host
-  // fires this, so if the single call fails the round would otherwise stall
+  // The retry window is a liveness valve, not a retry-as-fix: every player fires
+  // this once per window, and if those calls fail the round would otherwise stall
   // until a reload. Re-arming after EXPIRED_RETRY_MS bounds the request rate.
   const onExpiredRef = useRef(onExpired)
   onExpiredRef.current = onExpired
@@ -57,87 +76,16 @@ export const PhaseTimer = memo(function PhaseTimer({
   const firedAtRef = useRef(0)
 
   useEffect(() => {
-    if (remaining !== 0 || !onExpiredRef.current) return
+    // a paused game's clock never runs out: the server answers "paused" anyway
+    if (paused || remaining !== 0 || !onExpiredRef.current) return
     const window = `${timerStartedAt ?? "none"}:${durationSeconds}`
     const isNewWindow = firedWindowRef.current !== window
     if (!isNewWindow && now - firedAtRef.current < EXPIRED_RETRY_MS) return
     firedWindowRef.current = window
     firedAtRef.current = now
     onExpiredRef.current()
-  }, [remaining, timerStartedAt, durationSeconds, now])
+  }, [remaining, timerStartedAt, durationSeconds, now, paused])
 
-  const isLow = remaining <= 10
-  const isCritical = remaining <= 5
-
-  const minutes = Math.floor(remaining / 60)
-  const seconds = remaining % 60
-  const display = minutes > 0 ? `${minutes}:${seconds.toString().padStart(2, "0")}` : `${seconds}s`
-
-  // SVG circular ring props
-  const size = 48
-  const strokeWidth = 3
-  const radius = (size - strokeWidth) / 2
-  const circumference = 2 * Math.PI * radius
-  const strokeDashoffset = circumference * (1 - progress / 100)
-
-  return (
-    <div role="timer" aria-live="polite" aria-label={`${display} remaining`} className={cn("flex items-center gap-3", className)}>
-      {/* Circular SVG countdown ring */}
-      <div className={cn("relative flex-shrink-0 rounded-full", isCritical && "animate-glow-pulse")}>
-        <svg width={size} height={size} className="-rotate-90">
-          {/* Background ring */}
-          <circle
-            cx={size / 2}
-            cy={size / 2}
-            r={radius}
-            fill="none"
-            stroke="var(--muted)"
-            strokeWidth={strokeWidth}
-          />
-          {/* Progress ring */}
-          <circle
-            cx={size / 2}
-            cy={size / 2}
-            r={radius}
-            fill="none"
-            stroke={isCritical ? "oklch(0.55 0.22 25)" : isLow ? "oklch(0.75 0.15 75)" : "var(--primary)"}
-            strokeWidth={strokeWidth}
-            strokeLinecap="round"
-            strokeDasharray={circumference}
-            strokeDashoffset={strokeDashoffset}
-            className="transition-[stroke-dashoffset] duration-500"
-          />
-        </svg>
-        {/* Timer icon in center */}
-        <div className="absolute inset-0 flex items-center justify-center">
-          <Timer
-            className={cn(
-              "h-4 w-4",
-              isCritical ? "text-red-500 animate-pulse" : isLow ? "text-amber-500" : "text-muted-foreground",
-            )}
-          />
-        </div>
-      </div>
-
-      <div className="flex items-center gap-2 flex-1 min-w-0">
-        <span
-          className={cn(
-            "text-sm font-mono font-bold tabular-nums tracking-tight",
-            isCritical ? "text-red-500" : isLow ? "text-amber-500" : "text-foreground",
-          )}
-        >
-          {display}
-        </span>
-        <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
-          <div
-            className={cn(
-              "h-full rounded-full transition-[width] duration-500",
-              isCritical ? "bg-red-500" : isLow ? "bg-amber-500" : "bg-gradient-to-r from-primary to-accent",
-            )}
-            style={{ width: `${progress}%` }}
-          />
-        </div>
-      </div>
-    </div>
-  )
+  // the timer's name gives the figure its meaning: "Time left: 0:20"
+  return <ThreadClock remaining={remaining} total={durationSeconds} label={t("ui.clock.label")} className={className} />
 })

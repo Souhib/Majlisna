@@ -1,10 +1,12 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { RoomSettings } from './RoomSettings'
 
+const mutateAsync = vi.fn().mockResolvedValue({})
+
 vi.mock('@/api/generated', () => ({
   useUpdateRoomSettingsApiV1RoomsRoomIdSettingsPatch: () => ({
-    mutateAsync: vi.fn(),
+    mutateAsync,
     isPending: false,
   }),
 }))
@@ -23,57 +25,99 @@ function defaultProps(overrides: Record<string, unknown> = {}) {
   }
 }
 
+function open() {
+  fireEvent.click(screen.getByRole('button', { name: /room\.settingsPanel\.title/ }))
+}
+
 describe('RoomSettings', () => {
-  it('renders the settings heading', () => {
+  it('renders the settings heading, closed', () => {
     render(<RoomSettings {...defaultProps()} />)
-    expect(screen.getByText('room.settings')).toBeInTheDocument()
+    expect(screen.getByText('room.settingsPanel.title')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /room\.settingsPanel\.title/ })).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByText('room.settingsPanel.descriptionTimer')).not.toBeInTheDocument()
   })
 
-  it('toggles settings panel open and closed', () => {
-    const { container } = render(<RoomSettings {...defaultProps()} />)
-    // Initially collapsed — the grid wrapper has opacity-0
-    const gridWrapper = container.querySelector('.opacity-0')
-    expect(gridWrapper).toBeInTheDocument()
-    // Click to open
-    fireEvent.click(screen.getByText('room.settings'))
-    // After opening, the wrapper should have opacity-100
-    const openWrapper = container.querySelector('.opacity-100')
-    expect(openWrapper).toBeInTheDocument()
+  it('opens and closes from its header', () => {
+    render(<RoomSettings {...defaultProps()} />)
+    open()
+    expect(screen.getByRole('button', { name: /room\.settingsPanel\.title/ })).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByText('room.settingsPanel.descriptionTimer')).toBeInTheDocument()
+    open()
+    expect(screen.queryByText('room.settingsPanel.descriptionTimer')).not.toBeInTheDocument()
   })
 
   it('shows undercover settings for undercover game type', () => {
     render(<RoomSettings {...defaultProps({ gameType: 'undercover' })} />)
-    fireEvent.click(screen.getByText('room.settings'))
-    expect(screen.getByText('room.descriptionTimer')).toBeInTheDocument()
-    expect(screen.getByText('room.votingTimer')).toBeInTheDocument()
-    expect(screen.getByText('room.enableMrWhite')).toBeInTheDocument()
+    open()
+    expect(screen.getByText('room.settingsPanel.descriptionTimer')).toBeInTheDocument()
+    expect(screen.getByText('room.settingsPanel.votingTimer')).toBeInTheDocument()
+    expect(screen.getByRole('switch', { name: 'room.enableMrWhite' })).toBeInTheDocument()
   })
 
   it('shows codenames settings for codenames game type', () => {
     render(<RoomSettings {...defaultProps({ gameType: 'codenames' })} />)
-    fireEvent.click(screen.getByText('room.settings'))
-    expect(screen.getByText('room.clueTimer')).toBeInTheDocument()
-    expect(screen.getByText('room.guessTimer')).toBeInTheDocument()
+    open()
+    expect(screen.getByText('room.settingsPanel.clueTimer')).toBeInTheDocument()
+    expect(screen.getByText('room.settingsPanel.guessTimer')).toBeInTheDocument()
   })
 
   it('shows word quiz settings for word_quiz game type', () => {
     render(<RoomSettings {...defaultProps({ gameType: 'word_quiz' })} />)
-    fireEvent.click(screen.getByText('room.settings'))
-    expect(screen.getByText('room.wordQuizTurnDuration')).toBeInTheDocument()
-    expect(screen.getByText('room.wordQuizRounds')).toBeInTheDocument()
-    expect(screen.getByText('room.wordQuizHintInterval')).toBeInTheDocument()
+    open()
+    expect(screen.getByText('room.settingsPanel.wordQuizTurn')).toBeInTheDocument()
+    expect(screen.getByText('room.settingsPanel.wordQuizRounds')).toBeInTheDocument()
+    expect(screen.getByText('room.settingsPanel.wordQuizHintInterval')).toBeInTheDocument()
   })
 
   it('shows mcq quiz settings for mcq_quiz game type', () => {
     render(<RoomSettings {...defaultProps({ gameType: 'mcq_quiz' })} />)
-    fireEvent.click(screen.getByText('room.settings'))
-    expect(screen.getByText('room.mcqQuizTurnDuration')).toBeInTheDocument()
-    expect(screen.getByText('room.mcqQuizRounds')).toBeInTheDocument()
+    open()
+    expect(screen.getByText('room.settingsPanel.mcqQuizTurn')).toBeInTheDocument()
+    expect(screen.getByText('room.settingsPanel.mcqQuizRounds')).toBeInTheDocument()
   })
 
-  it('shows mr white minimum players warning when playerCount < 4', () => {
-    render(<RoomSettings {...defaultProps({ playerCount: 3 })} />)
-    fireEvent.click(screen.getByText('room.settings'))
+  it.each([3, 4])('keeps Mr. White off and says why with %i players', (playerCount) => {
+    render(<RoomSettings {...defaultProps({ playerCount })} />)
+    open()
+    const mrWhite = screen.getByRole('switch', { name: 'room.enableMrWhite' })
+    expect(mrWhite).toBeDisabled()
+    expect(mrWhite).toHaveAttribute('aria-checked', 'false')
     expect(screen.getByText('room.mrWhiteMinPlayers')).toBeInTheDocument()
+  })
+
+  it('lets the host turn Mr. White off from five players and saves the choice', async () => {
+    // Prepare
+    mutateAsync.mockClear()
+    render(<RoomSettings {...defaultProps({ playerCount: 5 })} />)
+    open()
+    const mrWhite = screen.getByRole('switch', { name: 'room.enableMrWhite' })
+    expect(mrWhite).toHaveAttribute('aria-checked', 'true')
+
+    // Act
+    fireEvent.click(mrWhite)
+    fireEvent.click(screen.getByRole('button', { name: 'common.save' }))
+
+    // Assert
+    await waitFor(() =>
+      expect(mutateAsync).toHaveBeenCalledWith({
+        room_id: 'room-1',
+        data: { description_timer: 0, voting_timer: 0, enable_mr_white: false },
+      }),
+    )
+  })
+
+  it('keeps unsaved choices when the room pushes the same settings again', () => {
+    // Prepare
+    const settings = { description_timer: 30 }
+    const { rerender } = render(<RoomSettings {...defaultProps({ settings })} />)
+    open()
+    const radio60 = screen.getAllByRole('radio')[4]
+
+    // Act: pick 60 s, then a socket push brings an equal-but-new settings object
+    fireEvent.click(radio60)
+    rerender(<RoomSettings {...defaultProps({ settings: { description_timer: 30 } })} />)
+
+    // Assert
+    expect(screen.getAllByRole('radio')[4]).toBeChecked()
   })
 })

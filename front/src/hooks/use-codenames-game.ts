@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import { getApiErrorMessage } from "@/api/client"
+import type { GamePause } from "@/api/generated"
 import {
   useGetCodenamesBoardApiV1CodenamesGamesGameIdBoardGet,
   useGiveClueApiV1CodenamesGamesGameIdCluePost,
@@ -14,34 +15,20 @@ import {
   useLeaveRoomApiV1RoomsLeavePatch,
 } from "@/api/generated"
 import { queryKeys } from "@/api/queryKeys"
-import { useAchievementNotifications } from "@/components/achievements/AchievementToast"
+import { isGameGoneError } from "@/components/games/shared/game-errors"
+import { isGamePausedError, isTimerStopAction } from "@/components/games/shared/prayer-pause/pause-utils"
+import { useLeaveAfterKick } from "@/hooks/use-leave-after-kick"
 import { useSocket } from "@/hooks/use-socket"
 import { trackEvent } from "@/lib/analytics"
 import { useAuth } from "@/providers/AuthProvider"
 import { retrieveRoomIdForGame } from "@/lib/room-session"
 
-interface CodenamesCard {
-  word: string
-  card_type: "red" | "blue" | "neutral" | "assassin" | null
-  revealed: boolean
-  hint?: string | null
-}
-
-interface CodenamesTurn {
-  team: "red" | "blue"
-  clue_word: string | null
-  clue_number: number
-  guesses_made: number
-  max_guesses: number | null
-  card_votes?: Record<string, number>
-}
-
-interface CodenamesPlayer {
-  user_id: string
-  username: string
-  team: string
-  role: string
-}
+import type {
+  ClueHistoryEntry,
+  CodenamesCard,
+  CodenamesPlayer,
+  CodenamesTurn,
+} from "@/components/games/codenames/model"
 
 export interface CodenamesGameState {
   board: CodenamesCard[]
@@ -71,15 +58,18 @@ export interface CodenamesServerState {
   current_turn: CodenamesTurn | null
   winner: "red" | "blue" | null
   players?: CodenamesPlayer[]
-  clue_history?: {
-    team: "red" | "blue"
-    clue_word: string
-    clue_number: number
-    guesses: { word: string; card_type: string; correct: boolean }[]
-  }[]
+  clue_history?: ClueHistoryEntry[]
   timer_config?: { clue_seconds: number; guess_seconds: number }
   timer_started_at?: string | null
+  /** The prayer pause (null while the game runs) and what this caller may do about it. */
+  paused?: GamePause | null
+  can_pause?: boolean
+  can_resume?: boolean
   newly_unlocked_achievements?: { user_id: string; achievements: { code: string; name: string; icon: string; tier: number }[] }[]
+  /** The colophon: the host who started the game, and when it ran (UTC). */
+  host_username?: string | null
+  started_at?: string | null
+  ended_at?: string | null
 }
 
 export function useCodenamesGame(gameId: string) {
@@ -94,7 +84,8 @@ export function useCodenamesGame(gameId: string) {
     return stored
   })
 
-  const { connected: socketConnected } = useSocket({ roomId: socketRoomId, gameId, gameType: "codenames", enabled: !!user })
+  const leaveAfterKick = useLeaveAfterKick()
+  const { connected: socketConnected } = useSocket({ roomId: socketRoomId, gameId, gameType: "codenames", enabled: !!user, onKicked: leaveAfterKick })
 
   const [clueWord, setClueWord] = useState("")
   const [clueNumber, setClueNumber] = useState(1)
@@ -171,14 +162,13 @@ export function useCodenamesGame(gameId: string) {
   }, [serverState])
 
   useEffect(() => {
-    if (queryError) {
-      const errMsg = getApiErrorMessage(queryError, "Game not found")
-      if (errMsg.includes("not found") || errMsg.includes("cancelled") || errMsg.includes("removed")) {
-        setCancelMessage(errMsg)
-        redirectTimerRef.current = setTimeout(() => navigate({ to: "/" }), 3000)
-      }
+    // A game that is gone (ended elsewhere, cancelled, removed): say so, then go home.
+    // Decided on the status, not on the translated message (which never matched in AR or FR).
+    if (queryError && isGameGoneError(queryError) && !redirectTimerRef.current) {
+      setCancelMessage(getApiErrorMessage(queryError, t("errors.api.gameNotFound")))
+      redirectTimerRef.current = setTimeout(() => navigate({ to: "/" }), 3000)
     }
-  }, [queryError, navigate])
+  }, [queryError, navigate, t])
 
   useEffect(() => {
     return () => {
@@ -190,6 +180,21 @@ export function useCodenamesGame(gameId: string) {
   const invalidateBoard = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: queryKeys.game.codenames(gameId) })
   }, [gameId, queryClient])
+
+  // The prayer pause: while the host has paused the game no move is sent (the page also
+  // makes the board inert under the veil) and the clock is never reported as expired.
+  const isPaused = !!serverState?.paused
+  const pausedRef = useRef(isPaused)
+  pausedRef.current = isPaused
+  // A move refused because the game was paused under us (409 gamePaused): its translated
+  // error is shown, and the board that carries the veil is fetched at once.
+  const moveFailed = useCallback(
+    (err: unknown, fallback: string) => {
+      toast.error(getApiErrorMessage(err, fallback))
+      if (isGamePausedError(err)) invalidateBoard()
+    },
+    [invalidateBoard],
+  )
 
   const handleHintViewed = useCallback(
     async (word: string) => {
@@ -203,7 +208,7 @@ export function useCodenamesGame(gameId: string) {
   )
 
   const handleGiveClue = useCallback(async () => {
-    if (!clueWord.trim() || isSubmittingClue) return
+    if (!clueWord.trim() || isSubmittingClue || pausedRef.current) return
     setIsSubmittingClue(true)
     try {
       await clueMutation.mutateAsync({ game_id: gameId, data: { clue_word: clueWord.trim(), clue_number: clueNumber } })
@@ -211,14 +216,15 @@ export function useCodenamesGame(gameId: string) {
       setClueNumber(1)
       invalidateBoard()
     } catch (err) {
-      toast.error(getApiErrorMessage(err, "Failed to give clue"))
+      moveFailed(err, "Failed to give clue")
     } finally {
       setIsSubmittingClue(false)
     }
-  }, [gameId, clueWord, clueNumber, isSubmittingClue, clueMutation, invalidateBoard])
+  }, [gameId, clueWord, clueNumber, isSubmittingClue, clueMutation, invalidateBoard, moveFailed])
 
   const handleGuessCard = useCallback(
     async (index: number) => {
+      if (pausedRef.current) return
       try {
         const data = await guessMutation.mutateAsync({ game_id: gameId, data: { card_index: index } }) as { all_voted?: boolean; vote_changed?: boolean; tied?: boolean }
         if (data.all_voted === false) {
@@ -228,20 +234,21 @@ export function useCodenamesGame(gameId: string) {
         }
         invalidateBoard()
       } catch (err) {
-        toast.error(getApiErrorMessage(err, "Failed to guess card"))
+        moveFailed(err, "Failed to guess card")
       }
     },
-    [gameId, t, guessMutation, invalidateBoard],
+    [gameId, t, guessMutation, invalidateBoard, moveFailed],
   )
 
   const handleEndTurn = useCallback(async () => {
+    if (pausedRef.current) return
     try {
       await endTurnMutation.mutateAsync({ game_id: gameId })
       invalidateBoard()
     } catch (err) {
-      toast.error(getApiErrorMessage(err, "Failed to end turn"))
+      moveFailed(err, "Failed to end turn")
     }
-  }, [gameId, endTurnMutation, invalidateBoard])
+  }, [gameId, endTurnMutation, invalidateBoard, moveFailed])
 
   const handleLeaveRoom = useCallback(async () => {
     if (!user || !roomIdRef.current) {
@@ -264,21 +271,33 @@ export function useCodenamesGame(gameId: string) {
     }
   }, [navigate, queryClient])
 
-  useAchievementNotifications(serverState?.newly_unlocked_achievements, user?.id)
+  // Achievements are pressed as seals in the colophon (GameOverScreen), not toasted.
 
   const timerExpiredRef = useRef(false)
+  // The timer window (its server start) the server told us to stop reporting: the game
+  // was paused, or the turn was already resolved. A new window (the next turn, or the
+  // start the resume moved forward) re-arms it.
+  const timerWindowRef = useRef<string | null>(null)
+  timerWindowRef.current = serverState?.timer_started_at ?? null
+  const stoppedWindowRef = useRef<string | null>(null)
+  // Any player may report an expired timer — the server only acts once it has
+  // really elapsed. Gating this on the host stalled the game whenever the host's
+  // phone was locked or their tab backgrounded.
   const handleTimerExpired = useCallback(async () => {
-    if (!serverState?.is_host || timerExpiredRef.current) return
+    const timerKey = timerWindowRef.current
+    if (timerExpiredRef.current || pausedRef.current) return
+    if (timerKey !== null && stoppedWindowRef.current === timerKey) return
     timerExpiredRef.current = true
     try {
-      await timerExpiredMutation.mutateAsync({ game_id: gameId })
+      const result = await timerExpiredMutation.mutateAsync({ game_id: gameId })
+      if (isTimerStopAction(result?.action)) stoppedWindowRef.current = timerKey
       invalidateBoard()
     } catch {
       // Ignore — another client may have already triggered it
     } finally {
       timerExpiredRef.current = false
     }
-  }, [gameId, serverState?.is_host, timerExpiredMutation, invalidateBoard])
+  }, [gameId, timerExpiredMutation, invalidateBoard])
 
   return {
     user,
@@ -287,6 +306,7 @@ export function useCodenamesGame(gameId: string) {
     isLoading,
     socketConnected,
     cancelMessage,
+    isPaused,
     showGameOverTransition,
     roomIdRef,
     clueWord,

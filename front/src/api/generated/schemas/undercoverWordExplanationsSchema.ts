@@ -13,6 +13,12 @@ import { z } from "zod/v4";
 export const undercoverWordExplanationsSchema = z
   .object({
     civilian_word: z.optional(z.union([z.string(), z.null()])),
+    civilian_word_ar: z.optional(z.union([z.string(), z.null()])),
+    civilian_word_ar_vocalized: z.optional(z.union([z.string(), z.null()])),
+    civilian_word_hint: z.optional(z.union([z.string(), z.null()])),
     undercover_word: z.optional(z.union([z.string(), z.null()])),
+    undercover_word_ar: z.optional(z.union([z.string(), z.null()])),
+    undercover_word_ar_vocalized: z.optional(z.union([z.string(), z.null()])),
+    undercover_word_hint: z.optional(z.union([z.string(), z.null()])),
   })
   .describe("Word pair used in an Undercover game.");

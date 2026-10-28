@@ -5,6 +5,7 @@
 
 import ky, { type HTTPError, type KyResponse } from "ky"
 import i18n from "@/i18n"
+import { noteServerDate } from "@/lib/server-clock"
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || window.location.origin
 
@@ -117,6 +118,8 @@ const kyInstance = ky.create({
     ],
     afterResponse: [
       async (_request, _options, response) => {
+        // the server's clock, for timers and the Kalimat ladder (lib/server-clock)
+        noteServerDate(response.headers.get("date"))
         if (!response.ok && response.status === 401) {
           const hadToken = !!localStorage.getItem("majlisna-token")
 
@@ -126,7 +129,8 @@ const kyInstance = ky.create({
           localStorage.removeItem("majlisna-user-data")
 
           if (hadToken && typeof window !== "undefined" && !window.location.pathname.includes("/auth/login")) {
-            window.location.href = "/auth/login"
+            const back = window.location.pathname + window.location.search
+            window.location.href = `/auth/login?redirect=${encodeURIComponent(back)}`
           }
         }
         return response
@@ -191,7 +195,10 @@ async function client<TData, _TError = unknown, TVariables = unknown>(
   let responseData: TData
   const contentType = response.headers.get("content-type")
 
-  if (contentType?.includes("application/json")) {
+  if (response.status === 204 || response.status === 205) {
+    // FastAPI labels a No Content answer application/json; there is no body to parse
+    responseData = undefined as TData
+  } else if (contentType?.includes("application/json")) {
     responseData = await response.json()
   } else if (contentType?.includes("text/")) {
     responseData = (await response.text()) as unknown as TData

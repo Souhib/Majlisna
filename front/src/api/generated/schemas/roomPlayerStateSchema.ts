@@ -14,4 +14,5 @@ export const roomPlayerStateSchema = z.object({
   is_disconnected: z.boolean(),
   is_host: z.boolean(),
   is_spectator: z.boolean(),
+  away_seconds_left: z.optional(z.union([z.int(), z.null()])),
 });

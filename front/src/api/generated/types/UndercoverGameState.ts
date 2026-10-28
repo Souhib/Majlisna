@@ -7,6 +7,7 @@
 
 import type { DescriptionOrderEntry } from "./DescriptionOrderEntry.ts";
 import type { EliminatedPlayer } from "./EliminatedPlayer.ts";
+import type { GamePause } from "./GamePause.ts";
 import type { PlayerUnlockedAchievements } from "./PlayerUnlockedAchievements.ts";
 import type { UndercoverPlayerState } from "./UndercoverPlayerState.ts";
 import type { UndercoverTimerConfig } from "./UndercoverTimerConfig.ts";
@@ -42,6 +43,8 @@ export type UndercoverGameState = {
    * @type string
    */
   my_word: string;
+  my_word_ar?: string | null;
+  my_word_ar_vocalized?: string | null;
   my_word_hint: string | null;
   /**
    * @type boolean
@@ -81,6 +84,11 @@ export type UndercoverGameState = {
    */
   turn_phase: string;
   /**
+   * @default false
+   * @type boolean | undefined
+   */
+  round_resolved?: boolean;
+  /**
    * @type array
    */
   description_order: DescriptionOrderEntry[];
@@ -97,4 +105,18 @@ export type UndercoverGameState = {
   word_explanations?: WordExplanations | null;
   mr_white_guesser?: string | null;
   newly_unlocked_achievements?: PlayerUnlockedAchievements[] | null;
+  paused?: GamePause | null;
+  /**
+   * @default false
+   * @type boolean | undefined
+   */
+  can_pause?: boolean;
+  /**
+   * @default false
+   * @type boolean | undefined
+   */
+  can_resume?: boolean;
+  host_username?: string | null;
+  started_at?: string | null;
+  ended_at?: string | null;
 };

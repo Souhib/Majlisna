@@ -1,0 +1,100 @@
+/* ============================================================================
+   Rooms and the lobby (routes/_auth/rooms/*, components/rooms/*): only what
+   utilities cannot say. The lobby head is one grid that rearranges itself:
+
+     phones      [leave] [title / sub ........] [share]
+                 [room code ............... PIN]
+     >= 1024 px  [leave] [title / sub ....] [room code  PIN] [share]
+
+   so the share button exists once in the DOM at every width (E2E finds it by its
+   text, strictly). The code tiles take the sketch's sizes: 34 / 26 px at 390,
+   40 / 30 from 431 px, 44 / 36 on wide screens.
+   ============================================================================ */
+
+@layer components {
+  .lobby-head {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "back title share"
+      "codes codes codes";
+    column-gap: 6px;
+    row-gap: 18px;
+    align-items: start;
+  }
+  .lobby-head > .lh-back {
+    grid-area: back;
+  }
+  .lobby-head > .lh-title {
+    grid-area: title;
+    min-width: 0;
+  }
+  .lobby-head > .lh-codes {
+    grid-area: codes;
+  }
+  .lobby-head > .lh-share {
+    grid-area: share;
+  }
+
+  /* the ring's names at the sketch's weight: the body is Readex 300, which left the
+     names lighter than their second line (tspan.st is 400) */
+  .lobby-ring .halqa text {
+    font-weight: 400;
+  }
+
+  .lobby-head .lh-codes .code-tiles[data-kind="code"] {
+    --tw: 34px;
+    --th: 44px;
+    --tf: 18px;
+    --tg: 4px;
+  }
+  .lobby-head .lh-codes .code-tiles[data-kind="pin"] {
+    --tw: 26px;
+    --th: 44px;
+    --tf: 16px;
+    --tg: 3px;
+  }
+
+  @media (min-width: 431px) {
+    .lobby-head .lh-codes .code-tiles[data-kind="code"] {
+      --tw: 40px;
+      --th: 48px;
+      --tf: 20px;
+      --tg: 5px;
+    }
+    .lobby-head .lh-codes .code-tiles[data-kind="pin"] {
+      --tw: 30px;
+      --th: 48px;
+      --tf: 18px;
+      --tg: 3px;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .lobby-head {
+      grid-template-columns: auto minmax(0, 1fr) auto auto;
+      grid-template-areas: "back title codes share";
+      column-gap: 14px;
+      align-items: end;
+      padding-block-end: 32px;
+      border-block-end: 1px solid var(--line-brass);
+    }
+    .lobby-head > .lh-back,
+    .lobby-head > .lh-title {
+      align-self: start;
+    }
+    .lobby-head > .lh-codes {
+      margin-inline-start: 24px;
+    }
+    .lobby-head .lh-codes .code-tiles[data-kind="code"] {
+      --tw: 44px;
+      --th: 52px;
+      --tf: 22px;
+    }
+    .lobby-head .lh-codes .code-tiles[data-kind="pin"] {
+      --tw: 36px;
+      --th: 52px;
+      --tf: 20px;
+    }
+  }
+}

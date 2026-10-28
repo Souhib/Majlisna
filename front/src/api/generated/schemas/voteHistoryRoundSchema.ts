@@ -6,6 +6,7 @@
  */
 
 import { eliminatedPlayerSchema } from "./eliminatedPlayerSchema.ts";
+import { mrWhiteGuessRecordSchema } from "./mrWhiteGuessRecordSchema.ts";
 import { voteEntrySchema } from "./voteEntrySchema.ts";
 import { z } from "zod/v4";
 
@@ -16,5 +17,8 @@ export const voteHistoryRoundSchema = z.object({
   },
   get eliminated() {
     return z.union([eliminatedPlayerSchema, z.null()]).optional();
+  },
+  get mr_white_guess() {
+    return z.union([mrWhiteGuessRecordSchema, z.null()]).optional();
   },
 });

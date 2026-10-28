@@ -8,11 +8,14 @@ import {
   useState,
 } from "react"
 import { getMeApiV1AuthMeGet, refreshTokenApiV1AuthRefreshPost, logoutApiV1AuthLogoutPost } from "@/api/generated"
+import type { UserView } from "@/api/generated"
 import {
   clearAuthData,
+  getStoredRefreshToken,
   getStoredToken,
   getStoredUserData,
   getTokenExpiry,
+  hasStoredSession,
   storeAuthData,
 } from "@/lib/auth"
 
@@ -30,6 +33,16 @@ interface UserData {
   id: string
   username: string
   email: string
+}
+
+/**
+ * `GET /auth/me` answers a `UserView`, which names the address `email_address`; the
+ * login and register responses (and `UserData`) say `email`. The cookie path used to
+ * cast the view straight to `UserData`, so after any reload `user.email` was
+ * `undefined` and the profile never showed the address.
+ */
+export function userFromView(view: Pick<UserView, "id" | "username" | "email_address">): UserData {
+  return { id: view.id, username: view.username ?? "", email: view.email_address }
 }
 
 interface AuthContextValue {
@@ -66,7 +79,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const refreshPromiseRef = useRef<Promise<boolean> | null>(null)
 
   const performTokenRefresh = useCallback(async (): Promise<boolean> => {
-    const storedRefreshToken = localStorage.getItem("majlisna-refresh-token")
+    const storedRefreshToken = getStoredRefreshToken()
     try {
       let data: unknown
       try {
@@ -145,9 +158,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // Initialize auth state — try /me endpoint (uses cookies), fall back to localStorage
   useEffect(() => {
     const initAuth = async () => {
+      // A visitor with no stored token has never signed in here (every login stores
+      // one beside the httpOnly cookies): asking /me only answered 401 on every
+      // public page load and logged an error in the console.
+      if (!hasStoredSession()) {
+        setIsLoading(false)
+        return
+      }
+
       // First, try cookie-based auth via /me
       try {
-        const userData = await getMeApiV1AuthMeGet() as UserData
+        const userData = userFromView(await getMeApiV1AuthMeGet())
         setUser(userData)
 
         // Mint a fresh token pair right away and schedule the next refresh from

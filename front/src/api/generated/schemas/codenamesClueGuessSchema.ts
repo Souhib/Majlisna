@@ -9,6 +9,8 @@ import { z } from "zod/v4";
 
 export const codenamesClueGuessSchema = z.object({
   word: z.string(),
+  word_ar: z.optional(z.union([z.string(), z.null()])),
+  word_ar_vocalized: z.optional(z.union([z.string(), z.null()])),
   card_type: z.string(),
   correct: z.boolean(),
 });

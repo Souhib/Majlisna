@@ -10,6 +10,7 @@ import { codenamesClueHistoryEntrySchema } from "./codenamesClueHistoryEntrySche
 import { codenamesPlayerViewSchema } from "./codenamesPlayerViewSchema.ts";
 import { codenamesTimerConfigSchema } from "./codenamesTimerConfigSchema.ts";
 import { codenamesTurnStateSchema } from "./codenamesTurnStateSchema.ts";
+import { gamePauseSchema } from "./gamePauseSchema.ts";
 import { playerUnlockedAchievementsSchema } from "./playerUnlockedAchievementsSchema.ts";
 import { z } from "zod/v4";
 
@@ -46,11 +47,19 @@ export const codenamesBoardStateSchema = z.object({
       .union([
         z.array(
           playerUnlockedAchievementsSchema.describe(
-            'Badges earned by one player at the end of a game.\n\nEvery game controller wrote this into ``live_state["newly_unlocked_achievements"]``\nbut no game-state schema declared it, and ``BaseModel`` is ``extra="forbid"`` — so\nit never left the server. The client has always been ready for it\n(``useAchievementNotifications`` + ``AchievementToast``); the toast simply had no\ndata. Declaring the field is what connects the two.',
+            'Badges earned by one player at the end of a game.\n\nEvery game controller writes this into ``live_state["newly_unlocked_achievements"]``,\nand every game-state schema declares it: ``BaseModel`` is ``extra="forbid"``, so an\nundeclared field never leaves the server (it once did not). The client shows them as\nseals on the game-over colophon (``useAchievementSeals``), never as a toast mid-game.',
           ),
         ),
         z.null(),
       ])
       .optional();
   },
+  get paused() {
+    return z.union([gamePauseSchema, z.null()]).optional();
+  },
+  can_pause: z.optional(z.boolean().default(false)),
+  can_resume: z.optional(z.boolean().default(false)),
+  host_username: z.optional(z.union([z.string(), z.null()])),
+  started_at: z.optional(z.union([z.iso.datetime(), z.null()])),
+  ended_at: z.optional(z.union([z.iso.datetime(), z.null()])),
 });

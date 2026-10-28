@@ -21,12 +21,19 @@ function defaultProps(overrides: Record<string, unknown> = {}) {
 }
 
 describe('RoundResults', () => {
-  it('displays the correct answer', () => {
+  it('reveals the answer under "The answer was"', () => {
     render(<RoundResults {...defaultProps()} />)
+    expect(screen.getByText('game.quiz.kalimat.answerWas')).toBeInTheDocument()
     expect(screen.getByText('Mosque')).toBeInTheDocument()
   })
 
-  it('displays the explanation when provided', () => {
+  it('sets an Arabic answer right to left', () => {
+    render(<RoundResults {...defaultProps({ correctAnswer: 'زكريا' })} />)
+    expect(screen.getByText('زكريا')).toHaveAttribute('dir', 'rtl')
+    expect(screen.getByText('زكريا')).toHaveAttribute('lang', 'ar')
+  })
+
+  it('shows the explanation verbatim when there is one', () => {
     render(<RoundResults {...defaultProps()} />)
     expect(screen.getByText('A mosque is a place of worship for Muslims.')).toBeInTheDocument()
   })
@@ -36,38 +43,78 @@ describe('RoundResults', () => {
     expect(screen.queryByText('A mosque is a place of worship for Muslims.')).not.toBeInTheDocument()
   })
 
-  it('renders all player results sorted by points descending', () => {
-    const { container } = render(<RoundResults {...defaultProps()} />)
-    const names = container.querySelectorAll('.font-medium')
-    expect(names[0].textContent).toBe('Alice')
-    expect(names[1].textContent).toBe('Charlie')
-    expect(names[2].textContent).toBe('Bob')
-  })
-
-  it('shows "not answered" for players who did not answer', () => {
+  it('lists the players by points, with the points of those who found it', () => {
     render(<RoundResults {...defaultProps()} />)
-    expect(screen.getByText('game.wordQuiz.notAnswered')).toBeInTheDocument()
+    const rows = screen.getAllByRole('listitem')
+    expect(rows.map((r) => r.textContent)).toEqual([
+      expect.stringContaining('Alice'),
+      expect.stringContaining('Charlie'),
+      expect.stringContaining('Bob'),
+    ])
+    expect(rows[0]).toHaveTextContent('+5')
+    expect(rows[0]).toHaveTextContent('game.quiz.kalimat.atHint')
+    expect(rows[2]).toHaveTextContent('game.wordQuiz.notAnswered')
   })
 
-  it('shows next round button only for host', () => {
+  it('marks your own row', () => {
+    render(<RoundResults {...defaultProps({ currentUserId: 'u3' })} />)
+    const mine = screen.getAllByRole('listitem').find((r) => r.hasAttribute('data-you'))
+    expect(mine).toHaveTextContent('Charlie')
+  })
+
+  it('gives the host the next-round button', () => {
     render(<RoundResults {...defaultProps({ isHost: true })} />)
-    expect(screen.getByText('game.wordQuiz.nextRound')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'game.wordQuiz.nextRound' })).toBeInTheDocument()
   })
 
-  it('hides next round button for non-host', () => {
-    render(<RoundResults {...defaultProps({ isHost: false })} />)
+  it('offers a non-host the ready button instead of next round', () => {
+    const onNextRound = vi.fn()
+    render(<RoundResults {...defaultProps({ isHost: false, onNextRound })} />)
     expect(screen.queryByText('game.wordQuiz.nextRound')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'game.readyUp' }))
+    expect(onNextRound).toHaveBeenCalledOnce()
+  })
+
+  it('disables the ready button once the player is ready', () => {
+    render(<RoundResults {...defaultProps({ isHost: false, isReady: true, readyCount: 2 })} />)
+    expect(screen.getByRole('button', { name: 'game.readyWaiting' })).toBeDisabled()
+  })
+
+  it('says "See results" on the last round', () => {
+    render(<RoundResults {...defaultProps({ isHost: true, isLastRound: true })} />)
+    expect(screen.getByRole('button', { name: 'game.wordQuiz.seeResults' })).toBeInTheDocument()
   })
 
   it('calls onNextRound when next round button is clicked', () => {
     const onNextRound = vi.fn()
     render(<RoundResults {...defaultProps({ isHost: true, onNextRound })} />)
-    fireEvent.click(screen.getByText('game.wordQuiz.nextRound'))
+    fireEvent.click(screen.getByRole('button', { name: 'game.wordQuiz.nextRound' }))
     expect(onNextRound).toHaveBeenCalledOnce()
   })
 
-  it('disables next round button when isAdvancing is true', () => {
+  it('shows the next-round button as busy while advancing', () => {
     render(<RoundResults {...defaultProps({ isHost: true, isAdvancing: true })} />)
-    expect(screen.getByText('common.loading')).toBeDisabled()
+    expect(screen.getByRole('button', { name: /game.wordQuiz.nextRound/ })).toHaveAttribute('aria-busy', 'true')
+  })
+
+  it('says what each player wrote: the finder’s answer, a miss’s last try and how many tries', () => {
+    // Prepare
+    const results = [
+      { user_id: 'u1', username: 'Maryam', answered_at_hint: 5, points: 2, typed_answer: 'زكريا', attempts: 1 },
+      { user_id: 'u2', username: 'Idris', answered_at_hint: null, points: 0, typed_answer: 'Yahya', attempts: 3 },
+      { user_id: 'u3', username: 'Bilal', answered_at_hint: null, points: 0, typed_answer: null, attempts: 0 },
+    ]
+
+    // Act
+    render(<RoundResults {...defaultProps({ roundResults: results })} />)
+
+    // Assert
+    expect(screen.getByText('زكريا')).toHaveClass('type-hand')
+    expect(screen.getByText('زكريا')).toHaveAttribute('lang', 'ar')
+    expect(screen.getByText('Yahya')).toBeInTheDocument()
+    expect(screen.getByText('game.quiz.kalimat.lastTry')).toBeInTheDocument()
+    expect(screen.getByText('game.quiz.kalimat.tries')).toBeInTheDocument()
+    expect(screen.getByText('game.wordQuiz.notAnswered')).toBeInTheDocument()
   })
 })
+

@@ -6,83 +6,56 @@ const defaultProps = {
   redRemaining: 8,
   blueRemaining: 7,
   currentTeam: 'red' as const,
-  currentTurn: null,
+  currentTurn: null as { clue_word: string | null } | null,
   isMyTurn: false,
   isFinished: false,
+  isSpymaster: false,
 }
 
-function renderScorePanel(overrides: Partial<typeof defaultProps> = {}) {
+function renderScorePanel(overrides: Partial<typeof defaultProps> & Record<string, unknown> = {}) {
   return render(<ScorePanel {...defaultProps} {...overrides} />)
 }
 
 describe('ScorePanel', () => {
-  it('renders game title', () => {
+  it('renders the game name as the page heading', () => {
     renderScorePanel()
-    expect(screen.getByText('games.codenames.name')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: 'games.codenames.name' })).toBeInTheDocument()
   })
 
-  it('shows red remaining score', () => {
-    renderScorePanel({ redRemaining: 8 })
+  it('shows both teams with their words left', () => {
+    renderScorePanel({ redRemaining: 8, blueRemaining: 7 })
     expect(screen.getByText('8')).toBeInTheDocument()
-  })
-
-  it('shows blue remaining score', () => {
-    renderScorePanel({ blueRemaining: 7 })
     expect(screen.getByText('7')).toBeInTheDocument()
+    expect(screen.getByText('game.codenames.teams.red')).toBeInTheDocument()
+    expect(screen.getByText('game.codenames.teams.blue')).toBeInTheDocument()
   })
 
-  it('shows your turn indicator when isMyTurn and not finished', () => {
-    renderScorePanel({ isMyTurn: true, isFinished: false })
-    expect(screen.getByText('game.codenames.yourTurn')).toBeInTheDocument()
+  it('asks the spymaster for a clue on their turn', () => {
+    renderScorePanel({ isMyTurn: true, isSpymaster: true })
+    expect(screen.getByText('game.codenames.status.yourClue')).toBeInTheDocument()
   })
 
-  it('hides your turn indicator when not my turn', () => {
+  it('asks the operative to guess once the clue is given', () => {
+    renderScorePanel({ isMyTurn: true, currentTurn: { clue_word: 'faith' } })
+    expect(screen.getByText('game.codenames.status.yourGuess')).toBeInTheDocument()
+  })
+
+  it('names whose turn it is when it is not yours', () => {
     renderScorePanel({ isMyTurn: false })
-    expect(screen.queryByText('game.codenames.yourTurn')).not.toBeInTheDocument()
+    expect(screen.getByText('game.codenames.status.theirClue')).toBeInTheDocument()
+    renderScorePanel({ isMyTurn: false, currentTurn: { clue_word: 'faith' } })
+    expect(screen.getByText('game.codenames.status.guessing')).toBeInTheDocument()
   })
 
-  it('hides your turn indicator when game is finished', () => {
-    renderScorePanel({ isMyTurn: true, isFinished: true })
-    expect(screen.queryByText('game.codenames.yourTurn')).not.toBeInTheDocument()
+  it('announces the winner when the game is finished', () => {
+    renderScorePanel({ isMyTurn: true, isFinished: true, winner: 'blue' })
+    expect(screen.getByText('game.codenames.status.won')).toBeInTheDocument()
+    expect(screen.queryByText('game.codenames.status.yourClue')).not.toBeInTheDocument()
   })
 
-  it('shows current team name for red', () => {
-    renderScorePanel({ currentTeam: 'red' })
-    expect(screen.getByText('games.codenames.teams.red')).toBeInTheDocument()
-  })
-
-  it('shows clue word and number when clue is given', () => {
-    renderScorePanel({
-      currentTurn: {
-        team: 'blue',
-        clue_word: 'prophet',
-        clue_number: 2,
-        guesses_made: 0,
-        max_guesses: 3,
-      },
-    })
-    expect(screen.getByText(/prophet/)).toBeInTheDocument()
-    expect(screen.getByText(/\(2\)/)).toBeInTheDocument()
-  })
-
-  it('shows progress bar when clue is active with max_guesses > 0', () => {
-    const { container } = renderScorePanel({
-      currentTurn: {
-        team: 'red',
-        clue_word: 'faith',
-        clue_number: 3,
-        guesses_made: 1,
-        max_guesses: 4,
-      },
-    })
-    // Progress bar outer container
-    const progressBar = container.querySelector('.h-2.w-full.rounded-full')
-    expect(progressBar).toBeInTheDocument()
-  })
-
-  it('hides progress bar when no clue is given', () => {
-    const { container } = renderScorePanel({ currentTurn: null })
-    const progressBar = container.querySelector('.h-2.w-full.rounded-full')
-    expect(progressBar).not.toBeInTheDocument()
+  it('renders who you are and the clock when given', () => {
+    renderScorePanel({ myInfo: <p>me</p>, clock: <span>clock</span> })
+    expect(screen.getByText('me')).toBeInTheDocument()
+    expect(screen.getByText('clock')).toBeInTheDocument()
   })
 })

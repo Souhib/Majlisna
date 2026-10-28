@@ -1,9 +1,13 @@
 import { createFileRoute, Link, useSearch } from "@tanstack/react-router"
-import { motion } from "motion/react"
-import { useEffect, useState } from "react"
+import { ArrowLeft, ArrowRight } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { getApiErrorMessage } from "@/api/client"
 import { verifyEmailApiV1AuthVerifyEmailPost } from "@/api/generated"
+import { AuthPage, authLinkClass } from "@/components/auth/AuthPage"
+import { apiErrorKey, TOKEN_REJECTED_KEY } from "@/components/auth/validation"
+import { Alert } from "@/components/ui/alert"
+import { BusyLozenges, Button } from "@/components/ui/button"
 
 export const Route = createFileRoute("/auth/verify-email")({
   component: VerifyEmailPage,
@@ -12,83 +16,70 @@ export const Route = createFileRoute("/auth/verify-email")({
   }),
 })
 
+type Status = "loading" | "success" | "error"
+
 function VerifyEmailPage() {
   const { t } = useTranslation()
   const { token } = useSearch({ from: "/auth/verify-email" })
-  const [status, setStatus] = useState<"loading" | "success" | "error">(token ? "loading" : "error")
-  const [error, setError] = useState("")
+  const [status, setStatus] = useState<Status>(token ? "loading" : "error")
+  /** The server's own words when it gave any; otherwise the page says it in the current language. */
+  const [serverMessage, setServerMessage] = useState("")
+  /** The token already sent: a verification link is used once. */
+  const sentFor = useRef<string | null>(null)
 
+  // The effect used to depend on `t` as well, so switching language on this page (and
+  // StrictMode's double mount in development) posted the token a second time; the
+  // second call found it spent and turned a verified email into "Verification failed".
   useEffect(() => {
-    if (!token) {
-      setStatus("error")
-      setError(t("auth.invalidOrExpiredToken"))
-      return
-    }
-
-    const verify = async () => {
-      try {
-        await verifyEmailApiV1AuthVerifyEmailPost({ token })
-        setStatus("success")
-      } catch (err) {
+    if (!token || sentFor.current === token) return
+    sentFor.current = token
+    verifyEmailApiV1AuthVerifyEmailPost({ token })
+      .then(() => setStatus("success"))
+      .catch((err: unknown) => {
+        // a refused link is said in the page's language (the server's key has no translation)
+        setServerMessage(apiErrorKey(err) === TOKEN_REJECTED_KEY ? "" : getApiErrorMessage(err, ""))
         setStatus("error")
-        setError(getApiErrorMessage(err, t("auth.invalidOrExpiredToken")))
-      }
-    }
+      })
+  }, [token])
 
-    verify()
-  }, [token, t])
+  if (status === "loading") {
+    return (
+      <AuthPage title={t("auth.verifyingEmail")}>
+        <p role="status" className="flex items-center gap-3 text-[15px] text-muted-foreground">
+          <BusyLozenges className="text-brass" />
+          <span className="sr-only">{t("auth.verifyingEmail")}</span>
+        </p>
+      </AuthPage>
+    )
+  }
+
+  if (status === "success") {
+    return (
+      <AuthPage
+        title={t("auth.emailVerified")}
+        description={t("auth.emailVerifiedDescription")}
+      >
+        <Button asChild block iconEnd={<ArrowRight className="rtl-flip" aria-hidden="true" />}>
+          <Link to="/auth/login">{t("auth.login")}</Link>
+        </Button>
+      </AuthPage>
+    )
+  }
 
   return (
-    <div className="flex min-h-[80vh] items-center justify-center px-4">
-      <motion.div
-        initial={{ opacity: 0, y: 25 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-        className="glass w-full max-w-md rounded-2xl p-8 space-y-6 text-center"
-      >
-          {status === "loading" && (
-            <>
-              <div className="mx-auto h-12 w-12 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-              <p className="text-muted-foreground">{t("auth.verifyingEmail")}</p>
-            </>
-          )}
-
-          {status === "success" && (
-            <>
-              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
-                <svg className="h-8 w-8 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                </svg>
-              </div>
-              <h1 className="gradient-text text-2xl font-extrabold tracking-tight">{t("auth.emailVerified")}</h1>
-              <p className="text-muted-foreground">{t("auth.emailVerifiedDescription")}</p>
-              <Link
-                to="/auth/login"
-                className="inline-block rounded-2xl bg-gradient-to-r from-primary to-primary/90 px-6 py-2.5 text-sm font-medium text-primary-foreground shadow-md shadow-primary/20 hover:bg-glow transition-all duration-200"
-              >
-                {t("auth.login")}
-              </Link>
-            </>
-          )}
-
-          {status === "error" && (
-            <>
-              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-destructive/10">
-                <svg className="h-8 w-8 text-destructive" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </div>
-              <h1 className="text-2xl font-extrabold tracking-tight text-destructive">{t("auth.verificationFailed")}</h1>
-              <p className="text-muted-foreground">{error}</p>
-              <Link
-                to="/auth/login"
-                className="inline-block text-sm font-medium text-primary hover:text-primary transition-all duration-200 hover:underline"
-              >
-                {t("auth.backToLogin")}
-              </Link>
-            </>
-          )}
-      </motion.div>
-    </div>
+    <AuthPage
+      title={t("auth.verificationFailed")}
+      footer={
+        <Link to="/auth/login" className={`${authLinkClass} gap-2`}>
+          <ArrowLeft className="size-4 rtl-flip" aria-hidden="true" />
+          {t("auth.backToLogin")}
+        </Link>
+      }
+    >
+      <Alert>
+        <p>{serverMessage || t("auth.invalidOrExpiredToken")}</p>
+        <p className="mt-1 text-muted-foreground">{t("auth.verificationFailedHelp")}</p>
+      </Alert>
+    </AuthPage>
   )
 }

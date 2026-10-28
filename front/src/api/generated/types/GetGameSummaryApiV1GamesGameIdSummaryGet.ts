@@ -15,6 +15,14 @@ export type GetGameSummaryApiV1GamesGameIdSummaryGetPathParams = {
   game_id: string;
 };
 
+export type GetGameSummaryApiV1GamesGameIdSummaryGetQueryParams = {
+  /**
+   * @default "en"
+   * @type string | undefined
+   */
+  lang?: string;
+};
+
 /**
  * GameSummary
  * @description Successful Response
@@ -38,6 +46,7 @@ export type GetGameSummaryApiV1GamesGameIdSummaryGetQueryResponse =
 export type GetGameSummaryApiV1GamesGameIdSummaryGetQuery = {
   Response: GetGameSummaryApiV1GamesGameIdSummaryGet200;
   PathParams: GetGameSummaryApiV1GamesGameIdSummaryGetPathParams;
+  QueryParams: GetGameSummaryApiV1GamesGameIdSummaryGetQueryParams;
   Errors:
     | GetGameSummaryApiV1GamesGameIdSummaryGet404
     | GetGameSummaryApiV1GamesGameIdSummaryGet422;

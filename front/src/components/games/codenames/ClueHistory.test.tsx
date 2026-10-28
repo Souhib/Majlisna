@@ -1,14 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { describe, it, expect } from 'vitest'
 import { ClueHistory } from './ClueHistory'
-
-type GuessEntry = { word: string; card_type: string; correct: boolean }
-type ClueHistoryEntry = {
-  team: 'red' | 'blue'
-  clue_word: string
-  clue_number: number
-  guesses: GuessEntry[]
-}
+import type { ClueHistoryEntry } from './model'
 
 function renderClueHistory(history: ClueHistoryEntry[]) {
   return render(<ClueHistory history={history} />)
@@ -21,10 +14,8 @@ describe('ClueHistory', () => {
   })
 
   it('renders heading when history is present', () => {
-    renderClueHistory([
-      { team: 'red', clue_word: 'mosque', clue_number: 2, guesses: [] },
-    ])
-    expect(screen.getByText('game.codenames.clueHistory')).toBeInTheDocument()
+    renderClueHistory([{ team: 'red', clue_word: 'mosque', clue_number: 2, guesses: [] }])
+    expect(screen.getByRole('heading', { name: 'game.codenames.clueHistory' })).toBeInTheDocument()
   })
 
   it('renders entries in reverse order (most recent first)', () => {
@@ -33,55 +24,49 @@ describe('ClueHistory', () => {
       { team: 'blue', clue_word: 'second', clue_number: 2, guesses: [] },
       { team: 'red', clue_word: 'third', clue_number: 3, guesses: [] },
     ])
-    // In timeline layout, clue word and number are in a parent span
-    const entries = screen.getAllByText(/\(\d\)/)
-    expect(entries[0].closest('.text-sm')?.textContent).toContain('third')
-    expect(entries[1].closest('.text-sm')?.textContent).toContain('second')
-    expect(entries[2].closest('.text-sm')?.textContent).toContain('first')
+    const entries = screen.getAllByTestId('clue-history-entry')
+    expect(entries[0]).toHaveTextContent('third')
+    expect(entries[1]).toHaveTextContent('second')
+    expect(entries[2]).toHaveTextContent('first')
   })
 
-  it('shows team color dot - red team gets bg-red-500', () => {
-    const { container } = renderClueHistory([
-      { team: 'red', clue_word: 'prayer', clue_number: 1, guesses: [] },
-    ])
-    const dot = container.querySelector('.bg-red-500.rounded-full')
-    expect(dot).toBeInTheDocument()
+  it('names the team for assistive tech, never by colour alone', () => {
+    renderClueHistory([{ team: 'red', clue_word: 'prayer', clue_number: 1, guesses: [] }])
+    expect(screen.getByText(/game\.codenames\.teams\.red/)).toHaveClass('sr-only')
   })
 
-  it('shows clue word and number', () => {
+  it('shows clue word and number, and ∞ for no limit', () => {
     renderClueHistory([
       { team: 'blue', clue_word: 'charity', clue_number: 4, guesses: [] },
+      { team: 'red', clue_word: 'mercy', clue_number: 0, guesses: [] },
     ])
-    // In timeline layout, clue word and number are in separate elements within a parent span
-    const parentSpan = screen.getByText(/charity/)
-    expect(parentSpan.textContent).toContain('charity')
-    expect(parentSpan.textContent).toContain('(4)')
+    const [mercy, charity] = screen.getAllByTestId('clue-history-entry')
+    expect(charity).toHaveTextContent('charity')
+    expect(charity).toHaveTextContent('4')
+    expect(mercy).toHaveTextContent('∞')
+    expect(mercy).toHaveTextContent('game.codenames.composer.unlimited')
   })
 
-  it('shows correct guess with green styling', () => {
+  it('sets an Arabic clue in the hand', () => {
+    renderClueHistory([{ team: 'red', clue_word: 'صبر', clue_number: 1, guesses: [] }])
+    expect(screen.getByText('صبر')).toHaveClass('font-hand')
+  })
+
+  it('marks a correct guess and a miss in words', () => {
     renderClueHistory([
       {
         team: 'red',
         clue_word: 'faith',
         clue_number: 1,
-        guesses: [{ word: 'Quran', card_type: 'red', correct: true }],
+        guesses: [
+          { word: 'Quran', card_type: 'red', correct: true },
+          { word: 'Sand', card_type: 'neutral', correct: false },
+        ],
       },
     ])
-    const guess = screen.getByText('Quran')
-    expect(guess).toHaveClass('bg-green-100')
-  })
-
-  it('shows incorrect guess with red styling', () => {
-    renderClueHistory([
-      {
-        team: 'red',
-        clue_word: 'faith',
-        clue_number: 1,
-        guesses: [{ word: 'Sand', card_type: 'neutral', correct: false }],
-      },
-    ])
-    const guess = screen.getByText('Sand')
-    expect(guess).toHaveClass('bg-red-100')
+    expect(screen.getByText('Quran').closest('li')).toHaveTextContent('game.codenames.correct')
+    expect(screen.getByText('Sand').closest('li')).toHaveTextContent('game.codenames.wrong')
+    expect(screen.getByText('Sand').closest('li')).toHaveClass('border-dashed')
   })
 
   it('renders multiple guesses per entry', () => {

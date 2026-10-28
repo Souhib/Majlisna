@@ -12,4 +12,6 @@ export const mcqQuizRoundResultSchema = z.object({
   username: z.string(),
   chose_correct: z.boolean(),
   points: z.int(),
+  choice_index: z.optional(z.union([z.int(), z.null()])),
+  answer_time_ms: z.optional(z.union([z.int(), z.null()])),
 });

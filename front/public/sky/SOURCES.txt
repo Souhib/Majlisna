@@ -1,0 +1,53 @@
+Majlisna hero skies: provenance and licence
+============================================
+
+Files
+  sky-maghrib.2400.webp     2400x640  night (Maghrib into the samar), desktop, retina/large screens
+  sky-maghrib.1600.webp     1600x427  night, desktop
+  sky-maghrib.tab1600.webp  1600x800  night, tablet art direction (2:1, native resolution)
+  sky-maghrib.1000.webp     1000x800  night, mobile art direction, native resolution (3x phones)
+  sky-maghrib.800.webp       800x640  night, mobile art direction (centred on the rocks)
+  sky-asr.2400.webp         2400x640  afternoon (ʿAṣr), desktop, retina/large screens
+  sky-asr.1600.webp         1600x427  afternoon, desktop
+  sky-asr.tab1600.webp      1600x800  afternoon, tablet art direction
+  sky-asr.1000.webp         1000x800  afternoon, mobile, native resolution
+  sky-asr.800.webp           800x640  afternoon, mobile art direction
+
+Source
+  "SHIMM Astronomical System at AlUla Manara Site in Northwestern Saudi Arabia (2025)"
+  Saudi Press Agency (SPA), via the Saudi Photos platform
+  https://commons.wikimedia.org/wiki/File:SHIMM_Astronomical_System_at_AlUla_Manara_Site_in_Northwestern_Saudi_Arabia_(2025).jpg
+  Licence: CC BY-SA 4.0  https://creativecommons.org/licenses/by-sa/4.0
+
+Modified (all ten files are derivatives and are licensed CC BY-SA 4.0)
+  - rock silhouettes extracted to an alpha mask from the photograph and recoloured flat
+    (night: oklch(0.135 0.01 50), the page's --bg-deep; afternoon: oklch(0.50 0.075 36));
+  - horizon straightened (linear tilt of 37 px across the frame removed);
+  - star field and Milky Way isolated from the photograph (night only), dimmed under the nav,
+    and re-composited on a generated OKLab sky gradient (horizon glow capped at L 0.585 so the
+    cream name keeps >= 3:1);
+  - a generated line of distant mesas added edge to edge (flat stepped tables, 1/f texture,
+    cliffs, ledges and talus), hazier towards its base in the afternoon;
+  - a generated near-plain band (2-8 px, irregular top) across the full width, the rock feet
+    dissolved into it (afternoon), so the bottom row is land, never a straight cut;
+  - a generated sun disc (afternoon); monochrome grain; cropped and resized.
+
+Attribution line for the credits page
+  Hero skies derived from "SHIMM Astronomical System at AlUla Manara Site in Northwestern
+  Saudi Arabia (2025)" by Saudi Press Agency (SPA), via the Saudi Photos platform,
+  CC BY-SA 4.0, via Wikimedia Commons. Modified.
+
+Page contract
+  The bottom edge of every file is the horizon. Use with object-fit: cover and
+  object-position: 52% 100% on a box whose bottom is the horizon. The CSS ground starts on
+  that same line, 1 px higher (it overlaps the file's last row), with the land colour:
+    night      --ground-foot = --bg-deep = oklch(0.135 0.01 50)
+    afternoon  --ground-foot = oklch(0.60 0.07 40), easing to sand over ~120 px
+  Desktop files are 3.75:1 and fill boxes from about 2.6:1 to 6:1 without a gap; the skyline
+  and the land band run edge to edge, so no width can show a cut. <picture> art direction:
+  <= 760 px the 800/1000 files (sizes 100vw), 761-1100 px the tab1600 file, above that
+  1600/2400. RTL mirrors the sky with scaleX(-1).
+
+Where they are used
+  front/src/components/home/HomeHero.tsx (the <picture>), preloaded for the stored theme by
+  the inline script in front/index.html. The visible credit is on the Credits page (/credits).

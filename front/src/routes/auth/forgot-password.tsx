@@ -1,19 +1,36 @@
 import { createFileRoute, Link } from "@tanstack/react-router"
-import { motion } from "motion/react"
-import { useState } from "react"
+import { ArrowLeft } from "lucide-react"
+import { type FormEvent, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { getApiErrorMessage } from "@/api/client"
 import { useForgotPasswordApiV1AuthForgotPasswordPost } from "@/api/generated"
+import { AuthPage, authLinkClass } from "@/components/auth/AuthPage"
+import { useFieldErrors } from "@/components/auth/use-field-errors"
+import { compactErrors, emailError, focusFirstError } from "@/components/auth/validation"
+import { Alert } from "@/components/ui/alert"
+import { Button } from "@/components/ui/button"
+import { Field, Input } from "@/components/ui/field"
 
 export const Route = createFileRoute("/auth/forgot-password")({
   component: ForgotPasswordPage,
 })
+
+function BackToLogin() {
+  const { t } = useTranslation()
+  return (
+    <Link to="/auth/login" className={`${authLinkClass} gap-2`}>
+      <ArrowLeft className="size-4 rtl-flip" aria-hidden="true" />
+      {t("auth.backToLogin")}
+    </Link>
+  )
+}
 
 function ForgotPasswordPage() {
   const { t } = useTranslation()
   const [email, setEmail] = useState("")
   const [error, setError] = useState("")
   const [success, setSuccess] = useState(false)
+  const { errors: fieldErrors, setErrors: setFieldErrors, clear: clearFieldError } = useFieldErrors()
 
   const forgotMutation = useForgotPasswordApiV1AuthForgotPasswordPost({
     mutation: {
@@ -22,68 +39,48 @@ function ForgotPasswordPage() {
     },
   })
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = (e: FormEvent) => {
     e.preventDefault()
     setError("")
+    const errors = compactErrors({ email: emailError(email) })
+    setFieldErrors(errors)
+    if (errors.email) {
+      focusFirstError(errors, ["email"])
+      return
+    }
     forgotMutation.mutate({ data: { email } })
   }
 
-  const isLoading = forgotMutation.isPending
-
   return (
-    <div className="flex min-h-[80vh] items-center justify-center px-4">
-      <motion.div
-        initial={{ opacity: 0, y: 25 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-        className="glass w-full max-w-md rounded-2xl p-8 space-y-8"
-      >
-        <div className="text-center">
-          <h1 className="gradient-text text-3xl font-extrabold tracking-tight">{t("auth.forgotPassword")}</h1>
-          <p className="mt-2 text-muted-foreground">{t("auth.forgotPasswordDescription")}</p>
-        </div>
-
-          {success ? (
-            <div className="rounded-2xl bg-primary/10 p-4 text-center">
-              <p className="text-sm text-primary font-medium">{t("auth.resetEmailSent")}</p>
-              <Link to="/auth/login" className="mt-4 inline-block text-sm font-medium text-primary hover:text-primary transition-all duration-200 hover:underline">
-                {t("auth.backToLogin")}
-              </Link>
-            </div>
-          ) : (
-            <form onSubmit={handleSubmit} className="space-y-4">
-              {error && (
-                <div className="rounded-2xl bg-destructive/10 p-3 text-sm text-destructive">{error}</div>
-              )}
-              <div>
-                <label htmlFor="email" className="block text-sm font-medium mb-1">
-                  {t("auth.email")}
-                </label>
-                <input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  className="w-full rounded-xl border-border/50 bg-background/80 px-3 py-2 text-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/30"
-                  placeholder="you@example.com"
-                />
-              </div>
-              <button
-                type="submit"
-                disabled={isLoading}
-                className="w-full rounded-2xl bg-gradient-to-r from-primary to-primary/90 px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-md shadow-primary/20 hover:bg-glow disabled:opacity-50 transition-all duration-200"
-              >
-                {isLoading ? t("common.loading") : t("auth.sendResetLink")}
-              </button>
-              <p className="text-center text-sm text-muted-foreground">
-                <Link to="/auth/login" className="font-medium text-primary hover:text-primary transition-all duration-200 hover:underline">
-                  {t("auth.backToLogin")}
-                </Link>
-              </p>
-            </form>
-          )}
-      </motion.div>
-    </div>
+    <AuthPage title={t("auth.forgotPassword")} description={success ? undefined : t("auth.forgotPasswordDescription")} footer={<BackToLogin />}>
+      {success ? (
+        // the same words whether or not the address has an account (no account probing)
+        <Alert tone="info">{t("auth.resetEmailSent")}</Alert>
+      ) : (
+        <form onSubmit={handleSubmit} noValidate className="grid gap-5">
+          {error ? <Alert data-testid="form-error">{error}</Alert> : null}
+          <Field id="email" label={t("auth.email")} error={fieldErrors.email ? t(fieldErrors.email) : undefined}>
+            <Input
+              type="email"
+              autoComplete="email"
+              inputMode="email"
+              autoCapitalize="none"
+              spellCheck={false}
+              dir="ltr"
+              className="rtl:text-right"
+              value={email}
+              onChange={(e) => {
+                setEmail(e.target.value)
+                clearFieldError("email")
+              }}
+              required
+            />
+          </Field>
+          <Button type="submit" block loading={forgotMutation.isPending} className="mt-1">
+            {t("auth.sendResetLink")}
+          </Button>
+        </form>
+      )}
+    </AuthPage>
   )
 }

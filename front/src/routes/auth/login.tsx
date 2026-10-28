@@ -1,36 +1,50 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
-import { motion } from "motion/react"
-import { useState } from "react"
+import { type FormEvent, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { getApiErrorMessage } from "@/api/client"
 import { useLoginApiV1AuthLoginPost } from "@/api/generated"
+import { AuthPage, authLinkClass } from "@/components/auth/AuthPage"
 import { GoogleLoginButton } from "@/components/auth/GoogleLoginButton"
+import { PasswordInput } from "@/components/auth/PasswordInput"
+import { useFieldErrors } from "@/components/auth/use-field-errors"
+import { type AuthField, compactErrors, currentPasswordError, emailError, focusFirstError } from "@/components/auth/validation"
+import { Alert } from "@/components/ui/alert"
+import { Button } from "@/components/ui/button"
+import { Field, Input } from "@/components/ui/field"
 import { trackEvent } from "@/lib/analytics"
+import { safeRedirect } from "@/lib/redirect"
 import { useAuth } from "@/providers/AuthProvider"
 
 export const Route = createFileRoute("/auth/login")({
+  validateSearch: (search: Record<string, unknown>): { redirect?: string } => ({
+    redirect: safeRedirect(search.redirect),
+  }),
   component: LoginPage,
 })
+
+const FIELD_ORDER: AuthField[] = ["email", "password"]
 
 function LoginPage() {
   const { t } = useTranslation()
   const { login } = useAuth()
   const navigate = useNavigate()
+  const { redirect } = Route.useSearch()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
+  const { errors: fieldErrors, setErrors: setFieldErrors, clear: clearFieldError } = useFieldErrors()
 
   const loginMutation = useLoginApiV1AuthLoginPost({
     mutation: {
-      onSuccess: (data) => {
-        const d = data as { access_token: string; refresh_token: string; token_type: string; user: { id: string; username: string; email: string } }
+      onSuccess: (d) => {
         trackEvent("login")
-        login(d.access_token, d.refresh_token, 900, {
+        // the server says how long the access token lives; the refresh is scheduled from it
+        login(d.access_token, d.refresh_token, d.expires_in, {
           id: d.user.id,
           username: d.user.username,
           email: d.user.email,
         })
-        navigate({ to: "/" })
+        navigate({ href: redirect ?? "/" })
       },
       onError: (err) => {
         setError(getApiErrorMessage(err, t("errors.api.invalidCredentials")))
@@ -38,86 +52,88 @@ function LoginPage() {
     },
   })
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = (e: FormEvent) => {
     e.preventDefault()
     setError("")
+    const errors = compactErrors({ email: emailError(email), password: currentPasswordError(password) })
+    setFieldErrors(errors)
+    if (Object.keys(errors).length > 0) {
+      focusFirstError(errors, FIELD_ORDER)
+      return
+    }
     loginMutation.mutate({ data: { email, password } })
   }
 
-  const isLoading = loginMutation.isPending
-
   return (
-    <div className="flex min-h-[80vh] items-center justify-center px-4">
-      <motion.div
-        initial={{ opacity: 0, y: 25 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-        className="glass w-full max-w-md rounded-2xl p-8 space-y-8"
-      >
-        <div className="text-center">
-          <h1 className="gradient-text text-3xl font-extrabold tracking-tight">{t("auth.loginTitle")}</h1>
-          <p className="mt-2 text-muted-foreground">{t("auth.loginDescription")}</p>
+    <AuthPage
+      title={t("auth.loginTitle")}
+      description={t("auth.loginDescription")}
+      footer={
+        <p>
+          {t("auth.noAccount")}{" "}
+          <Link to="/auth/register" search={{ redirect }} className={authLinkClass}>
+            {t("auth.register")}
+          </Link>
+        </p>
+      }
+    >
+      {/* the browser's own bubbles speak the browser's language: the fields say it in ours */}
+      <form onSubmit={handleSubmit} noValidate className="grid gap-5">
+        {error ? <Alert data-testid="form-error">{error}</Alert> : null}
+
+        <Field id="email" label={t("auth.email")} error={fieldErrors.email ? t(fieldErrors.email) : undefined}>
+          <Input
+            type="email"
+            autoComplete="email"
+            inputMode="email"
+            autoCapitalize="none"
+            spellCheck={false}
+            dir="ltr"
+            className="rtl:text-right"
+            value={email}
+            onChange={(e) => {
+              setEmail(e.target.value)
+              clearFieldError("email")
+            }}
+            required
+          />
+        </Field>
+
+        {/*
+          "Forgot password?" sits at the end of the label row but comes AFTER the field in the
+          DOM, so Tab goes email → password → forgot. Both share one grid cell, aligned on the
+          label's first baseline (the labels are short enough to never meet it, even at 390 px).
+        */}
+        <div className="grid items-baseline [&>*]:[grid-area:1/1]">
+          <Field
+            id="password"
+            label={t("auth.password")}
+            error={fieldErrors.password ? t(fieldErrors.password) : undefined}
+          >
+            <PasswordInput
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value)
+                clearFieldError("password")
+              }}
+              required
+            />
+          </Field>
+          <Link
+            to="/auth/forgot-password"
+            className="justify-self-end text-[13px] text-muted-foreground underline decoration-line-brass underline-offset-4 hover:text-foreground hover:decoration-brass pointer-coarse:-my-3 pointer-coarse:inline-flex pointer-coarse:min-h-11 pointer-coarse:items-center"
+          >
+            {t("auth.forgotPassword")}
+          </Link>
         </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {error && (
-              <div className="rounded-2xl bg-destructive/10 p-3 text-sm text-destructive">{error}</div>
-            )}
+        <Button type="submit" block loading={loginMutation.isPending} className="mt-1">
+          {t("auth.login")}
+        </Button>
+      </form>
 
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium mb-1">
-                {t("auth.email")}
-              </label>
-              <input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                className="w-full rounded-xl border-border/50 bg-background/80 px-3 py-2 text-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/30"
-                placeholder="you@example.com"
-              />
-            </div>
-
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium mb-1">
-                {t("auth.password")}
-              </label>
-              <input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                className="w-full rounded-xl border-border/50 bg-background/80 px-3 py-2 text-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/30"
-                placeholder="********"
-              />
-            </div>
-
-            <div className="flex justify-end">
-              <Link to="/auth/forgot-password" className="text-sm text-muted-foreground hover:text-primary transition-all duration-200">
-                {t("auth.forgotPassword")}
-              </Link>
-            </div>
-
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full rounded-2xl bg-gradient-to-r from-primary to-primary/90 px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-md shadow-primary/20 hover:bg-glow disabled:opacity-50 transition-all duration-200"
-            >
-              {isLoading ? t("common.loading") : t("auth.login")}
-            </button>
-          </form>
-
-          <GoogleLoginButton />
-
-          <p className="text-center text-sm text-muted-foreground">
-            {t("auth.noAccount")}{" "}
-            <Link to="/auth/register" className="font-medium text-primary hover:text-primary transition-all duration-200 hover:underline">
-              {t("auth.register")}
-            </Link>
-          </p>
-      </motion.div>
-    </div>
+      <GoogleLoginButton redirectTo={redirect} />
+    </AuthPage>
   )
 }

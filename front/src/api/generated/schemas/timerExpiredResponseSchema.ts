@@ -5,9 +5,14 @@
  * Do not edit manually.
  */
 
+import { timerExpiredActionSchema } from "./timerExpiredActionSchema.ts";
 import { z } from "zod/v4";
 
 export const timerExpiredResponseSchema = z.object({
   game_id: z.string(),
-  action: z.string(),
+  get action() {
+    return timerExpiredActionSchema.describe(
+      'Every answer ``POST /{game}/games/{id}/timer-expired`` can give.\n\nAn enum rather than a bare ``str`` so the values reach OpenAPI and the generated\nclient gets a union to switch on — a timer callback has to know which answers\nmean "stop firing" (``paused``, ``round_already_resolved``) without comparing\nhard-coded strings.',
+    );
+  },
 });

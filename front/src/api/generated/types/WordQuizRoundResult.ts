@@ -23,4 +23,10 @@ export type WordQuizRoundResult = {
    */
   points: number;
   answer_time_ms?: number | null;
+  typed_answer?: string | null;
+  /**
+   * @default 0
+   * @type integer | undefined
+   */
+  attempts?: number;
 };

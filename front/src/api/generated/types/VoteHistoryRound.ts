@@ -6,6 +6,7 @@
  */
 
 import type { EliminatedPlayer } from "./EliminatedPlayer.ts";
+import type { MrWhiteGuessRecord } from "./MrWhiteGuessRecord.ts";
 import type { VoteEntry } from "./VoteEntry.ts";
 
 /**
@@ -21,4 +22,5 @@ export type VoteHistoryRound = {
    */
   votes: VoteEntry[];
   eliminated?: EliminatedPlayer | null;
+  mr_white_guess?: MrWhiteGuessRecord | null;
 };

@@ -25,4 +25,6 @@ export type McqQuizRoundResult = {
    * @type integer
    */
   points: number;
+  choice_index?: number | null;
+  answer_time_ms?: number | null;
 };
