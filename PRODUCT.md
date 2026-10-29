@@ -108,7 +108,16 @@ commitment, not only the current state)*. Prayer times are built into the naviga
 | MCQ Quiz | 1+ | Four-choice questions, one locked answer per round; 1 point plus up to 2 for speed; an explanation after each round. | 10 questions, 15 s each, difficulty. |
 
 Both quizzes have a ready system: the next round starts when every non-host player is ready or
-the host advances.
+the host advances. A quiz round closes as soon as everyone still at the table has answered (MCQ)
+or found the word (Word Quiz), including when the last player still owing an answer leaves; during
+a prayer pause it waits for the resume.
+
+**Word of the day** (`/today`, كلمة اليوم, Le mot du jour): one Kalimat word a day, the same for
+everyone (the day turns at midnight in Makkah, and #1 was the launch day, 29 October 2026),
+found alone from its six hints for 6 points down to 1, or given up for 0. A wrong try opens the
+next hint, so it costs what a hint costs: typing every word of the theme at hint 1 does not pay;
+streaks, a home-page card, a share line that never names the word, and
+the word kept in the Kunnash. Signed-out visitors see hint 1; playing needs an account.
 
 **Rooms and social:** lobby with roster, settings and chat (newest 50 messages); host kick and
 automatic host transfer (a player is preferred over a spectator); friend requests and in-room
@@ -229,9 +238,10 @@ Absences that future work must not fill with invented material:
 - No testimonials, player counts, community size, ratings, press or partner logos. Do not invent
   them, and do not present E2E test accounts (`e2e-…` usernames) or seed users as real players.
 - No photographs of real play sessions or real users, apart from the creator's portrait.
-- No privacy policy or terms page, although the product collects emails, offers Google sign-in,
-  runs Umami analytics and error tracking, and calls third-party location services from the
-  browser (ipapi.co, Open-Meteo, Nominatim).
+- No terms page. A privacy policy exists (`/privacy`, linked from the footer and from Google's
+  consent screen): it names the emails, Google sign-in, Umami and GlitchTip, and the location
+  services the browser calls (ipapi.co, Open-Meteo, Nominatim). It states only what the code
+  does; it is not a legal review.
 - No new Qur'an verse, hadith or scholarly quotation may be added to the interface without a
   source the owner has checked. Existing religious text must keep its attribution.
 

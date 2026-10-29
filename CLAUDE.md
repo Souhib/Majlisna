@@ -136,7 +136,7 @@ docker compose -f docker-compose.dokploy.yml up -d
 | Security | Trivy (CI vulnerability scanning) |
 | API Codegen | Kubb (OpenAPI -> React Query hooks) |
 | i18n | i18next (English + Arabic + French) |
-| Testing | pytest (backend, 1700+ tests), Vitest (frontend, 650+ tests), Playwright (E2E, 180+ tests) |
+| Testing | pytest (backend, 1800+ tests), Vitest (frontend, 700+ tests), Playwright (E2E, 195 tests) |
 | CI/CD | GitHub Actions |
 | Deployment | Docker + Dokploy (Oracle VPS) |
 | Domain | `majlisna.app` (Cloudflare DNS + proxy) |
@@ -242,7 +242,8 @@ pre-existing flake blocks you, fix it before moving on.
 
 Handy narrower runs while iterating (then finish with the full gate):
 `bun run test:local` (one run), `bun run test:rooms`, `bun run test:undercover`,
-`./run-local.sh --no-build` (reuse images), `./run-local.sh -- --grep "room join"`.
+`bun run test:daily-word`, `./run-local.sh --no-build` (reuse images),
+`./run-local.sh -- --grep "room join"`.
 
 **CI runs the same script, and it BLOCKS the deploy.** The `e2e` job in
 `.github/workflows/pipeline.yml` calls this very `run-local.sh` with `CI=true`, and
@@ -395,6 +396,7 @@ When a test fails, the goal is NEVER to make the test pass — it's to have a wo
 - **Colophon**: all four game states carry `host_username` (the host who started the game, kept in `live_state`), `started_at` and `ended_at` (UTC; `ended_at` null while running).
 - **Prayer pause (وقفة الصلاة)**: when the adhan comes the host pauses the game — `POST /api/v1/{undercover|codenames|wordquiz|mcqquiz}/games/{id}/pause` and `/resume` (IN_PROGRESS-only, a spectator cannot pause, double pause/resume → 409, a game of another type reaching a router → 404). While paused every move answers `GamePausedError` (409) and `timer-expired` answers `action="paused"` (`TimerExpiredAction` enum) without acting. Every state schema carries `paused: GamePause | None` with server-computed `remaining_seconds` (frozen countdown), `paused_for_seconds`, `anyone_can_resume_at`, plus per-caller `can_pause` / `can_resume`. Only the host pauses; resume is the host's, or any player's once the pause outlasts `PRAYER_PAUSE_MAX_SECONDS` (45 min) or the room has no owner — a pause can never hold a table for good. Resume moves every clock forward (`PAUSE_TIME_ANCHOR_KEYS`, chosen by the game's own type) and the disconnect grace of anyone away; while paused a disconnected member is kept 45 min instead of 180 s. See `backend/CLAUDE.md`.
 - **Kunnash (كُنّاش, the notebook)**: players keep words from finished games — `GET /api/v1/notebook/games/{id}` (the game-over colophon: every word the game dealt, with `kept` / `entry_id`), `POST /api/v1/notebook/games/{id}/keep` (all of a game's words), `POST /api/v1/notebook/entries` (`{game_id, word}`, which must belong to that game), `GET /api/v1/notebook` (newest first, keyset `cursor` → `next_cursor`, resolved in `lang`: `word_display`, `word_ar`, `word_ar_vocalized`, `hint`), `DELETE /api/v1/notebook/entries/{id}` (owner only, others get 404). Same gates as the summary (`GameController.get_past_game_for_participant`: participation first, then status); MCQ has no words (400). Idempotent via a unique constraint + `ON CONFLICT DO NOTHING`. Keeps are rate-limited per signed-in user (not per IP), and a 429 answers the standard error envelope (`errors.api.rateLimitExceeded`). Table `notebook_entry`; see `backend/CLAUDE.md`.
+- **Word of the day (Kalimat al-yawm, كلمة اليوم)**: one `QuizWord` per Makkah day (`Asia/Riyadh`, the day turns at 21:00 UTC; #1 = 2026-10-29, the launch day, never below 1), the same for everyone, drawn lazily by the day's first request (`INSERT … ON CONFLICT DO NOTHING` on `daily_word.day`, no repeat within 180 days). `GET /api/v1/daily-word?lang=` is public (`get_optional_current_user`: no token = anonymous, a bad token = 401): number, category, the revealed PREFIX of the hints (hint 1 for anonymous), status, streaks, `solvers_today`, `next_day_at`; `answer` only once the caller solved or gave up. Moves (auth, `?day=` = the page's day, another day → 409 `dailyWordNotToday`): `POST /daily-word/hint`, `/guess` (`{answer}`, Kalimat's matching via `utils/text_match.matches_quiz_answer`, 30/min per user), `/give-up` (0 points), `/keep` (a `daily_word` Kunnash entry, `source_game_id` null). One `daily_word_play` row per (user, day), row-locked per move. Score = Kalimat's `max_hints - hints_revealed + 1`, and a wrong try opens the next rung like a hint (so typing the theme's words one by one at hint 1 does not pay; the rate limit only protects the server). See `backend/CLAUDE.md`. The page is `/today` (public, `front/src/components/daily`), with a card on the home page between the hero and the games, and a link in the menu sheet and the footer; the client reads only once `AuthProvider` has settled, keys the read by viewer, and sends `day: state.day` on every move (see `front/CLAUDE.md`).
 - **Caching**: `majlisna.api.utils.cache.TTLCache` caches undercover words/term pairs, codenames word packs, and user stats. Tests use autouse `clear_cache` fixture.
 - **PWA**: Manifest + service worker for installable web app with offline navigation shell.
 - **Pre-commit**: `prek` hooks run ruff lint/format + `ty` type checking on commit.
@@ -402,7 +404,7 @@ When a test fails, the goal is NEVER to make the test pass — it's to have a wo
 - **Room Share Links**: `GET /api/v1/rooms/{id}/share-link` returns `public_id` + `password`. Frontend constructs URL `majlisna.app/rooms/join?code=X&pin=Y`. The `/rooms/join` route auto-joins via `useEffect` with the join mutation.
 - **Shared Quiz Components**: `PlayerScoreboard` and `QuizGameOver` in `components/games/shared/` are used by both Word Quiz and MCQ Quiz. Game-specific i18n keys passed via props.
 - **Timer expiration**: Any player can trigger timer expiration (not just host). The server validates that the timer has actually elapsed before processing the action.
-- **Google OAuth**: "Continue with Google" on login/register pages. Frontend uses `@react-oauth/google` (`useGoogleLogin` hook → access token). Backend `POST /api/v1/auth/social/login` verifies via Google userinfo API, creates/links user, returns JWT pair. User model has `google_sub`, `auth_provider`, `profile_picture_url` fields. Social users get a sentinel password and cannot use password login. Env vars: `GOOGLE_CLIENT_ID_WEB` (backend), `VITE_GOOGLE_CLIENT_ID` (frontend). Since 28 September 2026 the OAuth client lives in its own Google Cloud project `majlisna` (it used to share La Tabdhir's project, so users saw "La Tabdhir" on the Google consent screen); that project's consent screen links to the public privacy policy at `/privacy` (`front/src/routes/privacy.tsx`, strings under `privacy.*` in en/fr/ar), which Google requires to publish the app. Keep that page accurate when data collection or providers change.
+- **Google OAuth**: "Continue with Google" on login/register pages. Frontend uses `@react-oauth/google` (`useGoogleLogin` hook → access token). Backend `POST /api/v1/auth/social/login` verifies via Google userinfo API, creates/links user, returns JWT pair. User model has `google_sub`, `auth_provider`, `profile_picture_url` fields. Social users get a sentinel password and cannot use password login. Env vars: `GOOGLE_CLIENT_ID_WEB` (backend), `VITE_GOOGLE_CLIENT_ID` (frontend). Since 28 September 2026 the OAuth client lives in its own Google Cloud project `majlisna` (it used to share La Tabdhir's project, so users saw "La Tabdhir" on the Google consent screen); that project's consent screen links to the public privacy policy at `/privacy` (`front/src/routes/privacy.tsx`, strings under `privacy.*` in en/fr/ar), which Google requires to publish the app. Keep that page accurate when data collection or providers change: the flows it names are listed in `front/CLAUDE.md` ("Privacy").
 
 ## Lessons Learned
 
@@ -430,7 +432,9 @@ When a test fails, the goal is NEVER to make the test pass — it's to have a wo
 
 **Player counts are bounded on both ends** — `MAX_PLAYERS_UNDERCOVER` (12), `MAX_PLAYERS_CODENAMES` (10). Only the minimums used to be checked.
 
-**Usernames are unique case-insensitively, by a controller check.** `user.username` has no unique constraint and there are no migrations, so `username_is_taken` guards registration (409 `errors.api.usernameAlreadyTaken`), profile renames and Google sign-up. Two simultaneous registrations of the same new name can still both win the check; see `backend/CLAUDE.md`.
+**Usernames are unique case-insensitively, by a locked controller check.** `user.username` has no unique constraint and there are no migrations, so `username_is_taken` guards registration (409 `errors.api.usernameAlreadyTaken`), profile renames and Google sign-up — always inside `username_claim_lock`, a blocking transaction-level `pg_advisory_xact_lock(hashtext('username:' || lower(name)))` (an in-process `asyncio.Lock` on SQLite) held from the check until the insert's single commit. That closed the race where two simultaneous claims of one new name both won the check; see `backend/CLAUDE.md`.
+
+**A quiz departure that completes the round sends it to results at once.** When the last player still owing an answer (MCQ) or the word (Word Quiz) leaves, is kicked or is swept, the disconnect handler moves the round to results under the game lock (`quiz_rules.settle_round_if_everyone_answered`) instead of leaving it to the timer. Never while paused: the resume settles it. See `backend/CLAUDE.md`.
 
 **Every error the API answers has a translated key.** Never raise a bare `BaseError(...)` (key `errors.api.base`, untranslatable); add a named class and its `errors.api.*` entry in all three locales — `backend/tests/api/test_error_keys.py` fails otherwise.
 
@@ -539,6 +543,16 @@ yet) and give it the real budget (stale 20 s + grace 180 s + checker 5 s).
 
 **Only the host starts the next Undercover round** (`startNextRoundAsHost`), and an
 eliminated player has no ballot: vote only with the living (`state.players[].is_alive`).
+
+**A secret the API withholds is read from the E2E database, never from the API.**
+Today's word of the day (`daily_word` ⋈ `quiz_word`) and a Kalimat round's word
+(`game.live_state -> 'current_word'`) come from `e2e/helpers/db.ts`, which runs
+read-only `psql` in `majlisna-e2e-db` (`execFileSync`, no shell quoting). A spec that
+solved the word from an API answer would only prove the API leaks it. The same helper
+checks the stored rows after a move (`daily_word_play`, `notebook_entry`, whose
+`game_type` is the enum NAME, `DAILY_WORD`). The daily-word specs
+(`e2e/tests/daily-word/`) run in the `daily-word` and `mobile-daily-word` projects, and
+each test registers its own players: the word is the same for everyone, the play is not.
 
 **The specs read what a player reads.** No test-only text in a page (the quiz pages' hidden
 "Round 1/…", "Question n/m" and "#1" spans are gone); prefer roles and accessible names:
@@ -659,6 +673,7 @@ Cloudflare -> dokploy-traefik :443 (Let's Encrypt)
 - Multiple choice questions with 4 answer choices per question
 - Configurable timer (default 15s) and number of rounds (default 10)
 - One attempt per round — answer locks in on submit
+- The round goes to results once everyone still playing has answered — also when the last player still owing an answer leaves (Word Quiz: once everyone left has found the word); while paused, at the resume
 - **Time-based scoring**: 1 base point + up to 2 bonus points for fast answers (1-3 points total)
 - **No spoiler before the reveal**: points are earned at lock-in, but while the question is open every state shows the scores as they stood before the round (`current_round_points`/`my_points` 0); the reveal (`choice_tallies`, `my_choice_index`, `my_answer_time_ms`, per-row `choice_index`/`answer_time_ms`) comes from the server once the round resolves, so it survives a reload
 - Shows explanation after each round
@@ -675,6 +690,16 @@ Cloudflare -> dokploy-traefik :443 (Let's Encrypt)
 ### Kunnash (All Games but MCQ)
 - After a game, players keep its words in their notebook (كُنّاش): Undercover's two words, the 25 Codenames board words, every Kalimat round's word
 - Each kept word shows its Arabic (vocalised where certain) and its meaning in the player's language
+- The word of the day can be kept too, once found or given up
+
+### Word of the day (Kalimat al-yawm, كلمة اليوم)
+- A daily solo puzzle on the Kalimat words: one word a day, the same for everyone; the day turns at midnight in Makkah
+- Hint 1 is free; each further hint (up to 6) costs a point: found at hint N scores 7 − N (6 down to 1), giving up scores 0 and shows the word
+- Answers in any language or script, matched exactly like Kalimat; every try is counted, and a wrong one opens the next hint (it costs the point a hint costs; on the last rung tries are free)
+- Streak: consecutive days found (a give-up ends it); best streak; how many players found it today
+- Signed-out visitors see the number, the theme and hint 1; playing needs an account
+- The page is `/today`: Kalimat's ladder, its next rung offering "Another hint: 5 points instead of 6", the answer field, the tries, Give up behind a confirmation; once over, a reveal card in the arch (the vocalised Arabic, the word, its meaning, how it went, the streaks, Keep in your kunnash, Share — a plain line without the answer — and the countdown to the next word)
+- The home page shows the day's number, theme and hint 1 in a card that leads to `/today` (a player under way sees the hint they reached and "Continue"; once over, how it went)
 
 ### Hint System (All Games)
 - Words have multilingual hints (JSON `hint` column: `{en, ar, fr}`)
