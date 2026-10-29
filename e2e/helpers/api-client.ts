@@ -201,6 +201,15 @@ export async function apiLeaveRoom(
   await patchJSON("/api/v1/rooms/leave", { room_id: roomId }, token);
 }
 
+/** The host kicks a player from the room (and from its game, when one is running). */
+export async function apiKickPlayer(
+  roomId: string,
+  userId: string,
+  hostToken: string,
+): Promise<void> {
+  await patchJSON(`/api/v1/rooms/${roomId}/kick`, { user_id: userId }, hostToken);
+}
+
 /**
  * Ensure a user is not in any room before creating/joining a new one.
  * Fetches all rooms and leaves any the user is currently in.

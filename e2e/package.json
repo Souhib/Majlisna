@@ -14,6 +14,7 @@
     "test:accessibility": "playwright test tests/accessibility/",
     "test:cross-flow": "playwright test tests/cross-flow/",
     "test:profile": "playwright test tests/profile/",
+    "test:daily-word": "playwright test tests/daily-word/",
     "test:parallel": "TEST_POOL=A npx playwright test --shard=1/2 & TEST_POOL=B npx playwright test --shard=2/2 & wait",
     "report": "playwright show-report",
     "docker:up": "docker compose -f docker-compose.e2e.yml up -d --build",

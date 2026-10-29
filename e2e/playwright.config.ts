@@ -101,6 +101,10 @@ export default defineConfig({
       testMatch: ["**/pause/**"],
       timeout: 120_000,
     },
+    {
+      name: "daily-word",
+      testMatch: ["**/daily-word/**"],
+    },
     // Mobile viewport projects — run existing tests at iPhone 14 size (Chromium)
     {
       name: "mobile-smoke",
@@ -122,6 +126,14 @@ export default defineConfig({
       name: "mobile-wordquiz",
       testMatch: ["**/wordquiz/**"],
       timeout: 120_000,
+      use: {
+        ...devices["iPhone 14"],
+        browserName: "chromium",
+      },
+    },
+    {
+      name: "mobile-daily-word",
+      testMatch: ["**/daily-word/**"],
       use: {
         ...devices["iPhone 14"],
         browserName: "chromium",
