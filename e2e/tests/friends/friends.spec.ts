@@ -37,13 +37,10 @@ test.describe("Friends Page", () => {
     await page.goto(ROUTES.friends);
     await page.waitForLoadState("domcontentloaded");
 
-    // Should show empty state or "no friends" message
-    await expect(
-      page
-        .getByText(/no friends/i)
-        .or(page.getByText(/add friend/i))
-        .or(page.locator("main").first()),
-    ).toBeVisible({ timeout: 10_000 });
+    // The empty state itself. The old union (/no friends/ | /add friend/ | main) matched
+    // <main> at once and, once the page had rendered, three elements: a strict-mode
+    // violation that only failed when the check ran after the render.
+    await expect(page.getByRole("heading", { name: "No friends yet" })).toBeVisible({ timeout: 10_000 });
 
     await page.context().close();
   });

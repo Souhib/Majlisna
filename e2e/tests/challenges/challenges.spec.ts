@@ -3,6 +3,13 @@ import { generateTestAccounts } from "../../helpers/test-setup";
 import { createPlayerPage } from "../../fixtures/auth.fixture";
 import { apiLogin, apiSeedChallenges, apiGetActiveChallenges } from "../../helpers/api-client";
 import { ROUTES } from "../../helpers/constants";
+import en from "../../../front/src/i18n/locales/en.json";
+
+/** What the page writes for a challenge: its code's translation, else the API's own description. */
+function shownDescription(challenge: { code: string; description: string }): string {
+  const items = en.challenges.items as Record<string, string>;
+  return items[challenge.code] ?? challenge.description;
+}
 
 test.describe("Challenges Page", () => {
   test("challenges page loads with heading", async ({
@@ -57,23 +64,12 @@ test.describe("Challenges Page", () => {
       page.getByRole("heading", { name: "Challenges", level: 1 }),
     ).toBeVisible({ timeout: 10_000 });
 
-    // Should NOT show empty state (challenges were assigned)
-    // Look for challenge descriptions or Daily/Weekly sections
-    const hasContent = await page
-      .getByText(/Daily|Weekly/i)
-      .first()
-      .isVisible({ timeout: 10_000 })
-      .catch(() => false);
-
-    // If Daily/Weekly sections aren't shown, at least one challenge description should be visible
-    if (!hasContent) {
-      const firstDescription = challenges[0]?.description;
-      if (firstDescription) {
-        await expect(
-          page.getByText(firstDescription).first(),
-        ).toBeVisible({ timeout: 10_000 });
-      }
-    }
+    // The assigned challenge is on the page, worded the way the page words it: from its
+    // code (challenges.items.<code>), not from the API's English description, which still
+    // says "Play a Word Quiz game" where the page says "Play a game of Kalimat". The old
+    // check read the API text, and reached it only when an `isVisible` that does not wait
+    // came back false, so it failed only when a Kalimat challenge was drawn first.
+    await expect(page.getByText(shownDescription(challenges[0])).first()).toBeVisible({ timeout: 10_000 });
 
     await page.context().close();
   });
