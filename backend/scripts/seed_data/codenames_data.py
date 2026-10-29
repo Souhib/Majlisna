@@ -88,17 +88,17 @@ CODENAMES_WORD_PACKS: dict[str, list[dict[str, str | dict[str, str]]]] = {
         {"word": "Abyssinia", "hint": {"en": "Land of the first Muslim migration, where the Negus gave them refuge", "ar": "الحبشة — أرض أول هجرة إسلامية حيث آواهم النجاشي", "fr": "Terre de la première migration musulmane, où le Négus leur donna refuge"}},
         {"word": "Taif", "hint": {"en": "City where the Prophet was rejected and stoned but forgave its people", "ar": "الطائف — المدينة التي رُفض فيها النبي ورُجم لكنه عفا عن أهلها", "fr": "Ville où le Prophète fut rejeté et lapidé mais pardonna à ses habitants"}},
         {"word": "Tabuk", "hint": {"en": "The last military expedition led by the Prophet in 630 CE", "ar": "تبوك — آخر غزوة قادها النبي عام 630 م", "fr": "La dernière expédition militaire menée par le Prophète en 630"}},
-        {"word": "Khaybar", "hint": {"en": "Jewish fortress conquered by Muslims, known for Ali's bravery", "ar": "خيبر — حصن يهودي فتحه المسلمون، اشتهرت بشجاعة علي", "fr": "Forteresse juive conquise par les musulmans, connue pour la bravoure d'Ali"}},
+        {"word": "Khaybar", "hint": {"en": "Jewish fortress conquered by Muslims, known for Ali's bravery", "ar": "خيبر — حصون يهودية فتحها المسلمون، واشتهرت بشجاعة علي", "fr": "Forteresse juive conquise par les musulmans, connue pour la bravoure d'Ali"}},
         {"word": "Caliphate", "hint": {"en": "The Islamic system of governance after the Prophet's death", "ar": "الخلافة — نظام الحكم الإسلامي بعد وفاة النبي", "fr": "Le système de gouvernance islamique après la mort du Prophète"}},
         {"word": "Umayyad", "hint": {"en": "First hereditary Islamic dynasty, based in Damascus (661-750 CE)", "ar": "الأمويون — أول سلالة إسلامية وراثية، مقرها دمشق", "fr": "Première dynastie islamique héréditaire, basée à Damas (661-750)"}},
         {"word": "Abbasid", "hint": {"en": "Islamic dynasty known as the Golden Age of Islam, based in Baghdad", "ar": "العباسيون — السلالة المعروفة بالعصر الذهبي للإسلام، مقرها بغداد", "fr": "Dynastie islamique connue comme l'Âge d'or de l'islam, basée à Bagdad"}},
-        {"word": "Ottoman", "hint": {"en": "Last major Islamic empire, ruled from Istanbul for over 600 years", "ar": "العثمانيون — آخر إمبراطورية إسلامية كبرى، حكمت من إسطنبول لأكثر من 600 عام", "fr": "Dernier grand empire islamique, gouvernant depuis Istanbul pendant plus de 600 ans"}},
+        {"word": "Ottoman", "hint": {"en": "Last major Islamic empire, ruled from Istanbul for over 600 years", "ar": "العثمانيون — آخر إمبراطورية إسلامية كبرى، دامت أكثر من 600 عام وعاصمتها إسطنبول", "fr": "Dernier grand empire islamique, gouvernant depuis Istanbul pendant plus de 600 ans"}},
         {"word": "Andalusia", "hint": {"en": "Muslim-ruled Iberian Peninsula, a beacon of learning and coexistence", "ar": "الأندلس — شبه الجزيرة الإيبيرية تحت الحكم الإسلامي، منارة للعلم والتعايش", "fr": "La péninsule ibérique sous domination musulmane, phare de savoir et de coexistence"}},
         {"word": "Baghdad", "hint": {"en": "Capital of the Abbasid Caliphate and center of the Islamic Golden Age", "ar": "بغداد — عاصمة الخلافة العباسية ومركز العصر الذهبي الإسلامي", "fr": "Capitale du califat abbasside et centre de l'Âge d'or islamique"}},
         {"word": "Damascus", "hint": {"en": "Capital of the Umayyad Caliphate, one of the oldest continuously inhabited cities", "ar": "دمشق — عاصمة الخلافة الأموية، من أقدم المدن المأهولة باستمرار", "fr": "Capitale du califat omeyyade, l'une des plus anciennes villes habitées en continu"}},
         {"word": "Cordoba", "hint": {"en": "Heart of Al-Andalus, famous for its Great Mosque and libraries", "ar": "قرطبة — قلب الأندلس، اشتهرت بمسجدها الكبير ومكتباتها", "fr": "Cœur d'Al-Andalus, célèbre pour sa Grande Mosquée et ses bibliothèques"}},
         {"word": "Jerusalem", "hint": {"en": "Al-Quds — third holiest city in Islam, site of Al-Aqsa Mosque", "ar": "القدس — ثالث أقدس مدينة في الإسلام، موقع المسجد الأقصى", "fr": "Al-Quds — troisième ville la plus sainte de l'islam, site de la mosquée Al-Aqsa"}},
-        {"word": "Hattin", "hint": {"en": "Battle in 1187 CE where Saladin defeated the Crusaders and liberated Jerusalem", "ar": "حطين — معركة عام 1187م هزم فيها صلاح الدين الصليبيين وحرر القدس", "fr": "Bataille de 1187 où Saladin vainquit les croisés et libéra Jérusalem"}},
+        {"word": "Hattin", "hint": {"en": "Battle in 1187 CE where Saladin defeated the Crusaders and liberated Jerusalem", "ar": "حطين — معركة عام 1187م هزم فيها صلاح الدين الصليبيين، ففتح طريقه إلى تحرير القدس", "fr": "Bataille de 1187 où Saladin vainquit les croisés et libéra Jérusalem"}},
         {"word": "Ain Jalut", "hint": {"en": "Battle in 1260 CE where the Mamluks defeated the Mongols, halting their advance", "ar": "عين جالوت — معركة عام 1260م هزم فيها المماليك المغول وأوقفوا تقدمهم", "fr": "Bataille de 1260 où les Mamelouks vainquirent les Mongols, stoppant leur avancée"}},
         {"word": "Timbuktu", "hint": {"en": "West African center of Islamic learning, home to Sankore University", "ar": "تمبكتو — مركز العلم الإسلامي في غرب أفريقيا، موطن جامعة سنكوري", "fr": "Centre ouest-africain de savoir islamique, siège de l'Université de Sankoré"}},
         {"word": "Fatimid", "hint": {"en": "Shia Islamic dynasty that founded Cairo and Al-Azhar (909-1171 CE)", "ar": "الفاطميون — سلالة إسلامية شيعية أسست القاهرة والأزهر", "fr": "Dynastie islamique chiite qui fonda Le Caire et Al-Azhar (909-1171)"}},
@@ -126,7 +126,7 @@ CODENAMES_WORD_PACKS: dict[str, list[dict[str, str | dict[str, str]]]] = {
         {"word": "Sai", "hint": {"en": "Walking seven times between the hills of Safa and Marwa", "ar": "السعي — المشي سبع مرات بين الصفا والمروة", "fr": "Marcher sept fois entre les collines de Safa et Marwa"}},
         {"word": "Ihram", "hint": {"en": "The sacred state and white garments worn during Hajj or Umrah", "ar": "الإحرام — الحالة المقدسة واللباس الأبيض في الحج أو العمرة", "fr": "L'état sacré et les vêtements blancs portés pendant le Hajj ou la Omra"}},
         {"word": "Umrah", "hint": {"en": "The lesser pilgrimage to Mecca, performed at any time of the year", "ar": "العمرة — الحج الأصغر إلى مكة، يُؤدى في أي وقت من السنة", "fr": "Le petit pèlerinage à La Mecque, effectué à tout moment de l'année"}},
-        {"word": "Dua", "hint": {"en": "Supplication — personal prayer and direct communication with Allah", "ar": "الدعاء — صلاة شخصية وتواصل مباشر مع الله", "fr": "L'invocation — prière personnelle et communication directe avec Allah"}},
+        {"word": "Dua", "hint": {"en": "Supplication — personal prayer and direct communication with Allah", "ar": "الدعاء — مناجاة شخصية وتواصل مباشر مع الله", "fr": "L'invocation — prière personnelle et communication directe avec Allah"}},
         {"word": "Sadaqah", "hint": {"en": "Voluntary charity given beyond the obligatory Zakat", "ar": "الصدقة — التبرع الطوعي فوق الزكاة الواجبة", "fr": "L'aumône volontaire donnée au-delà de la Zakat obligatoire"}},
         {"word": "Itikaf", "hint": {"en": "Spiritual retreat in the mosque, especially during the last ten days of Ramadan", "ar": "الاعتكاف — خلوة روحية في المسجد، خاصة في العشر الأواخر من رمضان", "fr": "La retraite spirituelle à la mosquée, surtout les dix derniers jours du Ramadan"}},
         {"word": "Janazah", "hint": {"en": "The funeral prayer performed for a deceased Muslim", "ar": "صلاة الجنازة — الصلاة على المسلم المتوفى", "fr": "La prière funéraire accomplie pour un musulman décédé"}},
@@ -171,7 +171,7 @@ CODENAMES_WORD_PACKS: dict[str, list[dict[str, str | dict[str, str]]]] = {
         {"word": "Balagha", "hint": {"en": "Arabic rhetoric and eloquence, key to Quranic literary analysis", "ar": "البلاغة — علم الفصاحة العربية، مفتاح التحليل الأدبي للقرآن", "fr": "La rhétorique et l'éloquence arabes, clé de l'analyse littéraire coranique"}},
         {"word": "Mantiq", "hint": {"en": "Islamic logic — the science of correct reasoning", "ar": "المنطق — علم التفكير الصحيح", "fr": "La logique islamique — la science du raisonnement correct"}},
         {"word": "Falsafa", "hint": {"en": "Islamic philosophy — synthesis of Greek philosophy with Islamic thought", "ar": "الفلسفة الإسلامية — دمج الفلسفة اليونانية مع الفكر الإسلامي", "fr": "La philosophie islamique — synthèse de la philosophie grecque et de la pensée islamique"}},
-        {"word": "Kalam", "hint": {"en": "Islamic theology — rational discourse about God's attributes and nature", "ar": "علم الكلام — الخطاب العقلاني حول صفات الله وطبيعته", "fr": "La théologie islamique — discours rationnel sur les attributs et la nature de Dieu"}},
+        {"word": "Kalam", "hint": {"en": "Islamic theology — rational discourse about God's attributes and nature", "ar": "علم الكلام — الاستدلال العقلي على العقائد الإيمانية وصفات الله", "fr": "La théologie islamique — discours rationnel sur les attributs et la nature de Dieu"}},
         {"word": "Tasawwuf", "hint": {"en": "Islamic spirituality and mysticism — the inner dimension of worship", "ar": "التصوف — الروحانية الإسلامية والبعد الباطني للعبادة", "fr": "La spiritualité et le mysticisme islamiques — la dimension intérieure de l'adoration"}},
         {"word": "Ijtihad", "hint": {"en": "Independent scholarly reasoning to derive new legal rulings", "ar": "الاجتهاد — التفكير العلمي المستقل لاستنباط أحكام شرعية جديدة", "fr": "Le raisonnement savant indépendant pour dériver de nouveaux jugements juridiques"}},
         {"word": "Ijma", "hint": {"en": "Scholarly consensus — agreement of Muslim scholars on a legal ruling", "ar": "الإجماع — اتفاق العلماء المسلمين على حكم شرعي", "fr": "Le consensus savant — accord des savants musulmans sur un jugement juridique"}},
@@ -180,7 +180,7 @@ CODENAMES_WORD_PACKS: dict[str, list[dict[str, str | dict[str, str]]]] = {
         {"word": "Matn", "hint": {"en": "The text or content of a hadith, as opposed to its chain of narration", "ar": "المتن — نص الحديث ومحتواه، مقابل سلسلة الإسناد", "fr": "Le texte ou contenu d'un hadith, par opposition à sa chaîne de narration"}},
         {"word": "Jarh", "hint": {"en": "Hadith criticism — the science of evaluating narrator reliability", "ar": "الجرح والتعديل — علم تقييم موثوقية الرواة", "fr": "La critique du hadith — la science d'évaluation de la fiabilité des narrateurs"}},
         {"word": "Maqasid", "hint": {"en": "Higher objectives of Islamic law — preservation of life, faith, intellect, lineage, and wealth", "ar": "مقاصد الشريعة — حفظ النفس والدين والعقل والنسل والمال", "fr": "Les objectifs supérieurs de la loi islamique — préservation de la vie, foi, intellect, lignée et richesse"}},
-        {"word": "Ilm al-Rijal", "hint": {"en": "Science of hadith narrators — biographical evaluation of transmitters", "ar": "علم الرجال — التقييم السيري لرواة الحديث", "fr": "La science des narrateurs de hadith — évaluation biographique des transmetteurs"}},
+        {"word": "Ilm al-Rijal", "hint": {"en": "Science of hadith narrators — biographical evaluation of transmitters", "ar": "علم الرجال — دراسة أحوال رواة الحديث وتراجمهم", "fr": "La science des narrateurs de hadith — évaluation biographique des transmetteurs"}},
     ],
     "Companions & Figures": [
         {"word": "Abu Bakr", "hint": {"en": "The first Caliph and closest companion of the Prophet, known as al-Siddiq", "ar": "أبو بكر الصديق — أول الخلفاء الراشدين وأقرب صحابي للنبي", "fr": "Le premier calife et plus proche compagnon du Prophète, surnommé al-Siddiq"}},
@@ -202,7 +202,7 @@ CODENAMES_WORD_PACKS: dict[str, list[dict[str, str | dict[str, str]]]] = {
         {"word": "Umar ibn Abdul Aziz", "hint": {"en": "Umayyad caliph known as the fifth rightly guided caliph for his justice and piety", "ar": "عمر بن عبد العزيز — الخليفة الأموي المعروف بالخليفة الراشد الخامس لعدله وتقواه", "fr": "Calife omeyyade surnommé le cinquième calife bien guidé pour sa justice et sa piété"}},
         {"word": "Tariq ibn Ziyad", "hint": {"en": "Berber commander who led the Muslim conquest of the Iberian Peninsula in 711 CE", "ar": "طارق بن زياد — القائد الأمازيغي الذي فتح شبه الجزيرة الإيبيرية عام 711م", "fr": "Commandant berbère qui mena la conquête musulmane de la péninsule ibérique en 711"}},
         {"word": "Saladin", "hint": {"en": "Salah al-Din al-Ayyubi, who liberated Jerusalem from the Crusaders in 1187 CE", "ar": "صلاح الدين الأيوبي — محرر القدس من الصليبيين عام 1187م", "fr": "Salah al-Din al-Ayyubi, qui libéra Jérusalem des croisés en 1187"}},
-        {"word": "Ibn Battuta", "hint": {"en": "Moroccan traveler who journeyed over 120,000 km across the Islamic world in the 14th century", "ar": "ابن بطوطة — الرحالة المغربي الذي قطع أكثر من 120,000 كم في العالم الإسلامي في القرن 14", "fr": "Voyageur marocain qui parcourut plus de 120 000 km à travers le monde islamique au XIVe siècle"}},
+        {"word": "Ibn Battuta", "hint": {"en": "Moroccan traveler who journeyed over 120,000 km across the Islamic world in the 14th century", "ar": "ابن بطوطة — الرحالة المغربي الذي قطع أكثر من 120 ألف كم في العالم الإسلامي في القرن 14", "fr": "Voyageur marocain qui parcourut plus de 120 000 km à travers le monde islamique au XIVe siècle"}},
     ],
     "Daily Life & Culture": [
         {"word": "Halal", "hint": {"en": "Permissible according to Islamic law, especially regarding food and conduct", "ar": "حلال — ما أباحه الشرع الإسلامي، خاصة في الطعام والسلوك", "fr": "Permis selon la loi islamique, surtout concernant la nourriture et la conduite"}},
@@ -214,7 +214,7 @@ CODENAMES_WORD_PACKS: dict[str, list[dict[str, str | dict[str, str]]]] = {
         {"word": "Miswak", "hint": {"en": "Natural tooth-cleaning twig from the Arak tree, a Prophetic tradition", "ar": "المسواك — عود تنظيف الأسنان الطبيعي من شجرة الأراك، سنة نبوية", "fr": "Bâtonnet naturel de nettoyage des dents issu de l'arbre Arak, une tradition prophétique"}},
         {"word": "Attar", "hint": {"en": "Natural perfume oil, following the Prophetic tradition of wearing fragrance", "ar": "العطر — زيت عطري طبيعي، اتباعاً لسنة النبي في التطيب", "fr": "Huile de parfum naturelle, suivant la tradition prophétique de porter du parfum"}},
         {"word": "Dates", "hint": {"en": "The fruit recommended by the Prophet for breaking fast, staple of Islamic culture", "ar": "التمر — الفاكهة التي أوصى بها النبي للإفطار، من أساسيات الثقافة الإسلامية", "fr": "Le fruit recommandé par le Prophète pour rompre le jeûne, incontournable de la culture islamique"}},
-        {"word": "Zamzam", "hint": {"en": "Sacred well in Mecca, miraculously provided for Hajar and baby Ismail", "ar": "زمزم — البئر المقدسة في مكة، أُنبعت بمعجزة لهاجر والطفل إسماعيل", "fr": "Puits sacré à La Mecque, miraculeusement fourni pour Hajar et le bébé Ismaël"}},
+        {"word": "Zamzam", "hint": {"en": "Sacred well in Mecca, miraculously provided for Hajar and baby Ismail", "ar": "زمزم — البئر المقدسة في مكة، نبعت بمعجزة لهاجر والطفل إسماعيل", "fr": "Puits sacré à La Mecque, miraculeusement fourni pour Hajar et le bébé Ismaël"}},
         {"word": "Oud", "hint": {"en": "Fragrant agarwood incense, deeply rooted in Islamic hospitality traditions", "ar": "العود — خشب البخور العطري، متجذر في تقاليد الضيافة الإسلامية", "fr": "L'encens de bois d'agar parfumé, profondément ancré dans les traditions d'hospitalité islamique"}},
         {"word": "Henna", "hint": {"en": "Natural plant dye used for body art, especially at Islamic weddings and celebrations", "ar": "الحناء — صبغة نباتية طبيعية تُستخدم لتزيين الجسم، خاصة في الأعراس والمناسبات", "fr": "Teinture végétale naturelle utilisée pour l'art corporel, surtout lors des mariages et célébrations islamiques"}},
         {"word": "Barakah", "hint": {"en": "Divine blessing and abundance that Allah places in things, time, or people", "ar": "البركة — النعمة والزيادة الإلهية التي يضعها الله في الأشياء أو الأوقات أو الناس", "fr": "La bénédiction divine et l'abondance qu'Allah place dans les choses, le temps ou les personnes"}},
@@ -250,6 +250,7 @@ async def seed_codenames_words(session: AsyncSession) -> None:
     """
     total_words = 0
     new_packs = 0
+    updated_words = 0
 
     retired = (
         await session.exec(
@@ -288,6 +289,11 @@ async def seed_codenames_words(session: AsyncSession) -> None:
                 )
             ).first()
             if existing_word:
+                # An upsert keyed on (pack, word): a corrected hint reaches production through --seed
+                if existing_word.hint != word_data.get("hint"):
+                    existing_word.hint = word_data.get("hint")
+                    session.add(existing_word)
+                    updated_words += 1
                 continue
             word = CodenamesWord(
                 id=uuid4(),
@@ -299,4 +305,4 @@ async def seed_codenames_words(session: AsyncSession) -> None:
             total_words += 1
 
     await session.commit()
-    print(f"  Seeded {new_packs} new Codenames packs, {total_words} new words")
+    print(f"  Seeded {new_packs} new Codenames packs, {total_words} new words, updated {updated_words} hints")

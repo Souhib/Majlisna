@@ -183,7 +183,7 @@ UNDERCOVER_WORDS = [
         "long_description": "The mihrab is a semicircular niche in the wall of a mosque that indicates the direction of Mecca.",
         "hint": {
             "en": "A semicircular niche in a mosque wall indicating the direction of Mecca",
-            "ar": "محراب — تجويف نصف دائري في جدار المسجد يشير إلى اتجاه مكة",
+            "ar": "المحراب — تجويف نصف دائري في جدار المسجد يشير إلى اتجاه مكة",
             "fr": "Une niche semi-circulaire dans le mur d'une mosquée indiquant la direction de La Mecque",
         },
     },
@@ -227,7 +227,7 @@ UNDERCOVER_WORDS = [
         "long_description": "Medina is the second holiest city in Islam where Prophet Muhammad migrated to and is buried.",
         "hint": {
             "en": "The second holiest city in Islam where the Prophet migrated to and is buried",
-            "ar": "المدينة المنورة — ثاني أقدس مدينة في الإسلام حيث هاجر النبي ودُفن فيها",
+            "ar": "المدينة المنورة — ثاني أقدس مدينة في الإسلام، هاجر إليها النبي ودُفن فيها",
             "fr": "La deuxième ville la plus sainte de l'islam où le Prophète a émigré et est enterré",
         },
     },
@@ -328,7 +328,7 @@ UNDERCOVER_WORDS = [
         "long_description": "Wudu is the ritual washing performed by Muslims before prayer to achieve physical and spiritual purity.",
         "hint": {
             "en": "Ritual washing performed before prayer for physical and spiritual purity",
-            "ar": "الوضوء — الغسل الطقسي قبل الصلاة لتحقيق الطهارة الجسدية والروحية",
+            "ar": "الوضوء — غسل أعضاء مخصوصة بالماء قبل الصلاة، طهارةً للبدن والروح",
             "fr": "L'ablution rituelle effectuée avant la prière pour la pureté physique et spirituelle",
         },
     },
@@ -372,7 +372,7 @@ UNDERCOVER_WORDS = [
         "long_description": "Dhikr is the devotional act of remembering God through phrases, prayers, or meditation.",
         "hint": {
             "en": "The devotional act of remembering God through phrases, prayers, or meditation",
-            "ar": "الذكر — العبادة التأملية لذكر الله بالتسبيح والدعاء والتأمل",
+            "ar": "الذكر — ذكر الله بالتسبيح والتحميد والتهليل والدعاء",
             "fr": "L'acte dévotionnel de se souvenir de Dieu par des phrases, prières ou méditation",
         },
     },
@@ -506,7 +506,7 @@ UNDERCOVER_WORDS = [
         "long_description": "Eid al-Adha commemorates Ibrahim's willingness to sacrifice his son and concludes the Hajj.",
         "hint": {
             "en": "The festival of sacrifice commemorating Ibrahim's willingness to sacrifice his son",
-            "ar": "عيد الأضحى — يُحيي ذكرى استعداد إبراهيم للتضحية بابنه ويختتم موسم الحج",
+            "ar": "عيد الأضحى — يُحيي ذكرى استعداد إبراهيم للتضحية بابنه، ويأتي في أيام الحج",
             "fr": "La fête du sacrifice commémorant la volonté d'Ibrahim de sacrifier son fils",
         },
     },
@@ -661,7 +661,7 @@ UNDERCOVER_WORDS = [
         "long_description": "Prophet Shuayb was sent to the people of Madyan to correct their dishonest trade practices.",
         "hint": {
             "en": "A prophet sent to the people of Madyan to correct their dishonest trade practices",
-            "ar": "نبي أُرسل إلى أهل مدين لتصحيح ممارساتهم التجارية الغشاشة",
+            "ar": "نبي أُرسل إلى أهل مدين لينهاهم عن الغش في الكيل والميزان",
             "fr": "Un prophète envoyé au peuple de Madyan pour corriger leurs pratiques commerciales malhonnêtes",
         },
     },
@@ -940,7 +940,7 @@ UNDERCOVER_WORDS = [
         "long_description": "Qurbani is the ritual sacrifice of an animal during Eid al-Adha in remembrance of Ibrahim.",
         "hint": {
             "en": "The ritual sacrifice of an animal during Eid al-Adha in remembrance of Ibrahim",
-            "ar": "الأضحية — ذبح طقسي للحيوان في عيد الأضحى إحياءً لذكرى إبراهيم",
+            "ar": "الأضحية — ذبيحة يُتقرب بها إلى الله في عيد الأضحى إحياءً لسنة إبراهيم",
             "fr": "Le sacrifice rituel d'un animal pendant l'Aïd al-Adha en souvenir d'Ibrahim",
         },
     },
@@ -1159,10 +1159,23 @@ async def seed_undercover_words(session: AsyncSession) -> dict[str, Word]:
     """
     word_map: dict[str, Word] = {}
     new_count = 0
+    updated = 0
 
     for word_data in UNDERCOVER_WORDS:
         existing = (await session.exec(select(Word).where(Word.word == word_data["word"]))).first()
         if existing:
+            # An upsert keyed on the word: a correction made here reaches production through --seed
+            seeded = {
+                "category": word_data["category"],
+                "short_description": word_data["short_description"],
+                "long_description": word_data["long_description"],
+                "hint": word_data.get("hint", {"en": word_data["long_description"]}),
+            }
+            if any(getattr(existing, field) != value for field, value in seeded.items()):
+                for field, value in seeded.items():
+                    setattr(existing, field, value)
+                session.add(existing)
+                updated += 1
             word_map[word_data["word"]] = existing
             continue
         word = Word(
@@ -1181,7 +1194,7 @@ async def seed_undercover_words(session: AsyncSession) -> dict[str, Word]:
     for word in word_map.values():
         await session.refresh(word)
 
-    print(f"  Seeded {new_count} new Undercover words ({len(word_map)} total)")
+    print(f"  Seeded {new_count} new Undercover words, updated {updated} ({len(word_map)} total)")
     return word_map
 
 

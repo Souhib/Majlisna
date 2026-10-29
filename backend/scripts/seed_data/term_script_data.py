@@ -84,12 +84,17 @@ TERM_SCRIPTS: dict[str, tuple[str, str | None]] = {
     "Tafsir": ("تفسير", "تَفْسِير"),
     "Tajweed": ("تجويد", "تَجْوِيد"),
     "Tilawah": ("تلاوة", "تِلَاوَة"),
+    # مُصحف (Qays) and مِصحف (Tamim) are both Arabic; the damma is the original
+    # (al-Farra' in Lisan al-Arab: "وأصلها الضم"; Mukhtar al-Sihah).
     "Mushaf": ("مصحف", "مُصْحَف"),
     # --- Islamic History ---
     "Hijrah": ("هجرة", "هِجْرَة"),
     "Badr": ("بدر", "بَدْر"),
     "Uhud": ("أحد", "أُحُد"),
     "Khandaq": ("الخندق", "الْخَنْدَق"),
+    # Both الحُدَيْبِيَة and الحُدَيْبِيَّة are attested (Yaqut: "منهم من شددها ومنهم من
+    # خففها"); the light yaa is the lexicographers' form (al-Nahhas, Ibn al-Athir,
+    # al-Nawawi: "التخفيف أفصح"), the doubled one the hadith reciters'.
     "Hudaybiyyah": ("الحديبية", "الْحُدَيْبِيَة"),
     "Mecca": ("مكة", "مَكَّة"),
     "Medina": ("المدينة", "الْمَدِينَة"),
@@ -108,7 +113,8 @@ TERM_SCRIPTS: dict[str, tuple[str, str | None]] = {
     "Damascus": ("دمشق", "دِمَشْق"),
     "Cordoba": ("قرطبة", "قُرْطُبَة"),
     "Jerusalem": ("القدس", "الْقُدْس"),
-    "Hattin": ("حطين", None),
+    # Yaqut, Mu'jam al-Buldan: "حِطِّينُ: بكسر أوله وثانيه"; al-Qamus: "كسِجِّين".
+    "Hattin": ("حطين", "حِطِّين"),
     "Ain Jalut": ("عين جالوت", "عَيْنُ جَالُوت"),
     "Timbuktu": ("تمبكتو", None),
     # --- Pillars, Worship & Rituals ---
@@ -138,13 +144,17 @@ TERM_SCRIPTS: dict[str, tuple[str, str | None]] = {
     "Sai": ("سعي", "سَعْي"),
     "Ihram": ("إحرام", "إِحْرَام"),
     "Itikaf": ("اعتكاف", "اِعْتِكَاف"),
-    "Janazah": ("جنازة", "جَنَازَة"),
+    # جِنازة and جَنازة are both attested; the kasra is the classical one (al-Jawhari:
+    # "والعامة تقول الجَنازة بالفتح"; al-Fayyumi: "والكسر أفصح"), and the one of the
+    # vocalised Sahih al-Bukhari ("بَابُ السُّرْعَةِ بِالْجِنَازَةِ").
+    "Janazah": ("جنازة", "جِنَازَة"),
     "Jummah": ("جمعة", "جُمُعَة"),
     "Khutbah": ("خطبة", "خُطْبَة"),
     "Taraweeh": ("تراويح", "تَرَاوِيح"),
     "Tahajjud": ("تهجد", "تَهَجُّد"),
     "Iftar": ("إفطار", "إِفْطَار"),
-    # The pre-dawn meal is سَحور; سُحور is the act of eating it.
+    # The pre-dawn meal is سَحور; سُحور is the act of eating it (Ibn al-Athir, al-Nihaya,
+    # quoted in Lisan al-Arab: "بالفتح اسم ما يتسحر به ... وبالضم المصدر").
     "Suhoor": ("سحور", "سَحُور"),
     "Laylat al-Qadr": ("ليلة القدر", "لَيْلَةُ الْقَدْر"),
     "Eid al-Fitr": ("عيد الفطر", "عِيدُ الْفِطْر"),
@@ -249,7 +259,6 @@ TERM_SCRIPTS: dict[str, tuple[str, str | None]] = {
     "Zamzam": ("زمزم", "زَمْزَم"),
     "Oud": ("عود", "عُود"),
     "Henna": ("حناء", "حِنَّاء"),
-    # Phrases keep their case endings: they are read as a sentence, not a noun.
     "Waqf": ("وقف", "وَقْف"),
     "Nikah": ("نكاح", "نِكَاح"),
     # --- Sacred Places & Architecture ---
