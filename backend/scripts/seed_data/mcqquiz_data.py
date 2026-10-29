@@ -9933,25 +9933,6 @@ MCQ_QUESTIONS: list[dict] = [
         "difficulty": "medium",
     },
     {
-        "question_en": "What was the Bayt al-Hikmah (House of Wisdom)?",
-        "question_ar": "ما كان بيت الحكمة؟",
-        "question_fr": "Qu'était la Bayt al-Hikmah (Maison de la Sagesse) ?",
-        "choices": {
-            "0": {"en": "A mosque in Madinah", "ar": "مسجد في المدينة", "fr": "Une mosquée à Médine"},
-            "1": {"en": "A major intellectual center in Baghdad for translation and scholarship", "ar": "مركز فكري كبير في بغداد للترجمة والعلم", "fr": "Un centre intellectuel majeur à Bagdad pour la traduction et l'érudition"},
-            "2": {"en": "A Sufi retreat in Cairo", "ar": "خلوة صوفية في القاهرة", "fr": "Une retraite soufie au Caire"},
-            "3": {"en": "A military academy in Damascus", "ar": "أكاديمية عسكرية في دمشق", "fr": "Une académie militaire à Damas"},
-        },
-        "correct_answer_index": 1,
-        "explanation": {
-            "en": "Bayt al-Hikmah was a major intellectual center in Baghdad established during the Abbasid caliphate (especially under Caliph al-Ma'mun). It was devoted to translating Greek, Persian, and Indian texts into Arabic and advancing knowledge in sciences, mathematics, and philosophy.",
-            "ar": "بيت الحكمة كان مركزاً فكرياً كبيراً في بغداد أُسّس في عهد الخلافة العباسية (خاصة في عهد الخليفة المأمون). كُرّس لترجمة النصوص اليونانية والفارسية والهندية إلى العربية.",
-            "fr": "La Bayt al-Hikmah était un centre intellectuel majeur à Bagdad établi sous le califat abbasside (surtout sous le calife al-Ma'mun). Il était consacré à la traduction de textes grecs, perses et indiens en arabe.",
-        },
-        "category": "Islamic history and civilization",
-        "difficulty": "medium",
-    },
-    {
         "question_en": "Which Muslim physician wrote 'Al-Qanun fi al-Tibb' (The Canon of Medicine)?",
         "question_ar": "أي طبيب مسلم كتب 'القانون في الطب'؟",
         "question_fr": "Quel médecin musulman écrivit 'Al-Qanun fi al-Tibb' (Le Canon de la Médecine) ?",
@@ -11001,10 +10982,10 @@ MCQ_QUESTIONS: list[dict] = [
     {
         "question_en": "What is the meaning of Talbiyah said during Hajj?",
         "question_ar": "ما معنى التلبية التي تُقال أثناء الحج؟",
-        "question_fr": "Quelle est la signification de la Talbiyah dite pendant le Hajj ?",
+        "question_fr": "Quelle est la signification de la Talbiyah dite pendant le Hajj ?",
         "choices": {
             "0": {"en": "A prayer for forgiveness", "ar": "دعاء للمغفرة", "fr": "Une prière de pardon"},
-            "1": {"en": "'Here I am at Your service, O Allah'", "ar": "'لبيك اللهم لبيك'", "fr": "'Me voici à Ton service, O Allah'"},
+            "1": {"en": "'Here I am at Your service, O Allah'", "ar": "'لبيك اللهم لبيك'", "fr": "'Me voici à Ton service, Ô Allah'"},
             "2": {"en": "A supplication for health", "ar": "دعاء للصحة", "fr": "Une supplication pour la santé"},
             "3": {"en": "A greeting to other pilgrims", "ar": "تحية للحجاج الآخرين", "fr": "Une salutation aux autres pèlerins"},
         },
@@ -11012,7 +10993,7 @@ MCQ_QUESTIONS: list[dict] = [
         "explanation": {
             "en": "The Talbiyah is 'Labbayk Allahumma labbayk' meaning 'Here I am at Your service, O Allah.' It is recited by pilgrims throughout the Hajj rituals.",
             "ar": "التلبية هي 'لبيك اللهم لبيك' أي 'ها أنا ذا أستجيب لندائك يا الله.' يرددها الحجاج طوال مناسك الحج.",
-            "fr": "La Talbiyah est 'Labbayk Allahumma labbayk' signifiant 'Me voici a Ton service, O Allah.' Elle est recitee par les pelerins tout au long des rituels du Hajj.",
+            "fr": "La Talbiyah est 'Labbayk Allahumma labbayk' signifiant 'Me voici à Ton service, Ô Allah.' Elle est récitée par les pèlerins tout au long des rituels du Hajj.",
         },
         "category": "Islamic practices",
         "difficulty": "easy",
@@ -11039,7 +11020,7 @@ MCQ_QUESTIONS: list[dict] = [
     {
         "question_en": "What is the supplication said when breaking the fast (Iftar)?",
         "question_ar": "ما الدعاء الذي يُقال عند الإفطار؟",
-        "question_fr": "Quelle est l'invocation dite lors de la rupture du jeune (Iftar) ?",
+        "question_fr": "Quelle est l’invocation dite lors de la rupture du jeûne (Iftar) ?",
         "choices": {
             "0": {"en": "'Bismillah'", "ar": "'بسم الله'", "fr": "'Bismillah'"},
             "1": {"en": "'Dhahaba al-dhama wa btallat al-uruq wa thabata al-ajru in sha Allah'", "ar": "'ذهب الظمأ وابتلت العروق وثبت الأجر إن شاء الله'", "fr": "'Dhahaba al-dhama wa btallat al-uruq wa thabata al-ajru in sha Allah'"},
@@ -11050,7 +11031,7 @@ MCQ_QUESTIONS: list[dict] = [
         "explanation": {
             "en": "The Prophet ﷺ used to say when breaking his fast: 'The thirst has gone, the veins are moistened, and the reward is confirmed, if Allah wills.' (Abu Dawud)",
             "ar": "كان النبي ﷺ يقول عند إفطاره: 'ذهب الظمأ وابتلت العروق وثبت الأجر إن شاء الله.' (أبو داود)",
-            "fr": "Le Prophete ﷺ disait en rompant son jeune : 'La soif est partie, les veines sont humidifiees, et la recompense est confirmee, si Allah le veut.' (Abu Dawud)",
+            "fr": "Le Prophète ﷺ disait en rompant son jeûne : 'La soif est partie, les veines sont humidifiées, et la récompense est confirmée, si Allah le veut.' (Abu Dawud)",
         },
         "category": "Islamic practices",
         "difficulty": "medium",
@@ -11058,18 +11039,18 @@ MCQ_QUESTIONS: list[dict] = [
     {
         "question_en": "What is Salat al-Istisqa?",
         "question_ar": "ما هي صلاة الاستسقاء؟",
-        "question_fr": "Qu'est-ce que Salat al-Istisqa ?",
+        "question_fr": "Qu’est-ce que Salat al-Istisqa ?",
         "choices": {
-            "0": {"en": "Prayer for the deceased", "ar": "صلاة على الميت", "fr": "Priere pour le defunt"},
-            "1": {"en": "Prayer for guidance", "ar": "صلاة للهداية", "fr": "Priere pour la guidance"},
-            "2": {"en": "Prayer for rain", "ar": "صلاة طلب المطر", "fr": "Priere pour la pluie"},
-            "3": {"en": "Prayer for travel", "ar": "صلاة السفر", "fr": "Priere pour le voyage"},
+            "0": {"en": "Prayer for the deceased", "ar": "صلاة على الميت", "fr": "Prière pour le défunt"},
+            "1": {"en": "Prayer for guidance", "ar": "صلاة للهداية", "fr": "Prière pour la guidance"},
+            "2": {"en": "Prayer for rain", "ar": "صلاة طلب المطر", "fr": "Prière pour la pluie"},
+            "3": {"en": "Prayer for travel", "ar": "صلاة السفر", "fr": "Prière pour le voyage"},
         },
         "correct_answer_index": 2,
         "explanation": {
             "en": "Salat al-Istisqa is the prayer performed to ask Allah for rain during times of drought. The Prophet ﷺ performed it and turned his cloak inside out during the supplication. (Sahih al-Bukhari)",
             "ar": "صلاة الاستسقاء هي صلاة تُؤدى لطلب المطر من الله وقت الجفاف. أداها النبي ﷺ وقلب رداءه أثناء الدعاء. (صحيح البخاري)",
-            "fr": "Salat al-Istisqa est la priere effectuee pour demander la pluie a Allah en temps de secheresse. Le Prophete ﷺ l'a accomplie et a retourne son manteau pendant la supplication. (Sahih al-Bukhari)",
+            "fr": "Salat al-Istisqa est la prière effectuée pour demander la pluie à Allah en temps de sécheresse. Le Prophète ﷺ l’a accomplie et a retourné son manteau pendant la supplication. (Sahih al-Bukhari)",
         },
         "category": "Islamic practices",
         "difficulty": "medium",
@@ -11077,10 +11058,10 @@ MCQ_QUESTIONS: list[dict] = [
     {
         "question_en": "What is the recommended food for breaking the fast according to the Sunnah?",
         "question_ar": "ما هو الطعام المستحب للإفطار حسب السنة؟",
-        "question_fr": "Quel est l'aliment recommande pour rompre le jeune selon la Sunnah ?",
+        "question_fr": "Quel est l’aliment recommandé pour rompre le jeûne selon la Sunnah ?",
         "choices": {
             "0": {"en": "Bread and milk", "ar": "خبز وحليب", "fr": "Pain et lait"},
-            "1": {"en": "Fresh dates, or water if dates are not available", "ar": "تمر رطب أو ماء إن لم يتوفر التمر", "fr": "Dattes fraiches, ou eau si les dattes ne sont pas disponibles"},
+            "1": {"en": "Fresh dates, or water if dates are not available", "ar": "تمر رطب أو ماء إن لم يتوفر التمر", "fr": "Dattes fraîches, ou eau si les dattes ne sont pas disponibles"},
             "2": {"en": "Honey and yogurt", "ar": "عسل وزبادي", "fr": "Miel et yaourt"},
             "3": {"en": "Rice and meat", "ar": "أرز ولحم", "fr": "Riz et viande"},
         },
@@ -11088,7 +11069,7 @@ MCQ_QUESTIONS: list[dict] = [
         "explanation": {
             "en": "The Prophet ﷺ used to break his fast with fresh dates (rutab). If those were unavailable, he would use dried dates, and if those were unavailable, he would drink water. (Abu Dawud, Tirmidhi)",
             "ar": "كان النبي ﷺ يفطر على رُطَب، فإن لم يجد فعلى تمر، فإن لم يجد حسا حسوات من ماء. (أبو داود، الترمذي)",
-            "fr": "Le Prophete ﷺ rompait son jeune avec des dattes fraiches (rutab). A defaut, avec des dattes seches, et a defaut, il buvait de l'eau. (Abu Dawud, Tirmidhi)",
+            "fr": "Le Prophète ﷺ rompait son jeûne avec des dattes fraîches (rutab). À défaut, avec des dattes sèches, et à défaut, il buvait de l’eau. (Abu Dawud, Tirmidhi)",
         },
         "category": "Islamic practices",
         "difficulty": "easy",
@@ -11096,18 +11077,18 @@ MCQ_QUESTIONS: list[dict] = [
     {
         "question_en": "What is Muzdalifah in the context of Hajj?",
         "question_ar": "ما هي المزدلفة في سياق الحج؟",
-        "question_fr": "Qu'est-ce que Muzdalifah dans le contexte du Hajj ?",
+        "question_fr": "Qu’est-ce que Muzdalifah dans le contexte du Hajj ?",
         "choices": {
-            "0": {"en": "The place where pilgrims spend the night after Arafat", "ar": "المكان الذي يبيت فيه الحجاج بعد عرفة", "fr": "L'endroit ou les pelerins passent la nuit apres Arafat"},
-            "1": {"en": "The mountain where Ibrahim sacrificed", "ar": "الجبل الذي ذبح فيه إبراهيم", "fr": "La montagne ou Ibrahim a sacrifie"},
-            "2": {"en": "The well near the Kaaba", "ar": "البئر القريب من الكعبة", "fr": "Le puits pres de la Kaaba"},
-            "3": {"en": "The marketplace of Makkah", "ar": "سوق مكة", "fr": "Le marche de La Mecque"},
+            "0": {"en": "The place where pilgrims spend the night after Arafat", "ar": "المكان الذي يبيت فيه الحجاج بعد عرفة", "fr": "L’endroit où les pèlerins passent la nuit après Arafat"},
+            "1": {"en": "The mountain where Ibrahim sacrificed", "ar": "الجبل الذي ذبح فيه إبراهيم", "fr": "La montagne où Ibrahim a sacrifié"},
+            "2": {"en": "The well near the Kaaba", "ar": "البئر القريب من الكعبة", "fr": "Le puits près de la Kaaba"},
+            "3": {"en": "The marketplace of Makkah", "ar": "سوق مكة", "fr": "Le marché de La Mecque"},
         },
         "correct_answer_index": 0,
         "explanation": {
             "en": "Muzdalifah is the open area between Arafat and Mina where pilgrims spend the night of the 10th of Dhul Hijjah after leaving Arafat, and collect pebbles for the stoning of the Jamarat.",
             "ar": "المزدلفة هي المنطقة المفتوحة بين عرفة ومنى حيث يبيت الحجاج ليلة العاشر من ذي الحجة بعد مغادرة عرفة ويجمعون الحصى لرمي الجمرات.",
-            "fr": "Muzdalifah est la zone ouverte entre Arafat et Mina ou les pelerins passent la nuit du 10 Dhul Hijjah apres avoir quitte Arafat et ramassent des cailloux pour la lapidation des Jamarat.",
+            "fr": "Muzdalifah est la zone ouverte entre Arafat et Mina où les pèlerins passent la nuit du 10 Dhul Hijjah après avoir quitté Arafat et ramassent des cailloux pour la lapidation des Jamarat.",
         },
         "category": "Islamic practices",
         "difficulty": "medium",
@@ -11115,7 +11096,7 @@ MCQ_QUESTIONS: list[dict] = [
     {
         "question_en": "What is the morning supplication the Prophet ﷺ encouraged saying three times each morning for protection?",
         "question_ar": "ما الذكر الصباحي الذي حثّ النبي ﷺ على قوله ثلاث مرات كل صباح للحماية؟",
-        "question_fr": "Quelle est l'invocation matinale que le Prophete ﷺ encourageait a dire trois fois chaque matin pour la protection ?",
+        "question_fr": "Quelle est l’invocation matinale que le Prophète ﷺ encourageait à dire trois fois chaque matin pour la protection ?",
         "choices": {
             "0": {"en": "'SubhanAllah' 33 times", "ar": "'سبحان الله' 33 مرة", "fr": "'SubhanAllah' 33 fois"},
             "1": {"en": "'Bismillahi alladhi la yadurru ma'a ismihi shay'un...'", "ar": "'بسم الله الذي لا يضر مع اسمه شيء...'", "fr": "'Bismillahi alladhi la yadurru ma'a ismihi shay'un...'"},
@@ -11126,7 +11107,7 @@ MCQ_QUESTIONS: list[dict] = [
         "explanation": {
             "en": "The Prophet ﷺ said: 'Whoever says three times in the morning: In the name of Allah with whose name nothing on earth or in heaven can harm... nothing will harm him.' (Abu Dawud, Tirmidhi)",
             "ar": "قال النبي ﷺ: 'من قال ثلاث مرات حين يصبح: بسم الله الذي لا يضر مع اسمه شيء في الأرض ولا في السماء... لم يصبه شيء.' (أبو داود، الترمذي)",
-            "fr": "Le Prophete ﷺ a dit : 'Celui qui dit trois fois le matin : Au nom d'Allah dont le nom protege de tout mal sur terre et dans les cieux... rien ne lui nuira.' (Abu Dawud, Tirmidhi)",
+            "fr": "Le Prophète ﷺ a dit : 'Celui qui dit trois fois le matin : Au nom d’Allah dont le nom protège de tout mal sur terre et dans les cieux... rien ne lui nuira.' (Abu Dawud, Tirmidhi)",
         },
         "category": "Islamic practices",
         "difficulty": "hard",
@@ -11134,7 +11115,7 @@ MCQ_QUESTIONS: list[dict] = [
     {
         "question_en": "What was the name of the cave where the Prophet ﷺ and Abu Bakr hid during the Hijra?",
         "question_ar": "ما اسم الغار الذي اختبأ فيه النبي ﷺ وأبو بكر أثناء الهجرة؟",
-        "question_fr": "Quel etait le nom de la grotte ou le Prophete ﷺ et Abu Bakr se sont caches pendant la Hijra ?",
+        "question_fr": "Quel était le nom de la grotte où le Prophète ﷺ et Abu Bakr se sont cachés pendant la Hijra ?",
         "choices": {
             "0": {"en": "Cave of Hira", "ar": "غار حراء", "fr": "Grotte de Hira"},
             "1": {"en": "Cave of Thawr", "ar": "غار ثور", "fr": "Grotte de Thawr"},
@@ -11145,7 +11126,7 @@ MCQ_QUESTIONS: list[dict] = [
         "explanation": {
             "en": "The Prophet ﷺ and Abu Bakr hid in the Cave of Thawr for three nights during the Hijra to Madinah. Allah revealed: 'Do not grieve, indeed Allah is with us.' (Quran 9:40)",
             "ar": "اختبأ النبي ﷺ وأبو بكر في غار ثور ثلاث ليالٍ خلال الهجرة إلى المدينة. أنزل الله: 'لا تحزن إن الله معنا.' (التوبة: 40)",
-            "fr": "Le Prophete ﷺ et Abu Bakr se sont caches dans la Grotte de Thawr pendant trois nuits durant la Hijra vers Medine. Allah a revele : 'Ne t'afflige pas, Allah est avec nous.' (Coran 9:40)",
+            "fr": "Le Prophète ﷺ et Abu Bakr se sont cachés dans la Grotte de Thawr pendant trois nuits durant la Hijra vers Médine. Allah a révélé : 'Ne t’afflige pas, Allah est avec nous.' (Coran 9:40)",
         },
         "category": "Seerah",
         "difficulty": "easy",
@@ -11191,7 +11172,7 @@ MCQ_QUESTIONS: list[dict] = [
     {
         "question_en": "What was the name of the woman who tried to poison the Prophet ﷺ at Khaybar?",
         "question_ar": "ما اسم المرأة التي حاولت تسميم النبي ﷺ في خيبر؟",
-        "question_fr": "Quel etait le nom de la femme qui a tente d'empoisonner le Prophete ﷺ a Khaybar ?",
+        "question_fr": "Quel était le nom de la femme qui a tenté d’empoisonner le Prophète ﷺ à Khaybar ?",
         "choices": {
             "0": {"en": "Hind bint Utbah", "ar": "هند بنت عتبة", "fr": "Hind bint Utbah"},
             "1": {"en": "Zaynab bint al-Harith", "ar": "زينب بنت الحارث", "fr": "Zaynab bint al-Harith"},
@@ -11210,18 +11191,18 @@ MCQ_QUESTIONS: list[dict] = [
     {
         "question_en": "What was the first thing the Prophet ﷺ did upon arriving near Madinah after the Hijra?",
         "question_ar": "ما أول شيء فعله النبي ﷺ عند وصوله قرب المدينة بعد الهجرة؟",
-        "question_fr": "Quelle fut la premiere chose que le Prophete ﷺ a faite en arrivant pres de Medine apres la Hijra ?",
+        "question_fr": "Quelle fut la première chose que le Prophète ﷺ a faite en arrivant près de Médine après la Hijra ?",
         "choices": {
-            "0": {"en": "Built Masjid Quba", "ar": "بنى مسجد قباء", "fr": "A construit la Mosquee Quba"},
-            "1": {"en": "Declared war on the Quraysh", "ar": "أعلن الحرب على قريش", "fr": "A declare la guerre aux Quraysh"},
-            "2": {"en": "Appointed a governor", "ar": "عيّن حاكماً", "fr": "A nomme un gouverneur"},
+            "0": {"en": "Built Masjid Quba", "ar": "بنى مسجد قباء", "fr": "A construit la Mosquée Quba"},
+            "1": {"en": "Declared war on the Quraysh", "ar": "أعلن الحرب على قريش", "fr": "A déclaré la guerre aux Quraysh"},
+            "2": {"en": "Appointed a governor", "ar": "عيّن حاكماً", "fr": "A nommé un gouverneur"},
             "3": {"en": "Built a palace", "ar": "بنى قصراً", "fr": "A construit un palais"},
         },
         "correct_answer_index": 0,
         "explanation": {
             "en": "The Prophet ﷺ first stopped at Quba on the outskirts of Madinah and established Masjid Quba, the first mosque built in Islam. He stayed there for a few days before proceeding to the center of Madinah.",
             "ar": "توقف النبي ﷺ أولاً في قباء على مشارف المدينة وأسس مسجد قباء، أول مسجد بُني في الإسلام.",
-            "fr": "Le Prophete ﷺ s'est d'abord arrete a Quba en peripherie de Medine et a etabli la Mosquee Quba, la premiere mosquee construite en Islam.",
+            "fr": "Le Prophète ﷺ s’est d’abord arrêté à Quba en périphérie de Médine et a établi la Mosquée Quba, la première mosquée construite en Islam.",
         },
         "category": "Seerah",
         "difficulty": "medium",
@@ -11229,18 +11210,18 @@ MCQ_QUESTIONS: list[dict] = [
     {
         "question_en": "What was the Battle of Mu'tah and where did it take place?",
         "question_ar": "ما هي غزوة مؤتة وأين وقعت؟",
-        "question_fr": "Qu'est-ce que la bataille de Mu'tah et ou a-t-elle eu lieu ?",
+        "question_fr": "Qu’est-ce que la bataille de Mu'tah et où a-t-elle eu lieu ?",
         "choices": {
-            "0": {"en": "A naval battle near Yemen", "ar": "معركة بحرية قرب اليمن", "fr": "Une bataille navale pres du Yemen"},
-            "1": {"en": "A battle against the Romans in modern-day Jordan", "ar": "معركة ضد الروم في الأردن الحالي", "fr": "Une bataille contre les Romains dans l'actuelle Jordanie"},
-            "2": {"en": "A siege in Makkah", "ar": "حصار في مكة", "fr": "Un siege a La Mecque"},
-            "3": {"en": "A battle in Madinah", "ar": "معركة في المدينة", "fr": "Une bataille a Medine"},
+            "0": {"en": "A naval battle near Yemen", "ar": "معركة بحرية قرب اليمن", "fr": "Une bataille navale près du Yémen"},
+            "1": {"en": "A battle against the Romans in modern-day Jordan", "ar": "معركة ضد الروم في الأردن الحالي", "fr": "Une bataille contre les Romains dans l’actuelle Jordanie"},
+            "2": {"en": "A siege in Makkah", "ar": "حصار في مكة", "fr": "Un siège à La Mecque"},
+            "3": {"en": "A battle in Madinah", "ar": "معركة في المدينة", "fr": "Une bataille à Médine"},
         },
         "correct_answer_index": 1,
         "explanation": {
             "en": "The Battle of Mu'tah (8 AH) took place in modern-day Jordan against the Byzantine Romans. Three Muslim commanders fell: Zayd ibn Harithah, Ja'far ibn Abi Talib, and Abdullah ibn Rawahah. Khalid ibn al-Walid then took command.",
             "ar": "وقعت غزوة مؤتة (8 هـ) في الأردن الحالي ضد الروم البيزنطيين. استُشهد ثلاثة قادة: زيد بن حارثة، وجعفر بن أبي طالب، وعبد الله بن رواحة. ثم تولى خالد بن الوليد القيادة.",
-            "fr": "La bataille de Mu'tah (8 AH) a eu lieu dans l'actuelle Jordanie contre les Byzantins. Trois commandants musulmans sont tombes. Khalid ibn al-Walid a pris le commandement.",
+            "fr": "La bataille de Mu'tah (8 AH) a eu lieu dans l’actuelle Jordanie contre les Byzantins. Trois commandants musulmans sont tombés. Khalid ibn al-Walid a pris le commandement.",
         },
         "category": "Seerah",
         "difficulty": "hard",
@@ -11248,7 +11229,7 @@ MCQ_QUESTIONS: list[dict] = [
     {
         "question_en": "How many idols were in and around the Kaaba when the Prophet ﷺ conquered Makkah?",
         "question_ar": "كم عدد الأصنام التي كانت في الكعبة وحولها عند فتح مكة؟",
-        "question_fr": "Combien d'idoles y avait-il dans et autour de la Kaaba quand le Prophete ﷺ a conquis La Mecque ?",
+        "question_fr": "Combien d’idoles y avait-il dans et autour de la Kaaba quand le Prophète ﷺ a conquis La Mecque ?",
         "choices": {
             "0": {"en": "100", "ar": "100", "fr": "100"},
             "1": {"en": "360", "ar": "360", "fr": "360"},
@@ -11259,7 +11240,7 @@ MCQ_QUESTIONS: list[dict] = [
         "explanation": {
             "en": "There were 360 idols in and around the Kaaba. The Prophet ﷺ destroyed them all, reciting: 'Truth has come and falsehood has departed.' (Quran 17:81, Sahih al-Bukhari)",
             "ar": "كان في الكعبة وحولها 360 صنماً. حطمها النبي ﷺ جميعاً وهو يتلو: 'جاء الحق وزهق الباطل.' (الإسراء: 81، صحيح البخاري)",
-            "fr": "Il y avait 360 idoles dans et autour de la Kaaba. Le Prophete ﷺ les a toutes detruites en recitant : 'La verite est venue et le faux s'est dissipe.' (Coran 17:81, Sahih al-Bukhari)",
+            "fr": "Il y avait 360 idoles dans et autour de la Kaaba. Le Prophète ﷺ les a toutes détruites en récitant : 'La vérité est venue et le faux s’est dissipé.' (Coran 17:81, Sahih al-Bukhari)",
         },
         "category": "Seerah",
         "difficulty": "medium",
@@ -11267,7 +11248,7 @@ MCQ_QUESTIONS: list[dict] = [
     {
         "question_en": "Who was the guide hired by the Prophet ﷺ and Abu Bakr during the Hijra?",
         "question_ar": "من الدليل الذي استأجره النبي ﷺ وأبو بكر أثناء الهجرة؟",
-        "question_fr": "Qui etait le guide engage par le Prophete ﷺ et Abu Bakr pendant la Hijra ?",
+        "question_fr": "Qui était le guide engagé par le Prophète ﷺ et Abu Bakr pendant la Hijra ?",
         "choices": {
             "0": {"en": "Abdullah ibn Urayqit", "ar": "عبد الله بن أريقط", "fr": "Abdullah ibn Urayqit"},
             "1": {"en": "Suraqa ibn Malik", "ar": "سراقة بن مالك", "fr": "Suraqa ibn Malik"},
@@ -11278,7 +11259,7 @@ MCQ_QUESTIONS: list[dict] = [
         "explanation": {
             "en": "Abdullah ibn Urayqit was a non-Muslim guide from the Banu al-Dil tribe hired by the Prophet ﷺ and Abu Bakr to lead them through an unconventional route to Madinah during the Hijra.",
             "ar": "عبد الله بن أريقط كان دليلاً غير مسلم من بني الديل استأجره النبي ﷺ وأبو بكر ليقودهما عبر طريق غير مألوف إلى المدينة أثناء الهجرة.",
-            "fr": "Abdullah ibn Urayqit etait un guide non-musulman de la tribu des Banu al-Dil engage par le Prophete ﷺ et Abu Bakr pour les mener vers Medine pendant la Hijra.",
+            "fr": "Abdullah ibn Urayqit était un guide non-musulman de la tribu des Banu al-Dil engagé par le Prophète ﷺ et Abu Bakr pour les mener vers Médine pendant la Hijra.",
         },
         "category": "Seerah",
         "difficulty": "hard",
@@ -11286,10 +11267,10 @@ MCQ_QUESTIONS: list[dict] = [
     {
         "question_en": "What did the Prophet ﷺ use to seal his letters to kings and rulers?",
         "question_ar": "ماذا استخدم النبي ﷺ لختم رسائله إلى الملوك والحكام؟",
-        "question_fr": "Qu'utilisait le Prophete ﷺ pour sceller ses lettres aux rois et dirigeants ?",
+        "question_fr": "Qu’utilisait le Prophète ﷺ pour sceller ses lettres aux rois et dirigeants ?",
         "choices": {
             "0": {"en": "A gold ring", "ar": "خاتم ذهب", "fr": "Un anneau en or"},
-            "1": {"en": "A silver ring engraved with 'Muhammad Rasul Allah'", "ar": "خاتم فضة منقوش عليه 'محمد رسول الله'", "fr": "Un anneau en argent grave 'Muhammad Rasul Allah'"},
+            "1": {"en": "A silver ring engraved with 'Muhammad Rasul Allah'", "ar": "خاتم فضة منقوش عليه 'محمد رسول الله'", "fr": "Un anneau en argent gravé 'Muhammad Rasul Allah'"},
             "2": {"en": "A wax stamp", "ar": "ختم شمعي", "fr": "Un cachet de cire"},
             "3": {"en": "His thumbprint", "ar": "بصمة إبهامه", "fr": "Son empreinte de pouce"},
         },
@@ -11297,7 +11278,7 @@ MCQ_QUESTIONS: list[dict] = [
         "explanation": {
             "en": "The Prophet ﷺ had a silver ring engraved with 'Muhammad Rasul Allah' in three lines, which he used as a seal for his letters. (Sahih al-Bukhari)",
             "ar": "كان للنبي ﷺ خاتم فضة منقوش عليه 'محمد رسول الله' في ثلاثة أسطر، استخدمه ختماً لرسائله. (صحيح البخاري)",
-            "fr": "Le Prophete ﷺ avait un anneau en argent grave 'Muhammad Rasul Allah' sur trois lignes, qu'il utilisait comme sceau pour ses lettres. (Sahih al-Bukhari)",
+            "fr": "Le Prophète ﷺ avait un anneau en argent gravé 'Muhammad Rasul Allah' sur trois lignes, qu’il utilisait comme sceau pour ses lettres. (Sahih al-Bukhari)",
         },
         "category": "Seerah",
         "difficulty": "medium",
@@ -11324,18 +11305,18 @@ MCQ_QUESTIONS: list[dict] = [
     {
         "question_en": "What was the outcome of the Treaty of Hudaybiyyah?",
         "question_ar": "ما كانت نتيجة صلح الحديبية؟",
-        "question_fr": "Quel a ete le resultat du Traite de Hudaybiyyah ?",
+        "question_fr": "Quel a été le résultat du Traité de Hudaybiyyah ?",
         "choices": {
-            "0": {"en": "War was declared between Muslims and Quraysh", "ar": "أُعلنت الحرب بين المسلمين وقريش", "fr": "La guerre a ete declaree"},
-            "1": {"en": "A 10-year peace treaty was signed with the Quraysh", "ar": "وُقّعت هدنة عشر سنوات مع قريش", "fr": "Un traite de paix de 10 ans a ete signe avec les Quraysh"},
-            "2": {"en": "The Muslims conquered Makkah immediately", "ar": "فتح المسلمون مكة فوراً", "fr": "Les Musulmans ont conquis La Mecque immediatement"},
-            "3": {"en": "The Quraysh accepted Islam", "ar": "قبلت قريش الإسلام", "fr": "Les Quraysh ont accepte l'Islam"},
+            "0": {"en": "War was declared between Muslims and Quraysh", "ar": "أُعلنت الحرب بين المسلمين وقريش", "fr": "La guerre a été déclarée"},
+            "1": {"en": "A 10-year peace treaty was signed with the Quraysh", "ar": "وُقّعت هدنة عشر سنوات مع قريش", "fr": "Un traité de paix de 10 ans a été signé avec les Quraysh"},
+            "2": {"en": "The Muslims conquered Makkah immediately", "ar": "فتح المسلمون مكة فوراً", "fr": "Les Musulmans ont conquis La Mecque immédiatement"},
+            "3": {"en": "The Quraysh accepted Islam", "ar": "قبلت قريش الإسلام", "fr": "Les Quraysh ont accepté l’Islam"},
         },
         "correct_answer_index": 1,
         "explanation": {
             "en": "The Treaty of Hudaybiyyah (6 AH) was a 10-year peace agreement. Though initially appearing unfavorable, the Quran called it a 'clear victory' (Quran 48:1) as it led to the rapid spread of Islam.",
             "ar": "صلح الحديبية (6 هـ) كان اتفاق سلام لمدة عشر سنوات. سمّاه القرآن 'فتحاً مبيناً' (الفتح: 1) لأنه أدى إلى انتشار الإسلام بسرعة.",
-            "fr": "Le Traite de Hudaybiyyah (6 AH) etait un accord de paix de 10 ans. Le Coran l'a qualifie de 'victoire eclatante' (Coran 48:1).",
+            "fr": "Le Traité de Hudaybiyyah (6 AH) était un accord de paix de 10 ans. Le Coran l’a qualifié de 'victoire éclatante' (Coran 48:1).",
         },
         "category": "Seerah",
         "difficulty": "medium",
@@ -11362,7 +11343,7 @@ MCQ_QUESTIONS: list[dict] = [
     {
         "question_en": "Who was the primary scribe appointed by the Prophet ﷺ to write the Quranic revelation?",
         "question_ar": "من الكاتب الرئيسي الذي عيّنه النبي ﷺ لكتابة الوحي القرآني؟",
-        "question_fr": "Qui etait le scribe principal designe par le Prophete ﷺ pour ecrire la revelation coranique ?",
+        "question_fr": "Qui était le scribe principal désigné par le Prophète ﷺ pour écrire la révélation coranique ?",
         "choices": {
             "0": {"en": "Abu Hurayrah", "ar": "أبو هريرة", "fr": "Abu Hurayrah"},
             "1": {"en": "Bilal ibn Rabah", "ar": "بلال بن رباح", "fr": "Bilal ibn Rabah"},
@@ -11373,7 +11354,7 @@ MCQ_QUESTIONS: list[dict] = [
         "explanation": {
             "en": "Zayd ibn Thabit was the primary scribe of the Prophet ﷺ. He later led the compilation of the Quran under Abu Bakr's caliphate. (Sahih al-Bukhari)",
             "ar": "زيد بن ثابت كان الكاتب الرئيسي للنبي ﷺ. قاد لاحقاً جمع القرآن في عهد أبي بكر. (صحيح البخاري)",
-            "fr": "Zayd ibn Thabit etait le principal scribe du Prophete ﷺ. Il a ensuite dirige la compilation du Coran sous le califat d'Abu Bakr. (Sahih al-Bukhari)",
+            "fr": "Zayd ibn Thabit était le principal scribe du Prophète ﷺ. Il a ensuite dirigé la compilation du Coran sous le califat d’Abu Bakr. (Sahih al-Bukhari)",
         },
         "category": "Seerah",
         "difficulty": "easy",
@@ -11381,7 +11362,7 @@ MCQ_QUESTIONS: list[dict] = [
     {
         "question_en": "How many years did the Prophet ﷺ live in Madinah after the Hijra?",
         "question_ar": "كم سنة عاش النبي ﷺ في المدينة بعد الهجرة؟",
-        "question_fr": "Combien d'annees le Prophete ﷺ a-t-il vecu a Medine apres la Hijra ?",
+        "question_fr": "Combien d’années le Prophète ﷺ a-t-il vécu à Médine après la Hijra ?",
         "choices": {
             "0": {"en": "5 years", "ar": "5 سنوات", "fr": "5 ans"},
             "1": {"en": "10 years", "ar": "10 سنوات", "fr": "10 ans"},
@@ -11392,7 +11373,7 @@ MCQ_QUESTIONS: list[dict] = [
         "explanation": {
             "en": "The Prophet ﷺ migrated to Madinah in 622 CE and passed away in 632 CE, living approximately 10 years in Madinah.",
             "ar": "هاجر النبي ﷺ إلى المدينة عام 622م وتوفي عام 632م، عاش حوالي 10 سنوات في المدينة.",
-            "fr": "Le Prophete ﷺ a emigre a Medine en 622 et est decede en 632, vivant environ 10 ans a Medine.",
+            "fr": "Le Prophète ﷺ a émigré à Médine en 622 et est décédé en 632, vivant environ 10 ans à Médine.",
         },
         "category": "Seerah",
         "difficulty": "easy",
@@ -11400,7 +11381,7 @@ MCQ_QUESTIONS: list[dict] = [
     {
         "question_en": "What was the name of the Jewish tribe expelled from Madinah after the Battle of Badr?",
         "question_ar": "ما اسم القبيلة اليهودية التي أُجليت من المدينة بعد غزوة بدر؟",
-        "question_fr": "Quel etait le nom de la tribu juive expulsee de Medine apres la bataille de Badr ?",
+        "question_fr": "Quel était le nom de la tribu juive expulsée de Médine après la bataille de Badr ?",
         "choices": {
             "0": {"en": "Banu Qaynuqa", "ar": "بنو قينقاع", "fr": "Banu Qaynuqa"},
             "1": {"en": "Banu Nadir", "ar": "بنو النضير", "fr": "Banu Nadir"},
@@ -11411,7 +11392,7 @@ MCQ_QUESTIONS: list[dict] = [
         "explanation": {
             "en": "Banu Qaynuqa was the first Jewish tribe expelled from Madinah after they broke the treaty and showed hostility towards the Muslims following the Muslim victory at Badr.",
             "ar": "بنو قينقاع كانوا أول قبيلة يهودية أُجليت من المدينة بعد أن نقضوا العهد وأظهروا العداء للمسلمين عقب انتصارهم في بدر.",
-            "fr": "Banu Qaynuqa fut la premiere tribu juive expulsee de Medine apres avoir rompu le traite.",
+            "fr": "Banu Qaynuqa fut la première tribu juive expulsée de Médine après avoir rompu le traité.",
         },
         "category": "Seerah",
         "difficulty": "hard",
@@ -11419,11 +11400,11 @@ MCQ_QUESTIONS: list[dict] = [
     {
         "question_en": "What are the conditions (shurut) for prayer to be valid?",
         "question_ar": "ما شروط صحة الصلاة؟",
-        "question_fr": "Quelles sont les conditions (shurut) pour que la priere soit valide ?",
+        "question_fr": "Quelles sont les conditions (shurut) pour que la prière soit valide ?",
         "choices": {
             "0": {"en": 'Islam, sanity, discernment, purity, facing Qiblah, prayer time, covering awrah', "ar": 'الإسلام والعقل والتمييز والطهارة واستقبال القبلة ودخول الوقت وستر العورة', "fr": 'Islam, raison, discernement, pureté, face à la Qiblah, temps de prière, couvrir la awrah'},
-            "1": {"en": "Only purity and facing the Qiblah", "ar": "الطهارة واستقبال القبلة فقط", "fr": "Seulement la purete et faire face a la Qiblah"},
-            "2": {"en": "Being in a mosque and wearing white", "ar": "أن يكون في المسجد ويلبس الأبيض", "fr": "Etre dans une mosquee et porter du blanc"},
+            "1": {"en": "Only purity and facing the Qiblah", "ar": "الطهارة واستقبال القبلة فقط", "fr": "Seulement la pureté et faire face à la Qiblah"},
+            "2": {"en": "Being in a mosque and wearing white", "ar": "أن يكون في المسجد ويلبس الأبيض", "fr": "Être dans une mosquée et porter du blanc"},
             "3": {"en": "Having wudu only", "ar": "الوضوء فقط", "fr": "Avoir le wudu uniquement"},
         },
         "correct_answer_index": 0,
@@ -11438,18 +11419,18 @@ MCQ_QUESTIONS: list[dict] = [
     {
         "question_en": "What are the pillars (arkan) of Salah that must be performed?",
         "question_ar": "ما أركان الصلاة التي يجب أداؤها؟",
-        "question_fr": "Quels sont les piliers (arkan) de la Salah qui doivent etre accomplis ?",
+        "question_fr": "Quels sont les piliers (arkan) de la Salah qui doivent être accomplis ?",
         "choices": {
-            "0": {"en": "Standing, reciting Al-Fatiha, bowing, prostrating, and the final Tashahhud", "ar": "القيام وقراءة الفاتحة والركوع والسجود والتشهد الأخير", "fr": "Se tenir debout, reciter Al-Fatiha, s'incliner, se prosterner et le Tashahhud final"},
+            "0": {"en": "Standing, reciting Al-Fatiha, bowing, prostrating, and the final Tashahhud", "ar": "القيام وقراءة الفاتحة والركوع والسجود والتشهد الأخير", "fr": "Se tenir debout, réciter Al-Fatiha, s’incliner, se prosterner et le Tashahhud final"},
             "1": {"en": "Only standing and prostrating", "ar": "القيام والسجود فقط", "fr": "Seulement se tenir debout et se prosterner"},
-            "2": {"en": "Only reciting the Quran", "ar": "تلاوة القرآن فقط", "fr": "Seulement reciter le Coran"},
-            "3": {"en": "Sitting and making dua", "ar": "الجلوس والدعاء", "fr": "S'asseoir et faire des invocations"},
+            "2": {"en": "Only reciting the Quran", "ar": "تلاوة القرآن فقط", "fr": "Seulement réciter le Coran"},
+            "3": {"en": "Sitting and making dua", "ar": "الجلوس والدعاء", "fr": "S’asseoir et faire des invocations"},
         },
         "correct_answer_index": 0,
         "explanation": {
             "en": "The pillars of Salah include: standing (for those able), Takbirat al-Ihram, reciting Al-Fatiha, bowing, rising from bowing, prostrating, sitting between prostrations, the final Tashahhud, and the Tasleem.",
             "ar": "أركان الصلاة تشمل: القيام، وتكبيرة الإحرام، وقراءة الفاتحة، والركوع، والرفع من الركوع، والسجود، والجلوس بين السجدتين، والتشهد الأخير، والتسليم.",
-            "fr": "Les piliers de la Salah comprennent : se tenir debout, le Takbirat al-Ihram, reciter Al-Fatiha, s'incliner, se relever, se prosterner, s'asseoir entre les prostrations, le Tashahhud final et le Tasleem.",
+            "fr": "Les piliers de la Salah comprennent : se tenir debout, le Takbirat al-Ihram, réciter Al-Fatiha, s’incliner, se relever, se prosterner, s’asseoir entre les prostrations, le Tashahhud final et le Tasleem.",
         },
         "category": "Pillars of Islam",
         "difficulty": "hard",
@@ -11457,12 +11438,12 @@ MCQ_QUESTIONS: list[dict] = [
     {
         "question_en": "Who must pay Zakat al-Fitr?",
         "question_ar": "من يجب عليه إخراج زكاة الفطر؟",
-        "question_fr": "Qui doit payer la Zakat al-Fitr ?",
+        "question_fr": "Qui doit payer la Zakat al-Fitr ?",
         "choices": {
             "0": {"en": "Only the wealthy", "ar": "الأغنياء فقط", "fr": "Seulement les riches"},
-            "1": {"en": "Every Muslim who has food beyond their needs for Eid day", "ar": "كل مسلم لديه طعام يزيد عن حاجته يوم العيد", "fr": "Tout musulman qui a de la nourriture au-dela de ses besoins pour le jour de l'Aid"},
+            "1": {"en": "Every Muslim who has food beyond their needs for Eid day", "ar": "كل مسلم لديه طعام يزيد عن حاجته يوم العيد", "fr": "Tout musulman qui a de la nourriture au-delà de ses besoins pour le jour de l’Aïd"},
             "2": {"en": "Only men", "ar": "الرجال فقط", "fr": "Seulement les hommes"},
-            "3": {"en": "Only those who fasted the entire Ramadan", "ar": "فقط من صام رمضان كاملاً", "fr": "Seulement ceux qui ont jeune tout le Ramadan"},
+            "3": {"en": "Only those who fasted the entire Ramadan", "ar": "فقط من صام رمضان كاملاً", "fr": "Seulement ceux qui ont jeûné tout le Ramadan"},
         },
         "correct_answer_index": 1,
         "explanation": {
@@ -11476,18 +11457,18 @@ MCQ_QUESTIONS: list[dict] = [
     {
         "question_en": "What invalidates wudu (ablution)?",
         "question_ar": "ما الذي ينقض الوضوء؟",
-        "question_fr": "Qu'est-ce qui invalide le wudu (ablution) ?",
+        "question_fr": "Qu’est-ce qui invalide le wudu (ablution) ?",
         "choices": {
             "0": {"en": "Eating or drinking", "ar": "الأكل أو الشرب", "fr": "Manger ou boire"},
-            "1": {"en": "Sleeping deeply, passing wind, or using the restroom", "ar": "النوم العميق أو الريح أو قضاء الحاجة", "fr": "Dormir profondement, avoir des gaz ou aller aux toilettes"},
-            "2": {"en": "Talking during prayer", "ar": "الكلام أثناء الصلاة", "fr": "Parler pendant la priere"},
-            "3": {"en": "Touching water", "ar": "لمس الماء", "fr": "Toucher l'eau"},
+            "1": {"en": "Sleeping deeply, passing wind, or using the restroom", "ar": "النوم العميق أو الريح أو قضاء الحاجة", "fr": "Dormir profondément, avoir des gaz ou aller aux toilettes"},
+            "2": {"en": "Talking during prayer", "ar": "الكلام أثناء الصلاة", "fr": "Parler pendant la prière"},
+            "3": {"en": "Touching water", "ar": "لمس الماء", "fr": "Toucher l’eau"},
         },
         "correct_answer_index": 1,
         "explanation": {
             "en": "Wudu is invalidated by anything that exits from the front or back passages, deep sleep, and loss of consciousness, according to the majority of scholars.",
             "ar": "ينتقض الوضوء بما يخرج من السبيلين، والنوم العميق، وفقدان الوعي، عند جمهور العلماء.",
-            "fr": "Le wudu est invalide par ce qui sort des deux voies, le sommeil profond et la perte de conscience, selon la majorite des savants.",
+            "fr": "Le wudu est invalidé par ce qui sort des deux voies, le sommeil profond et la perte de conscience, selon la majorité des savants.",
         },
         "category": "Pillars of Islam",
         "difficulty": "easy",
@@ -11495,18 +11476,18 @@ MCQ_QUESTIONS: list[dict] = [
     {
         "question_en": "What is the exact wording of the Shahada (declaration of faith)?",
         "question_ar": "ما النص الدقيق للشهادة (إعلان الإيمان)؟",
-        "question_fr": "Quel est le libelle exact de la Shahada (declaration de foi) ?",
+        "question_fr": "Quel est le libellé exact de la Shahada (déclaration de foi) ?",
         "choices": {
-            "0": {"en": "'Glory be to Allah'", "ar": "'سبحان الله'", "fr": "'Gloire a Allah'"},
-            "1": {"en": "'There is no god but Allah, and Muhammad is the Messenger of Allah'", "ar": "'لا إله إلا الله محمد رسول الله'", "fr": "'Il n'y a de dieu qu'Allah et Muhammad est le Messager d'Allah'"},
+            "0": {"en": "'Glory be to Allah'", "ar": "'سبحان الله'", "fr": "'Gloire à Allah'"},
+            "1": {"en": "'There is no god but Allah, and Muhammad is the Messenger of Allah'", "ar": "'لا إله إلا الله محمد رسول الله'", "fr": "'Il n’y a de dieu qu’Allah et Muhammad est le Messager d’Allah'"},
             "2": {"en": "'Allah is the Greatest'", "ar": "'الله أكبر'", "fr": "'Allah est le Plus Grand'"},
-            "3": {"en": "'In the name of Allah'", "ar": "'بسم الله'", "fr": "'Au nom d'Allah'"},
+            "3": {"en": "'In the name of Allah'", "ar": "'بسم الله'", "fr": "'Au nom d’Allah'"},
         },
         "correct_answer_index": 1,
         "explanation": {
             "en": "The Shahada is: 'Ash-hadu an la ilaha illa Allah, wa ash-hadu anna Muhammadan rasul Allah' -- testifying that there is no god but Allah and Muhammad is His Messenger.",
             "ar": "الشهادة هي: 'أشهد أن لا إله إلا الله وأشهد أن محمداً رسول الله'.",
-            "fr": "La Shahada est : 'Ash-hadu an la ilaha illa Allah, wa ash-hadu anna Muhammadan rasul Allah'.",
+            "fr": "La Shahada est : 'Ash-hadu an la ilaha illa Allah, wa ash-hadu anna Muhammadan rasul Allah'.",
         },
         "category": "Pillars of Islam",
         "difficulty": "easy",
@@ -11514,18 +11495,18 @@ MCQ_QUESTIONS: list[dict] = [
     {
         "question_en": "What types of wealth are subject to Zakat?",
         "question_ar": "ما أنواع الأموال التي تجب فيها الزكاة؟",
-        "question_fr": "Quels types de richesse sont soumis a la Zakat ?",
+        "question_fr": "Quels types de richesse sont soumis à la Zakat ?",
         "choices": {
-            "0": {"en": "Only cash savings", "ar": "المدخرات النقدية فقط", "fr": "Seulement les economies en especes"},
-            "1": {"en": "Gold, silver, cash, trade goods, livestock, and agricultural produce", "ar": "الذهب والفضة والنقود وعروض التجارة والأنعام والزروع", "fr": "Or, argent, especes, biens commerciaux, betail et produits agricoles"},
-            "2": {"en": "Only gold and silver", "ar": "الذهب والفضة فقط", "fr": "Seulement l'or et l'argent"},
-            "3": {"en": "Only livestock", "ar": "الأنعام فقط", "fr": "Seulement le betail"},
+            "0": {"en": "Only cash savings", "ar": "المدخرات النقدية فقط", "fr": "Seulement les économies en espèces"},
+            "1": {"en": "Gold, silver, cash, trade goods, livestock, and agricultural produce", "ar": "الذهب والفضة والنقود وعروض التجارة والأنعام والزروع", "fr": "Or, argent, espèces, biens commerciaux, bétail et produits agricoles"},
+            "2": {"en": "Only gold and silver", "ar": "الذهب والفضة فقط", "fr": "Seulement l’or et l’argent"},
+            "3": {"en": "Only livestock", "ar": "الأنعام فقط", "fr": "Seulement le bétail"},
         },
         "correct_answer_index": 1,
         "explanation": {
             "en": "Zakat is due on various types of wealth: gold, silver, cash, trade goods, livestock (camels, cattle, sheep), and agricultural produce, each with its own nisab and rate.",
             "ar": "تجب الزكاة في أنواع مختلفة من الأموال: الذهب والفضة والنقود وعروض التجارة والأنعام والزروع.",
-            "fr": "La Zakat est due sur divers types de richesse : l'or, l'argent, les especes, les biens commerciaux, le betail et les produits agricoles.",
+            "fr": "La Zakat est due sur divers types de richesse : l’or, l’argent, les espèces, les biens commerciaux, le bétail et les produits agricoles.",
         },
         "category": "Pillars of Islam",
         "difficulty": "medium",
@@ -11533,7 +11514,7 @@ MCQ_QUESTIONS: list[dict] = [
     {
         "question_en": "How many rak'ahs are in the Dhuhr prayer?",
         "question_ar": "كم عدد ركعات صلاة الظهر؟",
-        "question_fr": "Combien de rak'ahs y a-t-il dans la priere de Dhuhr ?",
+        "question_fr": "Combien de rak'ahs y a-t-il dans la prière de Dhuhr ?",
         "choices": {
             "0": {"en": "2", "ar": "2", "fr": "2"},
             "1": {"en": "3", "ar": "3", "fr": "3"},
@@ -11544,7 +11525,7 @@ MCQ_QUESTIONS: list[dict] = [
         "explanation": {
             "en": "The Dhuhr (noon) prayer consists of 4 obligatory rak'ahs. It is the second of the five daily prayers.",
             "ar": "صلاة الظهر تتكون من 4 ركعات فرض. وهي ثاني الصلوات الخمس اليومية.",
-            "fr": "La priere de Dhuhr (midi) se compose de 4 rak'ahs obligatoires.",
+            "fr": "La prière de Dhuhr (midi) se compose de 4 rak'ahs obligatoires.",
         },
         "category": "Pillars of Islam",
         "difficulty": "easy",
@@ -11552,18 +11533,18 @@ MCQ_QUESTIONS: list[dict] = [
     {
         "question_en": "What is the ruling on a traveler shortening prayers (Qasr)?",
         "question_ar": "ما حكم قصر الصلاة للمسافر؟",
-        "question_fr": "Quel est le statut du raccourcissement des prieres (Qasr) pour le voyageur ?",
+        "question_fr": "Quel est le statut du raccourcissement des prières (Qasr) pour le voyageur ?",
         "choices": {
-            "0": {"en": "It is forbidden", "ar": "محرّم", "fr": "C'est interdit"},
-            "1": {"en": "It is a confirmed Sunnah to shorten 4-rak'ah prayers to 2", "ar": "سنة مؤكدة بقصر الصلاة الرباعية إلى ركعتين", "fr": "C'est une Sunnah confirmee de raccourcir les prieres de 4 rak'ahs a 2"},
-            "2": {"en": "All prayers become 1 rak'ah", "ar": "كل الصلوات تصبح ركعة واحدة", "fr": "Toutes les prieres deviennent 1 rak'ah"},
-            "3": {"en": "Travelers do not need to pray", "ar": "المسافرون لا يحتاجون للصلاة", "fr": "Les voyageurs n'ont pas besoin de prier"},
+            "0": {"en": "It is forbidden", "ar": "محرّم", "fr": "C’est interdit"},
+            "1": {"en": "It is a confirmed Sunnah to shorten 4-rak'ah prayers to 2", "ar": "سنة مؤكدة بقصر الصلاة الرباعية إلى ركعتين", "fr": "C’est une Sunnah confirmée de raccourcir les prières de 4 rak'ahs à 2"},
+            "2": {"en": "All prayers become 1 rak'ah", "ar": "كل الصلوات تصبح ركعة واحدة", "fr": "Toutes les prières deviennent 1 rak'ah"},
+            "3": {"en": "Travelers do not need to pray", "ar": "المسافرون لا يحتاجون للصلاة", "fr": "Les voyageurs n’ont pas besoin de prier"},
         },
         "correct_answer_index": 1,
         "explanation": {
             "en": "A traveler may shorten the 4-rak'ah prayers (Dhuhr, Asr, Isha) to 2 rak'ahs. Fajr (2) and Maghrib (3) remain unchanged.",
             "ar": "يجوز للمسافر قصر الصلاة الرباعية (الظهر والعصر والعشاء) إلى ركعتين. تبقى صلاة الفجر (2) والمغرب (3) كما هي.",
-            "fr": "Un voyageur peut raccourcir les prieres de 4 rak'ahs (Dhuhr, Asr, Isha) a 2 rak'ahs. Fajr (2) et Maghrib (3) restent inchangees.",
+            "fr": "Un voyageur peut raccourcir les prières de 4 rak'ahs (Dhuhr, Asr, Isha) à 2 rak'ahs. Fajr (2) et Maghrib (3) restent inchangées.",
         },
         "category": "Pillars of Islam",
         "difficulty": "medium",
@@ -11571,10 +11552,10 @@ MCQ_QUESTIONS: list[dict] = [
     {
         "question_en": "What are the eight categories of people eligible to receive Zakat according to the Quran?",
         "question_ar": "ما الأصناف الثمانية المستحقة للزكاة حسب القرآن؟",
-        "question_fr": "Quelles sont les huit categories de personnes eligibles a recevoir la Zakat selon le Coran ?",
+        "question_fr": "Quelles sont les huit catégories de personnes éligibles à recevoir la Zakat selon le Coran ?",
         "choices": {
-            "0": {"en": "The poor, needy, Zakat collectors, those whose hearts are to be reconciled, freeing slaves, debtors, in the cause of Allah, and travelers", "ar": "الفقراء والمساكين والعاملون عليها والمؤلفة قلوبهم وفي الرقاب والغارمون وفي سبيل الله وابن السبيل", "fr": "Les pauvres, les necessiteux, les collecteurs de Zakat, ceux dont les coeurs sont a reconcilier, la liberation des esclaves, les endettes, dans la cause d'Allah et les voyageurs"},
-            "1": {"en": "Only the poor and the needy", "ar": "الفقراء والمساكين فقط", "fr": "Seulement les pauvres et les necessiteux"},
+            "0": {"en": "The poor, needy, Zakat collectors, those whose hearts are to be reconciled, freeing slaves, debtors, in the cause of Allah, and travelers", "ar": "الفقراء والمساكين والعاملون عليها والمؤلفة قلوبهم وفي الرقاب والغارمون وفي سبيل الله وابن السبيل", "fr": "Les pauvres, les nécessiteux, les collecteurs de Zakat, ceux dont les cœurs sont à réconcilier, la libération des esclaves, les endettés, dans la cause d’Allah et les voyageurs"},
+            "1": {"en": "Only the poor and the needy", "ar": "الفقراء والمساكين فقط", "fr": "Seulement les pauvres et les nécessiteux"},
             "2": {"en": "Scholars, imams, and teachers only", "ar": "العلماء والأئمة والمعلمون فقط", "fr": "Savants, imams et enseignants uniquement"},
             "3": {"en": "Family members only", "ar": "أفراد العائلة فقط", "fr": "Les membres de la famille uniquement"},
         },
@@ -11582,7 +11563,7 @@ MCQ_QUESTIONS: list[dict] = [
         "explanation": {
             "en": "The Quran specifies eight categories in Surah At-Tawbah (9:60): the poor, the needy, Zakat administrators, those whose hearts are to be reconciled, freeing of slaves, those in debt, in the cause of Allah, and the stranded traveler.",
             "ar": "حدد القرآن ثمانية أصناف في سورة التوبة (60): الفقراء والمساكين والعاملون عليها والمؤلفة قلوبهم وفي الرقاب والغارمون وفي سبيل الله وابن السبيل.",
-            "fr": "Le Coran specifie huit categories dans la sourate At-Tawbah (9:60).",
+            "fr": "Le Coran spécifie huit catégories dans la sourate At-Tawbah (9:60).",
         },
         "category": "Pillars of Islam",
         "difficulty": "hard",
@@ -11590,18 +11571,18 @@ MCQ_QUESTIONS: list[dict] = [
     {
         "question_en": "When must Zakat al-Fitr be paid?",
         "question_ar": "متى يجب إخراج زكاة الفطر؟",
-        "question_fr": "Quand la Zakat al-Fitr doit-elle etre payee ?",
+        "question_fr": "Quand la Zakat al-Fitr doit-elle être payée ?",
         "choices": {
-            "0": {"en": "Anytime during Ramadan", "ar": "في أي وقت خلال رمضان", "fr": "N'importe quand pendant le Ramadan"},
-            "1": {"en": "Before the Eid prayer", "ar": "قبل صلاة العيد", "fr": "Avant la priere de l'Aid"},
-            "2": {"en": "After Eid prayer", "ar": "بعد صلاة العيد", "fr": "Apres la priere de l'Aid"},
-            "3": {"en": "During the last 10 nights of Ramadan only", "ar": "خلال العشر الأواخر من رمضان فقط", "fr": "Pendant les 10 dernieres nuits du Ramadan uniquement"},
+            "0": {"en": "Anytime during Ramadan", "ar": "في أي وقت خلال رمضان", "fr": "N’importe quand pendant le Ramadan"},
+            "1": {"en": "Before the Eid prayer", "ar": "قبل صلاة العيد", "fr": "Avant la prière de l’Aïd"},
+            "2": {"en": "After Eid prayer", "ar": "بعد صلاة العيد", "fr": "Après la prière de l’Aïd"},
+            "3": {"en": "During the last 10 nights of Ramadan only", "ar": "خلال العشر الأواخر من رمضان فقط", "fr": "Pendant les 10 dernières nuits du Ramadan uniquement"},
         },
         "correct_answer_index": 1,
         "explanation": {
             "en": "Zakat al-Fitr must be paid before the Eid prayer. Paying it after the prayer counts as regular charity, not Zakat al-Fitr. (Abu Dawud)",
             "ar": "يجب إخراج زكاة الفطر قبل صلاة العيد. إخراجها بعد الصلاة يُعتبر صدقة عادية لا زكاة فطر. (أبو داود)",
-            "fr": "La Zakat al-Fitr doit etre payee avant la priere de l'Aid. La payer apres la priere compte comme charite ordinaire. (Abu Dawud)",
+            "fr": "La Zakat al-Fitr doit être payée avant la prière de l’Aïd. La payer après la prière compte comme charité ordinaire. (Abu Dawud)",
         },
         "category": "Pillars of Islam",
         "difficulty": "medium",
@@ -11612,38 +11593,47 @@ MCQ_QUESTIONS: list[dict] = [
 async def seed_mcq_questions(session: AsyncSession) -> None:
     """Seed MCQ Quiz questions with trilingual content.
 
-    Idempotent: checks by question_en before inserting.
+    The seed data is the source of truth for the questions. An upsert keyed on
+    ``question_en``: a question already on the server is brought back to the data
+    (translations, choices, answer, explanation, category, difficulty), and a question
+    no longer in the data is deleted. A rewritten question changes its ``question_en``,
+    so without the deletion its old, corrected-away version would stay in play beside
+    it. Nothing holds a foreign key to a question; a running game whose next question
+    was deleted draws another at random.
 
     Args:
         session: The database session.
     """
+    seeded = {q_data["question_en"] for q_data in MCQ_QUESTIONS}
+    retired = (
+        await session.exec(select(McqQuestion).where(McqQuestion.question_en.not_in(seeded)))  # ty: ignore[unresolved-attribute]
+    ).all()
+    for question in retired:
+        await session.delete(question)
+
     count = 0
+    updated = 0
     for q_data in MCQ_QUESTIONS:
+        fields = {
+            "question_ar": q_data.get("question_ar"),
+            "question_fr": q_data.get("question_fr"),
+            "choices": q_data["choices"],
+            "correct_answer_index": q_data["correct_answer_index"],
+            "explanation": q_data.get("explanation"),
+            "category": q_data["category"],
+            "difficulty": q_data.get("difficulty", "medium"),
+        }
         existing = (
-            await session.exec(
-                select(McqQuestion).where(
-                    McqQuestion.question_en == q_data["question_en"]
-                )
-            )
+            await session.exec(select(McqQuestion).where(McqQuestion.question_en == q_data["question_en"]))
         ).first()
         if existing:
-            # Update difficulty if changed
-            if q_data.get("difficulty") and existing.difficulty != q_data.get("difficulty"):
-                existing.difficulty = q_data["difficulty"]
+            if any(getattr(existing, field) != value for field, value in fields.items()):
+                for field, value in fields.items():
+                    setattr(existing, field, value)
                 session.add(existing)
+                updated += 1
             continue
-        question = McqQuestion(
-            id=uuid4(),
-            question_en=q_data["question_en"],
-            question_ar=q_data.get("question_ar"),
-            question_fr=q_data.get("question_fr"),
-            choices=q_data["choices"],
-            correct_answer_index=q_data["correct_answer_index"],
-            explanation=q_data.get("explanation"),
-            category=q_data["category"],
-            difficulty=q_data.get("difficulty", "medium"),
-        )
-        session.add(question)
+        session.add(McqQuestion(id=uuid4(), question_en=q_data["question_en"], **fields))
         count += 1
     await session.commit()
-    print(f"  Seeded {count} MCQ Quiz questions")
+    print(f"  Seeded {count} MCQ Quiz questions, updated {updated}, retired {len(retired)}")

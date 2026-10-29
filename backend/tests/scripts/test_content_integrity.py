@@ -335,3 +335,17 @@ def test_every_mcq_question_has_four_distinct_choices_and_a_valid_answer():
     # Assert
     assert questions
     assert errors == [], "\n".join(errors)
+
+
+def test_every_mcq_question_text_is_unique():
+    """The seed upserts on question_en: two questions sharing it overwrite each other on every run."""
+    # Act
+    seen: dict[str, int] = {}
+    duplicates = []
+    for index, question in enumerate(mcqquiz_data.MCQ_QUESTIONS):
+        if question["question_en"] in seen:
+            duplicates.append((seen[question["question_en"]], index, question["question_en"]))
+        seen.setdefault(question["question_en"], index)
+
+    # Assert
+    assert duplicates == []

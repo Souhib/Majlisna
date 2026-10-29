@@ -452,6 +452,16 @@ server as it was. The flip side: an edit made through the admin content API to a
 word is overwritten by the next `--seed` (no client calls that API; change the data file
 instead). `tests/scripts/test_content_seed.py` pins it.
 
+`seed_mcq_questions` is an upsert keyed on `question_en` AND retires every question no
+longer in `MCQ_QUESTIONS`: rewriting a question changes its `question_en`, so the first
+production `--seed` after the content pass of 2026-10-29 added the 40 rewritten questions
+beside their old, corrected-away versions and updated nothing else. Nothing holds a
+foreign key to a question; a running game whose next question was retired draws another.
+`question_en` must therefore be unique (`test_every_mcq_question_text_is_unique`): two
+entries sharing it overwrote each other on every run (the Bayt al-Hikmah question was in
+the data twice). The questions are cached per worker for an hour
+(`CACHE_TTL_GAME_CONTENT_SECONDS`), so restart the backend after a production `--seed`.
+
 ### Expected 4xx log at INFO, not WARNING
 
 `BaseError` picks `INFO` for < 500 and `ERROR` for >= 500. `app.py` attaches a
