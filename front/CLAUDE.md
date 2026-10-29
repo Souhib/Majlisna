@@ -53,7 +53,8 @@ src/
 │   ├── ui/                  # Samar primitives (Button, Field, Panel, Dialog, Tabs…)
 │   ├── brand/               # Wordmark, SaduBand, Halqa, CodeTiles, ThreadClock, Colophon…
 │   ├── layout/              # MainNav (+ menu sheet), Footer, LanguageSwitch, ThemeToggle
-│   ├── home/                # HomeHero (sky + name + join row), HalqaCard, GamesFihrist, SupportSection
+│   ├── home/                # HomeHero (sky + name + join row), HalqaCard, DailyWordCard, GamesFihrist, SupportSection
+│   ├── daily/               # The word of the day (/today): DailyWordPage, DailyReveal, DailyCountdown, use-daily-word, daily.ts (pure)
 │   ├── ErrorBoundary.tsx
 │   └── NotFound.tsx
 ├── hooks/
@@ -90,7 +91,9 @@ src/
 │   │   │   └── mcqquiz.$gameId.tsx   # MCQ Quiz game UI (Socket.IO)
 │   │   ├── profile.tsx      # User profile + stats
 │   │   └── achievements.tsx # Achievement badges
+│   ├── today.tsx            # The word of the day (public; components/daily)
 │   ├── credits.tsx          # Image, font and icon attribution (CC BY-SA credits live here)
+│   ├── privacy.tsx          # Privacy policy (Read page; text in `privacy.sections`, kept true to the code)
 │   ├── about.tsx            # About + "How the games play" (components/about/GameRules, ids #undercover #codenames #kalimat #quiz)
 │   └── auth/
 │       ├── login.tsx        # Login form
@@ -137,7 +140,9 @@ Phase transitions detected by comparing refs to previous state (`previousPhaseRe
 ### Authentication
 - JWT stored in localStorage (`majlisna-token`, `majlisna-refresh-token`, `majlisna-token-expiry`)
 - Auto-refresh 1 minute before expiry
-- 401 responses clear auth state and redirect to login
+- 401 responses clear auth state and redirect to login, except on the two session probes,
+  `/auth/me` and `/auth/refresh` (`redirectsToLoginOn401` in `api/client.ts`): AuthProvider
+  answers those by ending signed out on the page the visitor opened
 
 ### Styling
 ```typescript
@@ -265,6 +270,27 @@ the host starting the next one, and each call used to eliminate another player.
 
 The server-side guard (`round_already_resolved`) is the real safety net — see
 backend/CLAUDE.md, "An Undercover round resolves exactly ONCE". Both halves stay.
+
+### A stale access token is refreshed BEFORE `/me`
+
+After an hour away the access token has expired (and the access cookie with it: its
+`max_age` is the token's life) while the refresh token is still good — the normal state of a
+returning visitor. `initAuth` used to ask `/me` first with the stale bearer; the 401 made
+`client.ts` clear the session and send the visitor to `/auth/login`, from any page, the public
+`/today` and the home card included, and the refresh never ran. Now:
+
+- `initAuth` refreshes first when the stored token is past (or within `REFRESH_BUFFER_MS` of)
+  its expiry (`accessTokenIsStale`), then asks `/me` with the fresh token and schedules from
+  it; a refresh that fails clears the session and ends signed out, with no redirect.
+- `client.ts` never redirects on a 401 from `/auth/me` or `/auth/refresh`
+  (`redirectsToLoginOn401`): they are the provider's own probes, and the cookie-only retry of
+  a refused body refresh token must get its turn. It still clears the stored tokens. A
+  protected page then redirects through `_auth.tsx`, with the page in `redirect`.
+
+Tests: `AuthProvider.test.tsx` ("refreshes an expired access token before asking /me", "ends
+signed out … when an expired session cannot be refreshed"), `api/client.test.ts`
+(`redirectsToLoginOn401`), and `e2e/tests/auth/token-management.spec.ts` ("an expired access
+token with a valid refresh token stays signed in").
 
 ### AuthProvider shares the in-flight refresh promise
 
@@ -444,6 +470,31 @@ the page sat on "Joining room…". The promise from `mutateAsync` always settles
 `og-image.png`, CC BY-SA 4.0; the Jabreen arch, CC BY-SA 2.0). It is linked from the footer on
 every page. A new third-party image ships only with its entry there.
 
+### Privacy
+
+`routes/privacy.tsx` is a Read page on the About rails (`components/about/rails.ts`): section
+titles at the start, the text at a reading measure. Its text is `privacy.sections` (`{ title,
+body[] }`, the same number of sections and paragraphs in the three locales: the parity test walks
+arrays): one paragraph reads as a paragraph, several as a list behind brass lozenges. Strings may
+carry `<b>` (an item's lead term) and `<profile>` (link to /profile). Test:
+`components/about/__tests__/privacy-page.test.tsx` (every section of each locale is rendered).
+
+The policy describes the code as it is (checked 2026-10-28), so **a change to any flow it names
+changes its text**, in the three languages, with a new "updated" date:
+
+- prayer times: computed on the device (adhan); the nav calls `https://ipapi.co/json/`
+  automatically while no city is stored; city search → Open-Meteo geocoding; a chosen city →
+  Open-Meteo for its time zone; "Use my location" (on request) → Nominatim + Open-Meteo; the city
+  lives in localStorage only (`majlisna-city`, `majlisna-coordinates`);
+- browser storage: the tokens and `majlisna-user-data` in localStorage beside the httpOnly
+  cookies, theme, language, the welcome flag, per-tab sessionStorage during a game;
+- Google: sign-in only, but `GoogleOAuthProvider` in `__root.tsx` loads Google's script on every
+  page; profile pictures come from Google's servers;
+- Umami events carry no identifier; GlitchTip, Resend, Cloudflare, Oracle Cloud;
+- what other players see (public stats, achievements and leaderboard; the profile for signed-in
+  players), the notebook, the word of the day, chat, and what account deletion removes (and that
+  past games keep the name a player played under).
+
 ### `/auth/me` says `email_address`, `UserData` says `email`
 
 The cookie path of `initAuth` cast `GET /auth/me` (a `UserView`) straight to `UserData`, so after
@@ -545,6 +596,71 @@ any reload `user.email` was `undefined` and the profile showed no address. It go
 - **A 204 has no body.** FastAPI labels it `application/json`; `api/client.ts` answers 204/205
   with `undefined` data instead of parsing (it used to throw a SyntaxError after the server had
   done the work: every DELETE, friend reject, notebook removal).
+- **`KeepAction`** (`KeepWords.tsx`) is the keep pattern on its own (`kept`, `keeping`, `onKeep`,
+  `label`, `keptLabel`): the colophons reach it through `KeepWordsAction`, the word of the day's
+  reveal directly ("Keep in your kunnash", then "Kept in your kunnash", singular in French).
+- **A word of the day is a `daily_word` entry** with no `source_game_id`: `gameName` names it
+  (`GAME_NAME_KEY.daily_word` → `daily.name`) and `groupEntries` groups it by type and day.
+
+### The word of the day (/today)
+
+`routes/today.tsx` (public) renders `components/daily/DailyWordPage`; the server owns every rule
+(backend/CLAUDE.md, "The word of the day"). Strings: the `daily` namespace.
+
+- **One read for the page and the home card**: `useDailyWordQuery` (`use-daily-word.ts`). It is
+  enabled only once `AuthProvider` has settled (`isLoading` false): the endpoint is public but
+  answers 401 to a token that IS sent and invalid, and `api/client.ts` answers any 401 with a
+  stored token by sending the visitor to the login page. The key is `dailyWordKey(lang, viewer)`,
+  the generated key plus `{ viewer }` (the user id, or null): a signed-out and a signed-in read of
+  the same URL differ, so a login or a logout never shows the other's cached state.
+  `DAILY_WORD_URL_KEY` (`[{ url }]`) matches every variant for an invalidation.
+- **Every move sends `day: state.day`** (`useDailyWord`: `revealHint`, `guess`, `giveUp`, `keep`)
+  and writes the state it gets back straight into the read's cache. A 409 `dailyWordNotToday`
+  (a page left open past midnight in Makkah), `dailyWordAlreadyFinished` (another tab) or
+  `dailyWordNoMoreHints` re-reads the day; the first is said as a plain toast, the others as
+  errors (a move is the player's own action).
+- **Midnight.** `DailyCountdown` counts to the state's `next_day_at` on `serverNow()`, one step a
+  second, as a `role="timer"` (never a live region). The query re-reads a beat after
+  `next_day_at`; that delay is capped at setTimeout's 2³¹−1 ms, beyond which it fires at once
+  (a device clock far behind would otherwise loop reads).
+- **The ladder is Kalimat's `HintDisplay`**, with three optional props it gained here: `offer`
+  (what the next hidden rung shows instead of its warp: "Another hint: 5 points instead of 6",
+  a `daily.ladder.another` plural on the points left; no arrow glyph, which a screen reader
+  reads as "right arrow"), `nowTag` ("found" on the rung it was found
+  at) and `settled` (a day given up: no rung in play). `focusableNow` + `listRef` let the page
+  move focus to the hint it just revealed (`data-rung`), so it is read where it lands; Tab then
+  reaches the next offer, then the field. The answer field is Kalimat's `AnswerInput`, with
+  three optional props: `hint` ("… A wrong try opens the next hint.", `daily.play.fieldHint`),
+  `wrongGuessMessage` and `maxLength` (`DAILY_WORD_ANSWER_MAX_LENGTH`, the server's 100; the
+  default `ANSWER_MAX_LENGTH` is Kalimat's same 100), so a longer answer is never a bare 422.
+- **A wrong try opens the next rung** (the server's rule, backend/CLAUDE.md): the state it
+  answers holds one more hint. Focus stays in the field; its error names the rung
+  ("“Badr” is not it. Hint 2 is open now.", `daily.play.wrongTry`, or `wrongTryLast` on the
+  last rung, where a try opens nothing).
+- **Focus on reveal.** A right guess or a confirmed give-up moves focus to the reveal's title
+  (`#daily-reveal-title`, tabindex -1, a scroll margin under the sticky nav); loading a finished
+  day takes none. Give up is a Radix `AlertDialog`, never `window.confirm`.
+- **The reveal** (`DailyReveal`) is a colophon in the `ArchFrame`: the Arabic (vocalised when
+  known, `answerForms`: the Arabic UI reads the Arabic alone), the word, its explanation, "found
+  at hint 3 · 4 points" (sealed) or "given up", the streaks, "N players found it today",
+  `KeepAction`, "Share" (copies `shareLine`: number, hint, `majlisna.app/today`, never the
+  answer; a read-only field to copy by hand when the clipboard is refused), the countdown, the
+  madd band.
+- **Signed out**: the number, the date, the theme and hint 1; "Sign in to play"
+  (`/auth/login?redirect=/today`) stands where the field would be.
+- **The home card** (`components/home/DailyWordCard.tsx`) sits between the hero and the fihrist:
+  the Arabic name, the number and theme, then one rung and the way to /today. Not started (or
+  signed out): hint 1 worth 6 and "Find today’s word". Under way: the latest hint the player
+  opened, worth what a right answer is worth now (`stakes`), and "Continue today’s word". Over:
+  hint 1, "You found it · 4 points" (sealed) or "You gave up today’s word", and "See today’s
+  word". A failed read leaves no card.
+- **The menu sheet** lists `/today` after Play (`SHEET_LINKS`); the wide nav keeps its five
+  links. The footer's pages list it too.
+- Tests: `components/daily/__tests__/daily.test.ts` (pure helpers), `daily-page.test.tsx` (the
+  page's states on the real generated hooks over the notebook's fake client),
+  `components/home/__tests__/daily-card.test.tsx`. E2E: `e2e/tests/daily-word/today.spec.ts`
+  (signed out → sign in and back; hint, wrong try, found; give up; keep → /notebook; the home
+  card), desktop and phone, with the day's answer read from the database (`e2e/helpers/db.ts`).
 
 ### The lobby
 
@@ -604,8 +720,12 @@ any reload `user.email` was `undefined` and the profile showed no address. It go
   (it caused CLS up to 0.7 when content arrived).
 - **`ConnectionStatus` sits under the nav** (`top: var(--navh)`, z-40), never over its controls.
 - **Locale typography is tested** (`components/stats/__tests__/locales.test.ts`): ’ and …,
-  no-break spaces before French `: ; ? !`, the same keys in the three files. The Edit tool
-  cannot carry U+00A0: write `\u00a0` in the JSON, or an exact-string replacement.
+  no-break spaces before French `: ; ? !`, the same keys in the three files; in Arabic,
+  Western digits, the tanwin on the letter before its alif (ـًا, never ـاً) and one kashida
+  per game name in the games list, at a join Naskh allows (DESIGN.md §10). The Edit tool
+  cannot carry U+00A0: write `\u00a0` in the JSON, or an exact-string replacement. Writing
+  `\u00a0` in the Edit's old string also matches an existing no-break space, so French lines
+  that hold one can be anchored.
 
 ### The login form: "Forgot password?" comes after the password in the tab order
 

@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
-import { AnswerInput } from "./AnswerInput"
+import { ANSWER_MAX_LENGTH, AnswerInput } from "./AnswerInput"
 
 function defaultProps(overrides: Record<string, unknown> = {}) {
   return {
@@ -26,6 +26,29 @@ describe("AnswerInput", () => {
   it("says that every spelling counts", () => {
     render(<AnswerInput {...defaultProps()} />)
     expect(screen.getByText("game.quiz.kalimat.spellings")).toBeInTheDocument()
+  })
+
+  it("takes no more than the server accepts, so a long answer never earns a bare 422", () => {
+    const { unmount } = render(<AnswerInput {...defaultProps()} />)
+    expect(field()).toHaveAttribute("maxlength", String(ANSWER_MAX_LENGTH))
+    unmount()
+    render(<AnswerInput {...defaultProps({ maxLength: 40 })} />)
+    expect(field()).toHaveAttribute("maxlength", "40")
+  })
+
+  it("words its hint and a wrong guess as the page asks", async () => {
+    const onSubmit = vi.fn().mockResolvedValue({ correct: false, points_earned: 0 })
+    render(
+      <AnswerInput
+        {...defaultProps({ onSubmit, hint: "A wrong try opens the next hint.", wrongGuessMessage: (guess: string) => `${guess}: hint 2 is out` })}
+      />,
+    )
+    expect(screen.getByText("A wrong try opens the next hint.")).toBeInTheDocument()
+    fireEvent.change(field(), { target: { value: "Zakari" } })
+    await act(async () => {
+      fireEvent.submit(field().closest("form")!)
+    })
+    expect(screen.getByRole("alert")).toHaveTextContent("Zakari: hint 2 is out")
   })
 
   it("keeps the button disabled while the field is empty", () => {

@@ -76,10 +76,14 @@ describe("auth, About and player's space copy", () => {
     const i18n = i18next.createInstance()
     await i18n.init({ resources: { en: { translation: en }, ar: { translation: ar } }, lng: "ar", interpolation: { escapeValue: false } })
 
-    // Act / Assert: Arabic has a dual and a plural of 3 to 10
-    expect(i18n.t("stats.totalGames", { count: 1 })).toBe("لعبة واحدة معاً")
-    expect(i18n.t("stats.totalGames", { count: 2 })).toBe("لعبتان معاً")
-    expect(i18n.t("stats.totalGames", { count: 5 })).toBe("5 ألعاب معاً")
+    // Act / Assert: Arabic has a dual, a plural of 3 to 10, a singular accusative from
+    // 11 to 99 and a singular genitive from 100
+    expect(i18n.t("stats.totalGames", { count: 1 })).toBe("لعبة واحدة معًا")
+    expect(i18n.t("stats.totalGames", { count: 2 })).toBe("لعبتان معًا")
+    expect(i18n.t("stats.totalGames", { count: 5 })).toBe("5 ألعاب معًا")
+    expect(i18n.t("stats.totalGames", { count: 11 })).toBe("11 لعبةً معًا")
+    expect(i18n.t("stats.totalGames", { count: 100 })).toBe("100 لعبة معًا")
+    expect(i18n.t("stats.totalGames", { count: 103 })).toBe("103 ألعاب معًا")
     expect(i18n.t("stats.playerCount", { count: 4 })).toBe("4 لاعبين")
     expect(i18n.t("stats.totalGames", { count: 1, lng: "en" })).toBe("1 game together")
     expect(i18n.t("stats.totalGames", { count: 3, lng: "en" })).toBe("3 games together")
@@ -108,6 +112,52 @@ describe("auth, About and player's space copy", () => {
     expect(straightApostrophe).toEqual([])
     expect(threeDots).toEqual([])
     expect(breakableFrench).toEqual([])
+  })
+
+  it("writes Arabic one way: Western digits, the tanwin on the letter before its alif (DESIGN.md §10)", () => {
+    // Prepare
+    const all = strings(locales.ar as unknown as Tree)
+
+    // Act
+    const easternDigits = all.filter(([, v]) => /[٠-٩۰-۹]/.test(v)).map(([k]) => k)
+    const tanwinOnAlif = all.filter(([, v]) => /اً/.test(v)).map(([k]) => k)
+
+    // Assert
+    expect(easternDigits).toEqual([])
+    expect(tanwinOnAlif).toEqual([])
+  })
+
+  it("stretches each game's Arabic name once, at a join Naskh allows (DESIGN.md §10)", () => {
+    // Prepare: no kashida after a letter that does not join forward, nor after kaf or lam;
+    // none before sad, ain, waw, heh, the hah family, feh or qaf (Afifi; Benatia et al. 2006)
+    const notJoiningForward = "اأإآدذرزوؤةى"
+    const noStretchAfter = "كل"
+    const noStretchBefore = "صضعغوهحجخفق"
+    const games = ["undercover", "codenames", "wordQuiz", "mcqQuiz"] as const
+
+    // Act
+    const offenders = games.flatMap((game) =>
+      (["en", "fr", "ar"] as const).flatMap((lang) => {
+        const stretched = (locales[lang].home as Tree).fihrist as Record<string, Record<string, string>>
+        const name = stretched[game].arabic
+        const runs = [...name.matchAll(/ـ+/g)]
+        const [run] = runs
+        const at = run?.index ?? 0
+        const before = run ? name[at - 1] : ""
+        const after = run ? name[at + run[0].length] : ""
+        const plain = (locales.ar.games as Record<string, Record<string, string>>)[game].name
+        const ok =
+          runs.length === 1 &&
+          name.replace(/ـ/g, "") === plain &&
+          !notJoiningForward.includes(before) &&
+          !noStretchAfter.includes(before) &&
+          !noStretchBefore.includes(after)
+        return ok ? [] : [`${lang}:${game}:${name}`]
+      }),
+    )
+
+    // Assert
+    expect(offenders).toEqual([])
   })
 
   it("has the same keys in English, French and Arabic, everywhere", () => {

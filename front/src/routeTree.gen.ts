@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as TodayRouteImport } from './routes/today'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as LeaderboardRouteImport } from './routes/leaderboard'
 import { Route as CreditsRouteImport } from './routes/credits'
@@ -36,6 +37,11 @@ import { Route as AuthGameUndercoverGameIdRouteImport } from './routes/_auth/gam
 import { Route as AuthGameMcqquizGameIdRouteImport } from './routes/_auth/game/mcqquiz.$gameId'
 import { Route as AuthGameCodenamesGameIdRouteImport } from './routes/_auth/game/codenames.$gameId'
 
+const TodayRoute = TodayRouteImport.update({
+  id: '/today',
+  path: '/today',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PrivacyRoute = PrivacyRouteImport.update({
   id: '/privacy',
   path: '/privacy',
@@ -173,6 +179,7 @@ export interface FileRoutesByFullPath {
   '/credits': typeof CreditsRoute
   '/leaderboard': typeof LeaderboardRoute
   '/privacy': typeof PrivacyRoute
+  '/today': typeof TodayRoute
   '/achievements': typeof AuthAchievementsRoute
   '/challenges': typeof AuthChallengesRoute
   '/friends': typeof AuthFriendsRoute
@@ -200,6 +207,7 @@ export interface FileRoutesByTo {
   '/credits': typeof CreditsRoute
   '/leaderboard': typeof LeaderboardRoute
   '/privacy': typeof PrivacyRoute
+  '/today': typeof TodayRoute
   '/achievements': typeof AuthAchievementsRoute
   '/challenges': typeof AuthChallengesRoute
   '/friends': typeof AuthFriendsRoute
@@ -229,6 +237,7 @@ export interface FileRoutesById {
   '/credits': typeof CreditsRoute
   '/leaderboard': typeof LeaderboardRoute
   '/privacy': typeof PrivacyRoute
+  '/today': typeof TodayRoute
   '/_auth/achievements': typeof AuthAchievementsRoute
   '/_auth/challenges': typeof AuthChallengesRoute
   '/_auth/friends': typeof AuthFriendsRoute
@@ -258,6 +267,7 @@ export interface FileRouteTypes {
     | '/credits'
     | '/leaderboard'
     | '/privacy'
+    | '/today'
     | '/achievements'
     | '/challenges'
     | '/friends'
@@ -285,6 +295,7 @@ export interface FileRouteTypes {
     | '/credits'
     | '/leaderboard'
     | '/privacy'
+    | '/today'
     | '/achievements'
     | '/challenges'
     | '/friends'
@@ -313,6 +324,7 @@ export interface FileRouteTypes {
     | '/credits'
     | '/leaderboard'
     | '/privacy'
+    | '/today'
     | '/_auth/achievements'
     | '/_auth/challenges'
     | '/_auth/friends'
@@ -342,6 +354,7 @@ export interface RootRouteChildren {
   CreditsRoute: typeof CreditsRoute
   LeaderboardRoute: typeof LeaderboardRoute
   PrivacyRoute: typeof PrivacyRoute
+  TodayRoute: typeof TodayRoute
   AuthForgotPasswordRoute: typeof AuthForgotPasswordRoute
   AuthLoginRoute: typeof AuthLoginRoute
   AuthRegisterRoute: typeof AuthRegisterRoute
@@ -352,6 +365,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/today': {
+      id: '/today'
+      path: '/today'
+      fullPath: '/today'
+      preLoaderRoute: typeof TodayRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/privacy': {
       id: '/privacy'
       path: '/privacy'
@@ -580,6 +600,7 @@ const rootRouteChildren: RootRouteChildren = {
   CreditsRoute: CreditsRoute,
   LeaderboardRoute: LeaderboardRoute,
   PrivacyRoute: PrivacyRoute,
+  TodayRoute: TodayRoute,
   AuthForgotPasswordRoute: AuthForgotPasswordRoute,
   AuthLoginRoute: AuthLoginRoute,
   AuthRegisterRoute: AuthRegisterRoute,

@@ -43,6 +43,15 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 
 const REFRESH_BUFFER_MS = 60 * 1000
 
+/**
+ * Whether the stored access token has expired, or will within the refresh buffer:
+ * presenting it would only earn a 401. A token with no recorded expiry is not judged.
+ */
+function accessTokenIsStale(now = Date.now()): boolean {
+  const expiry = getTokenExpiry()
+  return !!getStoredToken() && expiry != null && expiry - now <= REFRESH_BUFFER_MS
+}
+
 interface AuthProviderProps {
   children: ReactNode
 }
@@ -148,6 +157,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
         return
       }
 
+      // A returning visitor whose access token has expired (the normal state after
+      // an hour away: the access cookie expires with it) is refreshed BEFORE /me.
+      // Asking /me first sent the stale bearer, the 401 made `api/client.ts` clear
+      // the session and send the visitor to the login page, and the refresh token,
+      // still good, was never tried. A refresh that fails ends signed out, here.
+      const refreshedFirst = accessTokenIsStale()
+      if (refreshedFirst && !(await refreshAccessToken())) {
+        clearAuthData()
+        setIsLoading(false)
+        return
+      }
+
       // First, try cookie-based auth via /me
       try {
         const userData = userFromView(await getMeApiV1AuthMeGet())
@@ -163,7 +184,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         // bounced the player to the login page, mid-game. It also left a stale
         // token in localStorage, which is what useSocket authenticates the
         // Socket.IO handshake with, so real-time silently degraded to 2s polling.
-        const refreshed = await refreshAccessToken()
+        const refreshed = refreshedFirst || (await refreshAccessToken())
         if (refreshed) {
           const expiry = getTokenExpiry()
           if (expiry) scheduleTokenRefresh(expiry)

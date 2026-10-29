@@ -129,6 +129,55 @@ describe("AuthProvider", () => {
     expect(mockStoreAuthData).toHaveBeenCalledWith("fresh-access", "fresh-refresh", 900)
   })
 
+  it("refreshes an expired access token before asking /me, so a returning visitor stays signed in", async () => {
+    // Regression guard: /me used to go first with the stale bearer; its 401 made the
+    // client clear the session and send the visitor to the login page (from any page,
+    // the public /today included) and the refresh token, still good, was never tried.
+    // Prepare: an access token past its expiry, a refresh that works, then /me
+    mockGetStoredToken.mockReturnValue("expired-access")
+    mockGetTokenExpiry.mockReturnValueOnce(Date.now() - 60_000)
+    const urls: string[] = []
+    mockApiClient.mockImplementation(async ({ url }: { url: string }) => {
+      urls.push(url)
+      if (url.endsWith("/auth/refresh")) return { data: { access_token: "fresh-access", refresh_token: "fresh-refresh", expires_in: 900 } }
+      if (url.endsWith("/auth/me")) return { data: { id: "u6", username: "Back", email_address: "back@b.com" } }
+      throw new Error(`unexpected ${url}`)
+    })
+
+    // Act
+    const { result } = renderHook(() => useAuth(), { wrapper })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    // Assert: one refresh, then /me with the fresh token, and no second refresh
+    expect(urls).toEqual(["/api/v1/auth/refresh", "/api/v1/auth/me"])
+    expect(result.current.isAuthenticated).toBe(true)
+    expect(result.current.token).toBe("fresh-access")
+    expect(result.current.user).toEqual({ id: "u6", username: "Back", email: "back@b.com" })
+    expect(mockStoreAuthData).toHaveBeenCalledWith("fresh-access", "fresh-refresh", 900)
+    expect(mockClearAuthData).not.toHaveBeenCalled()
+  })
+
+  it("ends signed out, without asking /me, when an expired session cannot be refreshed", async () => {
+    // Prepare: an access token past its expiry and a refresh token the server refuses
+    mockGetStoredToken.mockReturnValue("expired-access")
+    mockGetTokenExpiry.mockReturnValue(Date.now() - 60_000)
+    const urls: string[] = []
+    mockApiClient.mockImplementation(async ({ url }: { url: string }) => {
+      urls.push(url)
+      throw new Error("Unauthorized")
+    })
+
+    // Act
+    const { result } = renderHook(() => useAuth(), { wrapper })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    // Assert
+    expect(urls.every((url) => url.endsWith("/auth/refresh"))).toBe(true)
+    expect(result.current.isAuthenticated).toBe(false)
+    expect(result.current.user).toBeNull()
+    expect(mockClearAuthData).toHaveBeenCalled()
+  })
+
   it("falls back to the cookie-auth sentinel when the refresh call fails", async () => {
     const userData = { id: "u4", username: "Dana", email_address: "d@b.com" }
     mockApiClient.mockResolvedValueOnce({ data: userData }) // GET /me

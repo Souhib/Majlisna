@@ -8,12 +8,16 @@ import type { LozengeState, Team } from "@/components/brand"
 
 type T = (key: string, opts?: Record<string, unknown>) => string
 
-/** The four games' display names (DESIGN.md §10), keyed by the API's `GameType`. */
+/**
+ * The four games' display names (DESIGN.md §10), keyed by the API's `GameType`, and the
+ * word of the day's (`daily_word`, a notebook source: `NotebookGameType`).
+ */
 export const GAME_NAME_KEY: Record<string, string> = {
   undercover: "games.undercover.name",
   codenames: "games.codenames.name",
   word_quiz: "games.wordQuiz.name",
   mcq_quiz: "games.mcqQuiz.name",
+  daily_word: "daily.name",
 }
 
 export function gameName(type: string | null | undefined, t: T): string {

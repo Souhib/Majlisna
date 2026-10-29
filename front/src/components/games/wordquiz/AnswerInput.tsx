@@ -14,7 +14,21 @@ interface AnswerInputProps {
   answeredNote?: string
   /** The field's prompt, worded for the round's theme ("Where is it?"); defaults to "Type your answer". */
   placeholder?: string
+  /** The line under the field; defaults to "Arabic, French and English spellings all count." */
+  hint?: string
+  /** What a wrong guess says; defaults to "“Zakari” is not it. Try again: the next hint may help." */
+  wrongGuessMessage?: (guess: string) => string
+  /** The longest answer the server takes; defaults to `ANSWER_MAX_LENGTH`. */
+  maxLength?: number
 }
+
+/**
+ * The longest answer either game's server accepts: Kalimat's `SubmitAnswerRequest.answer`
+ * and the word of the day's `DailyWordGuessRequest.answer` (`DAILY_WORD_ANSWER_MAX_LENGTH`
+ * in backend/majlisna/api/constants.py) are both 100. A longer one used to reach the
+ * server and come back as a generic 422 the player could not act on.
+ */
+export const ANSWER_MAX_LENGTH = 100
 
 /**
  * Kalimat's answer row (sketch C, D): one field and "Answer", with the reassurance
@@ -22,7 +36,17 @@ interface AnswerInputProps {
  * it") and the field is cleared for the next try, focus kept. Once you have found it,
  * the row locks: a brass seal, the points, and how many have found it so far.
  */
-export const AnswerInput = memo(function AnswerInput({ onSubmit, disabled, answered, pointsEarned, answeredNote, placeholder }: AnswerInputProps) {
+export const AnswerInput = memo(function AnswerInput({
+  onSubmit,
+  disabled,
+  answered,
+  pointsEarned,
+  answeredNote,
+  placeholder,
+  hint,
+  wrongGuessMessage,
+  maxLength = ANSWER_MAX_LENGTH,
+}: AnswerInputProps) {
   const { t } = useTranslation()
   const [input, setInput] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -75,8 +99,8 @@ export const AnswerInput = memo(function AnswerInput({ onSubmit, disabled, answe
       <Field
         label={t("game.quiz.kalimat.answerLabel")}
         hideLabel
-        hint={t("game.quiz.kalimat.spellings")}
-        error={wrongGuess ? t("game.quiz.kalimat.wrongGuess", { guess: wrongGuess }) : undefined}
+        hint={hint ?? t("game.quiz.kalimat.spellings")}
+        error={wrongGuess ? (wrongGuessMessage?.(wrongGuess) ?? t("game.quiz.kalimat.wrongGuess", { guess: wrongGuess })) : undefined}
       >
         <div className="flex gap-2.5">
           <Input
@@ -89,6 +113,7 @@ export const AnswerInput = memo(function AnswerInput({ onSubmit, disabled, answe
             }}
             placeholder={placeholder ?? t("game.wordQuiz.typeYourAnswer")}
             disabled={disabled}
+            maxLength={maxLength}
             dir="auto"
             enterKeyHint="send"
             autoComplete="off"

@@ -19,23 +19,46 @@ import type { ColophonNotebook } from "./use-colophon-notebook"
  * replaces it, so a keyboard user is not dropped on <body>.
  */
 export function KeepWordsAction({ notebook }: { notebook: ColophonNotebook }) {
+  if (!notebook.available) return null
+  return <KeepAction kept={notebook.allKept} keeping={notebook.keepingAll} onKeep={notebook.keepAll} />
+}
+
+/**
+ * The keep pattern on its own: a brass primary ("Keep the words", or `label`) until
+ * the thing is kept, then the link "Kept in your kunnash" to /notebook, with focus
+ * following when the keep came from this button. The colophons use it through
+ * `KeepWordsAction`; the word of the day's reveal ("Keep in your kunnash") directly.
+ */
+export function KeepAction({
+  kept,
+  keeping,
+  onKeep,
+  label,
+  keptLabel,
+}: {
+  kept: boolean
+  keeping: boolean
+  onKeep: () => unknown
+  /** The action's label; default "Keep the words". */
+  label?: string
+  /** The link's label once kept; default "Kept in your kunnash" (plural in French). */
+  keptLabel?: string
+}) {
   const { t } = useTranslation()
   const linkRef = useRef<HTMLAnchorElement>(null)
   const keptFromHere = useRef(false)
 
   useEffect(() => {
-    if (!notebook.allKept || !keptFromHere.current) return
+    if (!kept || !keptFromHere.current) return
     keptFromHere.current = false
     linkRef.current?.focus()
-  }, [notebook.allKept])
+  }, [kept])
 
-  if (!notebook.available) return null
-
-  if (notebook.allKept) {
+  if (kept) {
     return (
       <Button asChild variant="secondary" iconStart={<BookCheck aria-hidden="true" />}>
         <Link ref={linkRef} to="/notebook">
-          {t("notebook.colophon.kept")}
+          {keptLabel ?? t("notebook.colophon.kept")}
         </Link>
       </Button>
     )
@@ -44,13 +67,14 @@ export function KeepWordsAction({ notebook }: { notebook: ColophonNotebook }) {
   return (
     <Button
       iconStart={<Book aria-hidden="true" />}
-      loading={notebook.keepingAll}
+      loading={keeping}
       onClick={() => {
+        if (keeping) return
         keptFromHere.current = true
-        void notebook.keepAll()
+        void onKeep()
       }}
     >
-      {t("notebook.colophon.keep")}
+      {label ?? t("notebook.colophon.keep")}
     </Button>
   )
 }

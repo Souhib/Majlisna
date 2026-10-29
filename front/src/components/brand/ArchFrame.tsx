@@ -10,7 +10,10 @@ import jabreen1600 from "@/assets/brand/jabreen-niches.duo.1600.webp"
  * photograph sits BEHIND the card, never behind its text.
  *
  * It is the only arch in the product (with the future share card). Scales with its
- * own width (container query units), up to 560 px.
+ * own width (container query units), up to 560 px. The card starts 58cqw down (under
+ * the springers, at 48) below 1100 px; from 1100 px it rises into the arch's head, to
+ * 34cqw, so the photograph is the niche's cap and the colophon opens above the fold
+ * beside a game (`.arch-inner` in styles/brand.css).
  *
  * Photo: "Jabreen Castle, Oman - 2024 13" by dconvertini, CC BY-SA 2.0, modified;
  * see src/assets/brand/SOURCES.txt. The credit must appear on the about/credits page.

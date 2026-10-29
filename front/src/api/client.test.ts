@@ -14,7 +14,28 @@ vi.mock("@/i18n", () => ({
 }))
 
 // Must import after mock setup
-const { getApiErrorMessage } = await import("./client")
+const { getApiErrorMessage, redirectsToLoginOn401 } = await import("./client")
+
+describe("redirectsToLoginOn401", () => {
+  const signedIn = { hadToken: true, pathname: "/today" }
+
+  it("sends a signed-in visitor to the login page when an ordinary request is refused", () => {
+    expect(redirectsToLoginOn401("http://localhost:3000/api/v1/daily-word/guess?lang=en", signedIn)).toBe(true)
+    expect(redirectsToLoginOn401("https://api.majlisna.app/api/v1/rooms", { hadToken: true, pathname: "/rooms" })).toBe(true)
+  })
+
+  it("leaves the session probes to AuthProvider, which ends signed out on the page instead", () => {
+    // A returning visitor with an expired access token: the provider refreshes first,
+    // and a refused /me or refresh must not bounce them off a public page.
+    expect(redirectsToLoginOn401("http://localhost:3000/api/v1/auth/me", signedIn)).toBe(false)
+    expect(redirectsToLoginOn401("https://api.majlisna.app/api/v1/auth/refresh", signedIn)).toBe(false)
+  })
+
+  it("never redirects without a stored token, nor from the login page itself", () => {
+    expect(redirectsToLoginOn401("http://localhost:3000/api/v1/rooms", { hadToken: false, pathname: "/rooms" })).toBe(false)
+    expect(redirectsToLoginOn401("http://localhost:3000/api/v1/rooms", { hadToken: true, pathname: "/auth/login" })).toBe(false)
+  })
+})
 
 describe("getApiErrorMessage", () => {
   it("returns fallback when error is null", () => {

@@ -37,6 +37,68 @@
       "unkeepFailed": "This word could not be taken out. Try again."
     }
   },
+  "daily": {
+    "name": "Word of the day",
+    "nav": "Word of the day",
+    "lede": "One word a day, the same for everyone. Find it from its hints, in English, French or Arabic: the fewer hints you need, the more it is worth.",
+    "number": "#{{number}}",
+    "loadFailed": "Today’s word could not be loaded. Check your connection, then try again.",
+    "foundToday_zero": "Nobody has found it yet today",
+    "foundToday_one": "{{count}} player found it today",
+    "foundToday_other": "{{count}} players found it today",
+    "nextIn": "Next word in",
+    "midnight": "at midnight in Makkah",
+    "ladder": {
+      "another_one": "Another hint: {{count}} point instead of {{from}}",
+      "another_other": "Another hint: {{count}} points instead of {{from}}",
+      "found": "found"
+    },
+    "play": {
+      "failed": "That did not go through. Try again.",
+      "tries_one": "Your try",
+      "tries_other": "Your {{count}} tries",
+      "rightTry": "(the right answer)",
+      "signIn": "Sign in to play",
+      "signInNote": "The first hint is for everyone. Sign in to reveal the next ones, type your answer and keep your streak from one day to the next.",
+      "giveUp": "Give up",
+      "giveUpNote": "Stuck? You can give up and see the word.",
+      "giveUpTitle": "Give up today’s word?",
+      "giveUpBody": "The word and its meaning will be shown, you score no points today, and your streak goes back to zero.",
+      "giveUpCancel": "Keep looking",
+      "giveUpConfirm": "Show me the word",
+      "fieldHint": "Arabic, French and English spellings all count. A wrong try opens the next hint.",
+      "wrongTry": "“{{guess}}” is not it. Hint {{number}} is open now.",
+      "wrongTryLast": "“{{guess}}” is not it. Try again: every hint is out."
+    },
+    "reveal": {
+      "solvedTitle": "You found it",
+      "gaveUpTitle": "The word was",
+      "foundAt": "found at hint {{number}}",
+      "gaveUp": "given up",
+      "streak": "Your streak",
+      "bestStreak": "Best streak",
+      "keep": "Keep in your kunnash",
+      "kept": "Kept in your kunnash",
+      "ladderTitle": "The hints, as you played them"
+    },
+    "share": {
+      "action": "Share",
+      "copied": "Copied",
+      "copiedSr": "The line is copied: paste it to share it.",
+      "manual": "Copy this line to share it",
+      "solved": "Majlisna · Word of the day #{{number}} · found at hint {{hint}} of {{total}} · {{url}}",
+      "gaveUp": "Majlisna · Word of the day #{{number}} · given up · {{url}}"
+    },
+    "home": {
+      "rung": "hint {{number}}",
+      "gaveUp": "You gave up today’s word",
+      "continue": "Continue today’s word",
+      "solved_one": "You found it · {{count}} point",
+      "solved_other": "You found it · {{count}} points",
+      "find": "Find today’s word",
+      "see": "See today’s word"
+    }
+  },
   "ui": {
     "loading": "Working",
     "close": "Close",
@@ -215,7 +277,7 @@
       "playersTeams": "players, two teams",
       "soloOrTogether": "solo or together",
       "undercover": {
-        "arabic": "أندركـــفر",
+        "arabic": "أندركفـــر",
         "rule": "Everyone gets a word. One of you got a different one. Describe yours without giving it away, then vote for whoever holds the other word.",
         "sample": "Hajj for six of you, ʿUmra for one."
       },
@@ -1160,6 +1222,10 @@
       "notebookEntryNotFound": "This word is not in your notebook.",
       "notebookGameTypeNotSupported": "Words from this game can’t be kept in your notebook.",
       "invalidNotebookCursor": "This page of your notebook could not be loaded.",
+      "dailyWordAlreadyFinished": "You have already finished today’s word.",
+      "dailyWordNoMoreHints": "Every hint is already revealed.",
+      "dailyWordNotFinished": "Find the word, or give up, before keeping it.",
+      "dailyWordNotToday": "A new word of the day is out.",
       "invalidLeaderboardSort": "The leaderboard cannot be sorted that way.",
       "rateLimitExceeded": "Too many requests. Please wait a moment and try again.",
       "usernameAlreadyTaken": "The username {{username}} is already taken. Please choose another one.",
@@ -1295,40 +1361,86 @@
   "privacy": {
     "link": "Privacy policy",
     "title": "Privacy policy",
-    "updated": "Last updated: 28 September 2026",
+    "updated": "Last updated: 28 October 2026",
     "intro": "Majlisna (majlisna.app) is a free online platform for Islamic party games, run by Souhib Trabelsi. This page explains what data we collect, why, and how you can control it.",
     "sections": [
       {
         "title": "Data we collect",
         "body": [
-          "Account: your username, email address and password (stored only as a hash). Optionally your country, a short bio and a profile picture.",
-          "Google sign-in: if you choose \"Continue with Google\", we receive your Google account identifier, email address, name and profile picture. We never receive your Google password.",
-          "Gameplay: rooms you join, games played, scores, statistics, achievements, challenges, friends and the chat messages you send in game rooms.",
-          "Technical data: server logs (such as IP address and browser type) for security and troubleshooting, and error reports when the app crashes."
+          "<b>Account:</b> your username, email address and password (stored only as a hash). Optionally, your country and a short bio.",
+          "<b>Google sign-in:</b> if you choose “Continue with Google”, we receive your Google account identifier, email address, name and profile picture. Your name is used only to suggest your username, and the picture becomes your profile picture. We never receive your Google password.",
+          "<b>Technical data:</b> server logs (such as IP address and browser type) for security and troubleshooting, and error reports when the app crashes."
+        ]
+      },
+      {
+        "title": "What you do on Majlisna",
+        "body": [
+          "<b>Games:</b> the rooms you join, the games you play and what you do in them (your role, descriptions, clues, votes and answers), your scores, statistics, achievements, challenges, friends and room invitations.",
+          "<b>Chat:</b> the messages you send in a room’s chat, with your username. The members of that room can read them.",
+          "<b>Kunnash (notebook):</b> the words you keep from finished games, with the game each one came from and when you kept it.",
+          "<b>Word of the day:</b> for each day you play it, the hints you revealed, how many guesses you made and the last 20 of them (shown back to you on the page), when you started, when you solved it or whether you gave up, and your score. Your streak is counted from these. Other players only see how many found the day’s word.",
+          "<b>Prayer pause:</b> when the host pauses a game for ṣalāh, the game records who paused it and when. Nothing else is stored, and no location is used."
+        ]
+      },
+      {
+        "title": "Prayer times and your location",
+        "body": [
+          "Prayer times are calculated on your device (Muslim World League method). No prayer-time service is called, and your city is never sent to our server.",
+          "<b>Automatic detection:</b> while no city is saved, each time you open Majlisna your browser asks ipapi.co for an approximate location based on your IP address. Once a city is found it is saved, and these requests stop.",
+          "<b>City search:</b> what you type is sent to Open-Meteo’s geocoding service, and the coordinates of the city you choose are sent to Open-Meteo to find its time zone.",
+          "<b>Use my location:</b> only when you press it and allow it in your browser, your device’s position is read once. Its coordinates are sent to OpenStreetMap (Nominatim) to name the city, and to Open-Meteo to find its time zone.",
+          "The city, its coordinates and its time zone stay in your browser. During a game, the host’s device uses them to suggest a pause when the adhan comes; nothing is sent."
+        ]
+      },
+      {
+        "title": "What your browser keeps",
+        "body": [
+          "<b>Your session:</b> our server sets two cookies that keep you signed in. They are httpOnly (the page’s scripts cannot read them) and are sent only to Majlisna. The same tokens, with your account ID, username and email address, are also kept in your browser’s local storage so that the app can resume your session. Logging out removes them.",
+          "<b>Your preferences:</b> your language, your theme (afternoon or night), whether you have seen the welcome window, and your prayer-times city with its coordinates and time zone.",
+          "<b>During a game:</b> a few values kept only while the tab stays open (such as the room you came from, or whether you have already read your word), so that a reload does not lose them.",
+          "The app also keeps its own files in your browser so that its pages can open offline. We set no advertising or tracking cookies, and the audience statistics use none."
+        ]
+      },
+      {
+        "title": "What other players see",
+        "body": [
+          "Your profile (username, country, bio and profile picture) can be seen by signed-in players. Your statistics, your achievements and your place on the leaderboard are public.",
+          "The players of a game see your username and what you write in it, then your role when it ends. The summary of a finished game stays available to everyone who played it.",
+          "Your email address is never shown to other players."
         ]
       },
       {
         "title": "How we use it",
         "body": [
-          "To create and secure your account, run multiplayer games, show leaderboards and statistics, send account emails (verification and password reset) and keep the service working and safe. We do not sell your data and we do not show advertising."
+          "To create and secure your account, run multiplayer games, keep your notebook and your word-of-the-day streak, show leaderboards and statistics, send account emails (verification and password reset) and keep the service working and safe. We do not sell your data and we do not show advertising."
         ]
       },
       {
         "title": "Service providers",
         "body": [
-          "Google (sign-in with Google and web fonts), Resend (sending account emails), Cloudflare (network and security proxy) and Oracle Cloud (server hosting). Audience statistics use a self-hosted Umami instance without advertising cookies; error reports go to a self-hosted error tracker."
+          "<b>Google:</b> sign-in with Google, and nothing else. Google’s sign-in script is loaded from Google on every page so that the button works, our server checks each Google sign-in with Google, and the profile pictures of Google accounts are loaded from Google’s servers.",
+          "<b>Resend:</b> sends the account emails (email verification and password reset). It receives your email address and username.",
+          "<b>Cloudflare:</b> every request to Majlisna passes through Cloudflare, which provides the network, HTTPS and protection against attacks. It sees your IP address and the pages you request.",
+          "<b>Oracle Cloud:</b> hosts our server and database.",
+          "<b>From your browser, for prayer times:</b> ipapi.co, Open-Meteo and OpenStreetMap (Nominatim), as described above.",
+          "<b>On our own server:</b> Umami counts visits and a few events (such as a sign-up, a game started or a change of language), without cookies and without linking them to your account. Error reports (what failed, on which page, in which browser) go to GlitchTip."
         ]
       },
       {
         "title": "Retention",
         "body": [
-          "Your account data is kept until you delete your account. Server logs and error reports are kept for a limited period for security and debugging."
+          "Your account, your statistics, your chat messages and your word-of-the-day plays are kept until you delete your account. The words in your notebook stay until you erase them or delete your account.",
+          "Finished games stay in the history of the players who took part in them.",
+          "Server logs and error reports are kept for a limited period for security and debugging."
         ]
       },
       {
         "title": "Your rights",
         "body": [
-          "You can edit your profile at any time and delete your account from your profile page; deletion removes your account and the data linked to it. If you signed up with Google, or for any other request (access, correction, deletion, objection), contact us by email."
+          "You can edit your profile at any time, erase words from your notebook, and delete your account from <profile>your profile page</profile>. Deletion removes your account and what is linked to it: statistics, achievements, challenges, friends, chat messages, kept words and word-of-the-day plays.",
+          "The games you played stay in the other players’ history, no longer linked to your account, but the name you played under still appears in them.",
+          "If you signed up with Google, or for any other request (access, correction, deletion, objection), contact us by email.",
+          "Your session leaves your browser when you log out; your preferences and your city go when you clear this site’s data in your browser."
         ]
       },
       {

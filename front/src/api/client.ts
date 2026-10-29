@@ -81,6 +81,23 @@ export function getApiErrorMessage(error: unknown, fallback = "An error occurred
 }
 
 /**
+ * The requests with which `AuthProvider` resumes a session. A 401 from them means
+ * only "no session to resume": the provider then ends signed out on the page the
+ * visitor opened. Sending a visitor to the login page from them would stop the
+ * provider's own refresh (a stale access token is refreshed before `/me`, and a
+ * stale body refresh token is retried cookie-only), and would bounce a returning
+ * visitor off public pages such as /today.
+ */
+const SESSION_PROBE_PATHS = ["/api/v1/auth/me", "/api/v1/auth/refresh"]
+
+/** Whether a 401 on `requestUrl` sends the visitor to the login page. */
+export function redirectsToLoginOn401(requestUrl: string, { hadToken, pathname }: { hadToken: boolean; pathname: string }): boolean {
+  if (!hadToken || pathname.includes("/auth/login")) return false
+  const path = new URL(requestUrl, "http://localhost").pathname
+  return !SESSION_PROBE_PATHS.some((probe) => path.endsWith(probe))
+}
+
+/**
  * Serialize params for FastAPI compatibility.
  */
 function serializeParams(params: object): URLSearchParams {
@@ -117,7 +134,7 @@ const kyInstance = ky.create({
       },
     ],
     afterResponse: [
-      async (_request, _options, response) => {
+      async (request, _options, response) => {
         // the server's clock, for timers and the Kalimat ladder (lib/server-clock)
         noteServerDate(response.headers.get("date"))
         if (!response.ok && response.status === 401) {
@@ -128,7 +145,7 @@ const kyInstance = ky.create({
           localStorage.removeItem("majlisna-token-expiry")
           localStorage.removeItem("majlisna-user-data")
 
-          if (hadToken && typeof window !== "undefined" && !window.location.pathname.includes("/auth/login")) {
+          if (typeof window !== "undefined" && redirectsToLoginOn401(request.url, { hadToken, pathname: window.location.pathname })) {
             const back = window.location.pathname + window.location.search
             window.location.href = `/auth/login?redirect=${encodeURIComponent(back)}`
           }

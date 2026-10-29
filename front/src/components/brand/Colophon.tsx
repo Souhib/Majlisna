@@ -47,10 +47,12 @@ export interface ColophonWord {
  * under the meta line (Kalimat puts its words after the final scores). Same rows as
  * `<Colophon words>`: Amiri word, Latin form + note, meaning, optional end control.
  *
- * A row with a control, in a narrow card (the list is a container; below 24rem, a
+ * A row with a control, in a narrow card (the list is a container; below 384 px, a
  * phone), stacks: the Arabic and the control on one line, then the word and its
  * meaning across the whole width. Three columns there left the meaning a few words
- * wide. Rows without a control keep their two columns at every width.
+ * wide. Rows without a control keep their two columns at every width. The threshold
+ * is in px like the rows' type: at 24rem, Arabic's larger rem (110 %) stacked the
+ * 410 px list of the desktop Codenames colophon too, a third taller per row.
  */
 export function ColophonWordList({ words, className }: { words: ColophonWord[]; className?: string }) {
   if (words.length === 0) return null
@@ -63,7 +65,7 @@ export function ColophonWordList({ words, className }: { words: ColophonWord[]; 
             key={`${w.word ?? w.translit}-${i}`}
             className={cn(
               "grid items-center gap-x-[18px] gap-y-1 border-b border-line py-2.5",
-              placed ? "grid-cols-[auto_minmax(0,1fr)_auto] @max-sm:grid-cols-[minmax(0,1fr)_auto]" : "grid-cols-[auto_1fr]",
+              placed ? "grid-cols-[auto_minmax(0,1fr)_auto] @max-[384px]:grid-cols-[minmax(0,1fr)_auto]" : "grid-cols-[auto_1fr]",
             )}
           >
             {w.word ? (
@@ -72,7 +74,7 @@ export function ColophonWordList({ words, className }: { words: ColophonWord[]; 
                 dir="rtl"
                 className={cn(
                   "row-span-2 min-w-[2.6em] text-center type-word text-[38px] text-foreground",
-                  placed && "col-start-1 row-start-1 @max-sm:row-span-1 @max-sm:min-w-0 @max-sm:justify-self-start",
+                  placed && "col-start-1 row-start-1 @max-[384px]:row-span-1 @max-[384px]:min-w-0 @max-[384px]:justify-self-start",
                 )}
               >
                 {w.word}
@@ -82,7 +84,7 @@ export function ColophonWordList({ words, className }: { words: ColophonWord[]; 
                 aria-hidden="true"
                 className={cn(
                   "row-span-2 grid min-w-[2.6em] place-items-center",
-                  placed && "col-start-1 row-start-1 @max-sm:row-span-1 @max-sm:min-w-0 @max-sm:justify-self-start",
+                  placed && "col-start-1 row-start-1 @max-[384px]:row-span-1 @max-[384px]:min-w-0 @max-[384px]:justify-self-start",
                 )}
               >
                 <span className="loz bg-brass [--loz:8px]" />
@@ -91,7 +93,7 @@ export function ColophonWordList({ words, className }: { words: ColophonWord[]; 
             <span
               className={cn(
                 "flex flex-wrap items-baseline gap-x-1.5 text-[15px] font-medium leading-tight",
-                placed && "col-start-2 row-start-1 @max-sm:col-span-2 @max-sm:col-start-1 @max-sm:row-start-2",
+                placed && "col-start-2 row-start-1 @max-[384px]:col-span-2 @max-[384px]:col-start-1 @max-[384px]:row-start-2",
               )}
             >
               {w.translit ? <span>{w.translit}</span> : null}
@@ -101,15 +103,17 @@ export function ColophonWordList({ words, className }: { words: ColophonWord[]; 
               <span
                 className={cn(
                   "text-[13.5px] leading-[1.4] text-muted-foreground",
-                  placed && "col-start-2 row-start-2 @max-sm:col-span-2 @max-sm:col-start-1 @max-sm:row-start-3",
+                  placed && "col-start-2 row-start-2 @max-[384px]:col-span-2 @max-[384px]:col-start-1 @max-[384px]:row-start-3",
                 )}
               >
                 {w.meaning}
               </span>
             ) : (
-              <span className={cn(placed && "col-start-2 row-start-2 @max-sm:hidden")} />
+              <span className={cn(placed && "col-start-2 row-start-2 @max-[384px]:hidden")} />
             )}
-            {placed ? <span className="col-start-3 row-span-2 row-start-1 self-center @max-sm:col-start-2 @max-sm:row-span-1">{w.action}</span> : null}
+            {placed ? (
+              <span className="col-start-3 row-span-2 row-start-1 self-center @max-[384px]:col-start-2 @max-[384px]:row-span-1">{w.action}</span>
+            ) : null}
           </li>
         )
       })}

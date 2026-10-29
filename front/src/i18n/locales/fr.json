@@ -39,6 +39,72 @@
       "unkeepFailed": "Ce mot n’a pas pu être retiré. Réessayez."
     }
   },
+  "daily": {
+    "name": "Le mot du jour",
+    "nav": "Le mot du jour",
+    "lede": "Un mot par jour, le même pour tout le monde. Trouvez-le grâce à ses indices, en français, en anglais ou en arabe : moins il vous en faut, plus il rapporte.",
+    "number": "#{{number}}",
+    "loadFailed": "Le mot du jour n’a pas pu être chargé. Vérifiez votre connexion, puis réessayez.",
+    "foundToday_zero": "Personne ne l’a encore trouvé aujourd’hui",
+    "foundToday_one": "{{count}} joueur l’a trouvé aujourd’hui",
+    "foundToday_many": "{{count}} joueurs l’ont trouvé aujourd’hui",
+    "foundToday_other": "{{count}} joueurs l’ont trouvé aujourd’hui",
+    "nextIn": "Prochain mot dans",
+    "midnight": "à minuit, heure de La Mecque",
+    "ladder": {
+      "another_one": "Un indice de plus : {{count}} point au lieu de {{from}}",
+      "another_many": "Un indice de plus : {{count}} points au lieu de {{from}}",
+      "another_other": "Un indice de plus : {{count}} points au lieu de {{from}}",
+      "found": "trouvé"
+    },
+    "play": {
+      "failed": "Ça n’a pas abouti. Réessayez.",
+      "tries_one": "Votre essai",
+      "tries_many": "Vos {{count}} essais",
+      "tries_other": "Vos {{count}} essais",
+      "rightTry": "(la bonne réponse)",
+      "signIn": "Se connecter pour jouer",
+      "signInNote": "Le premier indice est pour tout le monde. Connectez-vous pour dévoiler les suivants, proposer votre réponse et garder votre série d’un jour à l’autre.",
+      "giveUp": "Abandonner",
+      "giveUpNote": "Vous séchez ? Vous pouvez abandonner et voir le mot.",
+      "giveUpTitle": "Abandonner le mot du jour ?",
+      "giveUpBody": "Le mot et son sens seront affichés, vous ne marquez aucun point aujourd’hui et votre série repart de zéro.",
+      "giveUpCancel": "Continuer à chercher",
+      "giveUpConfirm": "Voir le mot",
+      "fieldHint": "Les orthographes arabe, française et anglaise sont toutes acceptées. Une réponse fausse dévoile l’indice suivant.",
+      "wrongTry": "« {{guess}} », ce n’est pas ça. L’indice {{number}} est maintenant dévoilé.",
+      "wrongTryLast": "« {{guess}} », ce n’est pas ça. Réessayez : tous les indices sont dévoilés."
+    },
+    "reveal": {
+      "solvedTitle": "Vous l’avez trouvé",
+      "gaveUpTitle": "Le mot était",
+      "foundAt": "trouvé à l’indice {{number}}",
+      "gaveUp": "abandonné",
+      "streak": "Votre série",
+      "bestStreak": "Meilleure série",
+      "keep": "Garder dans votre kunnash",
+      "kept": "Gardé dans votre kunnash",
+      "ladderTitle": "Les indices, tels que vous les avez joués"
+    },
+    "share": {
+      "action": "Partager",
+      "copied": "Copié",
+      "copiedSr": "La ligne est copiée : collez-la pour la partager.",
+      "manual": "Copiez cette ligne pour la partager",
+      "solved": "Majlisna · Le mot du jour #{{number}} · trouvé à l’indice {{hint}} sur {{total}} · {{url}}",
+      "gaveUp": "Majlisna · Le mot du jour #{{number}} · abandonné · {{url}}"
+    },
+    "home": {
+      "rung": "indice {{number}}",
+      "gaveUp": "Vous avez abandonné le mot du jour",
+      "continue": "Reprendre le mot du jour",
+      "solved_one": "Trouvé · {{count}} point",
+      "solved_many": "Trouvé · {{count}} points",
+      "solved_other": "Trouvé · {{count}} points",
+      "find": "Trouver le mot du jour",
+      "see": "Voir le mot du jour"
+    }
+  },
   "ui": {
     "loading": "En cours",
     "close": "Fermer",
@@ -217,7 +283,7 @@
       "playersTeams": "joueurs, deux équipes",
       "soloOrTogether": "seul ou à plusieurs",
       "undercover": {
-        "arabic": "أندركـــفر",
+        "arabic": "أندركفـــر",
         "rule": "Chacun reçoit un mot. L’un de vous en a reçu un autre. Décrivez le vôtre sans le trahir, puis votez contre celui qui tient l’autre mot.",
         "sample": "Hajj pour six d’entre vous, ʿUmra pour un seul."
       },
@@ -1129,6 +1195,10 @@
       "notebookEntryNotFound": "Ce mot n’est pas dans votre kunnash.",
       "notebookGameTypeNotSupported": "Les mots de cette partie ne peuvent pas être gardés dans votre kunnash.",
       "invalidNotebookCursor": "Cette page de votre kunnash n’a pas pu être chargée.",
+      "dailyWordAlreadyFinished": "Vous avez déjà terminé le mot du jour.",
+      "dailyWordNoMoreHints": "Tous les indices sont déjà révélés.",
+      "dailyWordNotFinished": "Trouvez le mot, ou abandonnez, avant de le garder dans votre kunnash.",
+      "dailyWordNotToday": "Un nouveau mot du jour est arrivé.",
       "invalidLeaderboardSort": "Le classement ne peut pas être trié ainsi.",
       "rateLimitExceeded": "Trop de requêtes. Patientez un instant, puis réessayez.",
       "usernameAlreadyTaken": "Le nom d’utilisateur {{username}} est déjà pris. Choisissez-en un autre.",
@@ -1311,40 +1381,86 @@
   "privacy": {
     "link": "Politique de confidentialité",
     "title": "Politique de confidentialité",
-    "updated": "Dernière mise à jour : 28 septembre 2026",
+    "updated": "Dernière mise à jour : 28 octobre 2026",
     "intro": "Majlisna (majlisna.app) est une plateforme gratuite de jeux de société islamiques en ligne, éditée par Souhib Trabelsi. Cette page explique quelles données nous collectons, pourquoi, et comment vous pouvez les contrôler.",
     "sections": [
       {
         "title": "Données collectées",
         "body": [
-          "Compte : votre pseudo, votre adresse e-mail et votre mot de passe (conservé uniquement sous forme chiffrée). En option : votre pays, une courte bio et une photo de profil.",
-          "Connexion Google : si vous choisissez « Continuer avec Google », nous recevons l’identifiant de votre compte Google, votre adresse e-mail, votre nom et votre photo de profil. Nous ne recevons jamais votre mot de passe Google.",
-          "Jeu : salons rejoints, parties jouées, scores, statistiques, succès, défis, amis et messages envoyés dans le chat des salons.",
-          "Données techniques : journaux du serveur (adresse IP, type de navigateur) pour la sécurité et le dépannage, et rapports d’erreur en cas de plantage."
+          "<b>Compte :</b> votre pseudo, votre adresse e-mail et votre mot de passe (conservé uniquement sous forme hachée). En option : votre pays et une courte bio.",
+          "<b>Connexion Google :</b> si vous choisissez « Continuer avec Google », nous recevons l’identifiant de votre compte Google, votre adresse e-mail, votre nom et votre photo de profil. Votre nom sert seulement à proposer votre pseudo, et la photo devient votre photo de profil. Nous ne recevons jamais votre mot de passe Google.",
+          "<b>Données techniques :</b> journaux du serveur (adresse IP, type de navigateur) pour la sécurité et le dépannage, et rapports d’erreur en cas de plantage."
+        ]
+      },
+      {
+        "title": "Ce que vous faites sur Majlisna",
+        "body": [
+          "<b>Parties :</b> les salons que vous rejoignez, les parties que vous jouez et ce que vous y faites (votre rôle, vos descriptions, indices, votes et réponses), vos scores, statistiques, succès, défis, amis et invitations à un salon.",
+          "<b>Chat :</b> les messages que vous envoyez dans le chat d’un salon, avec votre pseudo. Les membres de ce salon peuvent les lire.",
+          "<b>Kunnash (carnet) :</b> les mots que vous gardez à la fin d’une partie, avec la partie d’où vient chacun et le moment où vous l’avez gardé.",
+          "<b>Mot du jour :</b> pour chaque jour où vous y jouez, les indices dévoilés, le nombre de vos propositions et les 20 dernières d’entre elles (que la page vous réaffiche), l’heure où vous avez commencé, celle où vous avez trouvé le mot ou le fait d’avoir abandonné, et votre score. Votre série en est déduite. Les autres joueurs voient seulement combien l’ont trouvé ce jour-là.",
+          "<b>Pause prière :</b> quand l’hôte met une partie en pause pour la ṣalāh, la partie enregistre qui l’a mise en pause et quand. Rien d’autre n’est conservé, et aucune position n’est utilisée."
+        ]
+      },
+      {
+        "title": "Heures de prière et localisation",
+        "body": [
+          "Les heures de prière sont calculées sur votre appareil (méthode de la Ligue islamique mondiale). Aucun service d’horaires de prière n’est appelé, et votre ville n’est jamais envoyée à notre serveur.",
+          "<b>Détection automatique :</b> tant qu’aucune ville n’est enregistrée, votre navigateur demande à ipapi.co, à chaque ouverture de Majlisna, une position approximative déduite de votre adresse IP. Dès qu’une ville est trouvée, elle est enregistrée et ces demandes s’arrêtent.",
+          "<b>Recherche de ville :</b> ce que vous tapez est envoyé au service de géocodage d’Open-Meteo, et les coordonnées de la ville choisie sont envoyées à Open-Meteo pour connaître son fuseau horaire.",
+          "<b>Utiliser ma position :</b> seulement si vous appuyez sur ce bouton et l’autorisez dans votre navigateur, la position de votre appareil est lue une fois. Ses coordonnées sont envoyées à OpenStreetMap (Nominatim) pour nommer la ville, et à Open-Meteo pour connaître son fuseau horaire.",
+          "La ville, ses coordonnées et son fuseau horaire restent dans votre navigateur. Pendant une partie, l’appareil de l’hôte s’en sert pour proposer une pause à l’heure de l’adhan ; rien n’est envoyé."
+        ]
+      },
+      {
+        "title": "Ce que garde votre navigateur",
+        "body": [
+          "<b>Votre session :</b> notre serveur dépose deux cookies qui vous gardent connecté. Ils sont httpOnly (les scripts de la page ne peuvent pas les lire) et ne sont envoyés qu’à Majlisna. Les mêmes jetons, avec l’identifiant de votre compte, votre pseudo et votre adresse e-mail, sont aussi gardés dans le stockage local du navigateur, pour que l’application reprenne votre session. La déconnexion les efface.",
+          "<b>Vos préférences :</b> votre langue, votre thème (après-midi ou nuit), le fait d’avoir vu la fenêtre d’accueil, et votre ville pour les heures de prière, avec ses coordonnées et son fuseau horaire.",
+          "<b>Pendant une partie :</b> quelques valeurs gardées tant que l’onglet reste ouvert (comme le salon d’où vous venez, ou le fait d’avoir déjà lu votre mot), pour qu’un rechargement ne les perde pas.",
+          "L’application garde aussi ses propres fichiers dans votre navigateur, pour que ses pages s’ouvrent même hors ligne. Nous ne déposons aucun cookie publicitaire ou de suivi, et la mesure d’audience n’en utilise aucun."
+        ]
+      },
+      {
+        "title": "Ce que voient les autres joueurs",
+        "body": [
+          "Votre profil (pseudo, pays, bio et photo de profil) est visible des joueurs connectés. Vos statistiques, vos succès et votre place au classement sont publics.",
+          "Les joueurs d’une partie voient votre pseudo et ce que vous y écrivez, puis votre rôle à la fin. Le récapitulatif d’une partie terminée reste accessible à tous ceux qui l’ont jouée.",
+          "Votre adresse e-mail n’est jamais montrée aux autres joueurs."
         ]
       },
       {
         "title": "Utilisation",
         "body": [
-          "Créer et sécuriser votre compte, faire fonctionner les parties multijoueurs, afficher classements et statistiques, envoyer les e-mails du compte (vérification, réinitialisation du mot de passe) et assurer le bon fonctionnement et la sécurité du service. Nous ne vendons pas vos données et n’affichons aucune publicité."
+          "Créer et sécuriser votre compte, faire fonctionner les parties multijoueurs, tenir votre carnet et votre série du mot du jour, afficher classements et statistiques, envoyer les e-mails du compte (vérification, réinitialisation du mot de passe) et assurer le bon fonctionnement et la sécurité du service. Nous ne vendons pas vos données et n’affichons aucune publicité."
         ]
       },
       {
         "title": "Prestataires",
         "body": [
-          "Google (connexion Google et polices web), Resend (envoi des e-mails du compte), Cloudflare (réseau et protection) et Oracle Cloud (hébergement du serveur). La mesure d’audience utilise une instance Umami hébergée par nos soins, sans cookie publicitaire ; les rapports d’erreur vont vers un outil de suivi d’erreurs hébergé par nos soins."
+          "<b>Google :</b> la connexion avec Google, rien d’autre. Le script de connexion de Google est chargé depuis Google sur chaque page pour que le bouton fonctionne, notre serveur vérifie chaque connexion Google auprès de Google, et les photos de profil des comptes Google sont chargées depuis les serveurs de Google.",
+          "<b>Resend :</b> envoie les e-mails du compte (vérification de l’adresse, réinitialisation du mot de passe). Il reçoit votre adresse e-mail et votre pseudo.",
+          "<b>Cloudflare :</b> chaque requête vers Majlisna passe par Cloudflare, qui assure le réseau, le HTTPS et la protection contre les attaques. Il voit votre adresse IP et les pages demandées.",
+          "<b>Oracle Cloud :</b> héberge notre serveur et notre base de données.",
+          "<b>Depuis votre navigateur, pour les heures de prière :</b> ipapi.co, Open-Meteo et OpenStreetMap (Nominatim), comme décrit plus haut.",
+          "<b>Sur notre propre serveur :</b> Umami compte les visites et quelques événements (une inscription, une partie lancée, un changement de langue…), sans cookie et sans les relier à votre compte. Les rapports d’erreur (ce qui a échoué, sur quelle page, dans quel navigateur) vont à GlitchTip."
         ]
       },
       {
         "title": "Durée de conservation",
         "body": [
-          "Les données de votre compte sont conservées jusqu’à la suppression du compte. Les journaux et rapports d’erreur sont conservés pendant une durée limitée, pour la sécurité et le dépannage."
+          "Votre compte, vos statistiques, vos messages de chat et vos parties du mot du jour sont conservés jusqu’à la suppression de votre compte. Les mots de votre carnet restent jusqu’à ce que vous les effaciez ou supprimiez votre compte.",
+          "Les parties terminées restent dans l’historique des joueurs qui y ont pris part.",
+          "Les journaux et rapports d’erreur sont conservés pendant une durée limitée, pour la sécurité et le dépannage."
         ]
       },
       {
         "title": "Vos droits",
         "body": [
-          "Vous pouvez modifier votre profil à tout moment et supprimer votre compte depuis votre page de profil ; la suppression efface votre compte et les données qui y sont liées. Si vous vous êtes inscrit avec Google, ou pour toute autre demande (accès, rectification, suppression, opposition), écrivez-nous."
+          "Vous pouvez modifier votre profil à tout moment, effacer des mots de votre carnet et supprimer votre compte depuis <profile>votre page de profil</profile>. La suppression efface votre compte et ce qui y est lié : statistiques, succès, défis, amis, messages de chat, mots gardés et parties du mot du jour.",
+          "Les parties que vous avez jouées restent dans l’historique des autres joueurs, sans lien avec votre compte, mais le pseudo sous lequel vous avez joué y apparaît encore.",
+          "Si vous vous êtes inscrit avec Google, ou pour toute autre demande (accès, rectification, suppression, opposition), écrivez-nous.",
+          "Votre session quitte le navigateur quand vous vous déconnectez ; vos préférences et votre ville s’en vont quand vous effacez les données de ce site dans votre navigateur."
         ]
       },
       {

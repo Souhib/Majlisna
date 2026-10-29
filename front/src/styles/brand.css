@@ -397,6 +397,16 @@
   .arch-stage[data-photo="false"] .arch-inner {
     padding-block-start: 30cqw;
   }
+  /* Wide screens: the arch is a frame beside the game, no longer the page. Its photograph
+     at 58cqw was ~300 px of image before the card (1440 x 900), so the colophon ran below
+     the fold and past the Codenames board. From 1100 px the card rises into the arch's
+     head, to 34cqw (the springers are at 48): the photograph is the niche's cap and the
+     card's corners stay ~3cqw inside the inner hairline. Phones and tablets keep 58cqw. */
+  @media (min-width: 1100px) {
+    .arch-inner {
+      padding-block-start: 34cqw;
+    }
+  }
   .arch-photo {
     position: absolute;
     inset: 0;

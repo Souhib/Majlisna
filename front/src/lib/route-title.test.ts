@@ -11,6 +11,8 @@ describe("titleForPath", () => {
     expect(titleForPath("/rooms/create", t)).toBe("room.createPage.title · Majlisna")
     expect(titleForPath("/game/codenames/g1", t)).toBe("games.codenames.name · Majlisna")
     expect(titleForPath("/game/wordquiz/g1", t)).toBe("games.wordQuiz.name · Majlisna")
+    expect(titleForPath("/privacy", t)).toBe("privacy.title · Majlisna")
+    expect(titleForPath("/today", t)).toBe("daily.name · Majlisna")
   })
 
   it("falls back to the site's own title (the home, an unknown path)", () => {

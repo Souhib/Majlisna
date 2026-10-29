@@ -25,7 +25,7 @@ export type NotebookEntryView = {
    */
   word_display: string;
   /**
-   * @description The games whose words can be kept. Values match ``GameType``; MCQ has none.
+   * @description Where a kept word comes from. The first three match ``GameType`` (MCQ has no\nwords); ``DAILY_WORD`` is the word of the day, which is no ``Game`` at all — a\nQuizWord, resolved exactly like a Word Quiz word, kept with no ``source_game_id``.
    * @type string
    */
   game_type: NotebookGameType;

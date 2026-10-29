@@ -43,6 +43,9 @@ export function Footer() {
               <Link to="/">{t("nav.play")}</Link>
             </li>
             <li>
+              <Link to="/today">{t("daily.nav")}</Link>
+            </li>
+            <li>
               <Link to="/rooms">{t("nav.rooms")}</Link>
             </li>
             <li>

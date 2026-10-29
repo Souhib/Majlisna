@@ -62,6 +62,11 @@ export {
   createWordPackApiV1CodenamesWordPacksPostMutationResponseSchema,
 } from "./createWordPackApiV1CodenamesWordPacksPostSchema.ts";
 export { dailyGameRecordSchema } from "./dailyGameRecordSchema.ts";
+export { dailyWordAnswerSchema } from "./dailyWordAnswerSchema.ts";
+export { dailyWordGuessRequestSchema } from "./dailyWordGuessRequestSchema.ts";
+export { dailyWordGuessResponseSchema } from "./dailyWordGuessResponseSchema.ts";
+export { dailyWordStateSchema } from "./dailyWordStateSchema.ts";
+export { dailyWordStatusSchema } from "./dailyWordStatusSchema.ts";
 export {
   deleteAccountApiV1UsersMeAccountDelete204Schema,
   deleteAccountApiV1UsersMeAccountDelete404Schema,
@@ -173,6 +178,13 @@ export {
   getCodenamesBoardApiV1CodenamesGamesGameIdBoardGet422Schema,
   getCodenamesBoardApiV1CodenamesGamesGameIdBoardGetQueryResponseSchema,
 } from "./getCodenamesBoardApiV1CodenamesGamesGameIdBoardGetSchema.ts";
+export {
+  getDailyWordApiV1DailyWordGetQueryParamsSchema,
+  getDailyWordApiV1DailyWordGet200Schema,
+  getDailyWordApiV1DailyWordGet404Schema,
+  getDailyWordApiV1DailyWordGet422Schema,
+  getDailyWordApiV1DailyWordGetQueryResponseSchema,
+} from "./getDailyWordApiV1DailyWordGetSchema.ts";
 export {
   getDurationStatsApiV1StatsUsersUserIdDurationGetPathParamsSchema,
   getDurationStatsApiV1StatsUsersUserIdDurationGet200Schema,
@@ -384,6 +396,13 @@ export {
 export { giveClueRequestSchema } from "./giveClueRequestSchema.ts";
 export { giveClueResponseSchema } from "./giveClueResponseSchema.ts";
 export {
+  giveUpDailyWordApiV1DailyWordGiveUpPostQueryParamsSchema,
+  giveUpDailyWordApiV1DailyWordGiveUpPost200Schema,
+  giveUpDailyWordApiV1DailyWordGiveUpPost404Schema,
+  giveUpDailyWordApiV1DailyWordGiveUpPost422Schema,
+  giveUpDailyWordApiV1DailyWordGiveUpPostMutationResponseSchema,
+} from "./giveUpDailyWordApiV1DailyWordGiveUpPostSchema.ts";
+export {
   guessCardApiV1CodenamesGamesGameIdGuessPostPathParamsSchema,
   guessCardApiV1CodenamesGamesGameIdGuessPost200Schema,
   guessCardApiV1CodenamesGamesGameIdGuessPost404Schema,
@@ -393,6 +412,14 @@ export {
 } from "./guessCardApiV1CodenamesGamesGameIdGuessPostSchema.ts";
 export { guessCardRequestSchema } from "./guessCardRequestSchema.ts";
 export { guessCardResponseSchema } from "./guessCardResponseSchema.ts";
+export {
+  guessDailyWordApiV1DailyWordGuessPostQueryParamsSchema,
+  guessDailyWordApiV1DailyWordGuessPost200Schema,
+  guessDailyWordApiV1DailyWordGuessPost404Schema,
+  guessDailyWordApiV1DailyWordGuessPost422Schema,
+  guessDailyWordApiV1DailyWordGuessPostMutationRequestSchema,
+  guessDailyWordApiV1DailyWordGuessPostMutationResponseSchema,
+} from "./guessDailyWordApiV1DailyWordGuessPostSchema.ts";
 export { headToHeadStatsSchema } from "./headToHeadStatsSchema.ts";
 export {
   healthCheckHealthGet200Schema,
@@ -423,6 +450,13 @@ export {
   joinRoomAsSpectatorApiV1RoomsJoinSpectatorPatchMutationResponseSchema,
 } from "./joinRoomAsSpectatorApiV1RoomsJoinSpectatorPatchSchema.ts";
 export { joinSpectatorRequestSchema } from "./joinSpectatorRequestSchema.ts";
+export {
+  keepDailyWordApiV1DailyWordKeepPostQueryParamsSchema,
+  keepDailyWordApiV1DailyWordKeepPost200Schema,
+  keepDailyWordApiV1DailyWordKeepPost404Schema,
+  keepDailyWordApiV1DailyWordKeepPost422Schema,
+  keepDailyWordApiV1DailyWordKeepPostMutationResponseSchema,
+} from "./keepDailyWordApiV1DailyWordKeepPostSchema.ts";
 export {
   keepNotebookGameWordsApiV1NotebookGamesGameIdKeepPostPathParamsSchema,
   keepNotebookGameWordsApiV1NotebookGamesGameIdKeepPostQueryParamsSchema,
@@ -647,6 +681,13 @@ export {
   resumeWordquizGameApiV1WordquizGamesGameIdResumePost422Schema,
   resumeWordquizGameApiV1WordquizGamesGameIdResumePostMutationResponseSchema,
 } from "./resumeWordquizGameApiV1WordquizGamesGameIdResumePostSchema.ts";
+export {
+  revealDailyWordHintApiV1DailyWordHintPostQueryParamsSchema,
+  revealDailyWordHintApiV1DailyWordHintPost200Schema,
+  revealDailyWordHintApiV1DailyWordHintPost404Schema,
+  revealDailyWordHintApiV1DailyWordHintPost422Schema,
+  revealDailyWordHintApiV1DailyWordHintPostMutationResponseSchema,
+} from "./revealDailyWordHintApiV1DailyWordHintPostSchema.ts";
 export { roomCreateRequestSchema } from "./roomCreateRequestSchema.ts";
 export { roomInviteRequestSchema } from "./roomInviteRequestSchema.ts";
 export { roomInviteResponseSchema } from "./roomInviteResponseSchema.ts";

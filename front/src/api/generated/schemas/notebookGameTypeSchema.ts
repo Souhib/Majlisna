@@ -8,10 +8,10 @@
 import { z } from "zod/v4";
 
 /**
- * @description The games whose words can be kept. Values match ``GameType``; MCQ has none.
+ * @description Where a kept word comes from. The first three match ``GameType`` (MCQ has no\nwords); ``DAILY_WORD`` is the word of the day, which is no ``Game`` at all — a\nQuizWord, resolved exactly like a Word Quiz word, kept with no ``source_game_id``.
  */
 export const notebookGameTypeSchema = z
-  .enum(["undercover", "codenames", "word_quiz"])
+  .enum(["undercover", "codenames", "word_quiz", "daily_word"])
   .describe(
-    "The games whose words can be kept. Values match ``GameType``; MCQ has none.",
+    "Where a kept word comes from. The first three match ``GameType`` (MCQ has no\nwords); ``DAILY_WORD`` is the word of the day, which is no ``Game`` at all — a\nQuizWord, resolved exactly like a Word Quiz word, kept with no ``source_game_id``.",
   );

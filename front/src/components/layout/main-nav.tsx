@@ -38,7 +38,10 @@ const LINKS = [
   { to: "/about", key: "nav.about" },
 ] as const
 
-type NavPath = (typeof LINKS)[number]["to"]
+/** The menu sheet also offers the word of the day, after Play (the wide row keeps its five links). */
+const SHEET_LINKS = [LINKS[0], { to: "/today", key: "daily.nav" }, ...LINKS.slice(1)] as const
+
+type NavPath = (typeof SHEET_LINKS)[number]["to"]
 
 function isCurrent(pathname: string, to: NavPath) {
   if (to === "/") return pathname === "/"
@@ -147,7 +150,7 @@ function MenuSheet({ pathname }: { pathname: string }) {
 
         <nav aria-label={t("nav.mainLabel")}>
           <ul className="menu-links">
-            {LINKS.map((link, i) => (
+            {SHEET_LINKS.map((link, i) => (
               <li key={link.to}>
                 <Link ref={i === 0 ? firstLinkRef : undefined} to={link.to} aria-current={isCurrent(pathname, link.to) ? "page" : undefined}>
                   {t(link.key)}

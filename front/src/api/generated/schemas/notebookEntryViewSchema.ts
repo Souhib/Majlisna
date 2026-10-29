@@ -18,7 +18,7 @@ export const notebookEntryViewSchema = z
     word_display: z.string(),
     get game_type() {
       return notebookGameTypeSchema.describe(
-        "The games whose words can be kept. Values match ``GameType``; MCQ has none.",
+        "Where a kept word comes from. The first three match ``GameType`` (MCQ has no\nwords); ``DAILY_WORD`` is the word of the day, which is no ``Game`` at all — a\nQuizWord, resolved exactly like a Word Quiz word, kept with no ``source_game_id``.",
       );
     },
     word_ar: z.optional(z.union([z.string(), z.null()])),

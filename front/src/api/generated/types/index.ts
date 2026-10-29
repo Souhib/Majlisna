@@ -68,6 +68,14 @@ export type {
   CreateWordPackApiV1CodenamesWordPacksPostMutation,
 } from "./CreateWordPackApiV1CodenamesWordPacksPost.ts";
 export type { DailyGameRecord } from "./DailyGameRecord.ts";
+export type { DailyWordAnswer } from "./DailyWordAnswer.ts";
+export type { DailyWordGuessRequest } from "./DailyWordGuessRequest.ts";
+export type { DailyWordGuessResponse } from "./DailyWordGuessResponse.ts";
+export type { DailyWordState } from "./DailyWordState.ts";
+export type {
+  DailyWordStatusEnumKey,
+  DailyWordStatus,
+} from "./DailyWordStatus.ts";
 export type {
   DeleteAccountApiV1UsersMeAccountDelete204,
   DeleteAccountApiV1UsersMeAccountDelete404,
@@ -202,6 +210,14 @@ export type {
   GetCodenamesBoardApiV1CodenamesGamesGameIdBoardGetQueryResponse,
   GetCodenamesBoardApiV1CodenamesGamesGameIdBoardGetQuery,
 } from "./GetCodenamesBoardApiV1CodenamesGamesGameIdBoardGet.ts";
+export type {
+  GetDailyWordApiV1DailyWordGetQueryParams,
+  GetDailyWordApiV1DailyWordGet200,
+  GetDailyWordApiV1DailyWordGet404,
+  GetDailyWordApiV1DailyWordGet422,
+  GetDailyWordApiV1DailyWordGetQueryResponse,
+  GetDailyWordApiV1DailyWordGetQuery,
+} from "./GetDailyWordApiV1DailyWordGet.ts";
 export type {
   GetDurationStatsApiV1StatsUsersUserIdDurationGetPathParams,
   GetDurationStatsApiV1StatsUsersUserIdDurationGet200,
@@ -443,6 +459,14 @@ export type {
 export type { GiveClueRequest } from "./GiveClueRequest.ts";
 export type { GiveClueResponse } from "./GiveClueResponse.ts";
 export type {
+  GiveUpDailyWordApiV1DailyWordGiveUpPostQueryParams,
+  GiveUpDailyWordApiV1DailyWordGiveUpPost200,
+  GiveUpDailyWordApiV1DailyWordGiveUpPost404,
+  GiveUpDailyWordApiV1DailyWordGiveUpPost422,
+  GiveUpDailyWordApiV1DailyWordGiveUpPostMutationResponse,
+  GiveUpDailyWordApiV1DailyWordGiveUpPostMutation,
+} from "./GiveUpDailyWordApiV1DailyWordGiveUpPost.ts";
+export type {
   GuessCardApiV1CodenamesGamesGameIdGuessPostPathParams,
   GuessCardApiV1CodenamesGamesGameIdGuessPost200,
   GuessCardApiV1CodenamesGamesGameIdGuessPost404,
@@ -453,6 +477,15 @@ export type {
 } from "./GuessCardApiV1CodenamesGamesGameIdGuessPost.ts";
 export type { GuessCardRequest } from "./GuessCardRequest.ts";
 export type { GuessCardResponse } from "./GuessCardResponse.ts";
+export type {
+  GuessDailyWordApiV1DailyWordGuessPostQueryParams,
+  GuessDailyWordApiV1DailyWordGuessPost200,
+  GuessDailyWordApiV1DailyWordGuessPost404,
+  GuessDailyWordApiV1DailyWordGuessPost422,
+  GuessDailyWordApiV1DailyWordGuessPostMutationRequest,
+  GuessDailyWordApiV1DailyWordGuessPostMutationResponse,
+  GuessDailyWordApiV1DailyWordGuessPostMutation,
+} from "./GuessDailyWordApiV1DailyWordGuessPost.ts";
 export type { HeadToHeadStats } from "./HeadToHeadStats.ts";
 export type {
   HealthCheckHealthGet200,
@@ -487,6 +520,14 @@ export type {
   JoinRoomAsSpectatorApiV1RoomsJoinSpectatorPatchMutation,
 } from "./JoinRoomAsSpectatorApiV1RoomsJoinSpectatorPatch.ts";
 export type { JoinSpectatorRequest } from "./JoinSpectatorRequest.ts";
+export type {
+  KeepDailyWordApiV1DailyWordKeepPostQueryParams,
+  KeepDailyWordApiV1DailyWordKeepPost200,
+  KeepDailyWordApiV1DailyWordKeepPost404,
+  KeepDailyWordApiV1DailyWordKeepPost422,
+  KeepDailyWordApiV1DailyWordKeepPostMutationResponse,
+  KeepDailyWordApiV1DailyWordKeepPostMutation,
+} from "./KeepDailyWordApiV1DailyWordKeepPost.ts";
 export type {
   KeepNotebookGameWordsApiV1NotebookGamesGameIdKeepPostPathParams,
   KeepNotebookGameWordsApiV1NotebookGamesGameIdKeepPostQueryParams,
@@ -742,6 +783,14 @@ export type {
   ResumeWordquizGameApiV1WordquizGamesGameIdResumePostMutationResponse,
   ResumeWordquizGameApiV1WordquizGamesGameIdResumePostMutation,
 } from "./ResumeWordquizGameApiV1WordquizGamesGameIdResumePost.ts";
+export type {
+  RevealDailyWordHintApiV1DailyWordHintPostQueryParams,
+  RevealDailyWordHintApiV1DailyWordHintPost200,
+  RevealDailyWordHintApiV1DailyWordHintPost404,
+  RevealDailyWordHintApiV1DailyWordHintPost422,
+  RevealDailyWordHintApiV1DailyWordHintPostMutationResponse,
+  RevealDailyWordHintApiV1DailyWordHintPostMutation,
+} from "./RevealDailyWordHintApiV1DailyWordHintPost.ts";
 export type { RoomCreateRequest } from "./RoomCreateRequest.ts";
 export type { RoomInviteRequest } from "./RoomInviteRequest.ts";
 export type { RoomInviteResponse } from "./RoomInviteResponse.ts";
@@ -987,6 +1036,7 @@ export type { WordQuizGameState } from "./WordQuizGameState.ts";
 export type { WordQuizPlayerState } from "./WordQuizPlayerState.ts";
 export type { WordQuizRoundResult } from "./WordQuizRoundResult.ts";
 export type { WordQuizTimerConfig } from "./WordQuizTimerConfig.ts";
+export { dailyWordStatusEnum } from "./DailyWordStatus.ts";
 export { difficultyLevelEnum } from "./DifficultyLevel.ts";
 export { friendshipStatusEnumEnum } from "./FriendshipStatusEnum.ts";
 export { gamePauseReasonEnum } from "./GamePauseReason.ts";
