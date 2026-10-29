@@ -11,11 +11,14 @@ from majlisna.api.schemas.shared import BaseTable
 
 
 class NotebookGameType(StrEnum):
-    """The games whose words can be kept. Values match ``GameType``; MCQ has none."""
+    """Where a kept word comes from. The first three match ``GameType`` (MCQ has no
+    words); ``DAILY_WORD`` is the word of the day, which is no ``Game`` at all — a
+    QuizWord, resolved exactly like a Word Quiz word, kept with no ``source_game_id``."""
 
     UNDERCOVER = GameType.UNDERCOVER.value
     CODENAMES = GameType.CODENAMES.value
     WORD_QUIZ = GameType.WORD_QUIZ.value
+    DAILY_WORD = "daily_word"
 
 
 class NotebookEntry(BaseTable, table=True):

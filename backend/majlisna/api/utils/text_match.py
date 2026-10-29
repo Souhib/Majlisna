@@ -73,6 +73,28 @@ def answers_match(a: str, b: str) -> bool:
     return strip_article(a) == strip_article(b)
 
 
+def matches_quiz_answer(answer: str, *, spellings: Iterable[str | None], accepted_answers: object) -> bool:
+    """Whether ``answer`` finds a Word Quiz word — THE Kalimat rule, also the word of the day's.
+
+    ``spellings`` are the word's own ``word_en`` / ``word_ar`` / ``word_fr``;
+    ``accepted_answers`` its ``{lang: [variant, …]}`` JSON, every language accepted
+    whatever the player's UI. Diacritics, Latin accents, case, hyphens and the "al "
+    article are ignored (``normalize_answer`` + ``answers_match``).
+    """
+    normalized = normalize_answer(answer)
+    if not normalized:
+        return False
+    variants: list[object] = list(spellings)
+    if isinstance(accepted_answers, dict):
+        for lang_answers in accepted_answers.values():
+            if isinstance(lang_answers, list):
+                variants.extend(lang_answers)
+    return any(
+        isinstance(variant, str) and variant and answers_match(normalize_answer(variant), normalized)
+        for variant in variants
+    )
+
+
 def fold_arabic_letters(text: str) -> str:
     """Fold Arabic letter variants that are commonly typed interchangeably."""
     return text.translate(_ARABIC_LETTER_FOLDS)

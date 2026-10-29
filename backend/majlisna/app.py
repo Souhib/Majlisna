@@ -21,6 +21,7 @@ from majlisna.api.routes.auth import router as auth_router
 from majlisna.api.routes.challenge import router as challenge_router
 from majlisna.api.routes.chat import router as chat_router
 from majlisna.api.routes.codenames import router as codenames_router
+from majlisna.api.routes.daily_word import router as daily_word_router
 from majlisna.api.routes.friend import router as friend_router
 from majlisna.api.routes.game import router as game_router
 from majlisna.api.routes.mcqquiz import router as mcqquiz_router
@@ -117,6 +118,7 @@ _API_ROUTERS = (
     chat_router,
     challenge_router,
     notebook_router,
+    daily_word_router,
 )
 
 

@@ -1,3 +1,5 @@
+from datetime import date
+
 # Room constants
 ROOM_PASSWORD_LENGTH = 4
 ROOM_PUBLIC_ID_LENGTH = 5
@@ -138,6 +140,12 @@ USERNAME_MIN_LENGTH = 3
 USERNAME_MAX_LENGTH = 30
 # No whitespace, no markup characters, no "@" (a username must not read as an address).
 USERNAME_PATTERN = r"^[^\s<>/\\@]+$"
+# Namespace of the advisory lock that serialises claims of one username
+# (controllers/user.username_claim_lock): pg_advisory_xact_lock(hashtext(prefix || lower(name))).
+USERNAME_LOCK_PREFIX = "username:"
+# A generated Google username that is taken gets a random suffix; this many suffixed
+# candidates are tried (each checked under its own lock) before sign-up gives up.
+SOCIAL_USERNAME_SUFFIX_ATTEMPTS = 3
 
 # Languages the game content is written in ({en, ar, fr} JSON values). A `lang` a
 # client sends is normalised to one of these (utils/multilingual.normalize_lang).
@@ -192,6 +200,30 @@ NOTEBOOK_UNIQUE_COLUMNS = ("user_id", "game_type", "term")
 # signed-in USER (see rate_limit.user_or_ip_key), not per IP: a majlis is several
 # phones on one home connection, and they would otherwise share one budget.
 NOTEBOOK_KEEP_RATE_LIMIT = "30/minute"
+
+# The word of the day (Kalimat al-yawm, كلمة اليوم): one QuizWord per day, the same for
+# everyone, found from its hint ladder. The day turns at midnight in Makkah: Saudi
+# Arabia keeps UTC+3 all year (no DST), but the zone name, not a fixed offset, says why.
+DAILY_WORD_TIMEZONE = "Asia/Riyadh"
+# Day #1, the Makkah day the word of the day went public (its first production deploy),
+# so the first word players see reads #1. A day's number is (day - DAILY_WORD_EPOCH).days
+# + 1, never below 1. Never move it once live: every shared "#N" line would change.
+DAILY_WORD_EPOCH = date(2026, 10, 29)
+# A word drawn for a day is not drawn again for this many days (unless that leaves none).
+DAILY_WORD_NO_REPEAT_DAYS = 180
+# Every player starts with the first rung of the ladder; viewing it writes nothing.
+DAILY_WORD_INITIAL_HINTS = 1
+# One row per player per day; the race-safe insert resolves its conflicts on these.
+DAILY_WORD_PLAY_UNIQUE_COLUMNS = ("user_id", "day")
+# The guesses a play keeps for the "your tries" list (the most recent ones); `attempts`
+# still counts every one.
+DAILY_WORD_GUESSES_KEPT = 20
+DAILY_WORD_ANSWER_MAX_LENGTH = 100
+# Per signed-in user (rate_limit.user_or_ip_key): one guess every two seconds is more
+# than any person types. It protects the server, nothing more: 30 a minute still walks a
+# theme's 17 to 53 words in under two minutes. What keeps such a walk from paying is the
+# rule that a wrong try opens the next rung (DailyWordController.guess): it scores 1.
+DAILY_WORD_GUESS_RATE_LIMIT = "30/minute"
 
 # Rate limiting: the key of a request whose caller is signed in.
 RATE_LIMIT_USER_KEY_PREFIX = "user:"

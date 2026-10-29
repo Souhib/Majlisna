@@ -19,6 +19,11 @@ from majlisna.api.constants import (
 from majlisna.api.controllers.base_game import BaseGameController
 from majlisna.api.controllers.game_end_stats import record_game_end, top_score_winners
 from majlisna.api.controllers.game_lock import get_game_lock
+from majlisna.api.controllers.quiz_rules import (
+    everyone_has_answered,
+    settle_round_if_everyone_answered,
+    wordquiz_transition_to_results,
+)
 from majlisna.api.controllers.wordquiz import WordQuizController
 from majlisna.api.models.error import (
     AlreadyAnsweredError,
@@ -53,7 +58,7 @@ from majlisna.api.schemas.wordquiz import (
 )
 from majlisna.api.utils.game_pause import clock_now, is_paused, parse_instant
 from majlisna.api.utils.game_state import require_state
-from majlisna.api.utils.text_match import answers_match, normalize_answer, strip_article
+from majlisna.api.utils.text_match import answers_match, matches_quiz_answer, normalize_answer, strip_article
 
 
 class WordQuizGameController(BaseGameController):
@@ -86,30 +91,16 @@ class WordQuizGameController(BaseGameController):
 
     @staticmethod
     def _check_answer(answer: str, word: dict) -> bool:
-        """Check if the normalized answer matches any accepted form of the word."""
-        normalized = WordQuizGameController._normalize_answer(answer)
-        if not normalized:
-            return False
+        """Check if the normalized answer matches any accepted form of the word.
 
-        # Check direct word fields
-        for field in ("word_en", "word_ar", "word_fr"):
-            value = word.get(field)
-            if value and WordQuizGameController._answers_match(
-                WordQuizGameController._normalize_answer(value), normalized
-            ):
-                return True
-
-        # Check accepted_answers lists
-        accepted = word.get("accepted_answers") or {}
-        for lang_answers in accepted.values():
-            if isinstance(lang_answers, list):
-                for variant in lang_answers:
-                    if WordQuizGameController._answers_match(
-                        WordQuizGameController._normalize_answer(variant), normalized
-                    ):
-                        return True
-
-        return False
+        The rule lives in ``utils.text_match.matches_quiz_answer``, which the word of the
+        day uses too, so a word is found by the same answers in both.
+        """
+        return matches_quiz_answer(
+            answer,
+            spellings=(word.get("word_en"), word.get("word_ar"), word.get("word_fr")),
+            accepted_answers=word.get("accepted_answers"),
+        )
 
     async def create_and_start(self, room_id: UUID, user_id: UUID) -> GameStartResponse:
         """Start a new Word Quiz game in the given room. Host only."""
@@ -428,9 +419,9 @@ class WordQuizGameController(BaseGameController):
                 await self.session.commit()
                 return SubmitAnswerResponse(correct=False, points_earned=0, hint_number=current_hint)
 
-            # Check if all players answered
-            all_answered = len(answers) == len(state["players"])
-            if all_answered:
+            # Every player found the word → results (the departure path and the resume
+            # reach the same rule through quiz_rules).
+            if everyone_has_answered(state):
                 self._transition_to_results(state)
 
             game.live_state = state
@@ -630,46 +621,14 @@ class WordQuizGameController(BaseGameController):
 
         return HintRecordResponse(game_id=str(game_id), recorded=True)
 
-    def _transition_to_results(self, state: dict) -> None:
-        """Transition from playing to results phase. Build round_results."""
-        state["round_phase"] = "results"
-        answers = state.get("answers", {})
-        attempts = state.get("attempts", {})
+    @staticmethod
+    def _transition_to_results(state: dict) -> None:
+        """Transition from playing to results phase. See ``quiz_rules``."""
+        wordquiz_transition_to_results(state)
 
-        round_results: list[dict] = []
-        for p in state["players"]:
-            p_answer = answers.get(p["user_id"])
-            p_attempts = attempts.get(p["user_id"]) or {}
-            if p_answer:
-                round_results.append(
-                    {
-                        "user_id": p["user_id"],
-                        "username": p["username"],
-                        "answered_at_hint": p_answer["hint_number"],
-                        "points": p_answer["points"],
-                        "answer_time_ms": p_answer.get("answer_time_ms"),
-                        "typed_answer": p_answer.get("answer_text"),
-                        # Rows from before attempts were counted still found it once.
-                        "attempts": p_attempts.get("count", 1),
-                    }
-                )
-            else:
-                round_results.append(
-                    {
-                        "user_id": p["user_id"],
-                        "username": p["username"],
-                        "answered_at_hint": None,
-                        "points": 0,
-                        "answer_time_ms": None,
-                        "typed_answer": p_attempts.get("last_text"),
-                        "attempts": p_attempts.get("count", 0),
-                    }
-                )
-
-        # Sort by points desc, then by answer_time_ms asc. `round_results` is a
-        # `list[dict]` of live_state JSON; `points` is an int written just above.
-        round_results.sort(key=lambda r: (-r["points"], r.get("answer_time_ms") or float("inf")))
-        state["round_results"] = round_results
+    def _settle_after_resume(self, state: dict) -> None:
+        """A drop-out during the pause may have completed the round: settle it now."""
+        settle_round_if_everyone_answered(state, GameType.WORD_QUIZ)
 
     def _is_timer_actually_expired(self, state: dict) -> bool:
         """Check if the game timer has actually elapsed server-side."""

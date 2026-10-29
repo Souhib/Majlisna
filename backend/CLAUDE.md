@@ -35,7 +35,7 @@ api/
 ├── controllers/       # Business logic (async methods)
 │   ├── base_game.py   # BaseGameController — shared methods for all game controllers
 │   ├── auth.py        # JWT login, register, refresh
-│   ├── user.py        # User CRUD
+│   ├── user.py        # User CRUD + username_is_taken / username_claim_lock (per-name advisory lock)
 │   ├── room.py        # Room management + heartbeat + share links
 │   ├── game.py        # Game lifecycle
 │   ├── undercover.py  # Undercover word/term pairs
@@ -51,9 +51,11 @@ api/
 │   ├── mcqquiz_game.py    # MCQ Quiz game logic (extends BaseGameController)
 │   ├── game_lock.py   # PostgreSQL advisory locks per game_id (asyncio.Lock fallback for SQLite)
 │   ├── disconnect.py  # Disconnect/kick handlers (used by kick_player, includes _handle_mcqquiz_disconnect)
+│   ├── quiz_rules.py  # Quiz round rules shared with disconnect: everyone_has_answered, results transitions, settle
 │   ├── stats.py       # User statistics
 │   ├── term_script.py # Arabic forms of game terms: batched get_forms + seed upsert
 │   ├── notebook.py    # The Kunnash: words kept from finished games (keep / list / delete)
+│   ├── daily_word.py  # The word of the day: lazy daily draw, the caller's play (hint / guess / give up / keep)
 │   └── achievement.py # Achievement tracking + seeding
 ├── models/            # SQLModel DB tables ONLY
 │   ├── table.py       # User, Room, Game, Event tables
@@ -63,6 +65,7 @@ api/
 │   ├── codenames.py   # CodenamesWord, CodenamesWordPack
 │   ├── term_script.py # TermScript (Latin term → ar, ar_vocalized)
 │   ├── notebook.py    # NotebookEntry + NotebookGameType (the Kunnash)
+│   ├── daily_word.py  # DailyWord (one QuizWord per Makkah day) + DailyWordPlay (one per user per day)
 │   ├── stats.py       # UserStats, AchievementDefinition, UserAchievement
 │   ├── error.py       # Game-specific error classes
 │   └── shared.py      # DBModel (backward compat)
@@ -84,6 +87,7 @@ api/
 │   ├── mcqquiz.py     # /api/v1/mcqquiz/* (start, state, answer, timer, next-round)
 │   │                  # all four game routers also carry /games/{id}/pause and /resume
 │   ├── notebook.py    # /api/v1/notebook/* (a game's words, keep them / one, list by cursor, delete)
+│   ├── daily_word.py  # /api/v1/daily-word (public GET; hint, guess, give-up, keep)
 │   └── stats.py       # /api/v1/users/{id}/stats, achievements, leaderboard
 ├── ws/                # Socket.IO real-time notification layer
 │   ├── __init__.py    # Exports sio, socketio_app
@@ -91,7 +95,7 @@ api/
 │   ├── handlers.py    # connect (JWT auth), join_game, disconnect, auto_join_game_room
 │   ├── state.py       # Thin wrappers: fetch_room_state, fetch_game_state (reuse controllers)
 │   └── notify.py      # notify_room_changed, notify_game_changed (best-effort broadcast)
-├── utils/             # Pure helpers (rng, text_match, multilingual, game_state, game_pause, cursor)
+├── utils/             # Pure helpers (rng, text_match, multilingual, game_state, game_pause, cursor, daily_word, dialect)
 ├── constants.py       # All magic values
 ├── rate_limit.py      # slowapi limiter, per-user key (user_or_ip_key), 429 envelope handler
 ├── middleware.py       # Security, RequestID, Logging
@@ -303,6 +307,8 @@ from majlisna.api.constants import MIN_PLAYERS_FOR_GAME, ROOM_PASSWORD_LENGTH
 | CodenamesWordPack | codenames_word_pack | Word pack groupings |
 | TermScript | term_script | Arabic forms (`ar`, `ar_vocalized`) of every Undercover/Codenames term, keyed by the Latin `term` |
 | NotebookEntry | notebook_entry | The Kunnash: one row per (user, game type, term) a player kept from a finished game (`term` column; the API calls it `word`) |
+| DailyWord | daily_word | The word of the day: `day` (Makkah date, PK) → `quiz_word_id` |
+| DailyWordPlay | daily_word_play | One player's go at one day's word: one row per (`user_id`, `day`) |
 | QuizWord | quiz_word | Word Quiz words (multilingual hints, accepted answers) |
 | McqQuestion | mcq_question | MCQ Quiz questions (trilingual questions, JSON choices/explanations) |
 | UserStats | user_stats | Aggregated player statistics |
@@ -434,6 +440,17 @@ production with an empty schema and no way to refill it.
 Belt and braces on top of that: `--create-db` verifies faker is importable BEFORE
 touching the database, and `--delete` warns when the follow-up cannot succeed.
 `--seed` (game content only) never needs faker and stays the safe minimum.
+
+**The content seeds are upserts: the seed data is the source of truth for game content.**
+`seed_quiz_words` (keyed on `word_en`), `seed_codenames_words` (pack + word) and
+`seed_undercover_words` (word) insert what is missing AND bring an existing row's seeded
+fields back to the data: spellings, accepted answers, theme, difficulty, hints,
+explanations, descriptions. So a correction in `wordquiz_data.py`, `codenames_data.py` or
+`undercover_data.py` reaches production with `--seed`, like `term_script` (below) and the
+retired Codenames cards. They used to only add rows, which left every fixed hint on the
+server as it was. The flip side: an edit made through the admin content API to a seeded
+word is overwritten by the next `--seed` (no client calls that API; change the data file
+instead). `tests/scripts/test_content_seed.py` pins it.
 
 ### Expected 4xx log at INFO, not WARNING
 
@@ -864,6 +881,41 @@ The Codenames timers also default to 0, so nothing switched the turn either. The
 score ordering (not a boolean) is what decides the winner when a side drops below
 2: an empty team must never beat a crippled one.
 
+### A quiz round a departure completes goes to results at once
+
+Word Quiz and MCQ move a round to results when the last answer arrives
+(`submit_answer`). When instead the one player everybody was waiting on leaves, is
+kicked or is removed by the grace sweep, every remaining player is already done —
+and nothing else noticed: no answer could arrive any more, so the round sat open
+until its timer ran out. `_handle_wordquiz_disconnect` / `_handle_mcqquiz_disconnect`
+now call `quiz_rules.settle_round_if_everyone_answered(state, game_type)` after
+removing the player, under the game lock and in the handler's single commit.
+
+- **One rule, each game's own meaning** — `quiz_rules.everyone_has_answered`: every
+  remaining player has an entry in `answers`. MCQ writes every lock-in there; Word
+  Quiz only the answer that found the word (a wrong try is an `attempt`, and the
+  player may type again), so "done" is "answered" in one and "found it" in the
+  other. `submit_answer` uses the same function, and the controllers'
+  `_transition_to_results` are thin delegates to `quiz_rules` — a module of its own
+  for the import reason of `undercover_rules` (`disconnect` cannot import a
+  controller).
+- **Only an open round** (`round_phase == "playing"`), never an empty table (the
+  handler cancels it), and **never while paused**: the departure is recorded (roster,
+  answers, attempts, ready marks), the round stays as the prayer found it, and
+  `resume_game` settles it — `BaseGameController._settle_after_resume(state)`, a
+  no-op the two quiz controllers override, runs after the pause is cleared, in the
+  resume's commit.
+- Notifications need nothing new: kick and leave already `notify_member_removed`
+  (→ `notify_game_changed`), and the sweep returns the game for `on_game_changed`.
+
+Tests: `tests/api/controllers/test_quiz_dropout.py` (both quizzes × leave / kick /
+sweep; a departure that does not complete the round — including a Word Quiz player
+whose only try was wrong; the paused case settled by the resume; a resume that
+must leave an unfinished round open). Disabling the settle fails ten of them.
+E2E, through the real stack and the push to the remaining player's page:
+`e2e/tests/mcqquiz/drop-out.spec.ts` (a leave) and `e2e/tests/wordquiz/drop-out.spec.ts`
+(a kick), each on a five-minute clock that the result must beat by far.
+
 ### Undercover vote targets are secret until the round resolves
 
 `_visible_votes` returns the caller's own choice and blanks everyone else's while
@@ -970,6 +1022,10 @@ conventionally written with it (surahs, "القرآن", "المدينة", "ال�
 dynasties). No honorific inside the term. Rule for `ar_vocalized`: only the LAST
 word is pausal; every earlier word of a multi-word name keeps its case vowel
 ("لَيْلَةُ الْقَدْر", "خَالِدُ بْنُ الْوَلِيد"), because a bare one reads as a stop.
+Where the dictionaries disagree, the comment above the line records the choice and its
+source: حِطِّين (Yaqut), الحُدَيْبِيَة with a light yaa (the lexicographers; the hadith
+reciters double it), جِنَازَة with a kasra (al-Jawhari, al-Fayyumi: "والكسر أفصح"), سَحُور
+the meal against سُحُور the act, مُصْحَف with a damma. Change one only with a source.
 A word an admin adds through the API without a row simply gets null Arabic forms.
 
 **The seed is an upsert** (`seed_term_scripts` → `TermScriptController.upsert`):
@@ -984,10 +1040,22 @@ database; until then every Arabic field is null and the games play as before.
 `NotebookEntry` (`models/notebook.py`, table `notebook_entry`) — `user_id`, `term`
 (the Latin key exactly as the game stored it: `Word.word`, `CodenamesWord.word`,
 `QuizWord.word_en`), `game_type` (`NotebookGameType`: undercover / codenames /
-word_quiz — the `GameType` values; MCQ has no words), `source_game_id`, `kept_at`
-(UTC-aware). A new table, not columns anywhere: no migrations. Registered in
+word_quiz — the `GameType` values; MCQ has no words — plus **daily_word**, the word of
+the day: a QuizWord resolved exactly like a word_quiz one, kept with
+`source_game_id` null, through `POST /daily-word/keep` only), `source_game_id`,
+`kept_at` (UTC-aware). A new table, not columns anywhere: no migrations. Registered in
 `models/table.py` like every other model, so `--delete`'s `drop_all` drops it
 before `user` and `game` (it holds FKs to both).
+
+**`game_type` is a native PostgreSQL ENUM** (`notebookgametype`, which stores the
+member NAMES: `UNDERCOVER`, `CODENAMES`, `WORD_QUIZ`, `DAILY_WORD`). `create_all`
+creates the type with the table and never alters it. Adding `DAILY_WORD` was safe
+only because `notebook_entry` is new in the same release and not yet on production,
+so the type is created with all four values (a dev or E2E database created before it
+is fixed by `--delete` + `--create-db`, which drops the type with the table). **Once
+this ships, a new member needs `ALTER TYPE notebookgametype ADD VALUE '<NAME>'` run
+on the server before the code that writes it** — without it the insert answers
+"invalid input value for enum".
 
 Endpoints (`routes/notebook.py`; handler names are what the Kubb hooks are named
 after, so they all say "notebook"):
@@ -1045,8 +1113,11 @@ word-bearing schema (cards, clue guesses, `my_word_*`), so one chip renders them
   Codenames; for Word Quiz the word's OWN `word_ar` first — it is what the game
   revealed, and `term_script` is keyed by Latin spellings another game's term may
   share — with `term_script`'s vocalisation only when it vocalises that same Arabic.
-  `word_ar_vocalized` is therefore null for (almost) every Word Quiz word: the
-  client shows `word_ar` then. The hint is `resolve_multilingual`
+  `word_ar_vocalized` is therefore null for a Word Quiz word whose Latin key
+  ("Ibrahim / Abraham") or Arabic differs from term_script's (101 of the 191 seeded
+  words on 2026-10-28): the client shows `word_ar` then. A seeded quiz word that IS a
+  term_script term spells `word_ar` exactly as term_script's `ar`, article included
+  ("الحديبية", "الصفا", "الخندق", "القرآن", "الأمويون"). The hint is `resolve_multilingual`
   (`utils/multilingual.py`) over `Word.hint` (else `long_description`), the oldest
   `CodenamesWord` row with a hint, or `QuizWord.explanation` (else the last rung).
 - **Keeps are rate-limited per user** (`NOTEBOOK_KEEP_RATE_LIMIT`,
@@ -1054,6 +1125,114 @@ word-bearing schema (cards, clue guesses, `my_word_*`), so one chip renders them
 - **Someone else's entry is a 404 on DELETE**, the same as a missing id, so ids
   cannot be probed. Account deletion purges the rows (`_purge_user_references`).
 - Nothing is pushed over Socket.IO: the notebook is personal, there is no room.
+- **Word Quiz and word-of-the-day entries share one `quiz_word` lookup**
+  (`_QUIZ_WORD_TYPES`, a tuple: `in` compares by equality, while a set of StrEnum
+  members hashes them by NAME and misses their plain-string values). The dialect
+  insert is `utils/dialect.dialect_insert(session, Model)`, shared with the daily word.
+
+### The word of the day (Kalimat al-yawm, كلمة اليوم)
+
+A daily solo puzzle on the Word Quiz content: one `QuizWord` per day, the same for
+everyone, found from its six-rung ladder and typed in any language or script.
+
+- **The day turns at midnight in Makkah** (`DAILY_WORD_TIMEZONE = "Asia/Riyadh"`, UTC+3,
+  no DST — 21:00 UTC, i.e. 22:00 or 23:00 in France, prime time for European players).
+  `utils/daily_word.py` holds the pure rules: `makkah_day(instant)`,
+  `daily_word_number(day)` = `(day - DAILY_WORD_EPOCH).days + 1`, never below 1
+  (2026-10-29, the Makkah day of the first production deploy, is #1, so the first word
+  players saw reads #1; never move the epoch once live, every shared "#N" would change),
+  `next_day_starts_at(day)` (UTC), `ladder_length(hints)` (consecutive rungs "1".."n",
+  capped at `DEFAULT_WORD_QUIZ_MAX_HINTS`, at least 1), `solved_score` (Kalimat's
+  `max_hints - hints_revealed + 1`) and `compute_streaks`. The production image has the
+  zone database (`python:3.12-slim` installs `tzdata`; checked in `e2e-backend`).
+- **Tables** (new, so `create_all` makes them; registered in `models/table.py`):
+  `daily_word` (`day` DATE PK → `quiz_word_id`, `created_at`) and `daily_word_play`
+  (`UniqueConstraint(user_id, day)`; `hints_revealed` from 1, `attempts`, `last_guess`,
+  `guesses` — the most recent `DAILY_WORD_GUESSES_KEPT`, for the "your tries" list —
+  `solved_at`, `gave_up`, `score`, `started_at`; index on `day` for the solvers count).
+  A `QuizWord` that has been a daily word can no longer be deleted (FK): the seed never
+  deletes quiz words (it upserts by `word_en`), and `WordQuizController.delete` has no
+  route — a future one must handle that row first.
+- **The draw is lazy and race-safe.** The first request of a day draws with `rng`
+  among the words not drawn in the last `DAILY_WORD_NO_REPEAT_DAYS` (180; all of them if
+  that leaves none), `INSERT … ON CONFLICT DO NOTHING` on `day`, commits, then re-reads:
+  two first requests racing agree on the word
+  (`test_concurrent_first_requests_agree_on_the_word`, postgres).
+- **A play is created on the first move** (hint, guess or give-up — viewing hint 1
+  writes nothing) by the same insert on `(user_id, day)`, then read `SELECT … FOR
+  UPDATE` (SQLite drops the clause): a double tap or two tabs are serialised and each
+  move is one commit, so a give-up racing a right guess cannot both land
+  (`test_concurrent_first_moves_make_one_play`, postgres). Finished = `solved_at` set or
+  `gave_up`; nothing moves after that (`DailyWordAlreadyFinishedError`, 409).
+- **Matching is Kalimat's, literally**: `utils/text_match.matches_quiz_answer(answer,
+  spellings=(word_en, word_ar, word_fr), accepted_answers=…)`, which
+  `WordQuizGameController._check_answer` now delegates to. A blank answer (nothing left
+  once normalised) is `EmptyAnswerError` and is not counted.
+- **A wrong try opens the next rung**, as a hint would (`guess`: `hints_revealed += 1`
+  while a rung is left; on the last rung tries are free). It costs the point a hint
+  costs. A free wrong try made the ladder pointless: the category leaves 17 to 53
+  candidates (Places 17 … Islamic Concepts 53 of the 191 seeded words), so typing them
+  one by one at hint 1 — a person with a list of prophets, or a script well inside the
+  rate limit — paid the full 6 points. Now such a walk reaches the last rung and scores 1.
+- **Score and streaks.** Solved: `max_hints - hints_revealed + 1` (6 → 1); give-up: 0.
+  The streak is the run of solved Makkah days ending today, or yesterday while today is
+  still open; a give-up closes today, so the streak reads 0. Best streak = the longest
+  run. Both come from ONE query over the player's plays (`test_streaks_are_one_query`).
+- **The secret.** Before the caller has finished, no payload — state, error envelope,
+  anything — carries the word's spellings, an accepted answer, the explanation, or a
+  rung past `hints_revealed`: `hints` is the revealed prefix (`_resolve_hints`), and
+  `answer` is set only on the caller's own solved or given-up play. Other players
+  finishing changes nothing for anyone else. `test_no_payload_carries_the_word_before_the_caller_finishes`
+  drives the real stack (routes, real JWTs, the DB) in all three languages and reads
+  every raw body; it fails if `_resolve_hints` sends the whole ladder (checked).
+- **Every move names its day.** `POST`s take `?day=` (the day the page shows); another
+  day than today in Makkah is `DailyWordNotTodayError` (409). Without it a page left open
+  past midnight would have its guess judged against the new word and counted as a
+  wrong try on it. `keep` accepts any day the caller finished, so that page can still
+  keep the word it revealed. `day` is optional (today) but the client should always send it.
+- **Anonymous callers** (`get_optional_current_user` in `dependencies.py`) see the
+  number, the category and hint 1, `streak`/`best_streak` null, never the answer. No
+  token at all is anonymous; a token that IS presented must be valid (401 otherwise),
+  so an expired session goes through the client's 401 handling instead of silently
+  showing a signed-in player the signed-out page.
+- **Keep** writes a `daily_word` notebook entry via `NotebookController.keep_daily_word`
+  (idempotent, rate-limited per user with `NOTEBOOK_KEEP_RATE_LIMIT`); 409
+  `DailyWordNotFinishedError` before a finish. The reveal is
+  `NotebookController.get_word_forms` — the notebook's own resolution (`word_display`
+  in `lang`, the word's `word_ar`, term_script's vocalisation when it vocalises that
+  same Arabic, the explanation else the last rung) — plus `kept` / `entry_id` from
+  `find_entry`.
+- **Guesses are rate-limited per user** (`DAILY_WORD_GUESS_RATE_LIMIT`, 30/minute,
+  `user_or_ip_key`, standard 429 envelope). The limit protects the server and only slows
+  a script; what keeps a scripted walk from paying is the wrong-try rule above. A script
+  can still solve at 1 point and lift `solvers_today` and its own streak: there is no
+  leaderboard on these, so that is accepted. Account deletion purges the plays.
+- Nothing is pushed over Socket.IO: the word of the day is personal.
+- **The client** (`/today`, `front/src/components/daily`, and the home card) relies on
+  three of these rules: it reads `GET /daily-word` only once its auth has settled (a
+  stale token would 401 and bounce a visitor to the login page), sends `day` = the
+  state's `day` on every move, and reads the day again on a 409 `dailyWordNotToday`,
+  `dailyWordAlreadyFinished` or `dailyWordNoMoreHints`. It counts down to `next_day_at`
+  and re-reads just after it. Changing any of these changes `front/CLAUDE.md` too.
+
+| Route | Hook | Params / body → response |
+|---|---|---|
+| `GET /daily-word` | `useGetDailyWordApiV1DailyWordGet` | `lang` (optional auth) → `DailyWordState` |
+| `POST /daily-word/hint` | `useRevealDailyWordHintApiV1DailyWordHintPost` | `lang, day` → `DailyWordState` |
+| `POST /daily-word/guess` | `useGuessDailyWordApiV1DailyWordGuessPost` | `{answer}` + `lang, day` → `DailyWordGuessResponse {correct, state}` |
+| `POST /daily-word/give-up` | `useGiveUpDailyWordApiV1DailyWordGiveUpPost` | `lang, day` → `DailyWordState` |
+| `POST /daily-word/keep` | `useKeepDailyWordApiV1DailyWordKeepPost` | `lang, day` → `NotebookKeepResponse` |
+
+`DailyWordState`: `day`, `number`, `category` (`WordQuizCategory` | null), `max_hints`,
+`hints` (prefix), `hints_revealed`, `status` (`not_started | playing | solved |
+gave_up`), `attempts`, `guesses`, `score`, `streak`, `best_streak`, `solvers_today`,
+`next_day_at`, `answer` (`DailyWordAnswer {word_display, word_ar, word_ar_vocalized,
+explanation, kept, entry_id}` | null). Every field is always sent. Errors:
+`dailyWordAlreadyFinished`, `dailyWordNoMoreHints`, `dailyWordNotFinished`,
+`dailyWordNotToday` (all 409), plus `emptyAnswer` and `noQuizWordsAvailable`.
+Tests: `tests/api/utils/test_daily_word.py`, `tests/api/controllers/test_daily_word.py`
+(freezegun at noon in Makkah; the turn of the day; the window; races),
+`tests/api/routes/test_daily_word.py` (wiring, the 429, the leak test).
 
 ### Rate limits answer the standard envelope, keyed by the caller
 
@@ -1154,7 +1333,9 @@ mutations live on the per-game routers only. Hooks:
   case, and restarting the clocks then would defeat the feature.
 - **Drop-outs during the pause still apply** (they are real departures): one that
   decides the game ends it through the usual end-of-game flow; the game then reads
-  as not paused and cannot be resumed (400).
+  as not paused and cannot be resumed (400). A quiz departure that completes the
+  open round does NOT move it while paused; the resume does
+  (`_settle_after_resume`, see "A quiz round a departure completes").
 
 Tests: `tests/api/controllers/test_game_pause.py` (all four games; the anchor tests
 are written so that removing the shift fails them; the cap, the orphaned room, the
@@ -1164,13 +1345,14 @@ and double resume shifting once — that one ages the round anchor BEFORE backda
 the pause, or the anchor reads as set during the pause and is capped),
 `tests/api/routes/test_game_pause.py`, `tests/api/utils/test_game_pause.py`.
 
-### Usernames are unique — by check, not by constraint
+### Usernames are unique — by a locked check, not by constraint
 
 `user.username` is indexed but carries **no unique constraint**, and there are no
 migrations to add one (nor a functional `lower(username)` index) to the existing
 table. So `controllers/user.username_is_taken(session, name, exclude_user_id=)` asks
-first, case-insensitively (`lower()`: ASCII on SQLite, full Unicode on PostgreSQL;
-Arabic has no case), and three paths use it:
+first, case-insensitively (`lower()` on both sides: ASCII on SQLite, full Unicode on
+PostgreSQL; Arabic has no case), always inside `username_claim_lock` (below), and
+three paths use it (four with the internal `UserController.create_user`):
 
 - `AuthController.register` → `UsernameAlreadyTakenError` (409,
   `errors.api.usernameAlreadyTaken`, `error_params.username`). It also checks the
@@ -1183,14 +1365,35 @@ Arabic has no case), and three paths use it:
   case is refused; re-casing one's own name is not a collision. `UserUpdate.username`
   now has registration's pattern (no whitespace, `<>/\@`), or "admin " would slip
   past the check.
-- `_create_social_user`: a generated Google name that collides in any case gets the
-  random suffix.
+- `_create_social_user`: a generated Google name that collides in any case gets a
+  random `_xxxx` suffix; each candidate (the name, then up to
+  `SOCIAL_USERNAME_SUFFIX_ATTEMPTS` distinct suffixed ones) is locked and checked in
+  turn, all locks held until the commit (`AsyncExitStack`). Every candidate taken is
+  `UsernameAlreadyTakenError` — never in practice.
 
-**Residual race:** two concurrent registrations (or renames) to the same new name
-can both pass the check and both commit — check-then-insert without a constraint.
-It needs two people choosing the same new name within milliseconds; the fix, if it
-ever matters, is a new table holding `lower(username)` under a unique constraint
-(additive, so `create_all` would create it).
+**The race is closed by a per-name lock held until the insert commits.** Check-then-
+insert without a constraint let two concurrent registrations (or renames, or a
+rename and a registration) of one new name both pass the check and both commit.
+`username_claim_lock(session, name)` serialises every claim of a name:
+
+- PostgreSQL: `pg_advisory_xact_lock(hashtext('username:' || lower(name)))`
+  (`USERNAME_LOCK_PREFIX`) — **blocking**, and **transaction-scoped**, so the
+  caller's commit (or rollback; the request's session closing on an error) releases
+  it, and PgBouncer's transaction pooling is safe. The second claimer waits, then its
+  check (a fresh READ COMMITTED statement) sees the first one's row. Never the
+  session-level `pg_advisory_lock`: it leaks when the pool recycles a connection. A
+  32-bit hash may give two names one key; they only wait for each other.
+- SQLite (dev, tests): an in-process `asyncio.Lock` keyed on `name.lower()` in a
+  `WeakValueDictionary`, like `get_game_lock`. Not reentrant — which is why the
+  Google candidates are de-duplicated before they are locked.
+
+**Rule for every claim of a username: lock, check, insert/update, ONE commit, all
+inside the `async with`.** A commit before the insert would release the lock with
+the name still unclaimed. Tests: `test_two_concurrent_registrations_of_one_new_username_admit_exactly_one`
+and `test_two_concurrent_google_signups_of_one_name_never_share_it`
+(`test_auth.py`), `test_two_concurrent_renames_to_one_new_username_admit_exactly_one`
+(`test_user.py`, two cases of one name), all postgres-marked with a session per task
+— each fails with the lock replaced by a no-op — plus the fallback's own tests.
 
 ### The Socket.IO `game_state` push is read in the client's language
 

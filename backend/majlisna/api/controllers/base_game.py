@@ -351,7 +351,8 @@ class BaseGameController:
 
         Every clock moves forward by the paused duration (``PAUSE_TIME_ANCHOR_KEYS`` of
         the game's own type), and so does the disconnect grace of anyone still away,
-        so the pause consumes neither a turn's time nor a player's grace.
+        so the pause consumes neither a turn's time nor a player's grace. Then the game
+        settles what the pause held back (``_settle_after_resume``), in the same commit.
         """
         async with get_game_lock(str(game_id), self.session):
             game = await self._get_own_game(game_id)
@@ -369,6 +370,7 @@ class BaseGameController:
             self._shift_time_anchors(game, state, paused_for, resumed_at)
             await self._shift_disconnect_grace(game.room_id, paused_for)
             state.pop(PAUSE_STATE_KEY, None)
+            self._settle_after_resume(state)
 
             game.live_state = state
             flag_modified(game, "live_state")
@@ -438,6 +440,15 @@ class BaseGameController:
 
         Each game overrides this with the same duration its ``_is_timer_actually_expired``
         applies; the base has no timer.
+        """
+        return None
+
+    def _settle_after_resume(self, state: dict) -> None:  # noqa: ARG002 — overridden per game
+        """Apply, at the resume, what the pause held back. Runs after the pause is cleared.
+
+        The quizzes override it: a departure during the pause can leave a round where
+        every remaining player has answered, and the pause kept it open
+        (``quiz_rules.settle_round_if_everyone_answered``). The base holds nothing back.
         """
         return None
 

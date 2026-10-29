@@ -4,9 +4,7 @@ from uuid import UUID
 
 from sqlalchemy import ColumnElement, and_, func, or_
 from sqlalchemy.dialects.postgresql import Insert as PostgresqlInsert
-from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import Insert as SqliteInsert
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import col, desc, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -36,13 +34,19 @@ from majlisna.api.schemas.notebook import (
 )
 from majlisna.api.schemas.term_script import TermScriptForms
 from majlisna.api.utils.cursor import decode_cursor, encode_cursor
+from majlisna.api.utils.dialect import dialect_insert
 from majlisna.api.utils.multilingual import resolve_multilingual
 
 # A kept word, as the display resolution addresses it.
 type WordKey = tuple[NotebookGameType, str]
-# Plain strings: an enum member hashes by its name, so `"undercover" in set(NotebookGameType)`
-# would be False even though the two compare equal.
-_KEEPABLE_GAME_TYPES = frozenset(member.value for member in NotebookGameType)
+# The types whose words are QuizWords (keyed by `word_en`): one `quiz_word` lookup
+# serves them all, and they read their own `word_ar` first. A tuple, so `in` compares
+# by equality (a member and its plain-string value both match; see the hash note below).
+_QUIZ_WORD_TYPES = (NotebookGameType.WORD_QUIZ, NotebookGameType.DAILY_WORD)
+# The types a finished Game can be kept from. Plain strings: an enum member hashes by
+# its name, so `"undercover" in set(NotebookGameType)` would be False even though the
+# two compare equal. The word of the day is no Game: it is kept through /daily-word.
+_KEEPABLE_GAME_TYPES = frozenset(member.value for member in NotebookGameType if member != NotebookGameType.DAILY_WORD)
 
 
 class NotebookController:
@@ -71,7 +75,7 @@ class NotebookController:
         game, game_type = await self._get_keepable_game(game_id, user_id)
         aliases = await self._get_game_aliases(game, game_type)
         terms = list(dict.fromkeys(aliases.values()))
-        return await self._keep(user_id, game, game_type, terms, lang)
+        return await self._keep(user_id, game.id, game_type, terms, lang)
 
     async def keep_word(self, user_id: UUID, request: KeepWordRequest, *, lang: str = "en") -> NotebookKeepResponse:
         """Keep ONE word of a finished game the caller took part in. Idempotent.
@@ -83,7 +87,25 @@ class NotebookController:
         term = aliases.get(request.word.strip())
         if term is None:
             raise TermNotInGameError(game_id=request.game_id, term=request.word)
-        return await self._keep(user_id, game, game_type, [term], lang)
+        return await self._keep(user_id, game.id, game_type, [term], lang)
+
+    async def keep_daily_word(self, user_id: UUID, term: str, *, lang: str = "en") -> NotebookKeepResponse:
+        """Keep a word of the day (a QuizWord's ``word_en``). Idempotent.
+
+        No gate here: ``DailyWordController.keep`` has already checked that the caller
+        finished that day — a word of the day is revealed to its player only then.
+        """
+        return await self._keep(user_id, None, NotebookGameType.DAILY_WORD, [term], lang)
+
+    async def get_word_forms(self, game_type: NotebookGameType, term: str, *, lang: str = "en") -> NotebookWordForms:
+        """How one word reads in ``lang`` — what the notebook would show for it."""
+        forms = await self._resolve_forms([(game_type, term)], lang)
+        return forms[(game_type, term)]
+
+    async def find_entry(self, user_id: UUID, game_type: NotebookGameType, term: str) -> NotebookEntry | None:
+        """The caller's entry for this word of this type, if they kept it."""
+        entries = await self._kept_entries(user_id, game_type, [term])
+        return entries[0] if entries else None
 
     async def get_game_words(self, game_id: UUID, user_id: UUID, *, lang: str = "en") -> NotebookGameWords:
         """Every word a finished game dealt, resolved, with whether the caller has kept it.
@@ -165,7 +187,7 @@ class NotebookController:
         return aliases
 
     async def _keep(
-        self, user_id: UUID, game: Game, game_type: NotebookGameType, terms: list[str], lang: str
+        self, user_id: UUID, source_game_id: UUID | None, game_type: NotebookGameType, terms: list[str], lang: str
     ) -> NotebookKeepResponse:
         """Insert the terms not yet kept, then return every requested entry.
 
@@ -180,7 +202,7 @@ class NotebookController:
         kept_at = datetime.now(UTC)
         rows = [
             NotebookEntry(
-                user_id=user_id, term=term, game_type=game_type, source_game_id=game.id, kept_at=kept_at
+                user_id=user_id, term=term, game_type=game_type, source_game_id=source_game_id, kept_at=kept_at
             ).model_dump()
             for term in terms
         ]
@@ -215,15 +237,8 @@ class NotebookController:
         ).all()
 
     def _insert_statement(self) -> PostgresqlInsert | SqliteInsert:
-        """The dialect's INSERT, which is what carries ``on_conflict_do_nothing``.
-
-        PostgreSQL in production, SQLite in dev and the default test run — the only
-        two this project runs on.
-        """
-        bind = self.session.bind
-        if bind is not None and bind.dialect.name == "postgresql":
-            return postgresql_insert(NotebookEntry)
-        return sqlite_insert(NotebookEntry)
+        """The dialect's INSERT, which is what carries ``on_conflict_do_nothing``."""
+        return dialect_insert(self.session, NotebookEntry)
 
     # ── Read / delete ────────────────────────────────────────────
 
@@ -324,20 +339,30 @@ class NotebookController:
         }
 
     async def _get_content_details(self, keys: Iterable[WordKey], lang: str) -> dict[WordKey, NotebookContentDetails]:
-        """Hints (and Word Quiz's own Arabic and spellings), keyed by (game type, word)."""
-        terms_by_type: dict[NotebookGameType, set[str]] = {}
-        for game_type, term in keys:
-            terms_by_type.setdefault(game_type, set()).add(term)
+        """Hints (and Word Quiz's own Arabic and spellings), keyed by (game type, word).
+
+        One query per content table: Word Quiz and word-of-the-day entries are both
+        QuizWords, so they share one ``quiz_word`` lookup.
+        """
+        keys = list(keys)
+        undercover = sorted({term for game_type, term in keys if game_type == NotebookGameType.UNDERCOVER})
+        codenames = sorted({term for game_type, term in keys if game_type == NotebookGameType.CODENAMES})
+        quiz = sorted({term for game_type, term in keys if game_type in _QUIZ_WORD_TYPES})
+        found: dict[NotebookGameType, dict[str, NotebookContentDetails]] = {}
+        if undercover:
+            found[NotebookGameType.UNDERCOVER] = await self._get_undercover_details(undercover, lang)
+        if codenames:
+            found[NotebookGameType.CODENAMES] = await self._get_codenames_details(codenames, lang)
+        if quiz:
+            quiz_details = await self._get_quiz_details(quiz, lang)
+            for game_type in _QUIZ_WORD_TYPES:
+                found[game_type] = quiz_details
 
         details: dict[WordKey, NotebookContentDetails] = {}
-        for game_type, terms in terms_by_type.items():
-            if game_type == NotebookGameType.UNDERCOVER:
-                found = await self._get_undercover_details(sorted(terms), lang)
-            elif game_type == NotebookGameType.CODENAMES:
-                found = await self._get_codenames_details(sorted(terms), lang)
-            else:
-                found = await self._get_quiz_details(sorted(terms), lang)
-            details.update({(game_type, term): detail for term, detail in found.items()})
+        for game_type, term in keys:
+            detail = found.get(game_type, {}).get(term)
+            if detail is not None:
+                details[(game_type, term)] = detail
         return details
 
     async def _get_undercover_details(self, terms: list[str], lang: str) -> dict[str, NotebookContentDetails]:
@@ -400,7 +425,7 @@ class NotebookController:
         word_display = detail.word_display if detail and detail.word_display else term
         hint = detail.hint if detail else None
         own_ar = detail.word_ar if detail else None
-        if game_type == NotebookGameType.WORD_QUIZ and own_ar:
+        if game_type in _QUIZ_WORD_TYPES and own_ar:
             vocalized = script.ar_vocalized if script and script.ar == own_ar else None
             return NotebookWordForms(word_display=word_display, word_ar=own_ar, word_ar_vocalized=vocalized, hint=hint)
         if script:

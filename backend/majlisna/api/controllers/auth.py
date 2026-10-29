@@ -1,5 +1,6 @@
 import re
 import secrets
+from contextlib import AsyncExitStack
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -15,6 +16,7 @@ from majlisna.api.constants import (
     AUTH_PROVIDER_GOOGLE,
     EMAIL_VERIFICATION_TOKEN_EXPIRE_HOURS,
     PASSWORD_RESET_TOKEN_EXPIRE_HOURS,
+    SOCIAL_USERNAME_SUFFIX_ATTEMPTS,
     USERNAME_MAX_LENGTH,
     USERNAME_MIN_LENGTH,
 )
@@ -24,7 +26,7 @@ from majlisna.api.controllers.shared import (
     get_password_hash,
     verify_password,
 )
-from majlisna.api.controllers.user import username_is_taken
+from majlisna.api.controllers.user import username_claim_lock, username_is_taken
 from majlisna.api.models.table import User
 from majlisna.api.models.token import EmailVerificationToken, PasswordResetToken
 from majlisna.api.models.user import UserCreate
@@ -206,7 +208,9 @@ class AuthController:
         used to be left to the unique constraint, whose ``IntegrityError`` nothing
         caught — a 500 — and the username was not checked at all, so a second
         "admin" registered without complaint. The constraint still backs the email
-        under a race; the username has none (see ``username_is_taken``).
+        under a race; the username has none, so the check and the insert run under
+        ``username_claim_lock`` until the commit — a second registration of the same
+        new name waits, then finds it taken.
 
         :param user_create: The user creation data.
         :return: The newly created User.
@@ -215,24 +219,26 @@ class AuthController:
         """
         if await self.get_user_by_email(user_create.email_address) is not None:
             raise UserAlreadyExistsError(email_address=user_create.email_address)
-        if await username_is_taken(self.session, user_create.username):
-            raise UsernameAlreadyTakenError(username=user_create.username)
 
-        hashed_password = await async_get_password_hash(user_create.password)
-        new_user = User(
-            username=user_create.username,
-            email_address=user_create.email_address,
-            password=hashed_password,
-            country=user_create.country,
-            bio=user_create.bio,
-        )
-        self.session.add(new_user)
-        try:
-            await self.session.commit()
-        except IntegrityError:
-            # A concurrent registration of the same address won the unique constraint.
-            await self.session.rollback()
-            raise UserAlreadyExistsError(email_address=user_create.email_address) from None
+        async with username_claim_lock(self.session, user_create.username):
+            if await username_is_taken(self.session, user_create.username):
+                raise UsernameAlreadyTakenError(username=user_create.username)
+
+            hashed_password = await async_get_password_hash(user_create.password)
+            new_user = User(
+                username=user_create.username,
+                email_address=user_create.email_address,
+                password=hashed_password,
+                country=user_create.country,
+                bio=user_create.bio,
+            )
+            self.session.add(new_user)
+            try:
+                await self.session.commit()
+            except IntegrityError:
+                # A concurrent registration of the same address won the unique constraint.
+                await self.session.rollback()
+                raise UserAlreadyExistsError(email_address=user_create.email_address) from None
         await self.session.refresh(new_user)
         return new_user
 
@@ -402,32 +408,61 @@ class AuthController:
 
         Username is generated from Google name, with a random suffix if taken.
         Password is a random sentinel that never matches real input.
+
+        Uniqueness is checked case-insensitively like registration and renames
+        (``username_is_taken``: ``User.username`` is indexed but NOT unique), and each
+        candidate is claimed under its own ``username_claim_lock`` — the generated name
+        first, then up to ``SOCIAL_USERNAME_SUFFIX_ATTEMPTS`` suffixed ones. Every lock
+        taken is held until the insert commits, so the name chosen cannot be claimed by
+        a concurrent registration in between.
+
+        :raises UsernameAlreadyTakenError: every candidate was taken (vanishingly rare).
         """
-        username = self._generate_username(token_payload)
-        # Ensure uniqueness, case-insensitively like registration and renames
-        # (`username_is_taken`): `User.username` is indexed but NOT unique.
-        if await username_is_taken(self.session, username):
-            suffix = f"_{secrets.token_hex(2)}"
-            username = f"{username[: USERNAME_MAX_LENGTH - len(suffix)]}{suffix}"
-
-        random_password = secrets.token_urlsafe(48)[:72]
-        password_hash = await async_get_password_hash(random_password)
-
-        user = User(
-            username=username,
-            email_address=token_payload.email,
-            password=password_hash,
-            email_verified=True,
-            google_sub=token_payload.sub,
-            auth_provider=AUTH_PROVIDER_GOOGLE,
-            profile_picture_url=token_payload.picture,
+        base_username = self._generate_username(token_payload)
+        # Distinct candidates only (generated names are lowercase): the SQLite
+        # fallback's asyncio.Lock is not reentrant, so claiming one name twice in this
+        # block would wait on itself forever.
+        candidates = list(
+            dict.fromkeys(
+                [base_username]
+                + [self._suffixed_username(base_username) for _ in range(SOCIAL_USERNAME_SUFFIX_ATTEMPTS)]
+            )
         )
-        self.session.add(user)
-        await self.session.commit()
+
+        async with AsyncExitStack() as claimed:
+            username: str | None = None
+            for candidate in candidates:
+                await claimed.enter_async_context(username_claim_lock(self.session, candidate))
+                if not await username_is_taken(self.session, candidate):
+                    username = candidate
+                    break
+            if username is None:
+                raise UsernameAlreadyTakenError(username=base_username)
+
+            random_password = secrets.token_urlsafe(48)[:72]
+            password_hash = await async_get_password_hash(random_password)
+
+            user = User(
+                username=username,
+                email_address=token_payload.email,
+                password=password_hash,
+                email_verified=True,
+                google_sub=token_payload.sub,
+                auth_provider=AUTH_PROVIDER_GOOGLE,
+                profile_picture_url=token_payload.picture,
+            )
+            self.session.add(user)
+            await self.session.commit()
         await self.session.refresh(user)
 
         logger.info("Created new user via Google login", user_id=str(user.id), email=token_payload.email)
         return user
+
+    @staticmethod
+    def _suffixed_username(username: str) -> str:
+        """``username`` with a random ``_xxxx`` suffix, still within ``USERNAME_MAX_LENGTH``."""
+        suffix = f"_{secrets.token_hex(2)}"
+        return f"{username[: USERNAME_MAX_LENGTH - len(suffix)]}{suffix}"
 
     @staticmethod
     def _generate_username(token_payload: SocialTokenPayload) -> str:

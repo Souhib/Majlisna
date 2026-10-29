@@ -1,12 +1,16 @@
-from uuid import uuid4
+import asyncio
+from types import SimpleNamespace
+from uuid import UUID, uuid4
 
 import pytest
 from pydantic import ValidationError
+from sqlalchemy import func
+from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from majlisna.api.controllers.shared import get_password_hash, verify_password
-from majlisna.api.controllers.user import UserController
+from majlisna.api.controllers.user import UserController, username_claim_lock
 from majlisna.api.models.game import GameCreate, GameStatus, GameType
 from majlisna.api.models.notebook import NotebookEntry, NotebookGameType
 from majlisna.api.models.room import RoomType
@@ -182,6 +186,95 @@ async def test_update_user_may_recase_their_own_username(
     assert updated.username == "Yusuf"
     fetched = (await session.exec(select(User).where(User.id == yusuf.id))).one()
     assert fetched.username == "Yusuf"
+
+
+# ─── Claims of one username are serialised ────────────────────
+
+
+async def _rename_own_session(engine: AsyncEngine, user_id: UUID, username: str) -> User:
+    """``update_user_by_id`` in a fresh session, as one request would run it.
+
+    Concurrent tasks must not share one AsyncSession (see test_concurrent_mutations
+    ``_mutate``): production gives every request its own, and the username lock
+    serialises them across connections.
+    """
+    async with AsyncSession(engine, expire_on_commit=False) as own_session:
+        return await UserController(own_session).update_user_by_id(user_id, UserUpdate(username=username))
+
+
+@pytest.mark.postgres
+async def test_two_concurrent_renames_to_one_new_username_admit_exactly_one(
+    engine: AsyncEngine, session: AsyncSession, create_user
+):
+    """Two players rename to the same new name, in different case, at the same moment."""
+    # Arrange
+    asma = await create_user(username="asma", email="asma@test.com")
+    hind = await create_user(username="hind", email="hind@test.com")
+
+    # Act
+    results = await asyncio.gather(
+        _rename_own_session(engine, asma.id, "Firdaws"),
+        _rename_own_session(engine, hind.id, "firdaws"),
+        return_exceptions=True,
+    )
+
+    # Assert — one rename, one named 409, one account holding the name in any case
+    successes = [r for r in results if isinstance(r, User)]
+    refusals = [r for r in results if isinstance(r, UsernameAlreadyTakenError)]
+    assert len(successes) == 1, results
+    assert len(refusals) == 1, results
+    await session.rollback()  # drop this session's snapshot of the two rows
+    rows = (await session.exec(select(User).where(func.lower(User.username) == "firdaws"))).all()
+    assert [row.id for row in rows] == [successes[0].id]
+
+
+async def test_the_fallback_lock_serialises_one_name_in_any_case():
+    """Without PostgreSQL (dev, SQLite tests) a second claim of the name waits for the first."""
+    # Arrange — no bind: the in-process fallback
+    no_database = SimpleNamespace(bind=None)
+    events: list[str] = []
+    first_holds = asyncio.Event()
+    release_first = asyncio.Event()
+
+    async def first() -> None:
+        async with username_claim_lock(no_database, "Maryam"):
+            events.append("first in")
+            first_holds.set()
+            await release_first.wait()
+            events.append("first out")
+
+    async def second() -> None:
+        await first_holds.wait()
+        async with username_claim_lock(no_database, "maryam"):
+            events.append("second in")
+
+    # Act
+    tasks = [asyncio.create_task(first()), asyncio.create_task(second())]
+    await first_holds.wait()
+    for _ in range(5):
+        await asyncio.sleep(0)  # give the second claim every chance to get in
+    events_while_held = list(events)
+    release_first.set()
+    await asyncio.wait_for(asyncio.gather(*tasks), timeout=2)
+
+    # Assert
+    assert events_while_held == ["first in"]
+    assert events == ["first in", "first out", "second in"]
+
+
+async def test_the_fallback_lock_does_not_hold_up_another_name():
+    """Claims of different names never wait for each other."""
+    # Arrange
+    no_database = SimpleNamespace(bind=None)
+
+    # Act & Assert — would time out if "bilal" waited for "maryam"
+    async with username_claim_lock(no_database, "maryam"):
+        await asyncio.wait_for(_claim_and_release(no_database, "bilal"), timeout=1)
+
+
+async def _claim_and_release(session: SimpleNamespace, username: str) -> None:
+    async with username_claim_lock(session, username):
+        pass
 
 
 async def test_create_user_rejects_a_taken_username(

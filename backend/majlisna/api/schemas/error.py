@@ -713,6 +713,62 @@ class InvalidNotebookCursorError(BaseError):
         )
 
 
+# ========== Word of the day (كلمة اليوم) Errors ==========
+# None of them carries the word: they answer moves made before the reveal, too.
+
+
+class DailyWordAlreadyFinishedError(BaseError):
+    """A hint, guess or give-up on a word of the day the caller already solved or gave up."""
+
+    def __init__(self, day: object):
+        super().__init__(
+            message=f"The word of the day {day} is already finished for this player",
+            frontend_message="You have already finished today's word.",
+            status_code=status.HTTP_409_CONFLICT,
+            details={"day": str(day)},
+        )
+
+
+class DailyWordNoMoreHintsError(BaseError):
+    """Another hint was asked for while every rung of the ladder is already revealed."""
+
+    def __init__(self, day: object, max_hints: int):
+        super().__init__(
+            message=f"Every one of the {max_hints} hints of the word of the day {day} is already revealed",
+            frontend_message="Every hint is already revealed.",
+            status_code=status.HTTP_409_CONFLICT,
+            details={"day": str(day), "max_hints": max_hints},
+        )
+
+
+class DailyWordNotFinishedError(BaseError):
+    """Keeping a word of the day the caller has not finished: keeping it would reveal it."""
+
+    def __init__(self, day: object):
+        super().__init__(
+            message=f"The word of the day {day} is not finished for this player",
+            frontend_message="Find the word, or give up, before keeping it.",
+            status_code=status.HTTP_409_CONFLICT,
+            details={"day": str(day)},
+        )
+
+
+class DailyWordNotTodayError(BaseError):
+    """A move on a day that is not today in Makkah — a page left open past midnight there.
+
+    Without the check, a guess typed for yesterday's word would be judged against
+    today's and counted as a wrong try on it.
+    """
+
+    def __init__(self, day: object, today: object):
+        super().__init__(
+            message=f"The word of the day {day} is over; today is {today}",
+            frontend_message="A new word of the day is out.",
+            status_code=status.HTTP_409_CONFLICT,
+            details={"day": str(day), "today": str(today)},
+        )
+
+
 class InvalidLeaderboardSortError(BaseError):
     """The leaderboard was asked to rank by something it does not rank by."""
 

@@ -17,6 +17,11 @@ from majlisna.api.controllers.base_game import BaseGameController
 from majlisna.api.controllers.game_end_stats import record_game_end, top_score_winners
 from majlisna.api.controllers.game_lock import get_game_lock
 from majlisna.api.controllers.mcqquiz import McqQuizController
+from majlisna.api.controllers.quiz_rules import (
+    everyone_has_answered,
+    mcq_transition_to_results,
+    settle_round_if_everyone_answered,
+)
 from majlisna.api.models.error import (
     AlreadyAnsweredError,
     InvalidChoiceIndexError,
@@ -280,9 +285,9 @@ class McqQuizGameController(BaseGameController):
             if correct:
                 player["total_score"] += points
 
-            # Check if all players answered → auto-transition to results
-            all_answered = len(answers) == len(state["players"])
-            if all_answered:
+            # Every player answered → auto-transition to results (the departure path
+            # and the resume reach the same rule through quiz_rules).
+            if everyone_has_answered(state):
                 self._transition_to_results(state)
 
             game.live_state = state
@@ -549,40 +554,14 @@ class McqQuizGameController(BaseGameController):
         ]
         return round_results, correct_answer_index, explanation
 
-    def _transition_to_results(self, state: dict) -> None:
-        """Transition from playing to results phase. Build round_results."""
-        state["round_phase"] = "results"
-        answers = state.get("answers", {})
+    @staticmethod
+    def _transition_to_results(state: dict) -> None:
+        """Transition from playing to results phase. See ``quiz_rules``."""
+        mcq_transition_to_results(state)
 
-        round_results: list[dict] = []
-        for p in state["players"]:
-            p_answer = answers.get(p["user_id"])
-            if p_answer:
-                round_results.append(
-                    {
-                        "user_id": p["user_id"],
-                        "username": p["username"],
-                        "chose_correct": p_answer["correct"],
-                        "points": p_answer["points"],
-                        "choice_index": p_answer.get("choice_index"),
-                        "answer_time_ms": p_answer.get("answer_time_ms"),
-                    }
-                )
-            else:
-                round_results.append(
-                    {
-                        "user_id": p["user_id"],
-                        "username": p["username"],
-                        "chose_correct": False,
-                        "points": 0,
-                        "choice_index": None,
-                        "answer_time_ms": None,
-                    }
-                )
-
-        # Sort by points desc
-        round_results.sort(key=lambda r: -r["points"])
-        state["round_results"] = round_results
+    def _settle_after_resume(self, state: dict) -> None:
+        """A drop-out during the pause may have completed the round: settle it now."""
+        settle_round_if_everyone_answered(state, GameType.MCQ_QUIZ)
 
     def _is_timer_actually_expired(self, state: dict) -> bool:
         """Check if the game timer has actually elapsed server-side."""

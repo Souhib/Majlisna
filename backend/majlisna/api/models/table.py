@@ -8,6 +8,7 @@ from sqlmodel import Field, Relationship
 from majlisna.api.models.challenge import ChallengeDefinition, UserChallenge  # noqa: F401
 from majlisna.api.models.chat import ChatMessage  # noqa: F401
 from majlisna.api.models.codenames import CodenamesWord, CodenamesWordPack  # noqa: F401
+from majlisna.api.models.daily_word import DailyWord, DailyWordPlay  # noqa: F401
 from majlisna.api.models.event import TurnBase
 from majlisna.api.models.friendship import Friendship  # noqa: F401
 from majlisna.api.models.game import GameBase

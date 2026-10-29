@@ -20,6 +20,7 @@ from majlisna.api.constants import (
 from majlisna.api.controllers.codenames_helpers import CodenamesGameStatus, CodenamesRole, CodenamesTeam
 from majlisna.api.controllers.game_end_stats import codenames_winners, record_game_end, undercover_winners
 from majlisna.api.controllers.game_lock import get_game_lock
+from majlisna.api.controllers.quiz_rules import settle_round_if_everyone_answered
 from majlisna.api.controllers.undercover_rules import repair_turn_after_dropout, winning_team
 from majlisna.api.models.game import GameStatus, GameType
 from majlisna.api.models.relationship import RoomUserLink
@@ -556,7 +557,14 @@ async def _handle_codenames_disconnect(session: AsyncSession, game: Game, user_i
 
 
 async def _handle_wordquiz_disconnect(session: AsyncSession, game: Game, user_id: str, room: Room) -> None:
-    """Handle Word Quiz game disconnect: remove player, end if no players left."""
+    """Handle Word Quiz game disconnect: remove player, end if no players left.
+
+    A departure can also complete the open round — the leaver was the last player who
+    had not found the word — and nothing else would close it: no answer can arrive, so
+    it sat open until its timer. It moves to results here, under the same lock and in
+    the same commit (``quiz_rules.settle_round_if_everyone_answered``); while paused,
+    the resume does it.
+    """
     async with get_game_lock(str(game.id), session):
         # Re-read under the lock. Assigned to a new name and then narrowed: the
         # parameter is a Game, and rebinding it to the Optional result of .first()
@@ -594,6 +602,9 @@ async def _handle_wordquiz_disconnect(session: AsyncSession, game: Game, user_id
             game.end_time = datetime.now(UTC)
             room.active_game_id = None
             session.add(room)
+        elif settle_round_if_everyone_answered(state, GameType.WORD_QUIZ):
+            # The leaver was the last one who had not found the word.
+            logger.info("Word Quiz drop-out completed round: game={} user={}", game.id, user_id)
 
         game.live_state = state
         flag_modified(game, "live_state")
@@ -602,7 +613,12 @@ async def _handle_wordquiz_disconnect(session: AsyncSession, game: Game, user_id
 
 
 async def _handle_mcqquiz_disconnect(session: AsyncSession, game: Game, user_id: str, room: Room) -> None:
-    """Handle MCQ Quiz game disconnect: remove player, end if no players left."""
+    """Handle MCQ Quiz game disconnect: remove player, end if no players left.
+
+    Like Word Quiz, a departure that leaves every remaining player answered moves the
+    round to results at once, under the same lock and in the same commit; while
+    paused, the resume does it (``quiz_rules.settle_round_if_everyone_answered``).
+    """
     async with get_game_lock(str(game.id), session):
         # Re-read under the lock. Assigned to a new name and then narrowed: the
         # parameter is a Game, and rebinding it to the Optional result of .first()
@@ -639,6 +655,9 @@ async def _handle_mcqquiz_disconnect(session: AsyncSession, game: Game, user_id:
             game.end_time = datetime.now(UTC)
             room.active_game_id = None
             session.add(room)
+        elif settle_round_if_everyone_answered(state, GameType.MCQ_QUIZ):
+            # The leaver was the last one who had not answered.
+            logger.info("MCQ drop-out completed round: game={} user={}", game.id, user_id)
 
         game.live_state = state
         flag_modified(game, "live_state")

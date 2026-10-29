@@ -13,6 +13,7 @@ from majlisna.api.controllers.challenge import ChallengeController
 from majlisna.api.controllers.chat import ChatController
 from majlisna.api.controllers.codenames import CodenamesController
 from majlisna.api.controllers.codenames_game import CodenamesGameController
+from majlisna.api.controllers.daily_word import DailyWordController
 from majlisna.api.controllers.friend import FriendController
 from majlisna.api.controllers.game import GameController
 from majlisna.api.controllers.mcqquiz import McqQuizController
@@ -34,6 +35,13 @@ from majlisna.database import get_engine as _get_engine
 from majlisna.settings import Settings
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
+# The httpOnly cookie a browser session carries its access token in.
+ACCESS_TOKEN_COOKIE = "majlisna-access-token"
+
+
+def _presented_token(request: Request, token: str | None) -> str | None:
+    """The access token the request presents: the httpOnly cookie first, else the bearer header."""
+    return request.cookies.get(ACCESS_TOKEN_COOKIE) or token
 
 
 @lru_cache
@@ -124,11 +132,7 @@ async def get_current_user(
     auth_controller: Annotated[AuthController, Depends(get_auth_controller)],
 ) -> User:
     """Get the current authenticated user from cookie or Authorization header."""
-    # 1. Try httpOnly cookie first
-    effective_token = request.cookies.get("majlisna-access-token")
-    # 2. Fall back to Authorization header
-    if not effective_token:
-        effective_token = token
+    effective_token = _presented_token(request, token)
     if not effective_token:
         raise InvalidTokenError("No authentication token provided")
 
@@ -145,6 +149,23 @@ async def get_current_user(
     # only once the token has been verified against the account.
     request.state.user_id = str(user.id)
     return user
+
+
+async def get_optional_current_user(
+    request: Request,
+    token: Annotated[str | None, Depends(oauth2_scheme)],
+    auth_controller: Annotated[AuthController, Depends(get_auth_controller)],
+) -> User | None:
+    """The signed-in caller of a PUBLIC endpoint that shows a player more (GET /daily-word).
+
+    No token at all is an anonymous caller (None). A token that IS presented must be
+    valid, exactly as on authenticated endpoints (401 otherwise): reading an expired
+    token as "anonymous" would show a signed-in player the signed-out page, and never
+    send their client through its 401 handling.
+    """
+    if not _presented_token(request, token):
+        return None
+    return await get_current_user(request, token, auth_controller)
 
 
 async def get_current_active_user(
@@ -269,6 +290,13 @@ async def get_notebook_controller(
 ) -> NotebookController:
     """Get NotebookController with injected session."""
     return NotebookController(session)
+
+
+async def get_daily_word_controller(
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> DailyWordController:
+    """Get DailyWordController with injected session."""
+    return DailyWordController(session)
 
 
 def get_email_service(

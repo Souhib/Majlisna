@@ -1,7 +1,9 @@
+import asyncio
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from jose import jwt
+from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -106,6 +108,108 @@ async def test_social_signup_does_not_reuse_a_username_taken_in_another_case(
     # Assert
     assert user.username.lower() != "yusuf"
     assert user.username.startswith("yusuf_")
+
+
+async def test_social_signup_tries_another_suffix_when_the_first_is_taken(
+    auth_controller: AuthController, create_user, monkeypatch: pytest.MonkeyPatch
+):
+    """The suffixed fallback is checked too: a taken one moves on to the next candidate."""
+    # Arrange
+    await create_user(username="yusuf", email="yusuf@test.com")
+    await create_user(username="Yusuf_aaaa", email="yusuf.a@test.com")
+    suffixes = iter(["yusuf_aaaa", "yusuf_bbbb", "yusuf_cccc"])
+    monkeypatch.setattr(AuthController, "_suffixed_username", staticmethod(lambda _name: next(suffixes)))
+    payload = SocialTokenPayload(sub="google-sub-2", email="yusuf.g@gmail.com", first_name="Yusuf", email_verified=True)
+
+    # Act
+    user = await auth_controller._create_social_user(payload)
+
+    # Assert
+    assert user.username == "yusuf_bbbb"
+
+
+async def test_social_signup_gives_up_when_every_candidate_is_taken(
+    auth_controller: AuthController, create_user, monkeypatch: pytest.MonkeyPatch
+):
+    """Every candidate taken (never in practice: three random suffixes) is a named 409, not a duplicate.
+
+    The repeated suffix also pins that a candidate is claimed once: the SQLite
+    fallback's lock is not reentrant, so claiming it twice would hang this test.
+    """
+    # Arrange
+    await create_user(username="yusuf", email="yusuf@test.com")
+    await create_user(username="yusuf_aaaa", email="yusuf.a@test.com")
+    monkeypatch.setattr(AuthController, "_suffixed_username", staticmethod(lambda _name: "yusuf_aaaa"))
+    payload = SocialTokenPayload(sub="google-sub-3", email="yusuf.g@gmail.com", first_name="Yusuf", email_verified=True)
+
+    # Act & Assert
+    with pytest.raises(UsernameAlreadyTakenError):
+        await auth_controller._create_social_user(payload)
+    assert (await auth_controller.get_user_by_email("yusuf.g@gmail.com")) is None
+
+
+# ─── Concurrent claims of one new username (postgres) ─────────
+
+
+async def _register_own_session(engine: AsyncEngine, settings: Settings, username: str, email: str) -> User:
+    """``register`` in a fresh session, as one request would run it.
+
+    Concurrent tasks must not share one AsyncSession (see test_concurrent_mutations
+    ``_mutate``): production gives every request its own, and the username lock
+    serialises them across connections.
+    """
+    async with AsyncSession(engine, expire_on_commit=False) as own_session:
+        return await AuthController(own_session, settings).register(
+            UserCreate(username=username, email_address=email, password="secret123")
+        )
+
+
+async def _social_signup_own_session(engine: AsyncEngine, settings: Settings, sub: str, email: str) -> User:
+    async with AsyncSession(engine, expire_on_commit=False) as own_session:
+        payload = SocialTokenPayload(sub=sub, email=email, first_name="Zubayr", email_verified=True)
+        return await AuthController(own_session, settings)._create_social_user(payload)
+
+
+@pytest.mark.postgres
+async def test_two_concurrent_registrations_of_one_new_username_admit_exactly_one(
+    engine: AsyncEngine, session: AsyncSession, test_settings: Settings
+):
+    """Both requests pass the check before either commits — without the lock, both won."""
+    # Act
+    results = await asyncio.gather(
+        _register_own_session(engine, test_settings, "khadija", "khadija.one@test.com"),
+        _register_own_session(engine, test_settings, "khadija", "khadija.two@test.com"),
+        return_exceptions=True,
+    )
+
+    # Assert — one account, one named 409, one row
+    successes = [r for r in results if isinstance(r, User)]
+    refusals = [r for r in results if isinstance(r, UsernameAlreadyTakenError)]
+    assert len(successes) == 1, results
+    assert len(refusals) == 1, results
+    rows = (await session.exec(select(User).where(User.username == "khadija"))).all()
+    assert [row.email_address for row in rows] == [successes[0].email_address]
+
+
+@pytest.mark.postgres
+async def test_two_concurrent_google_signups_of_one_name_never_share_it(
+    engine: AsyncEngine, session: AsyncSession, test_settings: Settings
+):
+    """Two new Google accounts generating the same name: one gets it, the other a suffix."""
+    # Act
+    results = await asyncio.gather(
+        _social_signup_own_session(engine, test_settings, "google-sub-a", "zubayr.a@gmail.com"),
+        _social_signup_own_session(engine, test_settings, "google-sub-b", "zubayr.b@gmail.com"),
+        return_exceptions=True,
+    )
+
+    # Assert
+    assert all(isinstance(r, User) for r in results), results
+    usernames = sorted(r.username for r in results if isinstance(r, User))
+    assert usernames[0] == "zubayr"
+    assert usernames[1].startswith("zubayr_")
+    rows = (await session.exec(select(User).where(User.username == "zubayr"))).all()
+    assert len(rows) == 1
 
 
 async def test_login_success(auth_controller: AuthController, create_user, test_settings: Settings):
