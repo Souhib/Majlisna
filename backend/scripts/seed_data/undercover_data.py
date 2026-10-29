@@ -380,9 +380,9 @@ UNDERCOVER_WORDS = [
         "word": "Dua",
         "category": "Islamic Practices",
         "short_description": "Supplication",
-        "long_description": "Dua is the act of supplication or personal prayer where Muslims directly communicate with God.",
+        "long_description": "Dua is the act of supplication, in which Muslims call directly upon God.",
         "hint": {
-            "en": "Personal supplication or prayer where Muslims directly communicate with God",
+            "en": "Personal supplication, where Muslims directly communicate with God",
             "ar": "الدعاء — التضرع الشخصي حيث يتواصل المسلم مباشرة مع الله",
             "fr": "La supplication personnelle où les musulmans communiquent directement avec Dieu",
         },
@@ -503,11 +503,11 @@ UNDERCOVER_WORDS = [
         "word": "Eid al-Adha",
         "category": "Islamic Holidays",
         "short_description": "Festival of sacrifice",
-        "long_description": "Eid al-Adha commemorates Ibrahim's willingness to sacrifice his son and concludes the Hajj.",
+        "long_description": "Eid al-Adha commemorates Ibrahim's willingness to sacrifice his son and falls during the days of Hajj.",
         "hint": {
-            "en": "The festival of sacrifice commemorating Ibrahim's willingness to sacrifice his son",
+            "en": "The festival of sacrifice commemorating Ibrahim's willingness to sacrifice his son, during the days of Hajj",
             "ar": "عيد الأضحى — يُحيي ذكرى استعداد إبراهيم للتضحية بابنه، ويأتي في أيام الحج",
-            "fr": "La fête du sacrifice commémorant la volonté d'Ibrahim de sacrifier son fils",
+            "fr": "La fête du sacrifice commémorant la volonté d’Ibrahim de sacrifier son fils, pendant les jours du Hajj",
         },
     },
     {
@@ -703,7 +703,7 @@ UNDERCOVER_WORDS = [
         "word": "Uthman",
         "category": "Companions",
         "short_description": "Third Caliph of Islam",
-        "long_description": "Uthman ibn Affan was the third Caliph, known for compiling the Quran into a single book.",
+        "long_description": "Uthman ibn Affan was the third Caliph, known for uniting Muslims on a single standard copy of the Quran.",
         "hint": {
             "en": "The third Caliph, known for compiling the Quran into a single standardized book",
             "ar": "الخليفة الثالث، المعروف بجمع القرآن في مصحف واحد موحد",
@@ -859,11 +859,11 @@ UNDERCOVER_WORDS = [
         "word": "Ruh",
         "category": "Islamic Concepts",
         "short_description": "The spirit",
-        "long_description": "Ruh is the spirit or soul breathed into humans by God, distinct from the nafs.",
+        "long_description": "Ruh is the spirit God breathed into humans; the Quran says it is of the command of the Lord (17:85).",
         "hint": {
-            "en": "The spirit breathed into humans by God, distinct from the nafs (self)",
-            "ar": "الروح — التي نفخها الله في الإنسان، تختلف عن النفس",
-            "fr": "L'esprit insufflé dans les humains par Dieu, distinct du nafs (soi)",
+            "en": "The spirit God breathed into man; the Quran says: 'The spirit is of my Lord's command'",
+            "ar": "الروح — التي نفخها الله في الإنسان، وقال عنها القرآن: «قل الروح من أمر ربي»",
+            "fr": "L’esprit que Dieu insuffla en l’homme ; le Coran dit : « L’esprit relève de l’ordre de mon Seigneur »",
         },
     },
     {
@@ -981,11 +981,11 @@ UNDERCOVER_WORDS = [
         "word": "Tahajjud",
         "category": "Islamic Practices",
         "short_description": "Voluntary late-night prayer",
-        "long_description": "Tahajjud is a voluntary prayer performed in the last third of the night, highly recommended.",
+        "long_description": "Tahajjud is a voluntary night prayer, highly recommended, best performed in the last third of the night.",
         "hint": {
-            "en": "A voluntary prayer performed in the last third of the night, highly recommended",
-            "ar": "التهجد — صلاة تطوعية تُؤدى في الثلث الأخير من الليل",
-            "fr": "Une prière volontaire accomplie dans le dernier tiers de la nuit, très recommandée",
+            "en": "A voluntary night prayer, highly recommended, best performed in the last third of the night",
+            "ar": "التهجد — صلاة تطوعية في الليل، أفضل وقتها الثلث الأخير منه",
+            "fr": "Une prière volontaire de la nuit, très recommandée, de préférence dans son dernier tiers",
         },
     },
     # --- Islamic Clothing ---

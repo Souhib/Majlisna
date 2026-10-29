@@ -1035,6 +1035,41 @@ running `--seed` on the server is the whole deployment — no drop, no reseed. T
 table exists after the first startup but is **empty until `--seed` runs** on that
 database; until then every Arabic field is null and the games play as before.
 
+### Seed content rules: the ladder, the hadith, the digits
+
+Everything in `scripts/seed_data/` reaches production through `--seed` (the content
+seeds are upserts), so these rules hold for every word, card and question.
+`tests/scripts/test_content_integrity.py` enforces the first four mechanically; each of
+its finders takes its data as an argument, so it can be pointed at an older copy of a
+file (`git show HEAD:<file>` into a temp path, never `git stash`) to see what it catches.
+
+- **No Kalimat hint names its word — hint 6 included.** No rung, in any language,
+  contains the word itself or any of its `accepted_answers`, compared the way the Word
+  Quiz compares (`utils/text_match`: diacritics and accents stripped, case, Arabic
+  letters folded, the article "ال" / "al" optional, a joined و/ف/ب/ل/ك allowed) and on
+  whole words. Hint 6 is the most decisive rung, not the answer: a Qur'anic detail, a
+  sahih hadith, a date — not a translation or a gloss of the word ("The Opening",
+  "Repentance", "سورة الكهف" all leaked). The test reports word, rung and language.
+- **No weak hadith.** Every hadith or Prophetic saying, quoted, paraphrased or alluded to
+  ("the Prophet said", "قال رسول الله", "known as the heart of the Qur'an"), is graded on
+  dorar.net or sunnah.com (islamqa.info / islamweb.net for the grading's source).
+  Sahih or hasan: keep it in the source's wording, with its reference (Bukhari/Muslim
+  number, or surah:ayah). Da'if, mawdu' or no basis: remove it, or replace it with an
+  authentic report on the same point. Weak stories told as fact go too (the spider and
+  the dove at Thawr, Salman proposing the trench, Ali tearing off Khaybar's gate). No
+  grading established → drop the attribution. `WEAK_HADITH_PHRASES` in the test lists
+  the wordings already removed ("الدعاء مخ العبادة", Yasin "the heart of the Qur'an",
+  Ar-Rahman "the bride", "أنا مدينة العلم", the hafiz interceding for ten, …), scanned
+  over the seed data AND the front locales: add a phrase whenever one is taken out, and
+  keep it narrow enough that no legitimate text matches.
+- **Western digits only.** No Eastern Arabic digit (٠-٩) anywhere in `seed_data`, Arabic
+  strings included ("سنة 1453م", "2.5%", "(العنكبوت: 14)").
+- MCQ: four choices `"0".."3"`, distinct and non-empty in en, ar and fr, and a valid
+  `correct_answer_index`. Not checked, but a rule: an Arabic choice does not just repeat
+  the question's own words ("what does الحمد لله mean?" → "الحمد لله" leaked).
+- Every fact says the same thing in all three languages; a correction made in one is
+  mirrored in the other two.
+
 ### The Kunnash (كُنّاش): words kept from finished games
 
 `NotebookEntry` (`models/notebook.py`, table `notebook_entry`) — `user_id`, `term`
