@@ -6,7 +6,7 @@ import {
   dismissRoleRevealAll,
   isPageAlive,
 } from "../../helpers/ui-game-setup";
-import { apiGetUndercoverState } from "../../helpers/api-client";
+import { apiFetch, apiGetUndercoverState } from "../../helpers/api-client";
 
 /**
  * Wait until all expected players are alive in the undercover game state.
@@ -186,7 +186,7 @@ test.describe("Disconnect During Active Game", () => {
     const kickedUserId = kickedPlayer.login.user.id;
 
     const baseUrl = process.env.FRONTEND_URL || "http://localhost:3000";
-    const res = await fetch(
+    const res = await apiFetch(
       `${baseUrl}/api/v1/rooms/${setup.roomId}/kick`,
       {
         method: "PATCH",

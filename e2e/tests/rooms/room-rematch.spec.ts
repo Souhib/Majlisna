@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { generateTestAccounts } from "../../helpers/test-setup";
 import {
+  apiFetch,
   apiLogin,
   apiCreateRoom,
   apiGetRoom,
@@ -87,7 +88,7 @@ test.describe("Room Rematch", () => {
     }
 
     // Call rematch
-    const res = await fetch(`${API_URL}/api/v1/rooms/${room.id}/rematch`, {
+    const res = await apiFetch(`${API_URL}/api/v1/rooms/${room.id}/rematch`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

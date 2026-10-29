@@ -1,5 +1,17 @@
 import { API_URL } from "./constants";
 
+/**
+ * `fetch` for the test helpers, without connection reuse. Bun keeps an idle pooled
+ * socket for 300 s while uvicorn closes an idle connection after 5 s, so a request
+ * sent on a pooled socket the server had just closed failed with ECONNRESET. On the
+ * slow CI runner, where the gap between two helper calls often passes 5 s, that made
+ * a full Codenames game flaky. A browser resends a request on a reused socket the
+ * server closed; this client does not, so it simply never reuses one.
+ */
+export function apiFetch(input: string, init: RequestInit = {}): Promise<Response> {
+  return fetch(input, { ...init, keepalive: false });
+}
+
 // ─── Types ──────────────────────────────────────────────────
 
 export interface LoginResponse {
@@ -41,7 +53,7 @@ async function postJSON<T>(
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await apiFetch(`${API_URL}${path}`, {
     method: "POST",
     headers,
     body: JSON.stringify(body),
@@ -61,7 +73,7 @@ async function getJSON<T>(path: string, token?: string): Promise<T> {
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${API_URL}${path}`, { headers });
+  const res = await apiFetch(`${API_URL}${path}`, { headers });
 
   if (!res.ok) {
     const text = await res.text();
@@ -175,7 +187,7 @@ async function patchJSON<T>(
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await apiFetch(`${API_URL}${path}`, {
     method: "PATCH",
     headers,
     body: JSON.stringify(body),
@@ -632,7 +644,7 @@ export async function rawPost(
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  return fetch(`${API_URL}${path}`, {
+  return apiFetch(`${API_URL}${path}`, {
     method: "POST",
     headers,
     body: JSON.stringify(body),
@@ -655,7 +667,7 @@ export async function rawPatch(
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  return fetch(`${API_URL}${path}`, {
+  return apiFetch(`${API_URL}${path}`, {
     method: "PATCH",
     headers,
     body: JSON.stringify(body),
@@ -739,7 +751,7 @@ export async function apiSeedChallenges(
     "Content-Type": "application/json",
     "Authorization": `Bearer ${token}`,
   };
-  const res = await fetch(`${API_URL}/api/v1/challenges/seed`, {
+  const res = await apiFetch(`${API_URL}/api/v1/challenges/seed`, {
     method: "POST",
     headers,
     body: JSON.stringify({}),
@@ -815,7 +827,7 @@ export async function waitForBackend(
 ): Promise<void> {
   for (let i = 0; i < maxRetries; i++) {
     try {
-      const res = await fetch(`${API_URL}/health`);
+      const res = await apiFetch(`${API_URL}/health`);
       if (res.ok) return;
     } catch {
       // Connection refused, keep retrying
@@ -832,7 +844,7 @@ export async function waitForFrontend(
 ): Promise<void> {
   for (let i = 0; i < maxRetries; i++) {
     try {
-      const res = await fetch(frontendUrl);
+      const res = await apiFetch(frontendUrl);
       if (res.ok) return;
     } catch {
       // Connection refused, keep retrying
