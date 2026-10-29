@@ -30,9 +30,11 @@ ENV VITE_UMAMI_WEBSITE_ID=${VITE_UMAMI_WEBSITE_ID}
 ENV VITE_GOOGLE_MAPS_API_KEY=${VITE_GOOGLE_MAPS_API_KEY}
 ENV VITE_GOOGLE_CLIENT_ID=${VITE_GOOGLE_CLIENT_ID}
 
-# Build the application
+# Build the application. Vite copies public/ with the checkout's file modes, and the CI
+# runner's dedicated account checks out with a private umask: sw.js and the skies then
+# reached nginx as 0600 and answered 403. Everything served must be world-readable.
 ENV NODE_OPTIONS="--max-old-space-size=4096"
-RUN bun run build
+RUN bun run build && chmod -R a+rX dist
 
 # Stage 2: Production with Nginx
 FROM nginx:alpine AS production
