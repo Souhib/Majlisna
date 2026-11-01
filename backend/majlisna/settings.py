@@ -30,11 +30,10 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=_get_env_file(), env_file_encoding="utf-8")
 
-    # Legacy selector variable. Not read by the app (the selector logic uses
-    # MAJLISNA_ENV), but the `.env` files still carry an `IPG_ENV=...` line from
-    # before the rename. Because BaseSettings forbids extra inputs, this field
-    # must exist to absorb that line — removing it makes Settings() fail to load.
-    ipg_env: str = "development"
+    # The selector variable itself: `_get_env_file` reads it (from the environment, else
+    # from `.env`), and `.env` is also the first file loaded here. BaseSettings forbids
+    # extra inputs, so the selector's own line must be a field or Settings() fails.
+    majlisna_env: str = "development"
 
     # Database
     database_url: str

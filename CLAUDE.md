@@ -1,4 +1,4 @@
-# CLAUDE.md - Majlisna (Islamic Party Games)
+# CLAUDE.md - Majlisna
 
 ## Project Overview
 

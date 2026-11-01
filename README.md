@@ -1,4 +1,4 @@
-# Majlisna (Islamic Party Games)
+# Majlisna
 
 A real-time multiplayer platform for Islamized versions of popular party games. Learn about Islamic words, prophets, and concepts while playing with friends.
 

@@ -337,9 +337,11 @@ e2e/test-results/
 
 # Local SQLite databases (dev only; `database.db` is already ignored above)
 *.db-journal
-backend/ipg.db
 
 # Test/tool output that Playwright and pytest drop at the repo root
 test-results/
 backend/test-results/
 .playwright-mcp/
+
+# Claude Code agent worktrees (isolated copies of the repo)
+.claude/worktrees/
