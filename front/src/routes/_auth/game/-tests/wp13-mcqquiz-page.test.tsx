@@ -40,6 +40,8 @@ vi.mock("sonner", () => ({ toast: toasts }))
 vi.mock("@/components/ConnectionStatus", () => ({ ConnectionStatus: () => null }))
 // the route wraps the page in the app's ErrorBoundary, tested on its own
 vi.mock("@/components/ErrorBoundary", () => ({ ErrorBoundary: ({ children }: { children: ReactNode }) => children }))
+// the samar riddle under the results reads its own endpoint: tested on its own (mcqquiz-riddle.test.tsx)
+vi.mock("@/components/rooms/SamarRiddle", () => ({ SamarRiddle: () => null }))
 vi.mock("@/components/games/shared/PhaseTimer", () => ({
   PhaseTimer: ({ onExpired }: { onExpired?: () => void }) => {
     clock.onExpired = onExpired ?? null
@@ -250,5 +252,36 @@ describe("The Quiz page: the end of the clock (BDP-03)", () => {
     })
 
     expect(api.timerExpired).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("The Quiz page: one authored moment at the reveal (review RM-2)", () => {
+  it("weaves the scores once the tally threads are drawn, never at the same time", () => {
+    // Prepare: a recording fake of Web Animations (happy-dom has none)
+    const delays: number[] = []
+    Object.defineProperty(HTMLElement.prototype, "animate", {
+      configurable: true,
+      writable: true,
+      value: vi.fn((_keyframes: Keyframe[], options: KeyframeAnimationOptions) => {
+        delays.push(Number(options.delay ?? 0))
+        return { cancel: vi.fn(), playState: "running" }
+      }),
+    })
+    const { container, rerender } = renderPage()
+
+    // Act: the reveal arrives on screen, Yusuf earned 3
+    api.state = revealed({
+      players: [
+        { user_id: "u1", username: "Yusuf", total_score: 3, current_round_answered: true, current_round_points: 3 },
+        { user_id: "u2", username: "Maryam", total_score: 0, current_round_answered: false, current_round_points: 0 },
+      ],
+    })
+    act(() => rerender())
+
+    // Assert: the tallies weave (CSS) and every part of the scoreboard's weave waits for their 730 ms
+    expect(container.querySelector("ul.quiz-choices")).toHaveAttribute("data-weave", "true")
+    expect(delays.length).toBeGreaterThan(0)
+    for (const delay of delays) expect(delay).toBeGreaterThanOrEqual(730)
+    delete (HTMLElement.prototype as { animate?: unknown }).animate
   })
 })

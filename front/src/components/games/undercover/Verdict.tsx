@@ -40,6 +40,17 @@ export function MrWhiteGuessLine({ guess, className }: { guess: MrWhiteGuess; cl
   )
 }
 
+/**
+ * How the verdict's tablet turns over (ANIM-2), when the vote resolved on screen:
+ * - "turn": the bare-warp cover parts from the reading start (320 ms, `--ease-settle`), the
+ *   role band is woven in at the foot (640 ms, `--ease-ink`), the role chip's lozenge is
+ *   pressed (`seal-press`), all after the 180 ms phase crossfade;
+ * - "fade": reduced motion, the cover only fades (140 ms).
+ * The gestures are undercover.css's (`.uc-verdict[data-turn]`); everything they move is in
+ * the DOM and in its place from the first frame.
+ */
+export type VerdictTurn = "turn" | "fade"
+
 export interface VoteGroup {
   targetId: string
   target: string
@@ -88,6 +99,10 @@ export function VoteLines({ votes, className }: { votes: VoteEntry[]; className?
  * for the whole table, which used to learn nothing of it); then who voted for whom. Used when the round
  * resolves (RoundOverPanel), while Mr. White guesses, and as a notice for a player who
  * missed the moment.
+ *
+ * Not compact, the tablet's foot is the role's band (madder teeth for an Undercover, undyed
+ * for a Civilian, goat-hair for Mr. White). `turn` plays the turn once (see `VerdictTurn`);
+ * a tablet that shows a word (your own) is only faded, never swept: it may be a sacred name.
  */
 export function Verdict({
   round,
@@ -98,6 +113,7 @@ export function Verdict({
   action,
   className,
   testId,
+  turn = null,
 }: {
   round: VerdictRound
   currentUserId?: string
@@ -109,12 +125,16 @@ export function Verdict({
   action?: ReactNode
   className?: string
   testId?: string
+  /** Turn the tablet over now (the vote resolved on screen); null shows it turned. */
+  turn?: VerdictTurn | null
 }) {
   const { t } = useTranslation()
   const titleId = useId()
   const Heading = headingLevel
   const out = round.eliminated ?? null
   const isMe = !!out && out.user_id === currentUserId
+  // the face shows a word only on your own tablet, and never Mr. White's (TurnedLawh)
+  const showsWord = isMe && !!myWord && out.role !== "mr_white"
   const title = !out
     ? t("game.undercover.verdict.noOne")
     : isMe
@@ -122,7 +142,14 @@ export function Verdict({
       : t("game.undercover.verdict.chose", { name: out.username })
 
   return (
-    <section className={cn("uc-verdict", className)} data-compact={compact ? "" : undefined} data-testid={testId} aria-labelledby={titleId}>
+    <section
+      className={cn("uc-verdict", className)}
+      data-compact={compact ? "" : undefined}
+      data-turn={turn && out ? turn : undefined}
+      data-word={turn && showsWord ? "" : undefined}
+      data-testid={testId}
+      aria-labelledby={titleId}
+    >
       <div className="uc-verdict-text">
         <Heading id={titleId} className="type-title text-[26px] sm:text-[30px]">
           {title}

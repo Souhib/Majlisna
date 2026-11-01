@@ -137,20 +137,29 @@
     border-radius: 2px;
     background: var(--surface-2);
     margin-block-end: 12px;
+    /* a new clue's pen travels a word's length outside the word while it writes (ClueBanner):
+       clipped here on the inline axis, it never adds a scroll; the hand's harakat and the
+       ي's tail keep the block axis */
+    overflow-x: clip;
+    /* the count's lozenges show from a banner this wide (@container below) */
+    container-type: inline-size;
   }
+  /* The banner holds the clue's own height before the clue arrives, so the board under the
+     operatives' fingers does not jump when it lands (FP-18: 21 px on a phone, CLS 0.06–0.1 a
+     clue; 26.7 px and CLS 0.05 at 1280 px before ANIM-3 reserved it on wide screens too). The
+     tallest of: "Clue from …" + the word in the hand (Arabic, the taller face, at the word's own
+     size; the gap above it is mt-1, 0.25rem, 4.4 px in Arabic where the rem is 110 %), or the
+     three lines of the count column (made, left, and the teammates pointing); plus the padding
+     (10 px, 12 px from 640 px) and the border. */
   @media (min-width: 640px) {
     .cn-clue {
       padding: 12px 16px;
+      min-height: calc(2px + 2 * 12px + max(13px * 1.25 + 0.25rem + clamp(20px, 2vw, 30px) * 1.35, 3 * 12.5px * 1.4));
     }
   }
-  /* On a phone the banner holds the clue's own height before the clue arrives, so the board
-     under the operatives' fingers does not jump when it lands (FP-18: 21 px, CLS 0.06–0.1 a
-     clue). The tallest of: "Clue from …" + the word in the hand (Arabic, the taller face), or
-     the three lines of the count column (made, left, and the teammates pointing); plus the
-     padding (10 px) and the border. */
   @media (max-width: 639px) {
     .cn-clue {
-      min-height: calc(2px + 2 * 10px + max(13px * 1.25 + 4px + 20px * 1.35, 3 * 12.5px * 1.4));
+      min-height: calc(2px + 2 * 10px + max(13px * 1.25 + 0.25rem + clamp(20px, 2vw, 30px) * 1.35, 3 * 12.5px * 1.4));
     }
   }
   .cn-clue[data-waiting="true"] {
@@ -173,10 +182,77 @@
     text-transform: none;
     line-height: 1.35;
   }
+  /* The qalam on the compositor (ClueBanner's `writeClueIn`): the pen is the word's box plus
+     room for the hand's swashes (--pen-room) and its harakat and tails (--pen-head), and one
+     soft edge more at its reading end (--pen-edge), masked once and for all. Its ink pads the
+     same room back, so the word lays out exactly as without them. A new clue translates the
+     pen in from one full length before the reading start and its ink the other way on the same
+     clock: the letters stand still and the pen's soft edge writes them. Nothing here animates. */
+  .cn-clue-pen {
+    --pen-room: 0.2em;
+    --pen-head: 0.3em;
+    --pen-edge: 0.6em;
+    --pen-to: to right;
+    display: block;
+    margin-block: calc(-1 * var(--pen-head));
+    margin-inline: calc(-1 * var(--pen-room)) calc(-1 * (var(--pen-room) + var(--pen-edge)));
+    -webkit-mask-image: linear-gradient(var(--pen-to), #000 calc(100% - var(--pen-edge)), transparent);
+    mask-image: linear-gradient(var(--pen-to), #000 calc(100% - var(--pen-edge)), transparent);
+  }
+  .cn-clue-pen[data-dir="rtl"] {
+    --pen-to: to left;
+  }
+  /* Every box the script moves always has a transform, the identity at rest: an element that
+     gains or loses one becomes or stops being a containing block, which lays its line out
+     again at the start and at the end of each animation (16 objects, measured). */
+  .cn-clue-pen,
+  .cn-clue-ink,
+  .cn-clue-n,
+  .cn-clue-loz > i {
+    transform: translateX(0);
+  }
+  .cn-clue-ink {
+    display: block;
+    padding-block: var(--pen-head);
+    padding-inline: var(--pen-room) calc(var(--pen-room) + var(--pen-edge));
+  }
+  .cn-clue-count {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 8px;
+  }
   .cn-clue-n {
     font: 600 clamp(20px, 1.6vw, 24px) / 1 var(--f-ui);
     font-variant-numeric: tabular-nums lining-nums;
     color: var(--brass);
+  }
+  /* the count as brass lozenges, stamped one by one when the clue lands: the box is the
+     stamp's (scale), the drawn lozenge its ::before, so a transform never meets the rotation */
+  .cn-clue-loz {
+    display: inline-flex;
+    align-self: center;
+    gap: 3px;
+  }
+  .cn-clue-loz > i {
+    display: grid;
+    place-items: center;
+    width: 10px;
+    height: 10px;
+  }
+  .cn-clue-loz > i::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    rotate: 45deg;
+    background: var(--brass);
+  }
+  /* a phone's banner has no room for them: with 2–4 lozenges an 11–13 letter clue wrapped
+     "2 left, plus a bonus" onto another line at 390 px and the banner grew (measured); the
+     figure says the count alone there, and is the one stamped */
+  @container (max-width: 479px) {
+    .cn-clue-loz {
+      display: none;
+    }
   }
   .cn-clue-rest {
     text-align: end;

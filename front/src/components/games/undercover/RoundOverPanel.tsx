@@ -1,10 +1,11 @@
 import { ArrowRight, Check } from "lucide-react"
-import { memo, useEffect, useRef } from "react"
+import { memo, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { focusIsFree, focusTitle } from "@/hooks/use-phase-focus"
 import { type LawhWord } from "./Lawh"
-import { Verdict, type VerdictRound } from "./Verdict"
+import { verdictTurnNow } from "./table-witness"
+import { Verdict, type VerdictRound, type VerdictTurn } from "./Verdict"
 
 interface RoundOverPanelProps {
   /** The round that just resolved (its vote_history entry). */
@@ -39,6 +40,11 @@ interface RoundOverPanelProps {
  * The server keeps the turn in "voting" until then, so this is the only place that call is
  * offered. Carries data-testid="elimination-overlay" (the E2E helpers wait for it). Nobody
  * on this screen says "Waiting for…": the helpers read that line as "this player has voted".
+ *
+ * When the vote resolves on screen (the table's list is still mounted as this first renders,
+ * `table-witness`), the tablet turns over once (`Verdict` `turn`): never on a page loaded here,
+ * a refetch or a socket push, nor after Mr. White's guess (his tablet turned with the vote, in
+ * `MrWhiteGuessPanel`).
  */
 export const RoundOverPanel = memo(function RoundOverPanel({
   round,
@@ -57,6 +63,8 @@ export const RoundOverPanel = memo(function RoundOverPanel({
   const actRef = useRef<HTMLDivElement>(null)
   const readyLineRef = useRef<HTMLParagraphElement>(null)
   const markedHere = useRef(isReady)
+  // decided once, as this verdict first renders: a lazy initializer, never re-read
+  const [turn] = useState<VerdictTurn | null>(verdictTurnNow)
 
   // "I'm ready" is replaced by the line that says so: the focus it held goes there, not to
   // <body> (only when the mark is made here, never on a page loaded already marked).
@@ -106,6 +114,7 @@ export const RoundOverPanel = memo(function RoundOverPanel({
       currentUserId={currentUserId}
       myWord={myWord}
       action={action}
+      turn={turn}
     />
   )
 })

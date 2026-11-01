@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Panel } from "@/components/ui/panel"
+import { useSeatErase } from "@/hooks/use-seat-erase"
 import { cn } from "@/lib/utils"
 import type { LobbyMember } from "./lobby"
 
@@ -34,7 +35,10 @@ interface PlayerRosterProps {
 /**
  * The real player list behind the ring (the halqa is a picture): "Players (N)", one row
  * per seat with its state lozenge, the full name, and the host's Remove button. A seat
- * whose player lost the connection says how long it is still kept ("away · 9:58").
+ * whose player lost the connection says how long it is still kept ("away · 9:58"), its name
+ * and lozenge receded (rooms.css, `data-away`); a seat that empties on screen is erased into
+ * that state, and restored when the player comes back (`useSeatErase`). A player who leaves
+ * the room is no longer in its state: the row goes, never kept as a ghost.
  *
  * E2E reads this list: the heading text "Players (N)", and each row as a
  * `div.flex.items-center.justify-between` holding a `span` whose text is exactly the
@@ -72,6 +76,12 @@ export function PlayerRoster({ players, myId, canKick, kickingId, onKick, awayLe
   }, [players, kickingId])
 
   const removable = players.filter((p) => p.id !== myId)
+  // the host's seat says "host" even when its connection drops: only an "away" seat recedes
+  const seatState = (player: LobbyMember) => (player.isHost ? "host" : player.isAway ? "away" : "ready")
+  useSeatErase(
+    listRef,
+    players.map((p) => ({ id: p.id, out: seatState(p) === "away" })),
+  )
   return (
     <Panel flush aria-labelledby={headingId} className={className}>
       <h2
@@ -85,10 +95,10 @@ export function PlayerRoster({ players, myId, canKick, kickingId, onKick, awayLe
       {players.length === 0 ? (
         <p className="border-t border-line px-4 py-4 text-[14px] text-muted-foreground sm:px-5">{t("room.waitingForPlayers")}</p>
       ) : (
-        <ul ref={listRef} className="border-t border-line">
+        <ul ref={listRef} className="lobby-roster border-t border-line">
           {players.map((player) => {
             const me = player.id === myId
-            const state = player.isHost ? "host" : player.isAway ? "away" : "ready"
+            const state = seatState(player)
             const left = player.isAway ? awayLeft?.get(player.id) : undefined
             const note = player.isHost ? (
               t("room.lobbyPage.seatHost")
@@ -106,15 +116,30 @@ export function PlayerRoster({ players, myId, canKick, kickingId, onKick, awayLe
               </>
             ) : null
             return (
-              <li key={player.id} className="border-b border-line px-4 last:border-b-0 sm:px-5">
+              <li
+                key={player.id}
+                data-seat={player.id}
+                data-away={state === "away" ? "" : undefined}
+                className="border-b border-line px-4 last:border-b-0 sm:px-5"
+              >
                 <div className="flex min-h-12 items-center justify-between gap-3 py-1">
                   <div className="flex min-w-0 flex-1 items-baseline gap-2.5">
-                    <Lozenge state={state} size={9} className="-translate-y-px self-center" />
-                    <span dir="auto" className={cn("min-w-0 truncate text-[15px] leading-tight", me ? "font-medium text-foreground" : "text-foreground")}>
+                    <span data-erase="mark" className="inline-flex shrink-0 -translate-y-px self-center">
+                      <Lozenge state={state} size={9} />
+                    </span>
+                    <span
+                      data-erase="ink"
+                      dir="auto"
+                      className={cn("min-w-0 truncate text-[15px] leading-tight", me ? "font-medium text-foreground" : "text-foreground")}
+                    >
                       {player.username}
                     </span>
                     {me ? <span className="type-meta shrink-0">{t("room.lobbyPage.rosterYou")}</span> : null}
-                    {note ? <span className={cn("type-meta shrink-0", player.isHost && "text-brass")}>{note}</span> : null}
+                    {note ? (
+                      <span data-erase={state === "away" ? "note" : undefined} className={cn("type-meta shrink-0", player.isHost && "text-brass")}>
+                        {note}
+                      </span>
+                    ) : null}
                   </div>
                   {canKick && !me ? (
                     <RemoveSeatButton

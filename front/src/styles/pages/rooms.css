@@ -36,6 +36,17 @@
     grid-area: share;
   }
 
+  /* the roster (PlayerRoster): an away seat (the player lost the connection, the seat is
+     kept for the grace) recedes, ERASE: its name stays ink at the muted token's contrast,
+     its lozenge further; "away · 9:58" is the muted token. Opacity alone: a seat that
+     empties or fills on screen is played by hooks/use-seat-erase (Web Animations) */
+  .lobby-roster > li[data-away] [data-erase="ink"] {
+    opacity: var(--erase-ink);
+  }
+  .lobby-roster > li[data-away] [data-erase="mark"] {
+    opacity: var(--erase-mark);
+  }
+
   /* the ring's names at the sketch's weight: the body is Readex 300, which left the
      names lighter than their second line (tspan.st is 400) */
   .lobby-ring .halqa text {

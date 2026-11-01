@@ -1,6 +1,7 @@
 import { memo, type ReactNode, useId } from "react"
 import { useTranslation } from "react-i18next"
 import { Colophon, type ColophonSeal } from "@/components/brand"
+import type { ColophonShare } from "@/components/brand/share-card/game-card"
 import { GameWordsList } from "@/components/notebook/KeepWords"
 import { useRouteNotebookGameId } from "@/components/notebook/route-game"
 import { useColophonNotebook } from "@/components/notebook/use-colophon-notebook"
@@ -37,6 +38,8 @@ interface QuizGameOverProps {
    * the page's URL when it is a Kalimat page (`/game/wordquiz/<id>`); MCQ has no words.
    */
   wordQuizGameId?: string
+  /** The game as the colophon card names it (spec 11): "Share", for a player only (as Keep). */
+  share?: ColophonShare
 }
 
 /**
@@ -73,6 +76,7 @@ export const QuizGameOver = memo(function QuizGameOver({
   seals,
   extraActions,
   wordQuizGameId,
+  share,
 }: QuizGameOverProps) {
   const { t, i18n } = useTranslation()
   const routeGameId = useRouteNotebookGameId("word_quiz")
@@ -134,6 +138,7 @@ export const QuizGameOver = memo(function QuizGameOver({
             isHost={isHost}
             onBackToRoom={onBackToRoom}
             onLeaveRoom={onLeaveRoom}
+            share={isPlayer ? share : undefined}
           />
         </>
       }

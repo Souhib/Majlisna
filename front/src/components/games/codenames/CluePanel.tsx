@@ -1,4 +1,4 @@
-import { memo, type FormEvent, useRef, useState } from "react"
+import { memo, type FormEvent, useLayoutEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Field, Input } from "@/components/ui/field"
@@ -103,6 +103,24 @@ export const CluePanel = memo(function CluePanel({ clueWord, clueNumber, isSubmi
   )
 })
 
+/** A clue's identity on the table, its word and its count; null while the spymaster is choosing. */
+export function clueKey(word: string | null | undefined, count: number | null | undefined): string | null {
+  const trimmed = word?.trim()
+  return trimmed ? `${trimmed}\u0000${count ?? ""}` : null
+}
+
+// The clue the announcer saw land, for the commit that brought it only (cleared on the next
+// microtask, before the frame is painted). ClueBanner reads it: the spymaster's banner mounts in
+// the same commit as their clue (the composer gives way to it), so on its own it could not tell
+// a clue just given from a page opened on one. The announcer is mounted for every role and sees
+// every clue change; the page mounts it before the banner, so its layout effect runs first.
+let landedClue: string | null = null
+
+/** Whether the announcer has just seen this clue land, in the commit now running. */
+export function clueJustLanded(key: string | null): boolean {
+  return key !== null && landedClue === key
+}
+
 interface ClueAnnouncerProps {
   /** The clue on the table, or nothing while the spymaster is choosing. */
   clueWord?: string | null
@@ -118,11 +136,25 @@ interface ClueAnnouncerProps {
  * the player's role: it is always in the DOM (a live region inserted together with its
  * text is not read), its text changes only when a new clue arrives, and an unchanged
  * text is never read twice.
+ *
+ * It is also the table's witness for the clue's writing: a clue that arrives after it mounted
+ * (never the one a page opens on) is noted for that commit (`clueJustLanded`).
  */
 export function ClueAnnouncer({ clueWord, clueNumber, teamName }: ClueAnnouncerProps) {
   const { t } = useTranslation()
   const word = clueWord?.trim()
   const number = clueNumber === 0 ? t("game.codenames.composer.unlimited") : (clueNumber ?? "")
+  const key = clueKey(clueWord, clueNumber)
+  const seen = useRef(key)
+  useLayoutEffect(() => {
+    if (seen.current === key) return
+    seen.current = key
+    if (key === null) return
+    landedClue = key
+    queueMicrotask(() => {
+      if (landedClue === key) landedClue = null
+    })
+  }, [key])
   return (
     <p className="sr-only" role="status" aria-atomic="true">
       {word ? t("game.codenames.clueAnnounce", { team: teamName, word, number }) : ""}

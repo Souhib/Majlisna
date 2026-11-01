@@ -23,6 +23,8 @@ import {
 import { PlayerRoster } from "@/components/rooms/PlayerRoster"
 import { RoomBans } from "@/components/rooms/RoomBans"
 import { RoomSettings } from "@/components/rooms/RoomSettings"
+import { LOBBY_RIDDLE_SCOPE } from "@/components/rooms/samar-riddle"
+import { SamarRiddle } from "@/components/rooms/SamarRiddle"
 import { useJoinRoom } from "@/components/rooms/use-join-room"
 import { Alert } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -170,6 +172,11 @@ function RoomLobbyPage() {
   const awayNote =
     awayPlayers.length === 1 ? t("room.lobbyPage.awayOne", { name: awayPlayers[0].username }) : awayPlayers.length > 1 ? t("room.lobbyPage.awayMany") : null
 
+  // A samar riddle while the table waits: for its quorum (everyone), or for the host (every
+  // guest and spectator). Not for a host whose table is ready, or too full: the next move is
+  // theirs. Not mounted, it asks nothing.
+  const tableWaits = table.kind === "short" || !isHost
+
   const startLabel = lobby.isStartingGame
     ? t("room.lobbyPage.starting")
     : table.kind === "short"
@@ -269,6 +276,19 @@ function RoomLobbyPage() {
           )}
         </span>
       </p>
+
+      {tableWaits ? (
+        // keyed by room: another room's lobby has its own riddle. A Kalimat table gets its
+        // answer after the game only: the word could come up in it.
+        <SamarRiddle
+          key={`riddle:${room.id}`}
+          roomId={room.id}
+          scope={LOBBY_RIDDLE_SCOPE}
+          waitKey={LOBBY_RIDDLE_SCOPE}
+          note={gameType === "word_quiz" ? "kalimat" : "lobby"}
+          className="w-full max-w-[420px] pt-1"
+        />
+      ) : null}
     </div>
   )
 

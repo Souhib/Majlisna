@@ -7,9 +7,11 @@
 
 @layer components {
   /* --- al-madd: the woven kashida ---------------------------------------- */
-  /* <span class="madd" dir="rtl"><span>مجلـ</span><i class="k"></i><span>ـسنا</span></span>
+  /* <span class="madd" dir="rtl"><span>مجلـ</span><i class="k"><i class="k-band"></i></i><span>ـسنا</span></span>
      Each half ends or starts with a tatweel, so the joining form is right whatever the
-     browser does at element boundaries; the band overlaps both tatweel ends. */
+     browser does at element boundaries; the band overlaps both tatweel ends. The band is
+     its own element, full length inside the kashida's clip, so the home's name can weave
+     it in once by a transform (Wordmark `weave`, DESIGN.md §7) without laying anything out. */
   .madd {
     display: inline-flex;
     align-items: baseline;
@@ -29,6 +31,11 @@
     position: relative;
     z-index: 1;
     margin-inline: -0.235em;
+    overflow: hidden;
+  }
+  .madd > .k > .k-band {
+    display: block;
+    height: 100%;
     background: var(--band-madd) right center / auto 100% round no-repeat;
   }
   /* under 80 px: ink kashida with one 1.5 px madder thread at its centre */

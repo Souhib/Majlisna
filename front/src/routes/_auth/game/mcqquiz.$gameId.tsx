@@ -5,7 +5,7 @@ import { ConnectionStatus } from "@/components/ConnectionStatus"
 import { ErrorBoundary } from "@/components/ErrorBoundary"
 import { ChoiceButtons } from "@/components/games/mcqquiz/ChoiceButtons"
 import { McqRoundResults } from "@/components/games/mcqquiz/McqRoundResults"
-import { choiceNotes } from "@/components/games/mcqquiz/reveal"
+import { choiceNotes, QUIZ_ROUND_MAX, tallyWeaveMs } from "@/components/games/mcqquiz/reveal"
 import { QuestionDisplay } from "@/components/games/mcqquiz/QuestionDisplay"
 import { ScoreBands } from "@/components/games/mcqquiz/ScoreBands"
 import { useAchievementSeals } from "@/components/games/shared/achievement-seals"
@@ -18,6 +18,8 @@ import { AdhanSuggestion, elapsedAtPause, PauseControl, PauseLayer, useAdhanSugg
 import { QuizGameOver } from "@/components/games/shared/QuizGameOver"
 import { QuizFrame, QuizGoneNotice, QuizHeader, QuizLeaveButton, QuizLoading } from "@/components/games/shared/QuizLayout"
 import { Figure, useHeldForPhase } from "@/components/games/shared/quiz-utils"
+import { gameRiddleScope } from "@/components/rooms/samar-riddle"
+import { SamarRiddle } from "@/components/rooms/SamarRiddle"
 import { Button } from "@/components/ui/button"
 import { Panel } from "@/components/ui/panel"
 import { useMcqQuizGame } from "@/hooks/use-mcqquiz-game"
@@ -217,6 +219,13 @@ function McqQuizGamePage() {
               roomId={roomIdRef.current}
               isHost={view.is_host}
               seals={seals}
+              share={{
+                game: "mcqquiz",
+                host: view.host_username,
+                count: t("game.quiz.questionsCount", { count: view.total_rounds }),
+                startedAt: view.started_at,
+                endedAt: view.ended_at,
+              }}
               meta={
                 <ColophonMeta
                   game={gameName}
@@ -240,7 +249,14 @@ function McqQuizGamePage() {
         aside={
           // the scores are under the veil too (display: contents keeps the column's gaps)
           <div inert={isPaused} className="contents">
-            <PlayerScoreboard players={view.players} currentUserId={user?.id} showAnswered={phase === "playing"} />
+            <PlayerScoreboard
+              players={view.players}
+              currentUserId={user?.id}
+              showAnswered={phase === "playing"}
+              maxScore={QUIZ_ROUND_MAX * view.total_rounds}
+              // the reveal's authored moment is the tally threads: the scores weave once they are drawn
+              weaveAfter={showResults && view.choice_tallies ? tallyWeaveMs(view.choices.length) : 0}
+            />
             <QuizLeaveButton onLeave={handleLeaveRoom} />
           </div>
         }
@@ -282,6 +298,8 @@ function McqQuizGamePage() {
                   correctIndex={showResults ? correctIndex : null}
                   roundPhase={showResults ? "results" : "playing"}
                   tags={tags}
+                  tallies={view.choice_tallies}
+                  players={view.players.length}
                 />
               </>
             ) : null}
@@ -318,6 +336,21 @@ function McqQuizGamePage() {
                 choices={view.choices}
                 currentUserId={user?.id}
                 isSpectator={view.is_spectator}
+              />
+            ) : null}
+
+            {/* A samar riddle while the table waits for the next question (the host, or the
+                ready quorum). Its question number is its wait: the riddle of the question
+                before is answered here. After the last question, only that answer. */}
+            {showResults ? (
+              <SamarRiddle
+                key={gameId}
+                roomId={view.room_id}
+                scope={gameRiddleScope(gameId)}
+                waitKey={String(view.current_round)}
+                note="round"
+                ask={view.current_round < view.total_rounds}
+                className="mt-6 border-t border-line pt-4"
               />
             ) : null}
           </Panel>

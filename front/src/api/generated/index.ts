@@ -57,6 +57,8 @@ export type { GetRandomTermPairApiV1UndercoverTermpairSearchRandomGetQueryKey } 
 export type { GetRandomTermPairApiV1UndercoverTermpairSearchRandomGetSuspenseQueryKey } from "./hooks/useGetRandomTermPairApiV1UndercoverTermpairSearchRandomGetSuspense.ts";
 export type { GetRoomApiV1RoomsRoomIdGetQueryKey } from "./hooks/useGetRoomApiV1RoomsRoomIdGet.ts";
 export type { GetRoomApiV1RoomsRoomIdGetSuspenseQueryKey } from "./hooks/useGetRoomApiV1RoomsRoomIdGetSuspense.ts";
+export type { GetRoomRiddleApiV1RoomsRoomIdRiddleGetQueryKey } from "./hooks/useGetRoomRiddleApiV1RoomsRoomIdRiddleGet.ts";
+export type { GetRoomRiddleApiV1RoomsRoomIdRiddleGetSuspenseQueryKey } from "./hooks/useGetRoomRiddleApiV1RoomsRoomIdRiddleGetSuspense.ts";
 export type { GetRoomStateApiV1RoomsRoomIdStateGetQueryKey } from "./hooks/useGetRoomStateApiV1RoomsRoomIdStateGet.ts";
 export type { GetRoomStateApiV1RoomsRoomIdStateGetSuspenseQueryKey } from "./hooks/useGetRoomStateApiV1RoomsRoomIdStateGetSuspense.ts";
 export type { GetShareLinkApiV1RoomsRoomIdShareLinkGetQueryKey } from "./hooks/useGetShareLinkApiV1RoomsRoomIdShareLinkGet.ts";
@@ -494,6 +496,15 @@ export type {
   GetRoomApiV1RoomsRoomIdGetQueryResponse,
   GetRoomApiV1RoomsRoomIdGetQuery,
 } from "./types/GetRoomApiV1RoomsRoomIdGet.ts";
+export type {
+  GetRoomRiddleApiV1RoomsRoomIdRiddleGetPathParams,
+  GetRoomRiddleApiV1RoomsRoomIdRiddleGetQueryParams,
+  GetRoomRiddleApiV1RoomsRoomIdRiddleGet200,
+  GetRoomRiddleApiV1RoomsRoomIdRiddleGet404,
+  GetRoomRiddleApiV1RoomsRoomIdRiddleGet422,
+  GetRoomRiddleApiV1RoomsRoomIdRiddleGetQueryResponse,
+  GetRoomRiddleApiV1RoomsRoomIdRiddleGetQuery,
+} from "./types/GetRoomRiddleApiV1RoomsRoomIdRiddleGet.ts";
 export type {
   GetRoomStateApiV1RoomsRoomIdStateGetPathParams,
   GetRoomStateApiV1RoomsRoomIdStateGet200,
@@ -965,6 +976,8 @@ export type { RoomInviteResponse } from "./types/RoomInviteResponse.ts";
 export type { RoomJoin } from "./types/RoomJoin.ts";
 export type { RoomLeave } from "./types/RoomLeave.ts";
 export type { RoomPlayerState } from "./types/RoomPlayerState.ts";
+export type { RoomRiddle } from "./types/RoomRiddle.ts";
+export type { RoomRiddleAnswer } from "./types/RoomRiddleAnswer.ts";
 export type { RoomSettings } from "./types/RoomSettings.ts";
 export type { RoomSettingsRequest } from "./types/RoomSettingsRequest.ts";
 export type { RoomState } from "./types/RoomState.ts";
@@ -1439,6 +1452,14 @@ export { getRoomApiV1RoomsRoomIdGetSuspenseQueryKey } from "./hooks/useGetRoomAp
 export { getRoomApiV1RoomsRoomIdGetSuspense } from "./hooks/useGetRoomApiV1RoomsRoomIdGetSuspense.ts";
 export { getRoomApiV1RoomsRoomIdGetSuspenseQueryOptions } from "./hooks/useGetRoomApiV1RoomsRoomIdGetSuspense.ts";
 export { useGetRoomApiV1RoomsRoomIdGetSuspense } from "./hooks/useGetRoomApiV1RoomsRoomIdGetSuspense.ts";
+export { getRoomRiddleApiV1RoomsRoomIdRiddleGetQueryKey } from "./hooks/useGetRoomRiddleApiV1RoomsRoomIdRiddleGet.ts";
+export { getRoomRiddleApiV1RoomsRoomIdRiddleGet } from "./hooks/useGetRoomRiddleApiV1RoomsRoomIdRiddleGet.ts";
+export { getRoomRiddleApiV1RoomsRoomIdRiddleGetQueryOptions } from "./hooks/useGetRoomRiddleApiV1RoomsRoomIdRiddleGet.ts";
+export { useGetRoomRiddleApiV1RoomsRoomIdRiddleGet } from "./hooks/useGetRoomRiddleApiV1RoomsRoomIdRiddleGet.ts";
+export { getRoomRiddleApiV1RoomsRoomIdRiddleGetSuspenseQueryKey } from "./hooks/useGetRoomRiddleApiV1RoomsRoomIdRiddleGetSuspense.ts";
+export { getRoomRiddleApiV1RoomsRoomIdRiddleGetSuspense } from "./hooks/useGetRoomRiddleApiV1RoomsRoomIdRiddleGetSuspense.ts";
+export { getRoomRiddleApiV1RoomsRoomIdRiddleGetSuspenseQueryOptions } from "./hooks/useGetRoomRiddleApiV1RoomsRoomIdRiddleGetSuspense.ts";
+export { useGetRoomRiddleApiV1RoomsRoomIdRiddleGetSuspense } from "./hooks/useGetRoomRiddleApiV1RoomsRoomIdRiddleGetSuspense.ts";
 export { getRoomStateApiV1RoomsRoomIdStateGetQueryKey } from "./hooks/useGetRoomStateApiV1RoomsRoomIdStateGet.ts";
 export { getRoomStateApiV1RoomsRoomIdStateGet } from "./hooks/useGetRoomStateApiV1RoomsRoomIdStateGet.ts";
 export { getRoomStateApiV1RoomsRoomIdStateGetQueryOptions } from "./hooks/useGetRoomStateApiV1RoomsRoomIdStateGet.ts";

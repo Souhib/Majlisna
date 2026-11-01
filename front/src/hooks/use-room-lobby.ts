@@ -17,6 +17,7 @@ import { queryKeys } from "@/api/queryKeys"
 import type { ChatMessage } from "@/components/rooms/ChatPanel"
 import { ROOM_ERROR_KEYS, retryUnlessRefused, roomErrorKey, roomErrorMessage } from "@/components/rooms/errors"
 import { type GameType, isGameType, type LobbyMember, toMembers } from "@/components/rooms/lobby"
+import { answerRoomRiddle } from "@/components/rooms/samar-riddle"
 import { useLeaveAfterKick } from "@/hooks/use-leave-after-kick"
 import { useSocket } from "@/hooks/use-socket"
 import { trackEvent } from "@/lib/analytics"
@@ -242,6 +243,8 @@ export function useRoomLobby(roomId: string): RoomLobby {
     if (!room?.activeGameId || navigatingToGameRef.current) return
     navigatingToGameRef.current = true
     storeRoomIdForGame(room.activeGameId, room.id)
+    // the samar riddle on screen is answered "when the game starts": at the room's next wait
+    answerRoomRiddle(room.id)
     const gt = isGameType(room.gameType) ? room.gameType : gameType
     navigate({ to: GAME_ROUTE[gt], params: { gameId: room.activeGameId } })
   }, [room?.activeGameId, room?.gameType, room?.id, gameType, navigate])
@@ -269,6 +272,7 @@ export function useRoomLobby(roomId: string): RoomLobby {
         const d = data as { game_id: string; room_id: string }
         navigatingToGameRef.current = true
         storeRoomIdForGame(d.game_id, d.room_id)
+        answerRoomRiddle(d.room_id)
         // no toast: the game page is the answer, and a toast sat over its header (F10)
         navigate({ to: GAME_ROUTE[gt], params: { gameId: d.game_id } })
       },

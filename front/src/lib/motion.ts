@@ -16,7 +16,9 @@
  * app animates through motion/react, so this file holds no variants (the old `write`,
  * `erase`, `seal`, `stamp`, `seatArrive`, `arrive`, `fade`, `t`, `exit()` and `stagger()`
  * were never used and were removed, WP-18), only what script needs: the same tokens as
- * numbers and the writing time of a word.
+ * numbers and the writing time of a word. (`erase` is back, as the receded levels the
+ * ERASE gesture's Web Animations end on: ANIM-2. `stagger` is back as the `--stagger`
+ * token's numbers, with `bezier()` for the curves, for the scoreboard's FLIP: ANIM-4.)
  */
 
 /** Cubic-bezier tuples (the CSS `--ease-*` tokens). */
@@ -36,6 +38,14 @@ export const ease = {
 /** Durations in seconds (the CSS `--dur-*` tokens). */
 export const dur = { tap: 0.09, state: 0.18, move: 0.32, authored: 0.64, ceremony: 1.1 } as const
 
+/** Siblings land `--stagger` apart (30 ms), 240 ms at most in all (the seals' cap). Seconds. */
+export const stagger = { step: 0.03, cap: 0.24 } as const
+
+/** A curve as Web Animations and inline styles take it: `bezier(ease.ink)` → "cubic-bezier(0.45, 0.05, 0.2, 1)". */
+export function bezier(curve: readonly number[]): string {
+  return `cubic-bezier(${curve.join(", ")})`
+}
+
 const graphemes = typeof Intl !== "undefined" && "Segmenter" in Intl ? new Intl.Segmenter(undefined, { granularity: "grapheme" }) : null
 
 /** Writing time in seconds: a word (55 ms per grapheme) or a line (15 ms per grapheme). */
@@ -46,3 +56,13 @@ export function inkDuration(text: string, kind: "word" | "line" = "word") {
 
 /** Re-reading a secret already read: always quick, even the tenth glance. */
 export const REREAD = 0.24
+
+/**
+ * ERASE: what is finished recedes, never vanishes (an emptied seat, `hooks/use-seat-erase`).
+ * The receded opacities, mirroring the CSS `--erase-ink` / `--erase-mark` that hold the
+ * state: the name stays ink at the muted token's contrast (an opacity cannot end on another
+ * colour, and .45 of the ink would fall to 2.9:1), its lozenge goes to .45. The gesture runs
+ * `dur.authored` on `ease.ink`, the status line fades in over `dur.state`; reduced motion,
+ * one `dur.state` opacity change. Never a strike, never over a sacred name.
+ */
+export const erase = { ink: 0.72, mark: 0.45 } as const

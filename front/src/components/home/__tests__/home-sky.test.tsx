@@ -1,11 +1,12 @@
-import { render } from "@testing-library/react"
+import { render, renderHook } from "@testing-library/react"
 import { existsSync, readFileSync, statSync } from "node:fs"
 import { resolve } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("@tanstack/react-router", () => ({ Link: () => null, useNavigate: () => vi.fn() }))
 
-import { HomeSky } from "../HomeHero"
+import { SKY_LIGHT_KEY, SKY_PRELOAD_LEAD_MS } from "@/lib/sky-light"
+import { HomeSky, useSkyWarmUp, warmSky } from "../HomeHero"
 
 /**
  * The home sky: the <picture> in HomeHero and the preload in index.html's inline script
@@ -22,7 +23,7 @@ const candidates = (srcset: string | null) =>
     .filter(Boolean)
 
 /** What the index.html script preloads on "/", by media query. */
-function preloads(theme: "dark" | "light") {
+function preloads(theme: "dark" | "light" | "sky") {
   localStorage.setItem("majlisna-theme", theme)
   new Function(THEME_SCRIPT)()
   return [...document.head.querySelectorAll<HTMLLinkElement>('link[rel="preload"][as="image"]')].map((l) => ({
@@ -45,10 +46,45 @@ function pictureRanges(name: string) {
   }
 }
 
+/** A viewport `width` px wide, as matchMedia answers the picture's queries (and a dark device). */
+function viewport(width: number) {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn((query: string) => {
+      const max = /max-width:\s*(\d+)px/.exec(query)
+      const min = /min-width:\s*(\d+)px/.exec(query)
+      const matches =
+        query.includes("prefers-color-scheme: dark") || ((!max || width <= Number(max[1])) && (!min || width >= Number(min[1])) && (!!max || !!min))
+      return { matches, media: query, addEventListener: vi.fn(), removeEventListener: vi.fn() }
+    }),
+  )
+}
+
+/** Every `new Image()` the code makes, with what it asked for. */
+function recordImages() {
+  const made: { sizes: string; srcset: string; fetchPriority: string }[] = []
+  vi.stubGlobal(
+    "Image",
+    class {
+      sizes = ""
+      srcset = ""
+      src = ""
+      decoding = ""
+      fetchPriority = ""
+      constructor() {
+        made.push(this)
+      }
+    },
+  )
+  return made
+}
+
 describe("home sky", () => {
   afterEach(() => {
     for (const l of document.head.querySelectorAll("link")) l.remove()
     localStorage.clear()
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
   })
 
   it("offers tablets an 800, a 1200 and a 1600 crop, sized as the cover box draws them", () => {
@@ -96,5 +132,89 @@ describe("home sky", () => {
     expect(missing).toEqual([])
     expect(tabletSmall).toHaveLength(4)
     for (const size of tabletSmall) expect(size).toBeLessThanOrEqual(110 * 1024)
+  })
+
+  it("preloads, for the sky choice, the sky the stored record gives for now, not the device's", () => {
+    // Prepare: the device is dark, the record says it is afternoon until a turn an hour away
+    viewport(1440)
+    const picture = pictureRanges("sky-asr")
+    localStorage.setItem(SKY_LIGHT_KEY, JSON.stringify({ light: "light", turns: [[Date.now() + 3_600_000, "dark"]] }))
+
+    // Act
+    const links = preloads("sky")
+
+    // Assert: still one sky, three ranges
+    expect(links).toHaveLength(3)
+    expect(links.find((l) => l.media === "(min-width: 1101px)")).toMatchObject({ srcset: picture.desktop.srcset, href: picture.desktop.src })
+    expect(links.every((l) => l.href?.startsWith("/sky/sky-asr."))).toBe(true)
+  })
+
+  it("preloads the device's sky for the sky choice when no record is stored", () => {
+    // Prepare
+    viewport(1440)
+
+    // Act
+    const links = preloads("sky")
+
+    // Assert
+    expect(links).toHaveLength(3)
+    expect(links.every((l) => l.href?.startsWith("/sky/sky-maghrib."))).toBe(true)
+  })
+
+  it.each([
+    [390, "phone"],
+    [900, "tablet"],
+    [1440, "desktop"],
+  ] as const)("warms, at %i px, the very file the picture will draw (%s range)", (width, range) => {
+    // Prepare
+    viewport(width)
+    const made = recordImages()
+    const picture = pictureRanges("sky-maghrib")
+
+    // Act
+    warmSky("sky-maghrib")
+
+    // Assert: one image, same candidates and sizes, fetched quietly
+    expect(made).toHaveLength(1)
+    expect(candidates(made[0].srcset)).toEqual(picture[range].srcset)
+    expect(made[0].sizes).toBe(picture[range].sizes)
+    expect(made[0].fetchPriority).toBe("low")
+  })
+
+  it("warms the other sky ten minutes before the sky turns, and never at load", () => {
+    // Prepare: a turn to the night 25 minutes away, the page loaded
+    vi.useFakeTimers()
+    viewport(1440)
+    const made = recordImages()
+    const turn = { at: Date.now() + 25 * 60_000, light: "dark" as const }
+
+    // Act
+    renderHook(() => useSkyWarmUp(turn))
+    vi.advanceTimersByTime(25 * 60_000 - SKY_PRELOAD_LEAD_MS - 1)
+
+    // Assert: nothing yet
+    expect(made).toHaveLength(0)
+
+    // Act
+    vi.advanceTimersByTime(1)
+
+    // Assert: the night's sky, once
+    expect(made).toHaveLength(1)
+    expect(made[0].srcset).toContain("/sky/sky-maghrib.1600.webp")
+    vi.advanceTimersByTime(60 * 60_000)
+    expect(made).toHaveLength(1)
+  })
+
+  it("warms nothing without a turn coming (an explicit light, or no city)", () => {
+    // Prepare
+    vi.useFakeTimers()
+    const made = recordImages()
+
+    // Act
+    renderHook(() => useSkyWarmUp(null))
+    vi.advanceTimersByTime(24 * 3_600_000)
+
+    // Assert
+    expect(made).toHaveLength(0)
   })
 })

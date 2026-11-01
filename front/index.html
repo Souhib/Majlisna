@@ -49,14 +49,30 @@
 
     <!-- Theme before first paint: same storage key and rule as ThemeProvider, so the
          page never flashes the wrong light. The class drives Tailwind's dark variant,
-         data-theme drives the Samar tokens. On the home page it also preloads the one
-         sky the hero will draw (night or afternoon, phone / tablet / desktop crop):
-         the same files, sizes and breakpoints as the <picture> in HomeHero.tsx. -->
+         data-theme drives the Samar tokens. "Follow the sky" (sky) reads the light and
+         the week of turns ThemeProvider stored (majlisna-sky-light, lib/sky-light.ts:
+         {light, turns: [[ms, light], …]}): the light flips at each turn passed, and past
+         the last one it is not known, so the device's light stands in. On the home page
+         it also preloads the one sky the hero will draw (night or afternoon, phone /
+         tablet / desktop crop): the same files, sizes and breakpoints as the <picture>
+         in HomeHero.tsx. -->
     <script>
       (function () {
         var t = null;
-        try { t = localStorage.getItem('majlisna-theme'); } catch (e) {}
+        var s = null;
+        try {
+          t = localStorage.getItem('majlisna-theme');
+          if (t === 'sky') s = JSON.parse(localStorage.getItem('majlisna-sky-light'));
+        } catch (e) {}
         var stored = t === 'light' || t === 'dark';
+        if (t === 'sky' && s && s.turns && s.turns.length) {
+          var now = Date.now(), l = s.light, i = 0;
+          for (; i < s.turns.length && s.turns[i] && s.turns[i][0] <= now; i++) l = s.turns[i][1];
+          if (i < s.turns.length && (l === 'light' || l === 'dark')) {
+            t = l;
+            stored = true;
+          }
+        }
         if (!stored) {
           t = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
         }

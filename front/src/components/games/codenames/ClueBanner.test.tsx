@@ -13,7 +13,7 @@ describe("ClueBanner", () => {
 
   it("shows the clue, its count and where the guesses stand", () => {
     render(<ClueBanner turn={{ clue_word: "knowledge", clue_number: 2, guesses_made: 1 }} spymasterName="Yusuf" />)
-    expect(screen.getByText("knowledge")).toHaveAttribute("data-script", "lat")
+    expect(screen.getByText("knowledge").closest(".cn-clue-word")).toHaveAttribute("data-script", "lat")
     expect(screen.getByText("2")).toBeInTheDocument()
     expect(screen.getByText("game.codenames.clueFrom")).toBeInTheDocument()
     expect(screen.getByText("game.codenames.guessesMade")).toBeInTheDocument()
@@ -34,7 +34,7 @@ describe("ClueBanner", () => {
 
   it("sets an Arabic clue in the hand", () => {
     render(<ClueBanner turn={{ clue_word: "صبر", clue_number: 1, guesses_made: 0 }} />)
-    expect(screen.getByText("صبر")).toHaveAttribute("data-script", "ar")
+    expect(screen.getByText("صبر").closest(".cn-clue-word")).toHaveAttribute("data-script", "ar")
   })
 
   it("counts teammates who have chosen when there are several", () => {

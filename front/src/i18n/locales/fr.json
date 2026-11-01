@@ -92,7 +92,8 @@
       "copiedSr": "La ligne est copiée : collez-la pour la partager.",
       "manual": "Copiez cette ligne pour la partager",
       "solved": "Majlisna · Le mot du jour #{{number}} · trouvé à l’indice {{hint}} sur {{total}} · {{url}}",
-      "gaveUp": "Majlisna · Le mot du jour #{{number}} · abandonné · {{url}}"
+      "gaveUp": "Majlisna · Le mot du jour #{{number}} · abandonné · {{url}}",
+      "ready": "L’image est prête : appuyez de nouveau sur Partager pour l’envoyer."
     },
     "home": {
       "rung": "indice {{number}}",
@@ -167,8 +168,19 @@
     "homeLabel": "Majlisna, accueil",
     "switchLanguage": "Changer de langue",
     "language": "Langue",
-    "themeToDay": "Passer à la lumière de l’après-midi",
-    "themeToNight": "Passer à la lumière de la nuit",
+    "themeCurrent": "Thème : {{choice}}",
+    "themeChoices": {
+      "light": "Après-midi",
+      "dark": "Nuit",
+      "sky": "Suivre le ciel",
+      "system": "La lumière de votre appareil"
+    },
+    "skyNote": {
+      "toNight": "La nuit vient au Maghrib, à {{time}} ({{city}}).",
+      "toDay": "Le jour revient au lever du soleil, à {{time}} ({{city}}).",
+      "noCity": "Aucune ville choisie : la lumière de votre appareil, jusqu’à ce que vous en choisissiez une dans les horaires de prière.",
+      "noTurn": "Le soleil ne se lève ni ne se couche ces jours-ci ({{city}}) : la lumière de votre appareil."
+    },
     "accountMenu": "Voir le profil et plus"
   },
   "auth": {
@@ -363,6 +375,19 @@
     "difficultyHard": "Difficile",
     "codeLabel": "Code du salon",
     "pinLabel": "PIN",
+    "riddle": {
+      "label": "Une énigme en attendant",
+      "askWho": "En attendant : qui est-ce ?",
+      "askWhere": "En attendant : où est-ce ?",
+      "askWhat": "En attendant : qu’est-ce que c’est ?",
+      "soonLobby": "La réponse dans un instant, ou après la partie.",
+      "soonRound": "La réponse dans un instant, ou après la prochaine question.",
+      "afterKalimat": "La réponse après la partie : elle pourrait sortir dans Kalimat.",
+      "show": "Voir la réponse",
+      "was": "C’était <b>{{answer}}</b>",
+      "another": "Une autre énigme",
+      "last": "La dernière énigme, « {{hint}} », c’était <b>{{answer}}</b>."
+    },
     "lobbyPage": {
       "title": "Le majlis de {{name}}",
       "titleFallback": "Le majlis",
@@ -522,7 +547,18 @@
     "spectatorView": "Vous regardez cette partie",
     "colophon": {
       "majlis": "le majlis de {{name}}",
-      "lasted": "{{duration}} de jeu"
+      "lasted": "{{duration}} de jeu",
+      "share": {
+        "action": "Partager",
+        "copied": "Copié",
+        "copiedSr": "La ligne est copiée : collez-la pour la partager.",
+        "manual": "Copiez cette ligne pour la partager",
+        "ready": "L’image est prête : appuyez de nouveau sur Partager pour l’envoyer.",
+        "line": "Majlisna · {{meta}} · {{url}}",
+        "more_one": "et {{count}} autre mot",
+        "more_many": "et {{count}} autres mots",
+        "more_other": "et {{count}} autres mots"
+      }
     },
     "undercover": {
       "iUnderstand": "J’ai compris",
@@ -1309,7 +1345,9 @@
       "sessionRevoked": "Vous avez été déconnecté. Reconnectez-vous.",
       "notAnAlivePlayer": "Seul un joueur encore en jeu peut faire cela.",
       "invalidAvatarUrl": "Cette adresse d’image ne peut pas être utilisée.",
-      "googleAccountMismatch": "Ce compte Google n’est pas celui qui est lié à ce profil."
+      "googleAccountMismatch": "Ce compte Google n’est pas celui qui est lié à ce profil.",
+      "roomMembersOnly": "Seules les personnes de ce salon peuvent voir ceci.",
+      "riddleNotDuringGame": "Les énigmes attendent la fin de cette partie."
     }
   },
   "pause": {
@@ -1426,7 +1464,7 @@
   "privacy": {
     "link": "Politique de confidentialité",
     "title": "Politique de confidentialité",
-    "updated": "Dernière mise à jour : 31 octobre 2026",
+    "updated": "Dernière mise à jour : 1er novembre 2026",
     "intro": "Majlisna (majlisna.app) est une plateforme gratuite de jeux de société islamiques en ligne, éditée par Souhib Trabelsi. Cette page explique quelles données nous collectons, pourquoi, et comment vous pouvez les contrôler.",
     "sections": [
       {
@@ -1454,16 +1492,16 @@
           "<b>Détection automatique :</b> tant qu’aucune ville n’est enregistrée, votre navigateur demande à ipapi.co, à chaque ouverture de Majlisna, une position approximative déduite de votre adresse IP. Dès qu’une ville est trouvée, elle est enregistrée et ces demandes s’arrêtent. Si ipapi.co ne répond pas, votre navigateur attend un jour avant de redemander.",
           "<b>Recherche de ville :</b> ce que vous tapez est envoyé, avec la langue de l’interface, au service de géocodage d’Open-Meteo, et les coordonnées de la ville choisie sont envoyées à Open-Meteo pour connaître son fuseau horaire.",
           "<b>Utiliser ma position :</b> seulement si vous appuyez sur ce bouton et l’autorisez dans votre navigateur, la position de votre appareil est lue une fois. Ses coordonnées sont envoyées à OpenStreetMap (Nominatim) pour nommer la ville dans la langue de l’interface, et à Open-Meteo pour connaître son fuseau horaire.",
-          "La ville, ses coordonnées et son fuseau horaire restent dans votre navigateur. Pendant une partie, l’appareil de l’hôte s’en sert pour proposer une pause à l’heure de l’adhan ; rien n’est envoyé."
+          "La ville, ses coordonnées et son fuseau horaire restent dans votre navigateur. Pendant une partie, l’appareil de l’hôte s’en sert pour proposer une pause à l’heure de l’adhan, et si vous choisissez de suivre le ciel, votre appareil s’en sert pour passer la page à la nuit au Maghrib et la ramener au jour au lever du soleil ; rien n’est envoyé."
         ]
       },
       {
         "title": "Ce que garde votre navigateur",
         "body": [
           "<b>Votre session :</b> notre serveur dépose deux cookies qui vous gardent connecté. Ils sont httpOnly (les scripts de la page ne peuvent pas les lire) et ne sont envoyés qu’à Majlisna. Le jeton d’accès, de courte durée, avec l’identifiant de votre compte, votre pseudo et votre adresse e-mail, est aussi gardé dans le stockage local du navigateur, pour que l’application reprenne votre session et garde ses mises à jour en direct. Le jeton qui le renouvelle reste dans son seul cookie. La déconnexion les efface.",
-          "<b>Vos préférences :</b> votre langue, votre thème (après-midi ou nuit), le fait d’avoir vu la fenêtre d’accueil, et votre ville pour les heures de prière, avec ses coordonnées et son fuseau horaire.",
-          "<b>Pendant une partie :</b> quelques valeurs gardées tant que l’onglet reste ouvert (comme le salon d’où vous venez, ou le fait d’avoir déjà lu votre mot), pour qu’un rechargement ne les perde pas.",
-          "L’application garde aussi ses propres fichiers dans votre navigateur, pour que ses pages s’ouvrent même hors ligne. Nous ne déposons aucun cookie publicitaire ou de suivi, et la mesure d’audience n’en utilise aucun."
+          "<b>Vos préférences :</b> votre langue, votre thème (après-midi, nuit ou suivre le ciel, avec alors les heures des prochains levers du soleil et Maghribs de votre ville, calculées sur votre appareil pour qu’une page s’ouvre dans la bonne lumière), le fait d’avoir vu la fenêtre d’accueil, et votre ville pour les heures de prière, avec ses coordonnées et son fuseau horaire.",
+          "<b>Dans un salon et pendant une partie :</b> quelques valeurs gardées tant que l’onglet reste ouvert (comme le salon d’où vous venez, le fait d’avoir déjà lu votre mot, ou l’énigme posée pendant que la table attend), pour qu’un rechargement ne les perde pas.",
+          "L’application garde aussi ses propres fichiers dans votre navigateur, pour que ses pages s’ouvrent même hors ligne, et se souvient, jusqu’à la fermeture de l’onglet, que le nom de la page d’accueil a déjà été tissé. Nous ne déposons aucun cookie publicitaire ou de suivi, et la mesure d’audience n’en utilise aucun."
         ]
       },
       {

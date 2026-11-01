@@ -57,6 +57,8 @@ export type { GetRandomTermPairApiV1UndercoverTermpairSearchRandomGetQueryKey } 
 export type { GetRandomTermPairApiV1UndercoverTermpairSearchRandomGetSuspenseQueryKey } from "./useGetRandomTermPairApiV1UndercoverTermpairSearchRandomGetSuspense.ts";
 export type { GetRoomApiV1RoomsRoomIdGetQueryKey } from "./useGetRoomApiV1RoomsRoomIdGet.ts";
 export type { GetRoomApiV1RoomsRoomIdGetSuspenseQueryKey } from "./useGetRoomApiV1RoomsRoomIdGetSuspense.ts";
+export type { GetRoomRiddleApiV1RoomsRoomIdRiddleGetQueryKey } from "./useGetRoomRiddleApiV1RoomsRoomIdRiddleGet.ts";
+export type { GetRoomRiddleApiV1RoomsRoomIdRiddleGetSuspenseQueryKey } from "./useGetRoomRiddleApiV1RoomsRoomIdRiddleGetSuspense.ts";
 export type { GetRoomStateApiV1RoomsRoomIdStateGetQueryKey } from "./useGetRoomStateApiV1RoomsRoomIdStateGet.ts";
 export type { GetRoomStateApiV1RoomsRoomIdStateGetSuspenseQueryKey } from "./useGetRoomStateApiV1RoomsRoomIdStateGetSuspense.ts";
 export type { GetShareLinkApiV1RoomsRoomIdShareLinkGetQueryKey } from "./useGetShareLinkApiV1RoomsRoomIdShareLinkGet.ts";
@@ -384,6 +386,14 @@ export { getRoomApiV1RoomsRoomIdGetSuspenseQueryKey } from "./useGetRoomApiV1Roo
 export { getRoomApiV1RoomsRoomIdGetSuspense } from "./useGetRoomApiV1RoomsRoomIdGetSuspense.ts";
 export { getRoomApiV1RoomsRoomIdGetSuspenseQueryOptions } from "./useGetRoomApiV1RoomsRoomIdGetSuspense.ts";
 export { useGetRoomApiV1RoomsRoomIdGetSuspense } from "./useGetRoomApiV1RoomsRoomIdGetSuspense.ts";
+export { getRoomRiddleApiV1RoomsRoomIdRiddleGetQueryKey } from "./useGetRoomRiddleApiV1RoomsRoomIdRiddleGet.ts";
+export { getRoomRiddleApiV1RoomsRoomIdRiddleGet } from "./useGetRoomRiddleApiV1RoomsRoomIdRiddleGet.ts";
+export { getRoomRiddleApiV1RoomsRoomIdRiddleGetQueryOptions } from "./useGetRoomRiddleApiV1RoomsRoomIdRiddleGet.ts";
+export { useGetRoomRiddleApiV1RoomsRoomIdRiddleGet } from "./useGetRoomRiddleApiV1RoomsRoomIdRiddleGet.ts";
+export { getRoomRiddleApiV1RoomsRoomIdRiddleGetSuspenseQueryKey } from "./useGetRoomRiddleApiV1RoomsRoomIdRiddleGetSuspense.ts";
+export { getRoomRiddleApiV1RoomsRoomIdRiddleGetSuspense } from "./useGetRoomRiddleApiV1RoomsRoomIdRiddleGetSuspense.ts";
+export { getRoomRiddleApiV1RoomsRoomIdRiddleGetSuspenseQueryOptions } from "./useGetRoomRiddleApiV1RoomsRoomIdRiddleGetSuspense.ts";
+export { useGetRoomRiddleApiV1RoomsRoomIdRiddleGetSuspense } from "./useGetRoomRiddleApiV1RoomsRoomIdRiddleGetSuspense.ts";
 export { getRoomStateApiV1RoomsRoomIdStateGetQueryKey } from "./useGetRoomStateApiV1RoomsRoomIdStateGet.ts";
 export { getRoomStateApiV1RoomsRoomIdStateGet } from "./useGetRoomStateApiV1RoomsRoomIdStateGet.ts";
 export { getRoomStateApiV1RoomsRoomIdStateGetQueryOptions } from "./useGetRoomStateApiV1RoomsRoomIdStateGet.ts";

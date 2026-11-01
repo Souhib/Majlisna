@@ -57,6 +57,10 @@
   --dur-authored: 640ms;
   --dur-ceremony: 1100ms;
   --stagger: 30ms;
+  /* ERASE: an emptied seat's name keeps the ink at the muted token's contrast (6.8:1 by day,
+     8.4:1 at night on --bg, never under 6.4:1 on a surface), its lozenge recedes further */
+  --erase-ink: 0.72;
+  --erase-mark: 0.45;
 
   /* layout */
   --maxw: 1440px;
@@ -659,6 +663,16 @@
 ::view-transition-old(root),
 ::view-transition-new(root) {
   animation-duration: var(--dur-state);
+  animation-timing-function: var(--ease-out);
+}
+/* The sky's own turn ("Follow the sky", providers/ThemeProvider.tsx): the app's one
+   ceremony, the whole page crossfading to the other light at --dur-ceremony. A view
+   transition takes the pointer while it runs (every press lands on <html>, whatever
+   pointer-events say), so the provider starts it only on a still page and a press ends it.
+   Reduced motion never starts it: the light then changes at once. */
+:root[data-sky-turn]::view-transition-old(root),
+:root[data-sky-turn]::view-transition-new(root) {
+  animation-duration: var(--dur-ceremony);
   animation-timing-function: var(--ease-out);
 }
 

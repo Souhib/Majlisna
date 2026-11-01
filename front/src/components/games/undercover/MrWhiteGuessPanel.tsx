@@ -1,8 +1,9 @@
-import { memo } from "react"
+import { memo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Field, Input } from "@/components/ui/field"
-import { Verdict, type VerdictRound } from "./Verdict"
+import { verdictTurnNow } from "./table-witness"
+import { Verdict, type VerdictRound, type VerdictTurn } from "./Verdict"
 
 interface MrWhiteGuessPanelProps {
   isGuesser: boolean
@@ -17,7 +18,10 @@ interface MrWhiteGuessPanelProps {
 
 /**
  * The eliminated Mr. White's last chance: one guess at the civilians' word. Everyone else
- * sees his tablet turned over (a dashed page: he had no word) while he guesses.
+ * sees his tablet turned over (a dashed page: he had no word) while he guesses. When the vote
+ * found him on screen (the table's list still mounted as this panel first renders), the
+ * tablet turns over once, as any verdict's does (`Verdict` `turn`; the compact verdict has no
+ * band at its foot: the cover parts and the lozenge is pressed). Never on a page loaded here.
  */
 export const MrWhiteGuessPanel = memo(function MrWhiteGuessPanel({
   isGuesser,
@@ -29,6 +33,8 @@ export const MrWhiteGuessPanel = memo(function MrWhiteGuessPanel({
   onSubmit,
 }: MrWhiteGuessPanelProps) {
   const { t } = useTranslation()
+  // decided once, as this panel first renders: a lazy initializer, never re-read
+  const [turn] = useState<VerdictTurn | null>(verdictTurnNow)
 
   if (!isGuesser) {
     const waiting = (
@@ -39,7 +45,7 @@ export const MrWhiteGuessPanel = memo(function MrWhiteGuessPanel({
     )
     if (round?.eliminated) {
       // compact: the player's own tablet stands beside it and carries the screen's band
-      return <Verdict compact testId="elimination-overlay" round={round} currentUserId={currentUserId} action={waiting} />
+      return <Verdict compact testId="elimination-overlay" round={round} currentUserId={currentUserId} action={waiting} turn={turn} />
     }
     return (
       <section data-testid="elimination-overlay" className="grid gap-2" aria-live="polite">

@@ -195,7 +195,25 @@ export const GameOverScreen = memo(function GameOverScreen({
   const actions = (
     <>
       {extraActions}
-      <ColophonActions notebook={notebook} roomId={roomId} isHost={isHost} onBackToRoom={onBackToRoom} onLeaveRoom={onLeaveRoom} />
+      <ColophonActions
+        notebook={notebook}
+        roomId={roomId}
+        isHost={isHost}
+        onBackToRoom={onBackToRoom}
+        onLeaveRoom={onLeaveRoom}
+        // the colophon card (spec 11): a player's only, as Keep is
+        share={
+          myRole === "spectator"
+            ? undefined
+            : {
+                game: "undercover",
+                host: colophon?.hostUsername,
+                count: rounds ? t("game.undercover.colophon.rounds", { count: rounds }) : null,
+                startedAt: colophon?.startedAt,
+                endedAt: colophon?.endedAt,
+              }
+        }
+      />
     </>
   )
 

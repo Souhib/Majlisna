@@ -63,6 +63,17 @@ describe.each(["en", "fr", "ar"] as Lang[])("the privacy page in %s", (lang) => 
     expect(document.body.textContent).not.toMatch(/<\/?(b|profile)>/)
   })
 
+  it("names what the tab keeps in a room as well as in a game: the samar riddle on screen", () => {
+    // sessionStorage `majlisna-riddle:<room>:<scope>` is written in the lobby too, not only in a game
+    const tab = privacy.sections[3].body[2]
+    expect(tab).toMatch(
+      { en: /^<b>In a room and during a game:<\/b>/, fr: /^<b>Dans un salon et pendant une partie\u00a0:<\/b>/, ar: /^<b>في الغرفة وفي أثناء اللعب:<\/b>/ }[
+        lang
+      ],
+    )
+    expect(tab).toMatch({ en: /riddle/, fr: /énigme/, ar: /اللغز/ }[lang])
+  })
+
   it("links the profile page and the contact address", async () => {
     // Prepare
     await i18next.changeLanguage(lang)

@@ -265,6 +265,107 @@
     rotate: -30deg;
   }
 
+  /* --- the reveal: each choice's tally, a 3 px khayt thread under its words ---
+     Its share of the players (the tag at the end of the row says the count, for every
+     reader). Full length in a clipped box, placed by a transform from --share, never by a
+     width; the right one in brass. Woven in from the reading start only when the reveal
+     happens on screen (`data-weave`, set by ChoiceButtons), the right letter pressed as a
+     seal at the same time (`seal-press` + `data-seal-index`, after the phase crossfade). */
+  .quiz-choice[data-tally] {
+    row-gap: 6px;
+    align-content: center;
+  }
+  .quiz-choice[data-tally] .choice-letter {
+    grid-row: span 2;
+  }
+  .quiz-choice .choice-tally {
+    grid-column: 2 / -1;
+    position: relative;
+    overflow: hidden;
+    height: 3px;
+    background: repeating-linear-gradient(90deg, var(--warp) 0 1px, transparent 1px 5px);
+  }
+  .quiz-choice .choice-tally > i {
+    position: absolute;
+    inset: 0;
+    background: var(--band-khayt) left center / auto 100% repeat-x;
+    transform: translateX(calc((var(--share, 0) - 1) * 100%));
+  }
+  [dir="rtl"] .quiz-choice .choice-tally > i {
+    background-position: right center;
+    transform: translateX(calc((1 - var(--share, 0)) * 100%));
+  }
+  .quiz-choice[data-state="right"] .choice-tally > i {
+    background: var(--brass);
+  }
+  /* The reading start, one length out: a custom property the direction sets, never a second
+     animation-name (a new name is a new animation: switching the interface's language during
+     a reveal would weave the threads again from the start). */
+  .quiz-choices {
+    --tally-from: -100%;
+  }
+  [dir="rtl"] .quiz-choices {
+    --tally-from: 100%;
+  }
+  .quiz-choices[data-weave="true"] .choice-tally > i {
+    animation: quiz-tally var(--dur-authored) var(--ease-ink) backwards;
+    animation-delay: calc(var(--i, 0) * var(--stagger));
+  }
+  @media (prefers-reduced-motion: reduce) {
+    /* the final lengths, faded in */
+    .quiz-choices[data-weave="true"] .choice-tally > i {
+      animation: fade-in 140ms linear both;
+    }
+  }
+
+  /* --- the scores, woven (both quizzes, PlayerScoreboard) --------------------
+     Under each name a thread: the player's share of the most the game can give, so it
+     only ever grows; the viewer's in the madd band. Full length in a clipped yarn box,
+     placed by a transform from --share (never a width); the woven change is a Web
+     Animation on that transform (PlayerScoreboard's FLIP). Beside the total, what this
+     round earned. Rows are opaque: a row travelling to its new rank passes over the others.
+     Each row rests on an identity transform: the FLIP's travel starts and ends on a transform,
+     and gaining or losing one would lay the scoreboard out again at each row's end. */
+  .score-row {
+    transform: translateY(0);
+  }
+  .score-yarn {
+    grid-column: 2 / -1;
+    position: relative;
+    overflow: hidden;
+    height: 6px;
+    background: repeating-linear-gradient(90deg, var(--warp) 0 1px, transparent 1px 5px);
+  }
+  .score-yarn > i {
+    position: absolute;
+    inset: 0;
+    background: var(--band-khayt) left center / auto 100% repeat-x;
+    transform: translateX(calc((var(--share, 0) - 1) * 100%));
+  }
+  [dir="rtl"] .score-yarn > i {
+    background-position: right center;
+    transform: translateX(calc((1 - var(--share, 0)) * 100%));
+  }
+  .score-row[data-you] .score-yarn > i {
+    background: var(--band-madd) left center / auto 100% repeat-x;
+  }
+  [dir="rtl"] .score-row[data-you] .score-yarn > i {
+    background-position: right center;
+  }
+  .score-gain-slot {
+    min-width: 2.6em;
+    padding-inline-start: 6px;
+    text-align: start;
+  }
+  /* a box and a layer at rest (inline-block + an identity transform): the gain's fade is an
+     opacity animation, and an inline gaining and losing one re-laid its line out at its end */
+  .score-gain {
+    display: inline-block;
+    transform: translateY(0);
+    font: 500 12.5px / 1 var(--f-ui);
+    color: var(--brass);
+  }
+
   /* --- the explanation, in Amiri, the answer in bold ------------------------ */
   .quiz-why {
     padding: 14px 4px 2px;
@@ -280,5 +381,14 @@
   .quiz-why b {
     font-weight: 700;
     color: var(--text);
+  }
+}
+
+/* The reveal's tally thread, woven from the reading start (--tally-from, by direction)
+   through its clipping box (a transform: the compositor runs it). The end is the thread's
+   own place, from --share. */
+@keyframes quiz-tally {
+  from {
+    transform: translateX(var(--tally-from));
   }
 }

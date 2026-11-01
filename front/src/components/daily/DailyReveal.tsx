@@ -1,24 +1,23 @@
-import { Check, Copy } from "lucide-react"
-import { type Ref, useEffect, useRef, useState } from "react"
+import { type Ref } from "react"
 import { useTranslation } from "react-i18next"
 import type { DailyWordState } from "@/api/generated"
 import { ArchFrame, SaduBand, Seal } from "@/components/brand"
+import { dailyCardFileName, dailyCardInput, dailyCardTitle } from "@/components/brand/share-card/daily-card"
+import { ShareCardAction } from "@/components/brand/share-card/ShareCardAction"
 import { KeepAction } from "@/components/notebook/KeepWords"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/field"
 import { DailyCountdown } from "./DailyCountdown"
 import { answerForms, resultLine, shareLine } from "./daily"
-
-/** How long "Copied" stays on the Share button. */
-const COPIED_MS = 2500
 
 /**
  * The word of the day's colophon (DESIGN.md §6, the colophon idiom): set in the arch
  * once the player has found the word or given up. The vocalised Arabic in Amiri, the
  * word as Kalimat shows it, its explanation; how the day went ("found at hint 3 ·
  * 4 points", sealed once, or "given up"); the streaks and how many found it; "Keep in
- * your kunnash"; "Share" (a plain line, never the answer); and when the next word is
- * out. One madd band closes the card, as on every colophon.
+ * your kunnash"; "Share": the day's card (the ladder as a woven strip, the rung it was
+ * found at in brass, how it went, the streaks: never the word, a hint or a guess)
+ * through the share sheet, or the plain line copied where the browser cannot share an
+ * image; and when the next word is out. One madd band closes the card, as on every
+ * colophon.
  *
  * The title takes focus when the page moves it there (the reveal that follows a right
  * guess or a give-up): `titleRef`, tabindex -1.
@@ -93,63 +92,18 @@ export function DailyReveal({
           {answer ? (
             <KeepAction kept={answer.kept} keeping={keeping} onKeep={onKeep} label={t("daily.reveal.keep")} keptLabel={t("daily.reveal.kept")} />
           ) : null}
-          <ShareAction line={shareLine(state, t)} />
+          <ShareCardAction
+            copy="daily.share"
+            line={shareLine(state, t)}
+            title={dailyCardTitle(state, t)}
+            fileName={dailyCardFileName(state)}
+            card={() => dailyCardInput(state, t, i18n.language ?? "en")}
+            fieldId="daily-share-line"
+          />
         </div>
         <DailyCountdown nextDayAt={state.next_day_at} className="mt-4 mb-5" />
         <SaduBand className="-mx-5 sm:-mx-6" />
       </article>
     </ArchFrame>
-  )
-}
-
-/**
- * "Share": copies a short plain-text line (no emoji, no answer) to the clipboard and
- * says so, in the button and to screen readers. Where the clipboard is refused, the
- * line is set in a read-only field, selected, to copy by hand.
- */
-function ShareAction({ line }: { line: string }) {
-  const { t } = useTranslation()
-  const [copied, setCopied] = useState(false)
-  const [manual, setManual] = useState(false)
-  const fieldRef = useRef<HTMLInputElement>(null)
-
-  useEffect(() => {
-    if (!copied) return
-    const id = setTimeout(() => setCopied(false), COPIED_MS)
-    return () => clearTimeout(id)
-  }, [copied])
-
-  useEffect(() => {
-    if (manual) fieldRef.current?.select()
-  }, [manual])
-
-  const copy = async () => {
-    try {
-      if (!navigator.clipboard) throw new Error("no clipboard")
-      await navigator.clipboard.writeText(line)
-      setManual(false)
-      setCopied(true)
-    } catch {
-      setManual(true)
-    }
-  }
-
-  return (
-    <>
-      <Button variant="secondary" onClick={() => void copy()} iconStart={copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}>
-        {copied ? t("daily.share.copied") : t("daily.share.action")}
-      </Button>
-      <p className="sr-only" role="status">
-        {copied ? t("daily.share.copiedSr") : ""}
-      </p>
-      {manual ? (
-        <div className="grid w-full gap-1.5">
-          <label htmlFor="daily-share-line" className="type-label">
-            {t("daily.share.manual")}
-          </label>
-          <Input id="daily-share-line" ref={fieldRef} readOnly value={line} dir="auto" onFocus={(e) => e.currentTarget.select()} />
-        </div>
-      ) : null}
-    </>
   )
 }

@@ -87,7 +87,8 @@
       "copiedSr": "The line is copied: paste it to share it.",
       "manual": "Copy this line to share it",
       "solved": "Majlisna · Word of the day #{{number}} · found at hint {{hint}} of {{total}} · {{url}}",
-      "gaveUp": "Majlisna · Word of the day #{{number}} · given up · {{url}}"
+      "gaveUp": "Majlisna · Word of the day #{{number}} · given up · {{url}}",
+      "ready": "The image is ready: press Share again to send it."
     },
     "home": {
       "rung": "hint {{number}}",
@@ -161,8 +162,19 @@
     "homeLabel": "Majlisna, home",
     "switchLanguage": "Switch language",
     "language": "Language",
-    "themeToDay": "Switch to the afternoon theme",
-    "themeToNight": "Switch to the night theme",
+    "themeCurrent": "Theme: {{choice}}",
+    "themeChoices": {
+      "light": "Afternoon",
+      "dark": "Night",
+      "sky": "Follow the sky",
+      "system": "Your device’s light"
+    },
+    "skyNote": {
+      "toNight": "Night comes at Maghrib, {{time}} in {{city}}.",
+      "toDay": "Day comes back at sunrise, {{time}} in {{city}}.",
+      "noCity": "No city chosen yet: your device’s light until you choose one in Prayer times.",
+      "noTurn": "The sun neither rises nor sets in {{city}} these days: your device’s light."
+    },
     "accountMenu": "View profile and more"
   },
   "auth": {
@@ -357,6 +369,19 @@
     "youWereKicked": "You are no longer in that room: the host removed you.",
     "codeLabel": "Room code",
     "pinLabel": "PIN",
+    "riddle": {
+      "label": "A riddle while you wait",
+      "askWho": "While you wait: who is it?",
+      "askWhere": "While you wait: where is it?",
+      "askWhat": "While you wait: what is it?",
+      "soonLobby": "The answer in a moment, or after the game.",
+      "soonRound": "The answer in a moment, or after the next question.",
+      "afterKalimat": "The answer after the game: it could come up in Kalimat.",
+      "show": "Show the answer",
+      "was": "It was <b>{{answer}}</b>",
+      "another": "Another riddle",
+      "last": "The last riddle, “{{hint}}”, was <b>{{answer}}</b>."
+    },
     "lobbyPage": {
       "title": "{{name}}’s majlis",
       "titleFallback": "The majlis",
@@ -516,7 +541,17 @@
     "spectatorView": "You are spectating this game",
     "colophon": {
       "majlis": "{{name}}’s majlis",
-      "lasted": "{{duration}} of play"
+      "lasted": "{{duration}} of play",
+      "share": {
+        "action": "Share",
+        "copied": "Copied",
+        "copiedSr": "The line is copied: paste it to share it.",
+        "manual": "Copy this line to share it",
+        "ready": "The image is ready: press Share again to send it.",
+        "line": "Majlisna · {{meta}} · {{url}}",
+        "more_one": "and {{count}} more word",
+        "more_other": "and {{count}} more words"
+      }
     },
     "undercover": {
       "iUnderstand": "I understand",
@@ -1337,7 +1372,9 @@
       "sessionRevoked": "You were signed out. Sign in again.",
       "notAnAlivePlayer": "Only a player still in the game can do this.",
       "invalidAvatarUrl": "This picture address cannot be used.",
-      "googleAccountMismatch": "That Google account is not the one linked to this profile."
+      "googleAccountMismatch": "That Google account is not the one linked to this profile.",
+      "roomMembersOnly": "Only the people in this room can see this.",
+      "riddleNotDuringGame": "Riddles wait until this game is over."
     }
   },
   "footer": {
@@ -1406,7 +1443,7 @@
   "privacy": {
     "link": "Privacy policy",
     "title": "Privacy policy",
-    "updated": "Last updated: 31 October 2026",
+    "updated": "Last updated: 1 November 2026",
     "intro": "Majlisna (majlisna.app) is a free online platform for Islamic party games, run by Souhib Trabelsi. This page explains what data we collect, why, and how you can control it.",
     "sections": [
       {
@@ -1434,16 +1471,16 @@
           "<b>Automatic detection:</b> while no city is saved, each time you open Majlisna your browser asks ipapi.co for an approximate location based on your IP address. Once a city is found it is saved, and these requests stop. If ipapi.co gives no answer, your browser waits a day before asking again.",
           "<b>City search:</b> what you type is sent, with the interface language, to Open-Meteo’s geocoding service, and the coordinates of the city you choose are sent to Open-Meteo to find its time zone.",
           "<b>Use my location:</b> only when you press it and allow it in your browser, your device’s position is read once. Its coordinates are sent to OpenStreetMap (Nominatim) to name the city in the interface language, and to Open-Meteo to find its time zone.",
-          "The city, its coordinates and its time zone stay in your browser. During a game, the host’s device uses them to suggest a pause when the adhan comes; nothing is sent."
+          "The city, its coordinates and its time zone stay in your browser. During a game, the host’s device uses them to suggest a pause when the adhan comes, and if you choose to follow the sky, your device uses them to turn the page to night at Maghrib and back to day at sunrise; nothing is sent."
         ]
       },
       {
         "title": "What your browser keeps",
         "body": [
           "<b>Your session:</b> our server sets two cookies that keep you signed in. They are httpOnly (the page’s scripts cannot read them) and are sent only to Majlisna. The short-lived access token, with your account ID, username and email address, is also kept in your browser’s local storage so that the app can resume your session and keep its live updates connected. The refresh token that renews it stays in its cookie only. Logging out removes them.",
-          "<b>Your preferences:</b> your language, your theme (afternoon or night), whether you have seen the welcome window, and your prayer-times city with its coordinates and time zone.",
-          "<b>During a game:</b> a few values kept only while the tab stays open (such as the room you came from, or whether you have already read your word), so that a reload does not lose them.",
-          "The app also keeps its own files in your browser so that its pages can open offline. We set no advertising or tracking cookies, and the audience statistics use none."
+          "<b>Your preferences:</b> your language, your theme (afternoon, night or following the sky, and then the times of your city’s next sunrises and Maghribs, worked out on your device so that a page opens in the right light), whether you have seen the welcome window, and your prayer-times city with its coordinates and time zone.",
+          "<b>In a room and during a game:</b> a few values kept only while the tab stays open (such as the room you came from, whether you have already read your word, or the riddle on screen while the table waits), so that a reload does not lose them.",
+          "The app also keeps its own files in your browser so that its pages can open offline, and remembers, until the tab is closed, that the name on the home page has already been woven. We set no advertising or tracking cookies, and the audience statistics use none."
         ]
       },
       {

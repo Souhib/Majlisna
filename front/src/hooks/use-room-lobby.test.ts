@@ -6,6 +6,7 @@ import { useGetShareLinkApiV1RoomsRoomIdShareLinkGet, useListRoomBansApiV1RoomsR
 import { queryKeys } from "@/api/queryKeys"
 import { answer, httpError, requestsTo, resetFakeApi } from "@/components/notebook/__tests__/fake-api"
 import type { LobbyMember } from "@/components/rooms/lobby"
+import { LOBBY_RIDDLE_SCOPE, readRiddleRecord, writeRiddleRecord } from "@/components/rooms/samar-riddle"
 import { useRoomLobby } from "./use-room-lobby"
 
 /**
@@ -79,6 +80,13 @@ const roomState = (over: Record<string, unknown> = {}) => ({
   players: [player("u1", "Yusuf"), player("u2", "Maryam"), player("u3", "Ali")],
   ...over,
 })
+
+const RIDDLE = {
+  id: "w1",
+  category: "prophets" as const,
+  hint: "A great patriarch",
+  answer: { word_display: "Ibrahim", word_ar: "إبراهيم", word_ar_vocalized: null },
+}
 
 const maryam: LobbyMember = { id: "u2", username: "Maryam", isHost: false, isSpectator: false, isAway: false, awaySecondsLeft: null }
 
@@ -457,6 +465,43 @@ describe("useRoomLobby: the game", () => {
     expect(router.navigate).toHaveBeenCalledOnce()
     expect(router.navigate).toHaveBeenCalledWith({ to: "/game/codenames/$gameId", params: { gameId: "g7" } })
     expect(sessionStorage.getItem("game-room:g7")).toBe("room-1")
+  })
+
+  it("answers the lobby's riddle as a member follows the table into the game (read at the room's next wait)", async () => {
+    // Prepare: a samar riddle on screen in this tab, its answer not read yet
+    writeRiddleRecord("room-1", LOBBY_RIDDLE_SCOPE, {
+      current: { riddle: RIDDLE, lang: "en", waitKey: LOBBY_RIDDLE_SCOPE, shownAt: 1, revealed: false },
+      last: null,
+    })
+    answer(STATE, () => roomState({ owner_id: "u2" }))
+    const { result, queryClient } = renderLobby()
+    await waitFor(() => expect(result.current.room).toBeDefined())
+
+    // Act
+    act(() => queryClient.setQueryData(queryKeys.room.state("room-1"), roomState({ owner_id: "u2", active_game_id: "g7" })))
+    await waitFor(() => expect(router.navigate).toHaveBeenCalled())
+
+    // Assert
+    expect(readRiddleRecord("room-1", LOBBY_RIDDLE_SCOPE)).toEqual({ current: null, last: { riddle: RIDDLE, lang: "en" } })
+  })
+
+  it("answers the lobby's riddle when the host's own start goes through", async () => {
+    // Prepare
+    writeRiddleRecord("room-1", LOBBY_RIDDLE_SCOPE, {
+      current: { riddle: RIDDLE, lang: "en", waitKey: LOBBY_RIDDLE_SCOPE, shownAt: 1, revealed: false },
+      last: null,
+    })
+    answer(STATE, () => roomState())
+    answer("POST /api/v1/undercover/games/room-1/start", () => ({ game_id: "g1", room_id: "room-1" }))
+    const { result } = renderLobby()
+    await waitFor(() => expect(result.current.room).toBeDefined())
+
+    // Act
+    act(() => result.current.startGame(3))
+    await waitFor(() => expect(router.navigate).toHaveBeenCalled())
+
+    // Assert
+    expect(readRiddleRecord("room-1", LOBBY_RIDDLE_SCOPE).last?.riddle.id).toBe("w1")
   })
 
   it("shows the host's pick at once, and keeps it once the server has it", async () => {

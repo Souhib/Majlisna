@@ -173,6 +173,13 @@ function WordQuizGamePage() {
               roomId={roomIdRef.current}
               isHost={view.is_host}
               seals={seals}
+              share={{
+                game: "wordquiz",
+                host: view.host_username,
+                count: t("game.quiz.roundsCount", { count: view.total_rounds }),
+                startedAt: view.started_at,
+                endedAt: view.ended_at,
+              }}
               meta={
                 <ColophonMeta
                   game={gameName}
@@ -196,7 +203,7 @@ function WordQuizGamePage() {
         aside={
           // the scores are under the veil too (display: contents keeps the column's gaps)
           <div inert={isPaused} className="contents">
-            <PlayerScoreboard players={view.players} currentUserId={user?.id} showAnswered={phase === "playing"} />
+            <PlayerScoreboard players={view.players} currentUserId={user?.id} showAnswered={phase === "playing"} maxScore={maxHints * view.total_rounds} />
             <QuizLeaveButton onLeave={handleLeaveRoom} />
           </div>
         }

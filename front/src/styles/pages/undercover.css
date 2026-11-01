@@ -308,6 +308,10 @@
 
   /* --- what the players wrote (sketch .descs) -------------------------------- */
   .uc-descs {
+    /* a candidate's button: its height and the gap around it (the rows that are not buttons
+       match it while a voter chooses) */
+    --uc-seat-h: 52px;
+    --uc-seat-gap: 3px;
     list-style: none;
     margin: 0;
     padding: 0;
@@ -324,9 +328,26 @@
     font: 400 14px / 1.3 var(--f-ui);
     color: var(--text-muted);
   }
-  /* a seat that emptied recedes */
+  /* a seat that emptied recedes (ERASE): its status in the muted token, its name kept in ink
+     at the muted token's contrast, its lozenge further; opacity alone, so a seat that empties
+     on screen is erased into this state by hooks/use-seat-erase (Web Animations) */
   .uc-descs > li[data-out] {
     color: var(--text-muted);
+  }
+  .uc-descs > li[data-out] [data-erase="ink"] {
+    color: var(--text);
+    opacity: var(--erase-ink);
+  }
+  .uc-descs > li[data-out] [data-erase="mark"] {
+    opacity: var(--erase-mark);
+  }
+  /* the table list (UndercoverPlayerList): the same receded seat */
+  .uc-table > li[data-out] [data-erase="ink"] {
+    color: var(--text);
+    opacity: var(--erase-ink);
+  }
+  .uc-table > li[data-out] [data-erase="mark"] {
+    opacity: var(--erase-mark);
   }
   /* while voting, the candidates' rows are the buttons (one list, not a second grid) */
   .uc-descs > li[data-candidate] {
@@ -335,6 +356,9 @@
   /* the rows that are not buttons line up with the buttons' content (padding + hairline) */
   .uc-descs[data-choosing] > li:not([data-candidate]) {
     padding-inline: 9px 11px;
+    /* one row height while a voter chooses: a candidate who leaves becomes a plain row
+       without pulling the rows under the finger (ERASE: the seat recedes, nothing jumps) */
+    min-height: calc(var(--uc-seat-h) + 2 * var(--uc-seat-gap) + 1px);
   }
   .uc-seat {
     display: flex;
@@ -342,8 +366,8 @@
     justify-content: space-between;
     gap: 12px;
     width: 100%;
-    min-height: 52px;
-    margin-block: 3px;
+    min-height: var(--uc-seat-h);
+    margin-block: var(--uc-seat-gap);
     padding-block: 7px;
     padding-inline: 8px 10px;
     border: 1px solid transparent;
@@ -397,10 +421,19 @@
 
   /* --- the verdict: a seat empties ------------------------------------------- */
   .uc-verdict {
+    /* the turn's directions (ANIM-2): where the cover parts to and where the band comes from.
+       Custom properties, never a second animation-name: a language switch mid-turn would
+       start a new animation. */
+    --uc-to-reading-end: 100%;
+    --uc-from-reading-start: -100%;
     display: grid;
     gap: 18px;
     grid-template-areas: "text" "tablet" "votes" "act";
     align-content: start;
+  }
+  [dir="rtl"] .uc-verdict {
+    --uc-to-reading-end: -100%;
+    --uc-from-reading-start: 100%;
   }
   .uc-verdict > .uc-verdict-text {
     grid-area: text;
@@ -438,6 +471,77 @@
       align-self: start;
     }
   }
+
+  /* --- the lawh turns over (ANIM-2): the verdict's one authored moment ---------------- */
+  /* The tablet's foot is the role's band: madder teeth for an Undercover, undyed for a
+     Civilian, goat-hair for Mr. White. The band clips; its pattern is a layer inside it, so
+     the weave below is a transform. In every verdict that has a foot, turned now or not. */
+  .lawh-turned[data-role="undercover"] {
+    --uc-role-band: var(--band-teeth);
+  }
+  .lawh-turned[data-role="civilian"] {
+    --uc-role-band: var(--band-plain);
+  }
+  .lawh-turned[data-role="mr_white"] {
+    --uc-role-band: var(--band-goat);
+  }
+  .uc-verdict > .lawh-turned > .sadu-band {
+    position: relative;
+    overflow: hidden;
+    background: none;
+  }
+  .uc-verdict > .lawh-turned > .sadu-band::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: var(--uc-role-band, var(--band-plain)) left center / auto 100% repeat-x;
+  }
+  [dir="rtl"] .uc-verdict > .lawh-turned > .sadu-band::before {
+    background-position: right center;
+  }
+
+  /* When the vote resolves on screen (Verdict `turn`, data-turn), once, after the 180 ms phase
+     crossfade: the bare-warp cover over the role chip and the face parts from the reading start
+     (each a layer clipped by its own box, travelling to the reading end), the role band is
+     woven in at the foot, the chip's lozenge is pressed once the cover has passed. At rest
+     every cover is already gone (translated out, or at opacity 0): a turn that does not run
+     hides nothing. The tablet's name, at the top, is never covered. */
+  .uc-verdict[data-turn] > .lawh-turned :is(.lawh-role, .lawh-face) {
+    position: relative;
+    overflow: hidden;
+    overflow: clip;
+  }
+  .uc-verdict[data-turn] > .lawh-turned :is(.lawh-role, .lawh-face)::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    background: var(--surface-2) repeating-linear-gradient(90deg, var(--warp) 0 1px, transparent 1px 6px);
+  }
+  .uc-verdict[data-turn="turn"] > .lawh-turned :is(.lawh-role, .lawh-face)::after {
+    transform: translateX(var(--uc-to-reading-end));
+    animation: uc-cover-part var(--dur-move) var(--ease-settle) var(--dur-state) backwards;
+  }
+  /* your own tablet shows your word, maybe a sacred name: its cover never passes over it,
+     it fades */
+  .uc-verdict[data-turn="turn"][data-word] > .lawh-turned :is(.lawh-role, .lawh-face)::after {
+    transform: none;
+    opacity: 0;
+    animation: uc-cover-fade var(--dur-move) var(--ease-settle) var(--dur-state) backwards;
+  }
+  .uc-verdict[data-turn="turn"] > .lawh-turned > .sadu-band::before {
+    animation: uc-weave var(--dur-authored) var(--ease-ink) var(--dur-state) backwards;
+  }
+  /* the seal's press (index.css `seal-press`, 330 ms), on the chip's own lozenge */
+  .uc-verdict[data-turn="turn"] > .lawh-turned .lawh-role .loz {
+    animation: seal-press 330ms var(--ease-press) calc(var(--dur-state) + var(--dur-move)) backwards;
+  }
+  /* reduced motion (RoundOverPanel reads the preference): the cover fades, nothing travels */
+  .uc-verdict[data-turn="fade"] > .lawh-turned :is(.lawh-role, .lawh-face)::after {
+    opacity: 0;
+    animation: uc-cover-fade 140ms linear var(--dur-state) backwards;
+  }
 }
 
 @keyframes lawh-fade {
@@ -445,11 +549,44 @@
     opacity: 0;
   }
 }
+/* the verdict's cover parts toward the reading end (ANIM-2; --uc-to-reading-end, by direction) */
+@keyframes uc-cover-part {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(var(--uc-to-reading-end));
+  }
+}
+@keyframes uc-cover-fade {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+/* the role band slides in through its clipping box from the reading start (--uc-from-reading-start) */
+@keyframes uc-weave {
+  from {
+    transform: translateX(var(--uc-from-reading-start));
+  }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .lawh-fading {
     animation: none;
     opacity: 0;
+  }
+  /* a preference turned on after the verdict decided: the turn is still only a fade */
+  .uc-verdict[data-turn="turn"] > .lawh-turned :is(.lawh-role, .lawh-face)::after {
+    transform: none;
+    opacity: 0;
+    animation: uc-cover-fade 140ms linear var(--dur-state) backwards;
+  }
+  .uc-verdict[data-turn="turn"] > .lawh-turned > .sadu-band::before,
+  .uc-verdict[data-turn="turn"] > .lawh-turned .lawh-role .loz {
+    animation: none;
   }
   button.lawh,
   .uc-seat {

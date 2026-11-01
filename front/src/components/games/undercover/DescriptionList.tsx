@@ -1,8 +1,10 @@
-import { memo, type ReactNode } from "react"
+import { memo, type ReactNode, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { Lozenge } from "@/components/brand"
+import { useSeatErase } from "@/hooks/use-seat-erase"
 import { cn } from "@/lib/utils"
 import { isArabicScript, RoleMark, roleLabelKey } from "./Lawh"
+import { useTableOnScreen } from "./table-witness"
 
 export interface DescriptionOrderEntry {
   user_id: string
@@ -70,7 +72,10 @@ interface Row {
  * each row carrying all of its state, so the screen never lists the same people twice.
  *
  * - The lozenge: ink once spoken, brass for the speaker, an open outline for those still
- *   to come; a seat that emptied shows its role's mark and "Eliminated · Undercover".
+ *   to come; a seat that emptied shows its role's mark and "Eliminated · Undercover", its
+ *   name and mark receded (undercover.css, `data-out`). A seat that empties on screen (a
+ *   player who leaves mid-round) is erased in its own place in the order (`useSeatErase`):
+ *   it never jumps to the end, where only the seats emptied in earlier rounds wait.
  * - The Mayor (whose vote breaks a tie) is named on their row, in ink: not yours.
  * - While voting, a second line says who has voted ("voted" / "not yet", never for whom),
  *   and for a player who may vote the other seats ARE the candidates: each row is a
@@ -89,6 +94,9 @@ export const DescriptionList = memo(function DescriptionList({
   choice,
 }: DescriptionListProps) {
   const { t } = useTranslation()
+  const listRef = useRef<HTMLOListElement>(null)
+  // the verdict that replaces this list turns its tablet over (RoundOverPanel)
+  useTableOnScreen()
   const bySeat = new Map(players.map((p) => [p.id, p]))
   const roles = new Map(eliminated.map((e) => [e.user_id, e.role]))
   const rows: Row[] = order.map((entry, idx) => {
@@ -99,12 +107,22 @@ export const DescriptionList = memo(function DescriptionList({
   for (const p of players) {
     if (!listed.has(p.id)) rows.push({ id: p.id, username: p.username, alive: p.is_alive, mayor: !!p.is_mayor, turn: -1 })
   }
-  // the living first, in speaking order; the emptied seats recede to the end
-  rows.sort((a, b) => Number(!a.alive) - Number(!b.alive))
+  // this round's speaking order first, each seat in its place even once emptied (a seat that
+  // empties mid-round recedes where it sat); then the seats emptied in earlier rounds
+  rows.sort((a, b) => Number(a.turn < 0) - Number(b.turn < 0) || (a.turn < 0 ? Number(!a.alive) - Number(!b.alive) : 0))
+  // Once every seated player has voted the round resolves, and the verdict replaces this list
+  // with the seat the vote emptied (the page draws the list one more frame with that state,
+  // under the view transition): nothing is erased on rows on their way out.
+  const voteComplete = mode === "voting" && !!voted && rows.every((r) => !r.alive || voted.includes(r.id))
+  useSeatErase(
+    listRef,
+    rows.map((r) => ({ id: r.id, out: !r.alive })),
+    voteComplete,
+  )
   if (rows.length === 0) return null
 
   return (
-    <ol className="uc-descs" aria-label={t("game.undercover.descriptionOrder")} data-mode={mode} data-choosing={choice ? "" : undefined}>
+    <ol ref={listRef} className="uc-descs" aria-label={t("game.undercover.descriptionOrder")} data-mode={mode} data-choosing={choice ? "" : undefined}>
       {rows.map((row) => {
         const said = descriptions[row.id]
         const isMe = row.id === currentUserId
@@ -114,16 +132,20 @@ export const DescriptionList = memo(function DescriptionList({
         const chosen = candidate && choice.selected === row.id
         const hasVoted = !!voted && voted.includes(row.id)
 
-        const mark = !row.alive ? (
-          role ? (
-            <RoleMark role={role} size={8} />
-          ) : (
-            <Lozenge state="away" size={8} />
-          )
-        ) : candidate ? (
-          <Lozenge state={chosen ? "brass" : "open"} size={9} />
-        ) : (
-          <Lozenge state={said || mode === "voting" ? "ink" : isCurrent ? "brass" : "open"} size={8} />
+        const mark = (
+          <span data-erase="mark" className="inline-flex shrink-0">
+            {!row.alive ? (
+              role ? (
+                <RoleMark role={role} size={8} />
+              ) : (
+                <Lozenge state="away" size={8} />
+              )
+            ) : candidate ? (
+              <Lozenge state={chosen ? "brass" : "open"} size={9} />
+            ) : (
+              <Lozenge state={said || mode === "voting" ? "ink" : isCurrent ? "brass" : "open"} size={8} />
+            )}
+          </span>
         )
 
         const notes: ReactNode[] = []
@@ -148,7 +170,7 @@ export const DescriptionList = memo(function DescriptionList({
           <span className="grid min-w-0 gap-0.5">
             <span className="flex min-w-0 items-center gap-2.5">
               {mark}
-              <span className={cn("truncate", row.alive && (isMe || candidate) && "font-medium text-foreground", isMe && "text-foreground")}>
+              <span data-erase="ink" className={cn("truncate", row.alive && (isMe || candidate) && "font-medium text-foreground", isMe && "text-foreground")}>
                 {isMe ? t("game.undercover.you") : row.username}
               </span>
             </span>
@@ -166,7 +188,7 @@ export const DescriptionList = memo(function DescriptionList({
         )
 
         const end = !row.alive ? (
-          <span className="shrink-0 text-[13px]">
+          <span data-erase="note" className="shrink-0 text-[13px]">
             {t("game.eliminated")}
             {role ? ` · ${t(roleLabelKey(role))}` : ""}
           </span>
@@ -183,7 +205,13 @@ export const DescriptionList = memo(function DescriptionList({
         )
 
         return (
-          <li key={row.id} data-current={isCurrent ? "" : undefined} data-out={!row.alive ? "" : undefined} data-candidate={candidate ? "" : undefined}>
+          <li
+            key={row.id}
+            data-seat={row.id}
+            data-current={isCurrent ? "" : undefined}
+            data-out={!row.alive ? "" : undefined}
+            data-candidate={candidate ? "" : undefined}
+          >
             {candidate ? (
               <button
                 type="button"

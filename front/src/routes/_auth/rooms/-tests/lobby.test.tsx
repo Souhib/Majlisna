@@ -282,3 +282,72 @@ describe("the lobby's side column", () => {
     expect(duplicateKey).toEqual([])
   })
 })
+
+describe("the samar riddle while the table waits", () => {
+  const RIDDLE = "GET /api/v1/rooms/room-1/riddle"
+  const riddle = { id: "w1", category: "prophets", hint: "A great patriarch", answer: { word_display: "Ibrahim", word_ar: "إبراهيم", word_ar_vocalized: null } }
+  const panel = () => screen.queryByRole("region", { name: "room.riddle.label" })
+
+  beforeEach(() => {
+    sessionStorage.clear()
+    answer(RIDDLE, () => riddle)
+  })
+
+  it("is asked for a guest waiting for the host, under the activity line", async () => {
+    // Prepare: Yusuf (u2) hosts a full table; the player (u1) waits for him
+    answer(STATE, () => roomState({ owner_id: "u2" }))
+
+    // Act
+    await renderPage()
+
+    // Assert
+    expect(await screen.findByText("A great patriarch")).toBeInTheDocument()
+    expect(panel()).toHaveTextContent("room.riddle.askWho")
+    expect(panel()).toHaveTextContent("room.riddle.soonLobby")
+    expect(requestsTo(RIDDLE)).toHaveLength(1)
+  })
+
+  it("is asked for the host while the table waits for its quorum", async () => {
+    // Prepare: the host alone at an Undercover table
+    answer(STATE, () => roomState({ players: [roomState().players[0]] }))
+
+    // Act
+    await renderPage()
+
+    // Assert
+    expect(await screen.findByText("A great patriarch")).toBeInTheDocument()
+  })
+
+  it("is neither shown nor asked for the host of a table ready to start: the host is not waiting", async () => {
+    // Prepare
+    answer(STATE, () => roomState())
+
+    // Act
+    await renderPage()
+    await screen.findByRole("button", { name: "room.lobbyPage.start" })
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+
+    // Assert
+    expect(panel()).toBeNull()
+    expect(requestsTo(RIDDLE)).toHaveLength(0)
+  })
+
+  it("keeps its answer for after the game when the table plays Kalimat", async () => {
+    // Prepare: a riddle shown long ago, and a guest at a Kalimat table
+    sessionStorage.setItem(
+      "majlisna-riddle:room-1:lobby",
+      JSON.stringify({ current: { riddle, lang: "en", waitKey: "lobby", shownAt: 1, revealed: false }, last: null }),
+    )
+    answer(STATE, () => roomState({ owner_id: "u2", game_type: "word_quiz", settings: { game_type: "word_quiz" } }))
+
+    // Act
+    await renderPage()
+
+    // Assert
+    expect(await screen.findByText("room.riddle.afterKalimat")).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "room.riddle.show" })).toBeNull()
+    expect(requestsTo(RIDDLE)).toHaveLength(0)
+  })
+})

@@ -153,7 +153,27 @@ export const GameOverScreen = memo(function GameOverScreen({
         meta={meta}
         words={played.map(toWord)}
         seals={seals}
-        actions={<ColophonActions notebook={notebook} roomId={roomId} isHost={isHost} onBackToRoom={onBackToRoom} onLeaveRoom={onLeaveRoom} />}
+        actions={
+          <ColophonActions
+            notebook={notebook}
+            roomId={roomId}
+            isHost={isHost}
+            onBackToRoom={onBackToRoom}
+            onLeaveRoom={onLeaveRoom}
+            // the colophon card (spec 11): a player's only, as Keep is
+            share={
+              isPlayer
+                ? {
+                    game: "codenames",
+                    host: colophon?.hostUsername,
+                    count: clues > 0 ? t("game.codenames.over.clues", { count: clues }) : null,
+                    startedAt: colophon?.startedAt,
+                    endedAt: colophon?.endedAt,
+                  }
+                : undefined
+            }
+          />
+        }
       >
         {rest.length > 0 ? (
           <details className="cn-more">

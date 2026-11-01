@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { type ReactNode } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { DailyWordState } from "@/api/generated"
-import { answer, httpError, requestsTo, resetFakeApi } from "@/components/notebook/__tests__/fake-api"
+import { answer, httpError, requests, requestsTo, resetFakeApi } from "@/components/notebook/__tests__/fake-api"
 
 const i18nState = vi.hoisted(() => ({ language: "en" }))
 const auth = vi.hoisted(() => ({ isAuthenticated: false, isLoading: false, user: null as { id: string } | null }))
@@ -32,6 +32,10 @@ vi.mock("@tanstack/react-router", () => ({
 vi.mock("@/api/client", async () => (await import("@/components/notebook/__tests__/fake-api")).clientModule)
 vi.mock("@/providers/AuthProvider", () => ({ useAuth: () => auth }))
 vi.mock("sonner", () => ({ toast: Object.assign(toasts.plain, { error: toasts.error, success: toasts.success }) }))
+
+// happy-dom has no canvas: the card's drawing is tested in components/brand/share-card
+const renderCardFile = vi.hoisted(() => vi.fn())
+vi.mock("@/components/brand/share-card/render", () => ({ renderCardFile }))
 
 const { DailyWordPage } = await import("../DailyWordPage")
 
@@ -337,5 +341,37 @@ describe("/today, finished", () => {
     // Assert (findBy* waits on its own: inside act() it switches act's environment off)
     expect(await screen.findByRole("button", { name: "daily.share.copied" })).toBeInTheDocument()
     expect(writeText).toHaveBeenCalledWith("daily.share.solved(number=2,url=majlisna.app/today,hint=3,total=6)")
+  })
+
+  it("shares the day's card as a PNG where files can be shared: the strip and the result, never the word", async () => {
+    // Prepare
+    const share = vi.fn(async () => {})
+    Object.defineProperty(navigator, "canShare", { value: () => true, configurable: true })
+    Object.defineProperty(navigator, "share", { value: share, configurable: true })
+    renderCardFile.mockReset()
+    renderCardFile.mockImplementation(async (_input: unknown, name: string) => new File(["png"], name, { type: "image/png" }))
+    answer(GET, () => finished())
+    renderPage()
+
+    try {
+      // Act
+      fireEvent.click(await screen.findByRole("button", { name: "daily.share.action" }))
+
+      // Assert
+      await waitFor(() => expect(share).toHaveBeenCalledTimes(1))
+      const [input, fileName] = renderCardFile.mock.calls[0]
+      expect(fileName).toBe("majlisna-word-of-the-day-2.png")
+      expect(input).toMatchObject({ kind: "daily", rungs: { total: 6, revealed: 3, found: 3 } })
+      for (const secret of ["Khaybar", "خيبر", "خَيْبَر", "An oasis north of Madinah.", "A battle in year 7", "Badr"]) {
+        expect(JSON.stringify(input), secret).not.toContain(secret)
+      }
+      const [{ files, text }] = share.mock.calls[0] as unknown as [{ files: File[]; text: string }]
+      expect(files[0].type).toBe("image/png")
+      expect(text).toBe("daily.share.solved(number=2,url=majlisna.app/today,hint=3,total=6)")
+      // no request beyond the day's read: the card is made on the device
+      expect(requests.map((r) => `${r.method} ${r.url}`).filter((r) => r !== GET)).toEqual([])
+    } finally {
+      for (const key of ["canShare", "share"]) delete (navigator as unknown as Record<string, unknown>)[key]
+    }
   })
 })
