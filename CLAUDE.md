@@ -286,6 +286,15 @@ label prevents scheduling onto an old privileged runner. The kernel is shared,
 and runner state persists between jobs: this is not VM isolation. Keep fork workflow
 approval enabled and do not grant this account production credentials.
 
+**Second runner on the owner's home server (2 November 2026, owner decision).**
+`ci-majlisna-home` (labels `isolated-rootless,home-x64`) on `lgf` (x86_64, 12 cores),
+the machine LaTabdhir's CI already uses: same model (account `ci-majlisna`, no sudo, its
+own rootless Docker, an egress chain refusing the home network and the tailnet, a slice
+of 8 cores and 16 GiB), installed by `infrastructure/home-ci/` (README there). The E2E job
+runs where the repository variable `E2E_RUNS_ON` says: `["self-hosted","home-x64"]` now,
+the home server; delete the variable when that server is down, or the job waits for it.
+A developer gate run on that host while a CI job runs collides on ports 3049/5049.
+
 **E2E is the layer that catches what nothing else can.** The audit of 2026-07-25
 found room join/leave returning 422 for every client: the request schemas had
 dropped `user_id` while the frontend still sent it, and `BaseModel` is

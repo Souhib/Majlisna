@@ -1,0 +1,34 @@
+[Unit]
+Description=Unprivileged GitHub Actions runner for Souhib/Majlisna (home server)
+After=network-online.target majlisna-ci-egress.service user@@CI_UID@.service
+Requires=majlisna-ci-egress.service
+Wants=user@@CI_UID@.service
+
+[Service]
+User=ci-majlisna
+Group=ci-majlisna
+WorkingDirectory=/var/lib/ci-majlisna/runner
+ExecStart=/var/lib/ci-majlisna/runner/runsvc.sh
+EnvironmentFile=/etc/majlisna-ci/runner.env
+Slice=user-@CI_UID@.slice
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+# /home, /root and /run/user become empty; the account's own docker.sock is bound back.
+ProtectHome=tmpfs
+BindReadOnlyPaths=/run/user/@CI_UID@/docker.sock
+ReadWritePaths=/var/lib/ci-majlisna
+InaccessiblePaths=-/mnt/nas -/media -/srv /var/run/docker.sock /var/lib/docker
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=5min
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

@@ -311,9 +311,15 @@ jobs:
   # ── E2E (blocking) ──────────────────────────────────────────
 
   e2e:
-    # Dedicated unprivileged account + rootless Docker on the existing VPS.
-    # It cannot access the host Docker socket, deploy secrets, or private services.
-    runs-on: [self-hosted, isolated-rootless]
+    # Two runners, each a dedicated unprivileged account + rootless Docker that cannot
+    # reach the host Docker socket, deploy secrets or private services: the VPS
+    # (ci-majlisna, ARM64, one core) and the owner's home server (ci-majlisna-home, x86_64,
+    # label home-x64, infrastructure/home-ci). Both carry isolated-rootless and GitHub
+    # hands the job to the first idle one, so the repository variable E2E_RUNS_ON picks:
+    # '["self-hosted","home-x64"]' (set 2026-11-02) runs it on the home server, several
+    # times faster; deleted (`gh variable delete E2E_RUNS_ON`), either runner takes it.
+    # Delete it when the home server is down, or the job waits for it.
+    runs-on: ${{ fromJSON(vars.E2E_RUNS_ON || '["self-hosted","isolated-rootless"]') }}
     # The suite ran 32-34 min against the old 40 (INFRA-06): it would have hit the
     # cap within a month of new tests and blocked every deploy. 55 is headroom, not a
     # target; the last step warns from 35 min on.

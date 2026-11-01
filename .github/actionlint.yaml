@@ -3,9 +3,11 @@
 
 self-hosted-runner:
   labels:
-    # The E2E job's runner: a dedicated unprivileged account with rootless Docker on
-    # the VPS (pipeline.yml, job `e2e`).
+    # The E2E job's runners: a dedicated unprivileged account with rootless Docker on
+    # the VPS and on the owner's home server (pipeline.yml, job `e2e`).
     - isolated-rootless
+    # The home server's runner (infrastructure/home-ci), picked by vars.E2E_RUNS_ON.
+    - home-x64
 
 paths:
   .github/workflows/**/*.{yml,yaml}:

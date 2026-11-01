@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# The Majlisna CI account's egress boundary (installed at /usr/local/sbin, run by
+# majlisna-ci-egress.service before the account's user manager). One chain, CI_<uid>, on
+# OUTPUT for that uid only: replies pass, the resolver and the e2e stack's published
+# loopback ports pass, every private, tailnet, link-local, multicast and loopback
+# destination and the host's own IPv6 /64s are refused, the public internet passes
+# (GitHub, registries).
+set -euo pipefail
+umask 077
+rules=$(mktemp)
+trap 'rm -f "$rules"' EXIT
+ci_uid=$(id -u ci-majlisna)
+chain="CI_${ci_uid}"
+# e2e/docker-compose.e2e.yml: frontend 3049, backend 5049, PostgreSQL 54339.
+ports=3049,5049,54339
+# The host's global IPv6 networks, read now (the ISP prefix changes).
+lan6=$(ip -6 -o addr show scope global | awk '{print $4}' \
+  | python3 -c 'import ipaddress,sys; print(" ".join(sorted({str(ipaddress.ip_interface(l.strip()).network.supernet(new_prefix=64)) if ipaddress.ip_interface(l.strip()).network.prefixlen > 64 else str(ipaddress.ip_interface(l.strip()).network) for l in sys.stdin if l.strip()})))')
+
+for family in iptables ip6tables; do
+  {
+    echo '*filter'
+    echo ":$chain - [0:0]"
+    echo "-F $chain"
+    echo "-A $chain -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN"
+    if [ "$family" = iptables ]; then
+      echo "-A $chain -d 127.0.0.53 -p udp --dport 53 -j RETURN"
+      echo "-A $chain -d 127.0.0.53 -p tcp --dport 53 -j RETURN"
+      echo "-A $chain -d 127.0.0.1 -p tcp -m multiport --dports $ports -j RETURN"
+      for n in 0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 172.16.0.0/12 192.168.0.0/16 224.0.0.0/4; do
+        echo "-A $chain -d $n -j REJECT"
+      done
+    else
+      echo "-A $chain -d ::1 -p tcp -m multiport --dports $ports -j RETURN"
+      for n in ::/128 ::1/128 ::ffff:0:0/96 fc00::/7 fe80::/10 ff00::/8 $lan6; do
+        echo "-A $chain -d $n -j REJECT"
+      done
+    fi
+    echo "-A $chain -j RETURN"
+    "$family" -w -C OUTPUT -m owner --uid-owner "$ci_uid" -j "$chain" 2>/dev/null \
+      || echo "-I OUTPUT 1 -m owner --uid-owner $ci_uid -j $chain"
+    echo COMMIT
+  } > "$rules"
+  "${family}-restore" --wait 10 --noflush --test < "$rules"
+  "${family}-restore" --wait 10 --noflush < "$rules"
+done
+echo "majlisna-ci-egress: chain $chain loaded (IPv6 LAN: ${lan6:-none})"
