@@ -74,7 +74,7 @@ services:
   # ─── PgBouncer ───────────────────────────────────────────────
   pgbouncer:
     container_name: majlisna-pgbouncer
-    image: edoburu/pgbouncer:v1.25.2-p0@sha256:7d7a27d9e90985cab5cf42256f5c13a3120baa4b055b69df37beb272b89b2340
+    image: edoburu/pgbouncer:v1.26.1-p0@sha256:488422e38cff912895d0d65d8963fcd306e6ac589a724398b6eb8e294e94d624
     environment:
       DATABASE_URL: postgres://majlisna:${DB_PASSWORD}@db:5432/majlisna
       POOL_MODE: transaction
