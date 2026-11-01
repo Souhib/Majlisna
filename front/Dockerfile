@@ -1,7 +1,11 @@
 # Multi-stage build for Majlisna frontend
+#
+# Base images are pinned by digest (INFRA-17): the tag says which version it is, the
+# digest is what gets pulled, so CI's gate and Dokploy's build run the same bytes.
+# Bump both together (Dependabot does).
 
 # Stage 1: Build
-FROM oven/bun:1-alpine AS build
+FROM oven/bun:1.4.4-alpine@sha256:4cf82f5686b196504fe119db3fcd9185b191f82ece82c40680e597228ec6070a AS build
 
 WORKDIR /app
 
@@ -30,14 +34,29 @@ ENV VITE_UMAMI_WEBSITE_ID=${VITE_UMAMI_WEBSITE_ID}
 ENV VITE_GOOGLE_MAPS_API_KEY=${VITE_GOOGLE_MAPS_API_KEY}
 ENV VITE_GOOGLE_CLIENT_ID=${VITE_GOOGLE_CLIENT_ID}
 
-# Build the application. Vite copies public/ with the checkout's file modes, and the CI
-# runner's dedicated account checks out with a private umask: sw.js and the skies then
-# reached nginx as 0600 and answered 403. Everything served must be world-readable.
+# Build the application, then prepare what nginx serves:
+#
+# 1. The CSP hashes of index.html's inline scripts, from the BUILT file: Vite rewrites
+#    the Umami bootstrap from the build args, so the source file's hashes would be wrong.
+#    The script refuses (and fails the build) on an inline event handler or a
+#    javascript: URL, which no hash can allow. See security-headers.conf.
+# 2. A gzip -9 twin of every compressible file, served as is by nginx's gzip_static
+#    (FP-12). Files under gzip_min_length (256 B) are left alone. No Brotli twins: the
+#    official nginx image has no ngx_brotli to serve them.
+# 3. World-readable modes. Vite copies public/ with the checkout's file modes, and the
+#    CI runner's dedicated account checks out with a private umask: sw.js and the skies
+#    then reached nginx as 0600 and answered 403.
 ENV NODE_OPTIONS="--max-old-space-size=4096"
-RUN bun run build && chmod -R a+rX dist
+RUN set -eu; \
+    bun run build; \
+    bun scripts/csp-inline-hashes.mjs dist/index.html > /app/csp-inline-script-hashes.txt; \
+    find dist -type f \( -name '*.js' -o -name '*.mjs' -o -name '*.css' -o -name '*.html' \
+        -o -name '*.svg' -o -name '*.json' -o -name '*.txt' -o -name '*.xml' -o -name '*.ico' \
+        -o -name '*.webmanifest' \) -size +255c -exec gzip -9 -k {} +; \
+    chmod -R a+rX dist
 
 # Stage 2: Production with Nginx
-FROM nginx:alpine AS production
+FROM nginx:1.31.8-alpine@sha256:785835ea65db4bba6f021acc0f3be91b0fef76a53fe41f8588c6698d2aed0606 AS production
 
 # Re-declared: build args do not cross stage boundaries. These are the same values
 # the bundle above was built with, which is the point — the CSP allowlist and the
@@ -54,38 +73,55 @@ COPY security-headers.conf /etc/nginx/security-headers.conf
 
 # Copy built assets from build stage
 COPY --from=build /app/dist /usr/share/nginx/html
+COPY --from=build /app/csp-inline-script-hashes.txt /tmp/csp-inline-script-hashes.txt
 
-# Fill the CSP's telemetry allowlist, then prove the result still parses.
+# Fill the CSP's placeholders, then prove the result is a policy worth shipping.
 #
-# Only the ORIGIN is taken from each value: the Sentry DSN carries a key before the
-# host (https://<key>@host/<project>) and that key must not end up in a response
-# header. An unset arg substitutes to nothing, which is a valid policy — that is the
-# local-dev and E2E case.
+# - The inline-script hashes computed in the build stage go after script-src 'self'.
+# - The API origin, and the WebSocket origin derived from it (wss:// for https, ws://
+#   for http, host and port kept), go into connect-src. There is no blanket ws:/wss:.
+# - The telemetry origins: only the ORIGIN is taken from each value. The Sentry DSN
+#   carries a key before the host (https://<key>@host/<project>) and that key must
+#   not end up in a response header. An unset arg substitutes to nothing, which is a
+#   valid policy — that is the local-dev and E2E case.
 #
-# The two checks are not decoration: a leftover placeholder or a malformed generated
-# directive would otherwise only surface as a container that refuses to start, or
-# worse, as a policy the browser silently ignores.
-#
-# The syntax check wraps the generated file in a throwaway server block rather than
-# running `nginx -t` on the real config: default.conf proxies to the `backend`
-# upstream, which does not resolve until the compose network exists at runtime.
+# The checks are not decoration: a leftover placeholder, an 'unsafe-inline' that would
+# make the hashes moot, or a malformed directive would otherwise only surface as a
+# container that refuses to start, or worse, as a policy the browser silently ignores.
+# `nginx -t` runs on the real configuration: the backend is named through a variable
+# (see nginx.conf), so nothing has to resolve at build time.
 RUN set -eu; \
+    headers=/etc/nginx/security-headers.conf; \
+    script_hashes="$(cat /tmp/csp-inline-script-hashes.txt)"; \
     api_origin="$(printf '%s' "${VITE_API_URL:-}" | sed -nE 's#^(https?://[^/]+).*#\1#p')"; \
+    case "$api_origin" in \
+        https://*) ws_origin="wss://${api_origin#https://}" ;; \
+        http://*) ws_origin="ws://${api_origin#http://}" ;; \
+        *) ws_origin="" ;; \
+    esac; \
     umami_origin="$(printf '%s' "${VITE_UMAMI_URL:-}" | sed -nE 's#^(https?://[^/]+).*#\1#p')"; \
     sentry_origin="$(printf '%s' "${VITE_SENTRY_DSN:-}" | sed -nE 's#^(https?://)([^@/]*@)?([^/]+).*#\1\3#p')"; \
     sed -i \
-        -e "s#__API_CONNECT_SRC__#${api_origin}#" \
+        -e "s#__INLINE_SCRIPT_HASHES__#${script_hashes}#" \
+        -e "s#__API_CONNECT_SRC__#${api_origin} ${ws_origin}#" \
         -e "s#__TELEMETRY_SCRIPT_SRC__#${umami_origin}#" \
         -e "s#__TELEMETRY_CONNECT_SRC__#${umami_origin} ${sentry_origin}#" \
-        /etc/nginx/security-headers.conf; \
-    if grep -qE '__(API_CONNECT|TELEMETRY_(SCRIPT|CONNECT))_SRC__' /etc/nginx/security-headers.conf; then \
+        "$headers"; \
+    policy="$(grep -v '^[[:space:]]*#' "$headers")"; \
+    if printf '%s' "$policy" | grep -qE '__[A-Z_]+__'; then \
         echo "CSP placeholder left unsubstituted — refusing to ship a policy with a literal token"; \
         exit 1; \
     fi; \
-    printf 'events {}\nhttp { server { listen 8081; location / { include /etc/nginx/security-headers.conf; return 204; } } }\n' \
-        > /tmp/headers-syntax-check.conf; \
-    nginx -t -c /tmp/headers-syntax-check.conf; \
-    rm /tmp/headers-syntax-check.conf
+    if printf '%s' "$policy" | grep -oE "script-src [^;]*" | grep -q "'unsafe-inline'"; then \
+        echo "script-src allows 'unsafe-inline': the inline-script hashes would be ignored"; \
+        exit 1; \
+    fi; \
+    if printf '%s' "$policy" | grep -oE "connect-src [^;]*" | grep -qE "(^| )wss?:( |$)"; then \
+        echo "connect-src allows any WebSocket host"; \
+        exit 1; \
+    fi; \
+    nginx -t; \
+    rm /tmp/csp-inline-script-hashes.txt
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \

@@ -1,0 +1,10 @@
+# Real secrets live only on the VPS: never commit them.
+secrets.env
+secrets.env.*
+!secrets.env.example
+# Dagu run state and logs (created on the VPS under dagu-config/).
+dagu-config/*
+!dagu-config/dags/
+dagu-config/dags/*
+!dagu-config/dags/majlisna-db-backup.yaml
+__pycache__/

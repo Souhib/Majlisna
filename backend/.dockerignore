@@ -38,3 +38,11 @@ README.md
 **/coverage
 **/htmlcov
 tests/
+# Local-only files a developer's checkout carries (git ignores them, so the server's
+# clone never has them): environment files with real keys and the dev SQLite databases.
+# A local `docker build` used to bake them into the image.
+.env.*
+!.env.example
+*.db
+test-results/
+**/.coverage

@@ -1,0 +1,16 @@
+# actionlint configuration (run: `actionlint` from the repo root, or
+# `docker run --rm -v "$PWD":/repo -w /repo rhysd/actionlint:1.7.12`).
+
+self-hosted-runner:
+  labels:
+    # The E2E job's runner: a dedicated unprivileged account with rootless Docker on
+    # the VPS (pipeline.yml, job `e2e`).
+    - isolated-rootless
+
+paths:
+  .github/workflows/**/*.{yml,yaml}:
+    ignore:
+      # `concurrency.queue` is a documented GitHub Actions key (queue: max keeps up to
+      # 100 pending runs instead of cancelling all but one), but actionlint 1.7.12 does
+      # not know it yet (rhysd/actionlint#654). Drop this line once it does.
+      - 'unexpected key "queue" for "concurrency" section'

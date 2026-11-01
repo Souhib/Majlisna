@@ -1,5 +1,16 @@
 # Dokploy deployment for Majlisna
 # App-only compose — monitoring services live in ~/monitoring/docker-compose.yml on the server
+#
+# THIS FILE IS WHAT PRODUCTION RUNS. From 2026-09-16 a Dokploy patch
+# ('security-majlisna-db-images-20260916') replaced it with a frozen copy on every deploy,
+# so changes made here were silently discarded (INFRA-02). Everything that patch carried
+# (the image digests below) now lives here, and the patch is disabled when this ships.
+# Do not bring it back: a fix that only exists on the server is a fix the E2E gate never
+# tests and the next deploy may undo.
+#
+# Images are pinned by digest. The tag says which version that is; the digest is what
+# gets pulled, so CI's gate and Dokploy's build run the same bytes. e2e/docker-compose.e2e.yml
+# pins the same three digests: change them together.
 
 name: majlisna
 
@@ -13,7 +24,28 @@ services:
   # ─── Database ────────────────────────────────────────────────
   db:
     container_name: majlisna-db
-    image: postgres:16-alpine
+    # 16.15-alpine3.24
+    image: postgres:16-alpine@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685
+    # Observability and a guard against stuck transactions (BDP-13):
+    # - pg_stat_statements: query statistics. Preloading takes effect on a (re)start only,
+    #   and the view also needs `CREATE EXTENSION IF NOT EXISTS pg_stat_statements;` once,
+    #   by hand, after the first start with this flag.
+    # - log_min_duration_statement: every statement slower than 250 ms is logged.
+    # - idle_in_transaction_session_timeout: a session left idle inside a transaction is
+    #   closed after 60 s instead of holding its locks and a PgBouncer slot for good. The
+    #   app never idles in a transaction: a game-lock wait is a running statement (bounded
+    #   by lock_timeout, 30 s), which this timeout does not touch.
+    # - track_io_timing: I/O time in EXPLAIN (ANALYZE, BUFFERS) and pg_stat_statements.
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - log_min_duration_statement=250ms
+      - -c
+      - idle_in_transaction_session_timeout=60s
+      - -c
+      - track_io_timing=on
     environment:
       POSTGRES_DB: majlisna
       POSTGRES_USER: majlisna
@@ -26,6 +58,10 @@ services:
       timeout: 5s
       start_period: 30s
       retries: 10
+    # The default 10 s is short for a checkpoint under load; past it Docker SIGKILLs
+    # Postgres and the next start has to replay WAL.
+    stop_grace_period: 30s
+    mem_limit: 1g
     # No host port. Nothing needs one: Traefik never talks to the database, Uptime
     # Kuma probes it by container name over majlisna-internal, and administration goes
     # through `docker exec`. A published port — even on loopback — is reachable by
@@ -38,7 +74,7 @@ services:
   # ─── PgBouncer ───────────────────────────────────────────────
   pgbouncer:
     container_name: majlisna-pgbouncer
-    image: edoburu/pgbouncer:v1.25.1-p0
+    image: edoburu/pgbouncer:v1.25.2-p0@sha256:7d7a27d9e90985cab5cf42256f5c13a3120baa4b055b69df37beb272b89b2340
     environment:
       DATABASE_URL: postgres://majlisna:${DB_PASSWORD}@db:5432/majlisna
       POOL_MODE: transaction
@@ -50,25 +86,46 @@ services:
       db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-p", "6432"]
-      interval: 5s
+      # As the app's user and database. pg_isready's default user, postgres, does not
+      # exist in PgBouncer: every probe logged a failed login, 95 % of the container's
+      # log (INFRA-22, PD-14).
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-p", "6432", "-U", "majlisna", "-d", "majlisna"]
+      interval: 15s
       timeout: 5s
       retries: 5
+    mem_limit: 128m
     networks:
       - internal
     logging: *default-logging
     restart: always
 
-  # ─── Redis (Socket.IO pub/sub only) ──────────────────────────
+  # ─── Redis (Socket.IO pub/sub and rate-limit counters) ───────
   redis:
     container_name: majlisna-redis
-    image: redis:7-alpine
-    command: redis-server --maxmemory 64mb --maxmemory-policy allkeys-lru
+    # 7.4.11-alpine
+    image: redis:7-alpine@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf
+    # Nothing in Redis has to outlive a restart (pub/sub, and rate-limit windows that
+    # expire anyway), so it keeps nothing on disk: no RDB snapshots, no AOF, and /data
+    # is a tmpfs. A corrupt dump.rdb used to crash-loop it (INFRA-20). volatile-lru
+    # evicts only keys that carry a TTL (the rate-limit windows).
+    command:
+      - redis-server
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      - --maxmemory
+      - 64mb
+      - --maxmemory-policy
+      - volatile-lru
+    tmpfs:
+      - /data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
+    mem_limit: 128m
     networks:
       - internal
     logging: *default-logging
@@ -81,13 +138,20 @@ services:
       context: ./backend
       dockerfile: Dockerfile
       target: production
+    # An init process as PID 1 forwards SIGTERM to uvicorn and reaps orphans. With the
+    # image's exec'd uvicorn and its 15 s graceful shutdown, a stop drains in-flight
+    # requests instead of waiting out Docker's 10 s SIGKILL (INFRA-10); 20 s leaves the
+    # drain its full window.
+    init: true
+    stop_grace_period: 20s
     environment:
       DATABASE_URL: postgresql+asyncpg://majlisna:${DB_PASSWORD}@pgbouncer:6432/majlisna
-      # Bypasses PgBouncer. Used ONLY by scripts/generate_fake_data.py, which runs
-      # DDL: asyncpg's per-connection type cache goes stale after a drop/create of
-      # every table, and under PgBouncer's transaction pooling the following bulk
-      # inserts then fail with "could not resolve query result and/or argument
-      # types in N attempts" (reproducible every run). The app itself keeps using
+      # Bypasses PgBouncer. Used ONLY for DDL: scripts/generate_fake_data.py and the
+      # app's startup DDL (database.create_schema, each worker in turn under an
+      # advisory lock). asyncpg's per-connection type cache goes stale after a
+      # drop/create of every table, and under PgBouncer's transaction pooling the
+      # following bulk inserts then fail with "could not resolve query result and/or
+      # argument types in N attempts" (reproducible every run). Requests keep using
       # DATABASE_URL through PgBouncer.
       DIRECT_DATABASE_URL: postgresql+asyncpg://majlisna:${DB_PASSWORD}@db:5432/majlisna
       REDIS_URL: redis://redis:6379/0
@@ -112,6 +176,13 @@ services:
       SENTRY_DSN: ${SENTRY_DSN:-}
       GOOGLE_CLIENT_ID_WEB: ${GOOGLE_CLIENT_ID_WEB:-}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
+      # The proxies uvicorn trusts for X-Forwarded-For. Unset in Dokploy's env, this is
+      # empty and the image's CMD falls back to its default (Docker-network peers only,
+      # see backend/Dockerfile). Never a bare `FORWARDED_ALLOW_IPS:` (no value): the engine
+      # then UNSETS the variable, dropping the image's ENV default, and uvicorn trusted no
+      # proxy at all (review INT-01). Never '*': a direct caller could then pick its own
+      # client IP and skip every rate limit. tests/api/test_trusted_proxies.py reads this.
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-}
     depends_on:
       pgbouncer:
         condition: service_healthy
@@ -119,25 +190,46 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
-      interval: 30s
+      # Traefik only routes to a healthy container, so the first healthy probe ends the
+      # deploy's outage: probe every 2 s while starting, every 10 s after (PD-09).
+      # start_interval needs Docker Engine 25+ and Compose 2.20.2+.
+      interval: 10s
       timeout: 10s
       start_period: 40s
+      start_interval: 2s
       retries: 3
+    mem_limit: 1g
+    cpus: 2
     # Bound to loopback only. A 0.0.0.0 publish let anyone reach the API at
-    # SERVER_IP:33648 — bypassing Cloudflare (WAF) and Traefik, and, because
-    # uvicorn runs with --forwarded-allow-ips '*', letting a caller spoof
-    # X-Forwarded-For and defeat every rate limit. Traefik reaches the container
-    # over dokploy-network, so it does not need a published port.
+    # SERVER_IP:33648 — bypassing Cloudflare (WAF) and Traefik, and letting a caller
+    # spoof X-Forwarded-For whenever uvicorn trusts every peer. Traefik reaches the
+    # container over dokploy-network, so it does not need a published port.
     ports:
       - "127.0.0.1:33648:5000"
+    # Two routers per service: HTTPS serves, plain HTTP only redirects to HTTPS
+    # (INFRA-08; `redirect-to-https` is Dokploy's middleware in its dynamic middlewares.yml).
+    # Kept apart so that a missing middleware could only ever break the HTTP router.
+    # Cloudflare must keep reaching the origin over HTTPS (SSL mode Full or Full (strict)):
+    # under Flexible it would fetch over HTTP, get the redirect, and loop.
     labels:
       - "traefik.enable=${TRAEFIK_ENABLED:-false}"
       - "traefik.http.routers.majlisna-backend.rule=(Host(`${DOMAIN:-majlisna.local}`) && (PathPrefix(`/api`) || PathPrefix(`/socket.io`) || PathPrefix(`/health`) || PathPrefix(`/scalar`) || PathPrefix(`/openapi.json`))) || Host(`api.${DOMAIN:-majlisna.local}`)"
-      - "traefik.http.routers.majlisna-backend.entrypoints=web,websecure"
+      - "traefik.http.routers.majlisna-backend.entrypoints=websecure"
+      - "traefik.http.routers.majlisna-backend.service=majlisna-backend"
+      - "traefik.http.routers.majlisna-backend-http.rule=(Host(`${DOMAIN:-majlisna.local}`) && (PathPrefix(`/api`) || PathPrefix(`/socket.io`) || PathPrefix(`/health`) || PathPrefix(`/scalar`) || PathPrefix(`/openapi.json`))) || Host(`api.${DOMAIN:-majlisna.local}`)"
+      - "traefik.http.routers.majlisna-backend-http.entrypoints=web"
+      - "traefik.http.routers.majlisna-backend-http.middlewares=redirect-to-https@file"
+      - "traefik.http.routers.majlisna-backend-http.service=majlisna-backend"
       - "traefik.http.services.majlisna-backend.loadbalancer.server.port=5000"
     networks:
-      - internal
-      - dokploy-network
+      internal:
+        # The name the frontend's nginx proxies /api and /socket.io to. `backend` is
+        # also the alias of other projects' backends on the shared dokploy-network, so it
+        # resolved to three containers (PD-08); this one exists on this project's own
+        # network only.
+        aliases:
+          - majlisna-api
+      dokploy-network:
     logging: *default-logging
     restart: always
 
@@ -162,6 +254,7 @@ services:
       timeout: 3s
       start_period: 5s
       retries: 3
+    mem_limit: 128m
     # Loopback only — see the backend note above. Public traffic arrives through
     # Cloudflare → Traefik → dokploy-network, never through a host port.
     ports:
@@ -169,8 +262,14 @@ services:
     labels:
       - "traefik.enable=${TRAEFIK_ENABLED:-false}"
       - "traefik.http.routers.majlisna-frontend.rule=Host(`${DOMAIN:-majlisna.local}`)"
-      - "traefik.http.routers.majlisna-frontend.entrypoints=web,websecure"
+      - "traefik.http.routers.majlisna-frontend.entrypoints=websecure"
+      - "traefik.http.routers.majlisna-frontend.service=majlisna-frontend"
+      - "traefik.http.routers.majlisna-frontend-http.rule=Host(`${DOMAIN:-majlisna.local}`)"
+      - "traefik.http.routers.majlisna-frontend-http.entrypoints=web"
+      - "traefik.http.routers.majlisna-frontend-http.middlewares=redirect-to-https@file"
+      - "traefik.http.routers.majlisna-frontend-http.service=majlisna-frontend"
       - "traefik.http.services.majlisna-frontend.loadbalancer.server.port=80"
+    # On `internal` to reach the backend as majlisna-api (see its alias above).
     networks:
       - internal
       - dokploy-network

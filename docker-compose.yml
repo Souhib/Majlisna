@@ -5,7 +5,8 @@ services:
   # ─── Database ─────────────────────────────────────────────
 
   db:
-    image: postgres:16-alpine
+    # The digests production runs (see docker-compose.dokploy.yml): 16.15-alpine3.24
+    image: postgres:16-alpine@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-majlisna}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-majlisna}
@@ -24,7 +25,7 @@ services:
   # ─── PgBouncer ────────────────────────────────────────────
 
   pgbouncer:
-    image: edoburu/pgbouncer:v1.25.1-p0
+    image: edoburu/pgbouncer:v1.25.2-p0@sha256:7d7a27d9e90985cab5cf42256f5c13a3120baa4b055b69df37beb272b89b2340
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-majlisna}:${POSTGRES_PASSWORD:-majlisna}@db:5432/${POSTGRES_DB:-majlisna}
       POOL_MODE: transaction
@@ -36,8 +37,10 @@ services:
       db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-p", "6432"]
-      interval: 5s
+      # As the app's user: the default (postgres) does not exist in PgBouncer and every
+      # probe logged a failed login.
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-p", "6432", "-U", "${POSTGRES_USER:-majlisna}", "-d", "${POSTGRES_DB:-majlisna}"]
+      interval: 15s
       timeout: 5s
       retries: 5
     restart: unless-stopped
@@ -45,7 +48,8 @@ services:
   # ─── Redis ───────────────────────────────────────────────
 
   redis:
-    image: redis:7-alpine
+    # 7.4.11-alpine, as in production
+    image: redis:7-alpine@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf
     command: redis-server --maxmemory 64mb --maxmemory-policy allkeys-lru
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -78,6 +82,11 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    networks:
+      default:
+        # The frontend's nginx proxies /api and /socket.io to this name (front/nginx.conf).
+        aliases:
+          - majlisna-api
     restart: unless-stopped
 
   # ─── Frontend SPA ─────────────────────────────────────────

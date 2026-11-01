@@ -33,14 +33,18 @@ on:
 
 concurrency:
   group: ci-${{ github.ref }}
-  # Do NOT cancel in-progress runs. Two reasons:
-  # - A cancelled run's commits are never tested: the replacing run's diff range
-  #   only covers ITS own push, so a superseded change could reach production
-  #   untested.
-  # - A cancelled run never reaches `deploy`, so the change would silently sit
-  #   undeployed.
-  # Queue instead — each run tests its own push range and deploys its own HEAD.
+  # Do NOT cancel in-progress runs, and do not drop queued ones either.
+  # - `cancel-in-progress: false` alone is not a queue: GitHub keeps ONE pending run
+  #   per group (`queue: single`, the default) and cancels it when a newer one
+  #   arrives. Three pushes inside one ~32-min run left the middle one cancelled with
+  #   zero jobs (runs 35290871550 and 35290872056 on 2026-09-18, INFRA-12).
+  # - `queue: max` keeps up to 100 pending runs, processed in order, so every push is
+  #   tested and promoted. (It cannot be combined with `cancel-in-progress: true`.)
+  # - Each run diffs against `production` (the `changes` job below), so even a run
+  #   that was somehow lost is covered by the next one: it re-tests every component
+  #   that is not live yet.
   cancel-in-progress: false
+  queue: max
 
 jobs:
   # ── Detect which paths changed ──────────────────────────────
@@ -55,14 +59,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # dorny/paths-filter compares against the PR base (for pull_request) or
-      # the pushed commit range (for push) — NOT just HEAD~1. A previous
-      # single-commit `git diff HEAD~1 HEAD` silently skipped a whole suite when
-      # a multi-commit push ended on a commit that didn't touch that component.
+      # dorny/paths-filter compares against the PR base (for pull_request) or,
+      # for a push, against `production`: everything that is not live yet. It
+      # used to compare against the commit before the push, so a run that never
+      # happened (a queued run GitHub cancelled, a red run) left its components
+      # untested while the next green run promoted a HEAD containing them
+      # (INFRA-12). Against `production`, a suite skips only when nothing it
+      # covers differs from what is deployed. (A previous single-commit
+      # `git diff HEAD~1 HEAD` also silently skipped whole suites.) `base` is
+      # ignored for pull_request events.
       - name: Detect changes
         id: filter
         uses: dorny/paths-filter@v3
         with:
+          base: production
           filters: |
             backend:
               - 'backend/**'
@@ -77,22 +87,100 @@ jobs:
 
   # ── Security Scan (Trivy) ───────────────────────────────────
 
+  # Pinned to a full commit SHA, never a tag or a branch: in March 2026 the
+  # trivy-action tags were force-pushed to malicious code (CVE-2026-33634), and this
+  # job ran `@master`. Dependabot (github-actions) moves the SHA and the comment
+  # together. v0.36.0 installs Trivy v0.70.0.
+  #
+  # It GATES the deploy (promote needs it): a CRITICAL with a released fix in any
+  # lockfile (backend/uv.lock, front/bun.lock, e2e/bun.lock) fails the job. Unfixed
+  # ones (python-jose CVE-2026-85394 today) are reported and do not fail: there is
+  # nothing to upgrade to. HIGHs are reported only.
   security-scan:
     runs-on: ubuntu-latest
     needs: changes
-    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true' || github.event_name == 'workflow_dispatch'
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true' || needs.changes.outputs.e2e == 'true' || github.event_name == 'workflow_dispatch'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Run Trivy vulnerability scanner (filesystem)
-        uses: aquasecurity/trivy-action@master
+      - name: Trivy, filesystem (HIGH and CRITICAL, report only)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: fs
           scan-ref: .
           severity: HIGH,CRITICAL
           exit-code: 0
           format: table
+
+      - name: Trivy, filesystem (fixable CRITICAL fails)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: 1
+          format: table
+
+  # ── Backend image (Trivy + graceful stop) ───────────────────
+
+  # The image Dokploy builds, built the same way (production target), then:
+  # - scanned (fixable CRITICAL in the OS packages or the venv fails; CLAUDE.md had
+  #   promised a "container image scan post-build" that did not exist);
+  # - started, to check /health answers the commit it was built from;
+  # - stopped, to check uvicorn drains on SIGTERM instead of waiting out Docker's
+  #   10 s and dying of SIGKILL (exit 137), which every deploy did (INFRA-10).
+  backend-image:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.backend == 'true' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build the backend image
+        run: docker build --target production --build-arg GIT_SHA="${GITHUB_SHA}" -t "majlisna-backend:${GITHUB_SHA}" backend
+
+      - name: Trivy, backend image (fixable CRITICAL fails)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: majlisna-backend:${{ github.sha }}
+          scanners: vuln
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: 1
+          format: table
+
+      - name: Health answers the commit, and docker stop drains
+        run: |
+          docker run -d --name backend-smoke -p 127.0.0.1:5000:5000 \
+            -e DATABASE_URL=sqlite+aiosqlite:////tmp/smoke.db \
+            -e UVICORN_WORKERS=1 \
+            "majlisna-backend:${GITHUB_SHA}"
+          version=""
+          for _ in $(seq 1 60); do
+            version=$(curl -fsS --max-time 2 http://127.0.0.1:5000/health | jq -r '.version' 2>/dev/null) && [ -n "$version" ] && break
+            sleep 1
+          done
+          if [ "$version" != "$GITHUB_SHA" ]; then
+            docker logs backend-smoke | tail -50
+            echo "::error title=Backend image::/health answered version '${version}', expected ${GITHUB_SHA}"
+            exit 1
+          fi
+          started_ns=$(date +%s%N)
+          docker stop backend-smoke >/dev/null
+          elapsed_ms=$(( ($(date +%s%N) - started_ns) / 1000000 ))
+          code=$(docker inspect -f '{{.State.ExitCode}}' backend-smoke)
+          docker logs backend-smoke 2>&1 | tail -12
+          echo "docker stop took ${elapsed_ms} ms, exit code ${code}"
+          # 0.2-0.4 s when uvicorn gets the signal; 10 s and exit 137 when it does not.
+          if [ "$code" != "0" ] || [ "$elapsed_ms" -gt 5000 ]; then
+            echo "::error title=Backend image::docker stop took ${elapsed_ms} ms with exit code ${code}: SIGTERM is not reaching uvicorn (is the CMD still exec'ing it?)"
+            exit 1
+          fi
 
   # ── Backend CI ──────────────────────────────────────────────
 
@@ -140,8 +228,14 @@ jobs:
       # --use-postgres spins up a PostgreSQL testcontainer (Docker is available
       # on ubuntu-latest) so the advisory-lock / concurrency tests actually run
       # in CI. Without it those tests are silently skipped.
-      - name: Test (pytest, PostgreSQL)
-        run: uv run pytest --tb=short -q --no-cov --use-postgres
+      #
+      # Coverage gates here (TQ-14). This step used to pass --no-cov, which also
+      # switched off pyproject's --cov-fail-under, so coverage could fall anywhere
+      # without failing CI. Branch coverage, floor 88 (92.5% measured on 2026-10-31,
+      # lines and branches together: 94.4% of lines, 83.4% of branches); these flags
+      # override the local addopts floor.
+      - name: Test (pytest, PostgreSQL, coverage)
+        run: uv run pytest --tb=short -q --use-postgres --cov=majlisna --cov-branch --cov-report=term --cov-fail-under=88
 
   # ── Frontend CI ─────────────────────────────────────────────
 
@@ -174,8 +268,17 @@ jobs:
       - name: Type check (tsc)
         run: bun run typecheck
 
-      - name: Test (vitest)
-        run: bun run test
+      # With coverage: front/vitest.config.ts holds the floor (TQ-14).
+      - name: Test (vitest, coverage)
+        run: bun run test:coverage
+
+      # The production bundle, then WP-14's budget on it: the entry chunk carries no
+      # zod and no Sentry SDK, and stays under 60 kB gzip.
+      - name: Build
+        run: bun run build
+
+      - name: Bundle budget
+        run: bun run check:bundle
 
   # ── E2E (blocking) ──────────────────────────────────────────
 
@@ -183,7 +286,10 @@ jobs:
     # Dedicated unprivileged account + rootless Docker on the existing VPS.
     # It cannot access the host Docker socket, deploy secrets, or private services.
     runs-on: [self-hosted, isolated-rootless]
-    timeout-minutes: 40
+    # The suite ran 32-34 min against the old 40 (INFRA-06): it would have hit the
+    # cap within a month of new tests and blocked every deploy. 55 is headroom, not a
+    # target; the last step warns from 35 min on.
+    timeout-minutes: 55
     needs: changes
     if: needs.changes.outputs.e2e == 'true' || github.event_name == 'workflow_dispatch'
     defaults:
@@ -191,6 +297,9 @@ jobs:
         working-directory: e2e
 
     steps:
+      - name: Start the clock
+        run: echo "E2E_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -209,8 +318,8 @@ jobs:
 
       # Runs the same run-local.sh developers use, so CI and local cannot drift:
       # one place brings the stack up, waits for BOTH services, reseeds before the
-      # run, and decides pass/fail. CI=true switches playwright to retries:2 and
-      # the github reporter.
+      # run (global-setup.ts), and decides pass/fail. CI=true switches playwright to
+      # the github reporter and forbidOnly; retries stay 0 (INFRA-19).
       - name: Verify E2E gate exit propagation
         run: bash test-run-local.sh
 
@@ -233,11 +342,20 @@ jobs:
         if: always()
         run: docker compose -f docker-compose.e2e.yml down -v
 
+      - name: Warn when the job is getting close to its timeout
+        if: always()
+        run: |
+          minutes=$(( ($(date +%s) - E2E_STARTED_AT) / 60 ))
+          echo "E2E job took ${minutes} min (timeout-minutes: 55)"
+          if [ "$minutes" -ge 35 ]; then
+            echo "::warning title=E2E duration::The E2E job took ${minutes} min, past the 35-min mark of its 55-min timeout. Speed the suite up or give the runner more CPU (INFRA-06) before it starts blocking deploys."
+          fi
+
   # ── Promote to production ───────────────────────────────────
 
   promote:
     runs-on: ubuntu-latest
-    needs: [changes, backend, frontend, e2e]
+    needs: [changes, security-scan, backend-image, backend, frontend, e2e]
     # `needs` alone would skip this job whenever a needed job is SKIPPED, which
     # happens on every push that touches only one component. So gate explicitly:
     # each suite must have either passed or been skipped, never failed.
@@ -245,15 +363,20 @@ jobs:
       github.event_name != 'pull_request'
       && github.ref == 'refs/heads/main'
       && !cancelled()
+      && contains(fromJSON('["success","skipped"]'), needs.security-scan.result)
+      && contains(fromJSON('["success","skipped"]'), needs.backend-image.result)
       && contains(fromJSON('["success","skipped"]'), needs.backend.result)
       && contains(fromJSON('["success","skipped"]'), needs.frontend.result)
       && contains(fromJSON('["success","skipped"]'), needs.e2e.result)
     permissions:
       contents: write
+      # Reading the earlier attempts' jobs (the re-run check below).
+      actions: read
     # One promotion at a time, so two runs can't race the branch pointer.
     concurrency:
       group: promote-production
       cancel-in-progress: false
+      queue: max
 
     steps:
       # Dokploy watches the `production` branch, not `main`. Its push handler
@@ -274,6 +397,34 @@ jobs:
         with:
           fetch-depth: 0
 
+      # "A flaky test is a failing test" must survive the Re-run button. A suite
+      # that failed and then passed on "Re-run failed jobs" used to promote
+      # (run 36482914044: e2e failed with "1 flaky", attempt 2 green, deployed).
+      # So a run whose backend, frontend or e2e job did not pass in an EARLIER
+      # attempt never promotes, whatever this attempt says. A re-run that only
+      # retries this job (the push itself failed) still promotes. To deploy after
+      # fixing an infrastructure hiccup, dispatch a fresh run (Actions -> CI ->
+      # Run workflow on main): it runs every suite from scratch.
+      - name: Refuse a suite that needed a second attempt
+        if: github.run_attempt > 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          failed=""
+          for attempt in $(seq 1 $((GITHUB_RUN_ATTEMPT - 1))); do
+            out=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/attempts/${attempt}/jobs?per_page=100" \
+              --jq '.jobs[]
+                | select(.name == "backend" or .name == "frontend" or .name == "e2e")
+                | select(.conclusion != null and .conclusion != "success" and .conclusion != "skipped")
+                | "attempt \(.run_attempt): \(.name) \(.conclusion)"')
+            if [ -n "$out" ]; then failed+="${out}"$'\n'; fi
+          done
+          if [ -n "$failed" ]; then
+            printf '%s' "$failed"
+            echo "::error title=Not promoted::A suite of this run failed in an earlier attempt, so this green re-run does not deploy. Dispatch a fresh run instead."
+            exit 1
+          fi
+
       # Deliberately NOT a force push. `production` only ever moves through this
       # job, so a fast-forward always applies; a rejection means history was
       # rewritten on `main` and deserves a loud failure rather than a silent
@@ -282,3 +433,40 @@ jobs:
         run: |
           echo "Promoting ${GITHUB_SHA} to production"
           git push origin "${GITHUB_SHA}:refs/heads/production"
+
+      # The push only asks Dokploy to build. A Dokploy build that failed after a
+      # promote was invisible here: production ran 13.7 h behind the promoted
+      # commit while CI, main and `production` all said it was live (INFRA-11).
+      # So wait until the live backend answers the commit (/health `version`, the
+      # image's GIT_SHA) and fail red otherwise.
+      #
+      # It needs Dokploy to build the backend with the GIT_SHA build arg; until it
+      # does, /health answers "unknown" and this step would always fail. Enable it
+      # once that is wired: repository variable VERIFY_DEPLOYED_VERSION = true
+      # (Settings -> Secrets and variables -> Actions -> Variables).
+      # DEPLOY_HEALTH_URL overrides the URL polled.
+      - name: Wait for production to run the promoted commit
+        if: vars.VERIFY_DEPLOYED_VERSION == 'true'
+        env:
+          HEALTH_URL: ${{ vars.DEPLOY_HEALTH_URL || 'https://majlisna.app/health' }}
+        run: |
+          deadline=$(( $(date +%s) + 600 ))
+          version=""
+          while [ "$(date +%s)" -lt "$deadline" ]; do
+            # A fresh query string and no-cache, so no cache between here and the
+            # backend can answer with an older body.
+            version=$(curl -fsS --max-time 10 -H 'Cache-Control: no-cache' \
+              "${HEALTH_URL}?promote=${GITHUB_RUN_ID}-$(date +%s)" | jq -r '.version // empty' 2>/dev/null || true)
+            if [ "$version" = "$GITHUB_SHA" ]; then
+              echo "Production runs ${GITHUB_SHA}."
+              exit 0
+            fi
+            echo "Production answers version '${version:-no answer}', waiting for ${GITHUB_SHA}..."
+            sleep 15
+          done
+          echo "::error title=Deploy not live::Production still answers version '${version:-no answer}' 10 min after the promote of ${GITHUB_SHA}. Check the Dokploy deployment log."
+          exit 1
+
+      - name: Deploy verification is off
+        if: vars.VERIFY_DEPLOYED_VERSION != 'true'
+        run: echo "::notice title=Deploy not verified::Set the repository variable VERIFY_DEPLOYED_VERSION=true once Dokploy builds the backend with GIT_SHA, so promote waits for /health to answer the promoted commit."

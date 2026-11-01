@@ -1,0 +1,104 @@
+# Weekly dependency updates (INFRA-15). Fixed CVEs in the auth, request-parsing and
+# Socket.IO stacks used to ship unnoticed: nothing proposed an update, and Trivy only
+# reported. Every Dependabot PR runs the pull_request CI (backend, frontend, e2e) like any
+# other change; nothing reaches production before a push to main passes the gate.
+#
+# Security updates (when Dependabot alerts are enabled in the repository settings) are not
+# delayed by the cooldown below and are not limited by this file.
+#
+# The cooldown keeps a release out for 7 days before Dependabot proposes it, which leaves
+# time for a hijacked release to be found and pulled first (the trivy-action tags were
+# hijacked in March 2026). Minor and patch bumps are grouped into one PR per ecosystem and
+# directory, so a week costs one E2E run per group rather than one per package.
+
+version: 2
+
+updates:
+  # backend/pyproject.toml + backend/uv.lock
+  - package-ecosystem: uv
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Paris
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    groups:
+      backend-minor-and-patch:
+        update-types: [minor, patch]
+    ignore:
+      # Capped on purpose in pyproject.toml: 0.0.36+ rejects the deliberately naive
+      # RoomUserLink timestamps (every room creation became a 500).
+      - dependency-name: sqlmodel
+        versions: [">=0.0.36"]
+
+  # front/bun.lock and e2e/bun.lock
+  - package-ecosystem: bun
+    directories:
+      - /front
+      - /e2e
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Paris
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    groups:
+      js-minor-and-patch:
+        update-types: [minor, patch]
+
+  # Every `uses:` in .github/workflows. trivy-action is pinned to a commit SHA; Dependabot
+  # moves the SHA and its version comment together.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Paris
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # The base images, pinned by digest in backend/Dockerfile and front/Dockerfile.
+  - package-ecosystem: docker
+    directories:
+      - /backend
+      - /front
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Paris
+    cooldown:
+      default-days: 7
+    ignore:
+      # The interpreter line is a decision (ty's python-version, requires-python, the
+      # lockfile), not a weekly bump: only new digests of python:3.12-slim.
+      - dependency-name: python
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+
+  # postgres, pgbouncer and redis in docker-compose.dokploy.yml, docker-compose.yml and
+  # e2e/docker-compose.e2e.yml.
+  - package-ecosystem: docker-compose
+    directories:
+      - /
+      - /e2e
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Paris
+    cooldown:
+      default-days: 7
+    ignore:
+      # A PostgreSQL major needs a dump and restore of the production data, never a
+      # merged PR.
+      - dependency-name: postgres
+        update-types: ["version-update:semver-major"]

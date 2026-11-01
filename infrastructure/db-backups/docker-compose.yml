@@ -1,0 +1,52 @@
+# Majlisna DB backups on the Oracle VPS, project /home/ubuntu/majlisna-backups/.
+# One container: a Dagu SCHEDULER (no web UI, no published port) running the DAG
+# dagu-config/dags/majlisna-db-backup.yaml. Install and update with ./install.sh.
+#
+# It is deliberately separate from LaTabdhir's backup project: adding Majlisna to
+# latabdhir-backup-dagu would mean recreating that container, mixing two projects'
+# secrets in one env_file, and dumping a PostgreSQL 16 with LaTabdhir's pg_dump 18
+# (whose archives only a PostgreSQL 18 can restore).
+#
+# Networks are declared, never attached by hand (`docker network connect` is lost the
+# next time a container is recreated):
+#   - majlisna-db: the Majlisna stack's internal network (majlisna-db, and the Kuma
+#     container for the heartbeat). Its name comes from the Dokploy compose project.
+#   - seaweedfs: LaTabdhir's backup network, for latabdhir-backup-seaweedfs:8333 (S3).
+# The defaults are the production names; the variables exist for the local test.
+name: majlisna-backups
+
+networks:
+  majlisna-db:
+    external: true
+    name: ${MAJLISNA_DB_NETWORK:-compose-index-cross-platform-capacitor-27v2m5_internal}
+  seaweedfs:
+    external: true
+    name: ${SEAWEEDFS_NETWORK:-latabdhir-backups_internal}
+
+services:
+  dagu:
+    container_name: ${BACKUP_CONTAINER:-majlisna-backup-dagu}
+    build: ./dagu-image
+    image: ${BACKUP_IMAGE:-majlisna-backup-dagu:local}
+    # Also applies to docker exec: a manual run never creates root-owned state.
+    user: "1001:1001"
+    entrypoint: ["/usr/local/bin/tini", "-g", "--"]
+    # Waits (bounded) for majlisna-db and SeaweedFS, then runs `dagu scheduler`.
+    command: ["/usr/local/bin/start-scheduler.sh"]
+    env_file: secrets.env
+    environment:
+      DAGU_HOME: /config
+      HOME: /home/dagu
+      DAGU_TZ: UTC
+    volumes:
+      - ./dagu-config:/config
+    networks: [majlisna-db, seaweedfs]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 128
+    restart: always
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
