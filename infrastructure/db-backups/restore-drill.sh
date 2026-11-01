@@ -22,7 +22,7 @@
 # Row deltas are printed (live writes since the dump); --strict makes any delta fatal.
 #
 # Env: BACKUP_EXEC     how to run a command in the backup container
-#                      (default: ssh latabdhir-tools docker exec -i majlisna-backup-dagu)
+#                      (default: ssh ubuntu@latabdhir-tools docker exec -i majlisna-backup-dagu)
 #      EXPECTED_KEY_ID owner key id the backups must be encrypted to (2967A96B8DFE7D92)
 #      DRILL_IMAGE     restore target (the production image, by digest)
 #      GNUPGHOME, GPG_DECRYPT_OPTS   owner mode only
@@ -31,7 +31,7 @@ set -euo pipefail
 umask 077
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-read -r -a EXEC <<<"${BACKUP_EXEC:-ssh latabdhir-tools docker exec -i majlisna-backup-dagu}"
+read -r -a EXEC <<<"${BACKUP_EXEC:-ssh ubuntu@latabdhir-tools docker exec -i majlisna-backup-dagu}"
 EXPECTED_KEY_ID="${EXPECTED_KEY_ID:-2967A96B8DFE7D92}"
 DRILL_IMAGE="${DRILL_IMAGE:-postgres:16-alpine@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685}"
 read -r -a DECRYPT_OPTS <<<"${GPG_DECRYPT_OPTS:-}"

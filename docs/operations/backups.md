@@ -27,8 +27,8 @@ The first-time sequence for the lead (about 5 minutes):
 
 ```bash
 # 1. install, first backup, and proof that the object is in the bucket (printed at the end)
-rsync -a --exclude test --exclude secrets.env --exclude __pycache__ infrastructure/db-backups/ latabdhir-tools:/home/ubuntu/majlisna-backups/
-ssh latabdhir-tools 'cd /home/ubuntu/majlisna-backups && ./install.sh --run'
+rsync -a --exclude test --exclude secrets.env --exclude __pycache__ infrastructure/db-backups/ ubuntu@latabdhir-tools:/home/ubuntu/majlisna-backups/
+ssh ubuntu@latabdhir-tools 'cd /home/ubuntu/majlisna-backups && ./install.sh --run'
 # 2. first drill, from the repo on the operator machine (no owner key needed)
 infrastructure/db-backups/restore-drill.sh --temp-key
 # 3. record the drill's report in the "Drill log" table below
@@ -181,8 +181,8 @@ The lead runs this on the VPS. It is idempotent: the same command installs and u
 # from the repo root, on the operator machine
 rsync -a --delete --exclude test --exclude secrets.env --exclude __pycache__ --exclude 'dagu-config/data' \
   --exclude 'dagu-config/logs' --exclude 'dagu-config/suspend' \
-  infrastructure/db-backups/ latabdhir-tools:/home/ubuntu/majlisna-backups/
-ssh latabdhir-tools 'cd /home/ubuntu/majlisna-backups && ./install.sh --run'
+  infrastructure/db-backups/ ubuntu@latabdhir-tools:/home/ubuntu/majlisna-backups/
+ssh ubuntu@latabdhir-tools 'cd /home/ubuntu/majlisna-backups && ./install.sh --run'
 ```
 
 `install.sh` does the following, in this order:
@@ -221,7 +221,7 @@ docker logs majlisna-backup-dagu                                      # schedule
 ## Restore drill (monthly)
 
 The drill runs on the operator's machine. It needs `docker`, `gpg`, `python3` and
-`ssh latabdhir-tools`, and it is read-only on production.
+`ssh ubuntu@latabdhir-tools`, and it is read-only on production.
 
 ```bash
 cd infrastructure/db-backups
@@ -275,9 +275,9 @@ each drill below.
 Never restore over a database that still holds data you have not saved. Restore into a
 scratch database first, check it, and only then swap.
 
-1. Choose the object: `ssh latabdhir-tools docker exec majlisna-backup-dagu python3
+1. Choose the object: `ssh ubuntu@latabdhir-tools docker exec majlisna-backup-dagu python3
    /usr/local/bin/s3.py list majlisna` (the newest is last).
-2. Download it, still encrypted: `ssh latabdhir-tools docker exec -i majlisna-backup-dagu
+2. Download it, still encrypted: `ssh ubuntu@latabdhir-tools docker exec -i majlisna-backup-dagu
    python3 /usr/local/bin/s3.py get <KEY> - > <KEY>`.
 3. On the owner machine, check it with a drill: `./restore-drill.sh --object <KEY>`.
 4. Have an empty `majlisna` database to restore into. If the volume is lost, redeploying
@@ -288,7 +288,7 @@ scratch database first, check it, and only then swap.
    lands on a disk:
 
    ```bash
-   gpg --decrypt <KEY> | ssh latabdhir-tools 'docker exec -i majlisna-db sh -c \
+   gpg --decrypt <KEY> | ssh ubuntu@latabdhir-tools 'docker exec -i majlisna-db sh -c \
      "pg_restore -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" --no-owner --exit-on-error --single-transaction"'
    ```
 
@@ -411,7 +411,7 @@ superuser.
 
 | Date (UTC) | Mode | Object | Encrypted / dump | Tables | Rows (backup / live) | Restore | Result |
 |---|---|---|---|---|---|---|---|
-| — | — | — | — | — | — | — | first drill pending (after install) |
+| 2026-11-01 10:10 | `--temp-key` | drill-majlisna-20261101T101002Z.dump.gpg (deleted after) | 579 001 / 578 770 bytes | 31 / 31 | 1 727 / 1 727 | 1 s, PostgreSQL 16.15, no network | PASS |
 
 The local end-to-end test of 2026-10-31 ran on a seeded throwaway database, not
 production. Its owner-mode drill on that database:

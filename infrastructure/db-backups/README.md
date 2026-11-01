@@ -13,8 +13,8 @@ install, restore, drill, alerts and limits.
 ```bash
 # install or update on the VPS (idempotent), then run once
 rsync -a --exclude test --exclude secrets.env --exclude __pycache__ --exclude 'dagu-config/data' --exclude 'dagu-config/logs' \
-  --exclude 'dagu-config/suspend' infrastructure/db-backups/ latabdhir-tools:/home/ubuntu/majlisna-backups/
-ssh latabdhir-tools 'cd /home/ubuntu/majlisna-backups && ./install.sh --run'
+  --exclude 'dagu-config/suspend' infrastructure/db-backups/ ubuntu@latabdhir-tools:/home/ubuntu/majlisna-backups/
+ssh ubuntu@latabdhir-tools 'cd /home/ubuntu/majlisna-backups && ./install.sh --run'
 
 # restore drill, from the operator machine
 infrastructure/db-backups/restore-drill.sh            # owner key
