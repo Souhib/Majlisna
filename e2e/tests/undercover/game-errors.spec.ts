@@ -78,9 +78,9 @@ test.describe("Undercover Game Errors", () => {
     const input = describer.page.locator("#description-input");
     await expect(input).toBeVisible({ timeout: 15_000 });
 
-    // Act — the describer types their own word, in capitals, as ONE word: the page refuses
-    // a space before sending ("Use one word"), and a term such as "Eid al-Fitr" is drawn
-    // at random, so "EID-AL-FITR" (hyphens are spaces to the server's comparison)
+    // Act — the describer types their own word, in capitals, as ONE word: the page and the
+    // server both refuse a space (invalidDescriptionWord), and a term such as "Eid al-Fitr"
+    // is drawn at random, so "EID-AL-FITR" (hyphens are spaces to the own-word comparison)
     await submitDescriptionViaUI(describer.page, own.my_word.toUpperCase().replace(/\s+/g, "-"));
 
     // Assert — said in the page, in the server's words; the turn is still theirs (BR-16:
@@ -93,7 +93,7 @@ test.describe("Undercover Game Errors", () => {
     // ...the server refuses it by name, whatever the case, with nothing in the error to
     // repeat the word
     const refused = await expectApiError(
-      await rawPost(`/api/v1/undercover/games/${gameId}/describe`, { word: own.my_word.toLowerCase() }, describer.login.access_token),
+      await rawPost(`/api/v1/undercover/games/${gameId}/describe`, { word: own.my_word.toLowerCase().replace(/\s+/g, "-") }, describer.login.access_token),
       400,
       "errors.api.descriptionRevealsWord",
     );

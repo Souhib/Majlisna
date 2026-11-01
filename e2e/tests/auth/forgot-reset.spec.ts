@@ -30,9 +30,13 @@ test.describe("Forgot password, then reset", () => {
     await page.goto(ROUTES.login);
     await page.getByRole("link", { name: "Forgot password?" }).click();
     await expect(page).toHaveURL(/\/auth\/forgot-password$/);
+    // the address changes before the lazy page renders, and the login page has an
+    // input#email too: fill only once the forgot-password form is the one on screen
+    const send = page.getByRole("button", { name: "Send the link" });
+    await expect(send).toBeVisible();
     await page.locator('input[id="email"]').fill(account.email);
     const asked = page.waitForResponse((r) => new URL(r.url()).pathname === "/api/v1/auth/forgot-password");
-    await page.getByRole("button", { name: "Send the link" }).click();
+    await send.click();
 
     // Assert — the page says a link is on its way; the server issued one token, stored as a digest
     expect((await asked).status()).toBe(200);
