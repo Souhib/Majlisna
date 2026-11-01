@@ -29,6 +29,15 @@ bun run test:coverage       # With coverage: what CI runs; floors in vitest.conf
 bun run test:ui             # Vitest UI
 ```
 
+**Tests run on two storages: never spy on `localStorage` or `sessionStorage`.** On Node ≥ 25
+(a workstation) `src/test/setup.ts` installs an in-memory `Storage`; on CI's Node 22/24 the
+storage is happy-dom's, a Proxy on which `vi.spyOn(localStorage, "getItem")` is never
+restored, so a "blocked storage" spy leaks into every later test of the file (7 failures in
+CI on 2026-11-01, green locally). Replace the global instead, which `vi.unstubAllGlobals()`
+undoes: `vi.stubGlobal("localStorage", { getItem: blocked, setItem: blocked, removeItem:
+blocked, clear: () => {} })`. To reproduce CI's storage locally:
+`npx -y node@22 node_modules/vitest/vitest.mjs run <files>`.
+
 ## Tech Stack
 
 - **Runtime**: Bun

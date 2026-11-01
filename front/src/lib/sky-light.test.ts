@@ -138,12 +138,12 @@ describe("the stored record (majlisna-sky-light)", () => {
     // a good record behind a storage that refuses to be read
     localStorage.setItem(SKY_LIGHT_KEY, JSON.stringify({ light: "dark", turns: [[1, "light"]] }))
     expect(readSkyRecord()).not.toBeNull()
-    vi.spyOn(localStorage, "getItem").mockImplementation(() => {
+    // a stubbed global, not spies: on happy-dom's Storage (a Proxy) a spy is not restored
+    // and the throwing storage outlived the test (CI, Node < 25)
+    const blocked = () => {
       throw new Error("blocked")
-    })
-    vi.spyOn(localStorage, "setItem").mockImplementation(() => {
-      throw new Error("blocked")
-    })
+    }
+    vi.stubGlobal("localStorage", { getItem: blocked, setItem: blocked, removeItem: blocked, clear: () => {} })
     expect(readSkyRecord()).toBeNull()
     expect(() => writeSkyRecord({ light: "dark", turns: [{ at: 1, light: "light" }] })).not.toThrow()
   })

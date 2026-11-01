@@ -362,12 +362,12 @@ describe("ThemeProvider: Follow the sky", () => {
 
   it("still renders when storage is blocked", () => {
     // Prepare
-    vi.spyOn(localStorage, "getItem").mockImplementation(() => {
+    // a stubbed global, not spies: on happy-dom's Storage (a Proxy) a spy is not restored
+    // and the throwing storage outlived the test (CI, Node < 25)
+    const blocked = () => {
       throw new Error("blocked")
-    })
-    vi.spyOn(localStorage, "setItem").mockImplementation(() => {
-      throw new Error("blocked")
-    })
+    }
+    vi.stubGlobal("localStorage", { getItem: blocked, setItem: blocked, removeItem: blocked, clear: () => {} })
 
     // Act
     mount(null)
