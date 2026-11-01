@@ -65,7 +65,11 @@ class McqQuizGameState(BaseModel):
     # not answer (or are a spectator).
     my_choice_index: int | None = None
     my_answer_time_ms: int | None = None
+    # The one winner's username; null for a shared win, a 0-0 game or a solo game
+    # (owner rule (a)) — `winner_ids` then names every top scorer.
     winner: str | None = None
+    # Every winner's user_id, set at game over (empty before, and when nobody won).
+    winner_ids: list[str] = []
     leaderboard: list[McqQuizPlayerState]
     game_over: bool
     ready_players: list[str] = []

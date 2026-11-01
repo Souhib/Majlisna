@@ -1,8 +1,25 @@
-"""Test configuration and fixtures for Majlisna backend."""
+"""Test configuration and fixtures for Majlisna backend.
+
+What the shared fixtures cost, and why (WP-19: TQ-11, INFRA-16):
+
+- **Passwords are hashed at bcrypt's cheapest cost** (``cheap_bcrypt``, autouse). A test
+  marked ``real_bcrypt`` keeps production's cost of 12.
+- **A test gets a database only when it asks for one**: ``engine``, ``session``, or any
+  fixture built on them. A pure-function test sets up nothing, and with
+  ``--use-postgres`` a run of pure tests never even starts the container.
+- **SQLite**: a fresh in-memory database per test. **PostgreSQL**: one container and one
+  schema for the whole session (``postgres_schema``), emptied after every test that used
+  it by ONE ``TRUNCATE ... RESTART IDENTITY CASCADE``.
+
+Tests: ``tests/test_wp19_fixtures.py``.
+"""
 
 import subprocess
+from collections.abc import AsyncIterator, Iterator
 from datetime import datetime
+from functools import partial
 
+import bcrypt
 import pytest
 import pytest_asyncio
 from faker import Faker
@@ -43,6 +60,32 @@ from majlisna.api.schemas.term_script import TermScriptEntry
 from majlisna.api.utils.cache import cache
 from majlisna.settings import Settings
 
+# ========== Test-run constants ==========
+
+# bcrypt's lowest cost: 0.001 s a hash, against 0.24 s at production's 12 (gensalt()'s
+# default). Five players' accounts were 1.2 s of a 3.6 s game test (TQ-11).
+TEST_BCRYPT_ROUNDS = 4
+# The marker that keeps production's cost, for the tests of the hash itself.
+REAL_BCRYPT_MARKER = "real_bcrypt"
+
+# The session's PostgreSQL server (the version production runs).
+POSTGRES_TEST_IMAGE = "postgres:16-alpine"
+# Durability the tests never need: a commit does not wait for the disk. Locks, isolation
+# and every SQL behaviour are unchanged; only a crash of the container could lose data.
+POSTGRES_TEST_COMMAND = "postgres -c fsync=off -c synchronous_commit=off -c full_page_writes=off"
+# No SCRAM handshake per connection. The engine is NullPool, so every session end closes
+# its connection and the next statement opens one: ~30 ms each through Docker Desktop, of
+# which the password exchange is about a fifth. The credentials (test/test) are public anyway.
+POSTGRES_TEST_AUTH_METHOD = "trust"
+# How long the cleanup after a test waits for its table locks. A test that leaves a
+# transaction open (a session never closed, a task never awaited) holds them: the
+# cleanup then fails at that test's teardown, naming it, instead of hanging the run.
+CLEANUP_LOCK_TIMEOUT = "30s"
+
+# The fixture every database fixture is built on: a test that needs it gets a database.
+ENGINE_FIXTURE = "engine"
+
+
 # ========== PyTest Configuration ==========
 
 
@@ -57,8 +100,11 @@ def pytest_addoption(parser):
 
 
 def pytest_configure(config):
-    """Register the 'postgres' marker and check Docker availability when --use-postgres is specified."""
+    """Register the markers and check Docker availability when --use-postgres is specified."""
     config.addinivalue_line("markers", "postgres: marks tests requiring PostgreSQL (skip without --use-postgres)")
+    config.addinivalue_line(
+        "markers", f"{REAL_BCRYPT_MARKER}: hash passwords at production's bcrypt cost, not the tests' cheap one"
+    )
     if config.getoption("--use-postgres", default=False):
         error_reason = None
         try:
@@ -98,6 +144,29 @@ def clear_cache():
     cache.clear()
 
 
+# ========== Password hashing ==========
+
+
+@pytest.fixture(autouse=True)
+def cheap_bcrypt(request: pytest.FixtureRequest) -> Iterator[None]:
+    """Hash the test's passwords at ``TEST_BCRYPT_ROUNDS``, unless it is marked ``real_bcrypt``.
+
+    ``get_password_hash`` reads the module's ``gensalt`` at every call, the async variant
+    included (it runs it in a thread of the pool), so this one patch covers the fixtures,
+    registration, password changes, resets and the Google sentinel alike. A cost-4 hash is
+    a real bcrypt hash: ``verify_password`` checks it exactly as it checks a cost-12 one.
+    """
+    if request.node.get_closest_marker(REAL_BCRYPT_MARKER) is not None:
+        yield
+        return
+    with pytest.MonkeyPatch.context() as patcher:
+        patcher.setattr(
+            "majlisna.api.controllers.shared.gensalt",
+            partial(bcrypt.gensalt, rounds=TEST_BCRYPT_ROUNDS),
+        )
+        yield
+
+
 # ========== Core Infrastructure ==========
 
 
@@ -132,54 +201,106 @@ def get_use_postgres(request):
 
 @pytest.fixture(name="postgres_container", scope="session")
 def get_postgres_container(use_postgres):
-    """Start a PostgreSQL testcontainer once for the entire test session."""
+    """Start a PostgreSQL testcontainer once for the entire test session (the first test that needs it)."""
     if not use_postgres:
         yield None
         return
 
     from testcontainers.postgres import PostgresContainer  # noqa: PLC0415
 
-    with PostgresContainer("postgres:16-alpine") as postgres:
+    container = (
+        PostgresContainer(POSTGRES_TEST_IMAGE)
+        .with_command(POSTGRES_TEST_COMMAND)
+        .with_env("POSTGRES_HOST_AUTH_METHOD", POSTGRES_TEST_AUTH_METHOD)
+    )
+    with container as postgres:
         yield postgres
 
 
-@pytest_asyncio.fixture(name="engine", scope="function")
-async def get_engine(use_postgres, postgres_container):
-    """Create a database engine for testing.
+class PostgresSchema:
+    """The session's PostgreSQL database: one engine, one schema, emptied after each test.
 
-    SQLite (default): In-memory with StaticPool, PRAGMA foreign_keys=ON.
-    PostgreSQL (--use-postgres): Testcontainer with NullPool.
+    The engine is ``NullPool``: every session end closes its connection, so nothing a test
+    leaves on a connection (a session setting, a session-level lock, a cancelled query)
+    reaches the next one, and each task of a concurrency test gets a connection of its own.
+    ``test_game_lock.py`` builds pooled engines of its own for the pool's behaviour.
     """
-    if use_postgres:
-        if postgres_container is None:
-            raise RuntimeError("PostgreSQL container not available. Make sure Docker is running.")
 
-        db_url = postgres_container.get_connection_url().replace("postgresql+psycopg2://", "postgresql+asyncpg://")
-        engine = create_async_engine(db_url, echo=False, poolclass=NullPool)
+    def __init__(self, engine: AsyncEngine):
+        self.engine = engine
+        self.tables: tuple[str, ...] = ()
 
-        async with engine.begin() as conn:
-            await conn.run_sync(lambda sync_engine: SQLModel.metadata.create_all(sync_engine, checkfirst=True))
+    async def create_missing_tables(self) -> None:
+        """Create the tables the models declare and the database lacks: every one, the first time.
 
-        yield engine
-        await engine.dispose()
-    else:
-        engine = create_async_engine(
-            "sqlite+aiosqlite:///:memory:",
-            connect_args={"check_same_thread": False},
-            poolclass=StaticPool,
-        )
-
-        @event.listens_for(engine.sync_engine, "connect")
-        def _set_sqlite_pragma(dbapi_conn, connection_record):  # noqa: ARG001
-            cursor = dbapi_conn.cursor()
-            cursor.execute("PRAGMA foreign_keys=ON")
-            cursor.close()
-
-        async with engine.begin() as conn:
+        This module and the test modules import every model before the first test runs,
+        so after that first call this is a comparison of names. A model registered later
+        would still get its table, as the old per-test ``create_all(checkfirst=True)`` gave it.
+        """
+        if set(self.tables) == set(SQLModel.metadata.tables):
+            return
+        async with self.engine.begin() as conn:
             await conn.run_sync(SQLModel.metadata.create_all)
+        self.tables = tuple(table.name for table in SQLModel.metadata.sorted_tables)
 
-        yield engine
-        await engine.dispose()
+    async def empty(self) -> None:
+        """Empty every table and restart every sequence, in ONE statement.
+
+        It used to be one ``TRUNCATE ... CASCADE`` per table, one after another, after
+        every test of the suite (INFRA-16). The enum types are part of the schema: they stay.
+        """
+        tables = ", ".join(f'"{name}"' for name in self.tables)
+        async with self.engine.begin() as conn:
+            await conn.execute(text(f"SET LOCAL lock_timeout = '{CLEANUP_LOCK_TIMEOUT}'"))
+            await conn.execute(text(f"TRUNCATE TABLE {tables} RESTART IDENTITY CASCADE"))
+
+
+@pytest_asyncio.fixture(name="postgres_schema", scope="session")
+async def get_postgres_schema(postgres_container) -> AsyncIterator[PostgresSchema | None]:
+    """The session's PostgreSQL engine and schema (``--use-postgres``); None on SQLite."""
+    if postgres_container is None:
+        yield None
+        return
+
+    db_url = postgres_container.get_connection_url().replace("postgresql+psycopg2://", "postgresql+asyncpg://")
+    schema = PostgresSchema(create_async_engine(db_url, echo=False, poolclass=NullPool))
+    yield schema
+    await schema.engine.dispose()
+
+
+def _enable_sqlite_foreign_keys(dbapi_conn, connection_record) -> None:  # noqa: ARG001
+    """SQLite enforces foreign keys only when each connection asks (backend/CLAUDE.md)."""
+    cursor = dbapi_conn.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
+
+
+@pytest_asyncio.fixture(name="engine", scope="function")
+async def get_engine(postgres_schema: PostgresSchema | None) -> AsyncIterator[AsyncEngine]:
+    """The test's database engine. Only a test that uses it pays for a database.
+
+    SQLite (default): a fresh in-memory database (StaticPool, PRAGMA foreign_keys=ON),
+    gone when the engine is disposed.
+    PostgreSQL (--use-postgres): the session's schema, emptied after the test.
+    """
+    if postgres_schema is not None:
+        await postgres_schema.create_missing_tables()
+        yield postgres_schema.engine
+        await postgres_schema.empty()
+        return
+
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    event.listen(engine.sync_engine, "connect", _enable_sqlite_foreign_keys)
+    async with engine.begin() as conn:
+        # A brand-new database: nothing to check first.
+        await conn.run_sync(lambda sync_conn: SQLModel.metadata.create_all(sync_conn, checkfirst=False))
+
+    yield engine
+    await engine.dispose()
 
 
 @pytest_asyncio.fixture(name="session", scope="function")
@@ -189,21 +310,19 @@ async def get_session(engine: AsyncEngine) -> AsyncSession:
         yield session
 
 
-@pytest_asyncio.fixture(autouse=True, scope="function")
-async def clear_database(engine: AsyncEngine):
-    """Clear the database after each test function to prevent cross-test pollution."""
-    yield
-    is_sqlite = "sqlite" in str(engine.url)
-    async with engine.begin() as conn:
-        if is_sqlite:
-            await conn.execute(text("PRAGMA foreign_keys = OFF;"))
-            await conn.run_sync(SQLModel.metadata.drop_all)
-            await conn.execute(text("PRAGMA foreign_keys = ON;"))
-            await conn.run_sync(lambda sync_engine: SQLModel.metadata.create_all(sync_engine, checkfirst=True))
-        else:
-            # PostgreSQL: truncate all tables for faster cleanup
-            for table in reversed(SQLModel.metadata.sorted_tables):
-                await conn.execute(text(f'TRUNCATE TABLE "{table.name}" CASCADE'))  # noqa: S608
+@pytest.fixture(autouse=True)
+def clear_database(request: pytest.FixtureRequest) -> None:
+    """Set the database up FIRST for a test that uses it, so that it is cleaned up LAST.
+
+    Only a test that needs ``engine`` (``session`` and every database fixture are built
+    on it) gets a database; this fixture used to DEPEND on ``engine``, so every test of
+    the suite, pure functions included, built or re-checked the schema (INFRA-16). Being
+    autouse, it is set up before the test's own fixtures, so the engine is torn down —
+    its tables emptied — after all of them (live servers, clients, the notifications they
+    drain) have let go of their connections, exactly as when it set the engine up for all.
+    """
+    if ENGINE_FIXTURE in request.fixturenames:
+        request.getfixturevalue(ENGINE_FIXTURE)
 
 
 # ========== Controller Fixtures ==========

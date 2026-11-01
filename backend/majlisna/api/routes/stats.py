@@ -29,8 +29,12 @@ async def get_user_stats(
     user_id: UUID,
     stats_controller: Annotated[StatsController, Depends(get_stats_controller)],
 ) -> UserStats:
-    """Get aggregated statistics for a user."""
-    return await stats_controller.get_or_create_user_stats(user_id)
+    """Get aggregated statistics for a user (read-only: zeros for a user with no games yet).
+
+    404 for an unknown user. This used to create the row, so an anonymous GET wrote to
+    the database and an unknown id answered a 500.
+    """
+    return await stats_controller.read_user_stats(user_id)
 
 
 @router.get("/users/{user_id}/achievements", response_model=Sequence[AchievementWithProgress])

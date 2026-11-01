@@ -8,7 +8,7 @@ from fastapi import status
 from loguru import logger
 from starlette.responses import JSONResponse
 
-from majlisna.api.constants import CODENAMES_BOARD_SIZE
+from majlisna.api.constants import BCRYPT_MAX_PASSWORD_BYTES, CODENAMES_BOARD_SIZE
 
 
 class LogLevel(StrEnum):
@@ -1214,6 +1214,132 @@ class FriendshipNotFoundError(BaseError):
             message="Friendship not found",
             frontend_message="Friend request not found.",
             status_code=status.HTTP_404_NOT_FOUND,
+        )
+
+
+# ─── Shared contracts of the 2026-10 audit (WP-00) ─────────────────────────────
+#
+# Declared once, ahead of the packages that raise them, so every one ships with its
+# `errors.api.*` key in en/fr/ar. None of them carries a secret word in its message,
+# details or params: they answer moves made while a game is still running.
+
+
+class ClueMustBeOneWordError(BaseError):
+    """A Codenames clue that is blank or holds whitespace once stripped (BR-14)."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            message="Clue must be a single word",
+            frontend_message="Give a one-word clue.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+class DescriptionRevealsWordError(BaseError):
+    """An Undercover description that is the describer's own secret word (BR-16).
+
+    Deliberately without details: the word is the secret.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            message="Description gives away the secret word",
+            frontend_message="Describe your word without saying it.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+class AnswerAttemptsExhaustedError(BaseError):
+    """A Kalimat player who has used every try of the round (owner rule (e))."""
+
+    def __init__(self, max_attempts: int):
+        super().__init__(
+            message=f"No tries left this round (max {max_attempts})",
+            frontend_message=f"You have used your {max_attempts} tries for this round.",
+            status_code=status.HTTP_409_CONFLICT,
+            error_params={"max": max_attempts},
+            details={"max_attempts": max_attempts},
+        )
+
+
+class RoomBannedError(BaseError):
+    """Joining or spectating a room whose host removed the caller (owner rule (c))."""
+
+    def __init__(self, room_id: UUID | str):
+        super().__init__(
+            message=f"User is banned from room {room_id}",
+            frontend_message="The host removed you from this room.",
+            status_code=status.HTTP_403_FORBIDDEN,
+            details={"room_id": str(room_id)},
+        )
+
+
+class RoomBanNotFoundError(BaseError):
+    """Lifting a ban that does not exist (or no longer does)."""
+
+    def __init__(self, room_id: UUID | str, user_id: UUID | str):
+        super().__init__(
+            message=f"User {user_id} is not banned from room {room_id}",
+            frontend_message="This player is not banned from the room.",
+            status_code=status.HTTP_404_NOT_FOUND,
+            details={"room_id": str(room_id), "user_id": str(user_id)},
+        )
+
+
+class PasswordTooLongError(BaseError):
+    """A password longer than bcrypt can hash (BCRYPT_MAX_PASSWORD_BYTES of UTF-8)."""
+
+    def __init__(self, max_bytes: int = BCRYPT_MAX_PASSWORD_BYTES):
+        super().__init__(
+            message=f"Password exceeds {max_bytes} bytes",
+            frontend_message="This password is too long. Choose a shorter one.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            details={"max_bytes": max_bytes},
+        )
+
+
+class SessionRevokedError(BaseError):
+    """A token of a session that was signed out, expired or revoked (SEC F01)."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            message="Session revoked",
+            frontend_message="You were signed out. Sign in again.",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
+
+
+class NotAnAlivePlayerError(BaseError):
+    """An action only a player still alive in the game may take (e.g. the ready mark)."""
+
+    def __init__(self, user_id: UUID | str, game_id: UUID | str):
+        super().__init__(
+            message=f"User {user_id} is not an alive player of game {game_id}",
+            frontend_message="Only a player still in the game can do this.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            details={"user_id": str(user_id), "game_id": str(game_id)},
+        )
+
+
+class InvalidAvatarUrlError(BaseError):
+    """A profile picture that is not an https URL on an allowed host (SEC F15)."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            message="Profile picture URL not allowed",
+            frontend_message="This picture address cannot be used.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+class GoogleAccountMismatchError(BaseError):
+    """A Google re-confirmation made with another Google account than the profile's."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            message="Google account does not match this user",
+            frontend_message="That Google account is not the one linked to this profile.",
+            status_code=status.HTTP_403_FORBIDDEN,
         )
 
 

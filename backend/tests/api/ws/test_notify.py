@@ -4,13 +4,19 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID
 
 import pytest
+from loguru import logger
 
 from majlisna.api.models.game import GameType
+from majlisna.api.schemas.common import TimerExpiredAction
+from majlisna.api.schemas.error import PlayerRemovedFromGameError
 from majlisna.api.ws.notify import (
+    NO_OP_TIMER_ACTIONS,
+    _get_room_id_for_game,
     notify_chat_message,
     notify_game_changed,
     notify_member_removed,
     notify_room_changed,
+    notify_timer_outcome,
     notify_user_kicked,
 )
 from majlisna.api.ws.state import fetch_game_state
@@ -28,7 +34,7 @@ def mock_sio():
 @pytest.fixture
 def mock_fetch_room_state():
     with patch("majlisna.api.ws.notify.fetch_room_state", new_callable=AsyncMock) as mock:
-        mock.return_value = {"id": "room-1", "players": [], "active_game_id": None}
+        mock.return_value = {"id": "room-1", "players": [{"user_id": "u-1"}], "active_game_id": None}
         yield mock
 
 
@@ -41,7 +47,9 @@ async def test_notify_room_broadcasts_room_state(mock_sio, mock_fetch_room_state
 
     mock_fetch_room_state.assert_called_once_with("room-1")
     mock_sio.emit.assert_called_once_with(
-        "room_state", {"id": "room-1", "players": [], "active_game_id": None}, to="room:room-1"
+        "room_state",
+        {"id": "room-1", "players": [{"user_id": "u-1"}], "active_game_id": None},
+        to=["member:room-1:u-1"],
     )
 
 
@@ -256,6 +264,65 @@ async def test_fetch_game_state_reads_the_state_in_the_requested_language(
     )
 
 
+def _mcq_state_session() -> AsyncMock:
+    """A mocked DB session for fetch_game_state whose game is a running MCQ quiz."""
+    game = MagicMock()
+    game.type = GameType.MCQ_QUIZ
+    exec_result = MagicMock()
+    exec_result.first.return_value = game
+    session = AsyncMock()
+    session.exec = AsyncMock(return_value=exec_result)
+    session.__aenter__ = AsyncMock(return_value=session)
+    session.__aexit__ = AsyncMock(return_value=False)
+    return session
+
+
+async def _fetch_game_state_logging(failure: Exception) -> tuple[dict, list[str]]:
+    """fetch_game_state with the controller failing as given; the WARNING+ levels it logged."""
+    controller = MagicMock()
+    controller.get_state = AsyncMock(side_effect=failure)
+    levels: list[str] = []
+    sink_id = logger.add(lambda message: levels.append(message.record["level"].name), level="WARNING")
+    try:
+        with (
+            patch("majlisna.api.ws.state.get_engine", new_callable=AsyncMock),
+            patch("majlisna.api.ws.state.AsyncSession", return_value=_mcq_state_session()),
+            patch("majlisna.api.ws.state.McqQuizGameController", return_value=controller),
+        ):
+            result = await fetch_game_state(
+                "00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002"
+            )
+    finally:
+        logger.remove(sink_id)
+    return result, levels
+
+
+async def test_fetch_game_state_for_a_player_no_longer_in_the_game_is_no_server_error():
+    """A refusal for this caller is not a failure of the server.
+
+    join_game checks the seat, then reads the state: a player who leaves in between
+    (their page was joining the game as they left) is refused by the game's own
+    get_state with a 4xx. It was logged with logger.exception, an ERROR with a
+    traceback (a tracked issue in production; seen in the E2E gate's backend log),
+    while BaseError already logs every 4xx at INFO ("Expected 4xx log at INFO").
+    """
+    # Act
+    result, levels = await _fetch_game_state_logging(PlayerRemovedFromGameError(user_id="u", game_id="g"))
+
+    # Assert — no state to send, and nothing at WARNING or above
+    assert result == {}
+    assert levels == []
+
+
+async def test_fetch_game_state_still_logs_a_real_failure_as_an_error():
+    # Act
+    result, levels = await _fetch_game_state_logging(RuntimeError("the database went away"))
+
+    # Assert
+    assert result == {}
+    assert levels == ["ERROR"]
+
+
 async def test_fetch_game_state_not_found():
     """fetch_game_state returns empty dict for non-existent game."""
     mock_exec_result = MagicMock()
@@ -299,3 +366,59 @@ async def test_notify_game_without_a_resolvable_room_still_emits_to_the_game_roo
         await notify_game_changed("orphan-game")
 
     mock.emit.assert_awaited_once_with("game_updated", {"game_id": "orphan-game"}, to=["game:orphan-game"])
+
+
+# ========== timer-expired outcomes (BDP-03, SEC F08) ==========
+
+
+def test_the_no_op_timer_answers_are_exactly_those_that_change_nothing():
+    """Only a true no-op may skip the broadcast: one that hid a real change would leave
+    the table on a stale game. ``none`` is Undercover's "no timed phase" (it writes the
+    state back unchanged); every other answer moves the game."""
+    expected = {
+        TimerExpiredAction.PAUSED,
+        TimerExpiredAction.TIMER_NOT_EXPIRED,
+        TimerExpiredAction.NOT_PLAYING,
+        TimerExpiredAction.ROUND_ALREADY_RESOLVED,
+        TimerExpiredAction.NONE,
+    }
+    assert set(NO_OP_TIMER_ACTIONS) == expected
+
+
+@pytest.mark.parametrize("action", list(TimerExpiredAction))
+async def test_a_timer_outcome_is_broadcast_only_when_it_changed_the_game(action: TimerExpiredAction):
+    """N clients fire one timer; the one call that acted reaches the table, the N-1 others do not."""
+    # Act
+    with patch("majlisna.api.ws.notify.notify_game_changed", new_callable=AsyncMock) as notify:
+        await notify_timer_outcome("game-1", action)
+
+    # Assert
+    if action in NO_OP_TIMER_ACTIONS:
+        notify.assert_not_awaited()
+    else:
+        notify.assert_awaited_once_with("game-1")
+
+
+async def test_the_room_lookup_reads_the_room_id_alone(engine, sample_game, count_statements):
+    """BDP-03: resolving a game's room loaded the whole Game row, its live_state JSON
+    included, on every game broadcast — a third full read of the state per mutation."""
+    # Prepare
+    live_state_reads = count_statements("live_state")
+
+    # Act
+    with patch("majlisna.api.ws.notify.get_engine", new=AsyncMock(return_value=engine)):
+        room_id = await _get_room_id_for_game(str(sample_game.id))
+
+    # Assert
+    assert room_id == str(sample_game.room_id)
+    assert live_state_reads.count == 0
+
+
+async def test_the_room_lookup_of_an_unknown_game_is_none(engine):
+    """No game, no room: the signal still goes to the game room alone."""
+    # Act
+    with patch("majlisna.api.ws.notify.get_engine", new=AsyncMock(return_value=engine)):
+        room_id = await _get_room_id_for_game("00000000-0000-0000-0000-0000000000aa")
+
+    # Assert
+    assert room_id is None

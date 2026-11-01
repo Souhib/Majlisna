@@ -8,14 +8,26 @@ from sqlalchemy.orm.attributes import flag_modified
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from majlisna.api.constants import DEFAULT_WORD_QUIZ_MAX_HINTS, DEFAULT_WORD_QUIZ_ROUNDS
+from majlisna.api.constants import (
+    DEFAULT_WORD_QUIZ_MAX_HINTS,
+    DEFAULT_WORD_QUIZ_ROUNDS,
+    WINNER_IDS_KEY,
+    WORDQUIZ_MAX_ATTEMPTS_PER_ROUND,
+    WORDQUIZ_WRONG_ANSWER_RUNG_PENALTY,
+)
+from majlisna.api.controllers.game_cancel import cancel_running_game
 from majlisna.api.controllers.wordquiz_game import WordQuizGameController
-from majlisna.api.models.game import GameStatus
+from majlisna.api.models.game import GameStatus, GameType
 from majlisna.api.models.relationship import RoomUserLink
-from majlisna.api.models.table import Game
+from majlisna.api.models.stats import UserStats
+from majlisna.api.models.table import Game, Room
+from majlisna.api.schemas.common import TimerExpiredAction
 from majlisna.api.schemas.error import (
     AlreadyAnsweredError,
+    AnswerAttemptsExhaustedError,
     EmptyAnswerError,
+    GameAlreadyOverError,
+    NotAGameParticipantError,
     RoundNotPlayingError,
     SpectatorCannotAnswerError,
 )
@@ -253,10 +265,8 @@ async def test_timer_expired_non_host_allowed(wordquiz_game_controller, setup_wo
     # Prepare
     setup = await setup_wordquiz_game(num_players=2)
     room, users = setup["room"], setup["users"]
-    room.settings = {"word_quiz_turn_duration": 0}  # 0 seconds = already expired
-    session.add(room)
-    await session.commit()
     result = await _start_game(wordquiz_game_controller, room.id, users[0].id)
+    await _expire_the_round(session, result.game_id)  # 0 is untimed, not "already expired"
 
     # Act — non-host triggers timer expiration
     timer_result = await wordquiz_game_controller.handle_timer_expired(UUID(result.game_id), users[1].id)
@@ -401,7 +411,8 @@ async def test_game_over_after_all_rounds(wordquiz_game_controller, setup_wordqu
     game = await _get_game(session, result.game_id)
     assert game.live_state["game_over"] is True
     assert game.live_state["round_phase"] == "game_over"
-    assert game.live_state["winner"] is not None
+    # A solo game is played, never won (owner rule (a)): no winner label.
+    assert game.live_state["winner"] is None
     assert game.game_status == GameStatus.FINISHED
     assert game.end_time is not None
 
@@ -627,14 +638,11 @@ async def test_answer_during_results_rejected(wordquiz_game_controller, setup_wo
 @pytest.mark.asyncio
 async def test_timer_expired_transitions_to_results(wordquiz_game_controller, setup_wordquiz_game, session):
     """Timer expiration should transition from playing to results phase."""
-    # Prepare — use a very short turn duration so timer is expired server-side
+    # Prepare — a round whose clock has really run out
     setup = await setup_wordquiz_game(num_players=2)
     room, users = setup["room"], setup["users"]
-    room.settings = {"word_quiz_turn_duration": 0}  # 0 seconds = already expired
-    session.add(room)
-    await session.commit()
-
     result = await _start_game(wordquiz_game_controller, room.id, users[0].id)
+    await _expire_the_round(session, result.game_id)  # 0 is untimed, not "already expired"
 
     # Act
     timer_result = await wordquiz_game_controller.handle_timer_expired(UUID(result.game_id), users[0].id)
@@ -813,7 +821,8 @@ async def test_advance_final_round_ends_game(wordquiz_game_controller, setup_wor
     game = await _get_game(session, result.game_id)
     assert game.live_state["game_over"] is True
     assert game.live_state["round_phase"] == "game_over"
-    assert game.live_state["winner"] is not None
+    # A solo game is played, never won (owner rule (a)): no winner label.
+    assert game.live_state["winner"] is None
     assert game.game_status == GameStatus.FINISHED
     assert game.end_time is not None
 
@@ -1055,3 +1064,448 @@ async def test_state_carries_the_colophon_once_over(wordquiz_game_controller, se
     assert over.ended_at >= over.started_at
     stored = await _get_game(session, result.game_id)
     assert stored.end_time is not None
+
+
+# === WP-10: a wrong try costs a rung, five tries a round (owner rule (e), BR-10, SEC F15) ===
+
+
+async def _reload(session: AsyncSession, game_id_str: str) -> Game:
+    """The game as stored, not the instance a controller may still hold in memory."""
+    statement = select(Game).where(Game.id == UUID(game_id_str)).execution_options(populate_existing=True)
+    return (await session.exec(statement)).one()
+
+
+async def _start_one_round(controller, setup_wordquiz_game, session, num_players: int = 2):
+    """A one-round Kalimat, started by the first player (the host)."""
+    setup = await setup_wordquiz_game(num_players=num_players)
+    room, users = setup["room"], setup["users"]
+    room.settings = {**(room.settings or {}), "word_quiz_rounds": 1}
+    session.add(room)
+    await session.commit()
+    result = await _start_game(controller, room.id, users[0].id)
+    game = await _get_game(session, result.game_id)
+    return room, users, result.game_id, game.live_state["current_word"]["word_en"]
+
+
+async def _expire_the_round(session: AsyncSession, game_id_str: str, seconds_ago: int = 120) -> None:
+    """Move the round's anchor back so its (positive) duration has really elapsed."""
+    game = await _reload(session, game_id_str)
+    game.live_state["round_started_at"] = (datetime.now(UTC) - timedelta(seconds=seconds_ago)).isoformat()
+    flag_modified(game, "live_state")
+    session.add(game)
+    await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_a_wrong_try_costs_a_rung_and_counts_down_the_tries(
+    wordquiz_game_controller, setup_wordquiz_game, session
+):
+    """Four wrong tries, then the word at hint 1: four rungs lower, and the tries count down 5, 4, 3, 2, 1."""
+    # Prepare
+    _, users, game_id, word = await _start_one_round(wordquiz_game_controller, setup_wordquiz_game, session)
+    gid = UUID(game_id)
+    seen = [(await wordquiz_game_controller.get_state(gid, users[1].id)).my_attempts_left]
+
+    # Act — four names of the theme that are not the word, then the word, all at hint 1
+    for guess in ("guess one", "guess two", "guess three", "guess four"):
+        miss = await wordquiz_game_controller.submit_answer(gid, users[1].id, guess)
+        assert miss.correct is False
+        seen.append((await wordquiz_game_controller.get_state(gid, users[1].id)).my_attempts_left)
+    found = await wordquiz_game_controller.submit_answer(gid, users[1].id, word)
+    after = await wordquiz_game_controller.get_state(gid, users[1].id)
+
+    # Assert — the response, the stored score, and the caller's view
+    assert seen == [5, 4, 3, 2, 1]
+    assert found.correct is True
+    assert found.hint_number == 1
+    rung = min(DEFAULT_WORD_QUIZ_MAX_HINTS, 1 + 4 * WORDQUIZ_WRONG_ANSWER_RUNG_PENALTY)
+    assert found.points_earned == DEFAULT_WORD_QUIZ_MAX_HINTS - rung + 1
+    assert found.points_earned < DEFAULT_WORD_QUIZ_MAX_HINTS
+    assert after.my_attempts_left is None
+    game = await _reload(session, game_id)
+    player = next(p for p in game.live_state["players"] if p["user_id"] == str(users[1].id))
+    assert player["total_score"] == found.points_earned
+    assert game.live_state["answers"][str(users[1].id)]["points"] == found.points_earned
+    assert game.live_state["attempts"][str(users[1].id)]["count"] == 5
+
+
+@pytest.mark.asyncio
+async def test_rungs_lost_are_the_callers_own(wordquiz_game_controller, setup_wordquiz_game, session):
+    """`my_rungs_lost` counts the caller's wrong tries this round, nobody else's."""
+    # Prepare
+    _, users, game_id, _ = await _start_one_round(wordquiz_game_controller, setup_wordquiz_game, session)
+    gid = UUID(game_id)
+
+    # Act
+    await wordquiz_game_controller.submit_answer(gid, users[1].id, "not it")
+    await wordquiz_game_controller.submit_answer(gid, users[1].id, "still not it")
+    missed = await wordquiz_game_controller.get_state(gid, users[1].id)
+    untouched = await wordquiz_game_controller.get_state(gid, users[0].id)
+
+    # Assert
+    assert missed.my_rungs_lost == 2 * WORDQUIZ_WRONG_ANSWER_RUNG_PENALTY
+    assert missed.my_attempts_left == WORDQUIZ_MAX_ATTEMPTS_PER_ROUND - 2
+    assert untouched.my_rungs_lost == 0
+    assert untouched.my_attempts_left == WORDQUIZ_MAX_ATTEMPTS_PER_ROUND
+
+
+@pytest.mark.asyncio
+async def test_past_the_cap_the_next_try_is_refused(wordquiz_game_controller, setup_wordquiz_game, session):
+    """Walking the theme's list no longer pays: after five tries the round refuses the sixth, the word included."""
+    # Prepare — the probe's walk: ten candidates, the right one last
+    setup = await setup_wordquiz_game(num_players=2, num_words=10)
+    room, users = setup["room"], setup["users"]
+    result = await _start_game(wordquiz_game_controller, room.id, users[0].id)
+    gid = UUID(result.game_id)
+    word = (await _get_game(session, result.game_id)).live_state["current_word"]["word_en"]
+    candidates = [w.word_en for w in setup["quiz_words"] if w.word_en != word] + [word]
+    for guess in candidates[:WORDQUIZ_MAX_ATTEMPTS_PER_ROUND]:
+        assert (await wordquiz_game_controller.submit_answer(gid, users[1].id, guess)).correct is False
+
+    # Act / Assert — the next try, even the word itself
+    with pytest.raises(AnswerAttemptsExhaustedError) as exc_info:
+        await wordquiz_game_controller.submit_answer(gid, users[1].id, word)
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.error_params == {"max": WORDQUIZ_MAX_ATTEMPTS_PER_ROUND}
+
+    # Assert — nothing was scored or counted by the refused try
+    game = await _reload(session, result.game_id)
+    assert str(users[1].id) not in game.live_state["answers"]
+    assert game.live_state["attempts"][str(users[1].id)]["count"] == WORDQUIZ_MAX_ATTEMPTS_PER_ROUND
+    player = next(p for p in game.live_state["players"] if p["user_id"] == str(users[1].id))
+    assert player["total_score"] == 0
+    view = await wordquiz_game_controller.get_state(gid, users[1].id)
+    assert view.my_attempts_left == 0
+
+
+@pytest.mark.asyncio
+async def test_a_player_out_of_tries_is_done_with_the_round(wordquiz_game_controller, setup_wordquiz_game, session):
+    """One player found the word, the other used every try: nobody is left to answer, so the round resolves."""
+    # Prepare
+    _, users, game_id, word = await _start_one_round(wordquiz_game_controller, setup_wordquiz_game, session)
+    gid = UUID(game_id)
+    await wordquiz_game_controller.submit_answer(gid, users[0].id, word)
+
+    # Act
+    for i in range(WORDQUIZ_MAX_ATTEMPTS_PER_ROUND):
+        await wordquiz_game_controller.submit_answer(gid, users[1].id, f"wrong {i}")
+
+    # Assert
+    game = await _reload(session, game_id)
+    assert game.live_state["round_phase"] == "results"
+    rows = {r["user_id"]: r for r in game.live_state["round_results"]}
+    assert rows[str(users[1].id)]["attempts"] == WORDQUIZ_MAX_ATTEMPTS_PER_ROUND
+    assert rows[str(users[1].id)]["points"] == 0
+
+
+@pytest.mark.asyncio
+async def test_a_spectator_has_no_tries(wordquiz_game_controller, setup_wordquiz_game, session, create_user):
+    """A spectator never answers, so their state carries no tries left."""
+    # Prepare
+    room, users, game_id, _ = await _start_one_round(wordquiz_game_controller, setup_wordquiz_game, session)
+    spectator = await create_user(username="wqwatcher", email="wqwatcher@test.com")
+    session.add(RoomUserLink(room_id=room.id, user_id=spectator.id, connected=True, is_spectator=True))
+    await session.commit()
+
+    # Act
+    view = await wordquiz_game_controller.get_state(UUID(game_id), spectator.id)
+    player_view = await wordquiz_game_controller.get_state(UUID(game_id), users[1].id)
+
+    # Assert
+    assert view.is_spectator is True
+    assert view.my_attempts_left is None
+    assert player_view.my_attempts_left == WORDQUIZ_MAX_ATTEMPTS_PER_ROUND
+
+
+# === WP-10: who wins a quiz (owner rule (a), BR-11, PD-10) ===
+
+
+@pytest.mark.asyncio
+async def test_a_tie_names_no_single_winner_and_both_share_the_win(
+    wordquiz_game_controller, setup_wordquiz_game, session
+):
+    """6-6: no winner label, both in winner_ids, both credited with the win."""
+    # Prepare
+    _, users, game_id, word = await _start_one_round(wordquiz_game_controller, setup_wordquiz_game, session)
+    gid = UUID(game_id)
+    for user in users:
+        assert (await wordquiz_game_controller.submit_answer(gid, user.id, word)).points_earned == 6
+
+    # Act
+    await wordquiz_game_controller.advance_to_next_round(gid, users[0].id)
+    over = await wordquiz_game_controller.get_state(gid, users[1].id)
+
+    # Assert
+    game = await _reload(session, game_id)
+    assert game.game_status == GameStatus.FINISHED
+    assert game.live_state["winner"] is None
+    assert sorted(game.live_state[WINNER_IDS_KEY]) == sorted(str(u.id) for u in users)
+    assert over.winner is None
+    assert sorted(over.winner_ids) == sorted(str(u.id) for u in users)
+    stats = (await session.exec(select(UserStats).execution_options(populate_existing=True))).all()
+    assert {str(s.user_id): s.total_games_won for s in stats} == {str(u.id): 1 for u in users}
+
+
+@pytest.mark.asyncio
+async def test_a_solo_game_has_no_winner(wordquiz_game_controller, setup_wordquiz_game, session):
+    """A solo Kalimat is played, never won: no label, no winner_ids, even with 6 points."""
+    # Prepare
+    _, users, game_id, word = await _start_one_round(
+        wordquiz_game_controller, setup_wordquiz_game, session, num_players=1
+    )
+    gid = UUID(game_id)
+    await wordquiz_game_controller.submit_answer(gid, users[0].id, word)
+
+    # Act
+    await wordquiz_game_controller.advance_to_next_round(gid, users[0].id)
+    over = await wordquiz_game_controller.get_state(gid, users[0].id)
+
+    # Assert
+    game = await _reload(session, game_id)
+    assert game.game_status == GameStatus.FINISHED
+    assert game.live_state["winner"] is None
+    assert game.live_state[WINNER_IDS_KEY] == []
+    assert over.winner is None
+    assert over.winner_ids == []
+
+
+@pytest.mark.asyncio
+async def test_a_clear_lead_names_the_winner(wordquiz_game_controller, setup_wordquiz_game, session):
+    """7-3: the top scorer is the winner, by name and by id."""
+    # Prepare — the round is over; the scores are set as two rounds would have left them
+    _, users, game_id, word = await _start_one_round(wordquiz_game_controller, setup_wordquiz_game, session)
+    gid = UUID(game_id)
+    await wordquiz_game_controller.submit_answer(gid, users[0].id, word)
+    await wordquiz_game_controller.submit_answer(gid, users[1].id, word)
+    game = await _reload(session, game_id)
+    scores = {str(users[0].id): 3, str(users[1].id): 7}
+    for player in game.live_state["players"]:
+        player["total_score"] = scores[player["user_id"]]
+    flag_modified(game, "live_state")
+    session.add(game)
+    await session.commit()
+
+    # Act
+    await wordquiz_game_controller.advance_to_next_round(gid, users[0].id)
+    over = await wordquiz_game_controller.get_state(gid, users[0].id)
+
+    # Assert
+    game = await _reload(session, game_id)
+    assert game.live_state["winner"] == users[1].username
+    assert game.live_state[WINNER_IDS_KEY] == [str(users[1].id)]
+    assert over.winner == users[1].username
+    assert over.winner_ids == [str(users[1].id)]
+
+
+@pytest.mark.asyncio
+async def test_winner_ids_stay_empty_until_the_game_is_over(wordquiz_game_controller, setup_wordquiz_game, session):
+    """Nobody has won a game still being played."""
+    # Prepare
+    _, users, game_id, word = await _start_one_round(wordquiz_game_controller, setup_wordquiz_game, session)
+    await wordquiz_game_controller.submit_answer(UUID(game_id), users[0].id, word)
+
+    # Act
+    view = await wordquiz_game_controller.get_state(UUID(game_id), users[0].id)
+
+    # Assert
+    assert view.game_over is False
+    assert view.winner is None
+    assert view.winner_ids == []
+
+
+@pytest.mark.asyncio
+async def test_finishing_a_game_the_room_moved_on_from_leaves_the_room_alone(
+    wordquiz_game_controller, setup_wordquiz_game, session
+):
+    """The finish only detaches the room from THIS game (detach_room_if_current, BR-06)."""
+    # Prepare — the room already points at another game
+    room, users, game_id, word = await _start_one_round(wordquiz_game_controller, setup_wordquiz_game, session)
+    newer = Game(room_id=room.id, number_of_players=2, type=GameType.WORD_QUIZ, game_status=GameStatus.IN_PROGRESS)
+    session.add(newer)
+    await session.commit()
+    newer_id = newer.id
+    stored_room = (await session.exec(select(Room).where(Room.id == room.id))).one()
+    stored_room.active_game_id = newer_id
+    session.add(stored_room)
+    await session.commit()
+    await wordquiz_game_controller.submit_answer(UUID(game_id), users[0].id, word)
+    await wordquiz_game_controller.submit_answer(UUID(game_id), users[1].id, word)
+
+    # Act
+    await wordquiz_game_controller.advance_to_next_round(UUID(game_id), users[0].id)
+
+    # Assert
+    game = await _reload(session, game_id)
+    assert game.game_status == GameStatus.FINISHED
+    stored_room = (
+        await session.exec(select(Room).where(Room.id == room.id).execution_options(populate_existing=True))
+    ).one()
+    assert stored_room.active_game_id == newer_id
+
+
+# === WP-10: status, timer and caller guards (BR-18, BR-17, BR-13 / SEC F08) ===
+
+
+@pytest.mark.asyncio
+async def test_an_answer_on_a_cancelled_game_is_refused(wordquiz_game_controller, setup_wordquiz_game, session):
+    """A cancelled game no longer moves: the right word scores nothing (it used to score 6)."""
+    # Prepare
+    room, users, game_id, word = await _start_one_round(wordquiz_game_controller, setup_wordquiz_game, session)
+    game = await _reload(session, game_id)
+    stored_room = (await session.exec(select(Room).where(Room.id == room.id))).one()
+    assert await cancel_running_game(session, game, stored_room) is True
+    await session.commit()
+
+    # Act / Assert
+    with pytest.raises(GameAlreadyOverError):
+        await wordquiz_game_controller.submit_answer(UUID(game_id), users[1].id, word)
+
+    game = await _reload(session, game_id)
+    assert game.game_status == GameStatus.CANCELLED
+    assert game.live_state["answers"] == {}
+    assert game.live_state.get("attempts", {}) == {}
+    assert all(p["total_score"] == 0 for p in game.live_state["players"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("duration", [0, -5])
+async def test_a_round_without_a_positive_duration_never_expires(
+    wordquiz_game_controller, setup_wordquiz_game, session, duration: int
+):
+    """A stored duration of 0 or less is untimed: timer-expired answers timer_not_expired."""
+    # Prepare
+    _, users, game_id, _ = await _start_one_round(wordquiz_game_controller, setup_wordquiz_game, session)
+    game = await _reload(session, game_id)
+    game.live_state["turn_duration_seconds"] = duration
+    flag_modified(game, "live_state")
+    session.add(game)
+    await session.commit()
+    await _expire_the_round(session, game_id)
+
+    # Act
+    timer_result = await wordquiz_game_controller.handle_timer_expired(UUID(game_id), users[1].id)
+
+    # Assert
+    assert timer_result.action == TimerExpiredAction.TIMER_NOT_EXPIRED
+    game = await _reload(session, game_id)
+    assert game.live_state["round_phase"] == "playing"
+    assert wordquiz_game_controller._phase_timer(game.live_state) is None
+
+
+@pytest.mark.asyncio
+async def test_a_stranger_cannot_fire_the_timer(wordquiz_game_controller, setup_wordquiz_game, session, create_user):
+    """Only someone in the game fires its timer, even once it has really run out."""
+    # Prepare
+    _, _, game_id, _ = await _start_one_round(wordquiz_game_controller, setup_wordquiz_game, session)
+    await _expire_the_round(session, game_id)
+    stranger = await create_user(username="wqstranger", email="wqstranger@test.com")
+
+    # Act / Assert
+    with pytest.raises(NotAGameParticipantError):
+        await wordquiz_game_controller.handle_timer_expired(UUID(game_id), stranger.id)
+
+    game = await _reload(session, game_id)
+    assert game.live_state["round_phase"] == "playing"
+
+
+@pytest.mark.asyncio
+async def test_a_spectator_may_fire_the_timer(wordquiz_game_controller, setup_wordquiz_game, session, create_user):
+    """A spectator's client runs the same clock and may report it."""
+    # Prepare
+    room, _, game_id, _ = await _start_one_round(wordquiz_game_controller, setup_wordquiz_game, session)
+    spectator = await create_user(username="wqtimewatch", email="wqtimewatch@test.com")
+    session.add(RoomUserLink(room_id=room.id, user_id=spectator.id, connected=True, is_spectator=True))
+    await session.commit()
+    await _expire_the_round(session, game_id)
+
+    # Act
+    timer_result = await wordquiz_game_controller.handle_timer_expired(UUID(game_id), spectator.id)
+
+    # Assert
+    assert timer_result.action == TimerExpiredAction.RESULTS
+    game = await _reload(session, game_id)
+    assert game.live_state["round_phase"] == "results"
+
+
+@pytest.mark.asyncio
+async def test_a_stranger_cannot_record_a_hint_view(
+    wordquiz_game_controller, setup_wordquiz_game, session, create_user
+):
+    """Review INT-05: Undercover's and Codenames' hint-viewed refuse a stranger; Kalimat's let
+    anyone with the game id write into its ``hint_usage`` under the game lock."""
+    # Prepare
+    _, _, game_id, _ = await _start_one_round(wordquiz_game_controller, setup_wordquiz_game, session)
+    stranger = await create_user(username="wqhintstranger", email="wqhintstranger@test.com")
+
+    # Act / Assert
+    with pytest.raises(NotAGameParticipantError):
+        await wordquiz_game_controller.record_hint_view(UUID(game_id), stranger.id)
+
+    game = await _reload(session, game_id)
+    assert str(stranger.id) not in game.live_state.get("hint_usage", {})
+
+
+@pytest.mark.asyncio
+async def test_a_spectators_hint_view_is_not_recorded(
+    wordquiz_game_controller, setup_wordquiz_game, session, create_user
+):
+    """A spectator opens the hints too, but has no game to win without them: recorded False, nothing written."""
+    # Prepare
+    room, _, game_id, _ = await _start_one_round(wordquiz_game_controller, setup_wordquiz_game, session)
+    spectator = await create_user(username="wqhintwatch", email="wqhintwatch@test.com")
+    session.add(RoomUserLink(room_id=room.id, user_id=spectator.id, connected=True, is_spectator=True))
+    await session.commit()
+
+    # Act
+    result = await wordquiz_game_controller.record_hint_view(UUID(game_id), spectator.id)
+
+    # Assert
+    assert result.recorded is False
+    game = await _reload(session, game_id)
+    assert str(spectator.id) not in game.live_state.get("hint_usage", {})
+
+
+@pytest.mark.asyncio
+async def test_a_players_hint_view_is_recorded_once_per_round(wordquiz_game_controller, setup_wordquiz_game, session):
+    """The control: a player's views are recorded, one entry per round."""
+    # Prepare
+    _, users, game_id, _ = await _start_one_round(wordquiz_game_controller, setup_wordquiz_game, session)
+
+    # Act
+    first = await wordquiz_game_controller.record_hint_view(UUID(game_id), users[1].id)
+    await wordquiz_game_controller.record_hint_view(UUID(game_id), users[1].id)
+
+    # Assert
+    assert first.recorded is True
+    game = await _reload(session, game_id)
+    assert game.live_state["hint_usage"][str(users[1].id)] == [str(game.live_state["current_round"])]
+
+
+@pytest.mark.asyncio
+async def test_a_hostless_room_advances_when_every_player_is_ready(
+    wordquiz_game_controller, setup_wordquiz_game, session
+):
+    """The host deleted their account (owner_id NULL): every player is in the ready quorum (SEC F05)."""
+    # Prepare — a 2-round game in results, its room without an owner
+    setup = await setup_wordquiz_game(num_players=2)
+    room, users = setup["room"], setup["users"]
+    result = await _start_game(wordquiz_game_controller, room.id, users[0].id)
+    gid = UUID(result.game_id)
+    word = (await _get_game(session, result.game_id)).live_state["current_word"]["word_en"]
+    for user in users:
+        await wordquiz_game_controller.submit_answer(gid, user.id, word)
+    stored_room = (await session.exec(select(Room).where(Room.id == room.id))).one()
+    stored_room.owner_id = None
+    session.add(stored_room)
+    await session.commit()
+
+    # Act
+    first = await wordquiz_game_controller.advance_to_next_round(gid, users[0].id)
+    second = await wordquiz_game_controller.advance_to_next_round(gid, users[1].id)
+
+    # Assert
+    assert (first.advanced, first.ready_count, first.total_players) == (False, 1, 2)
+    assert second.advanced is True
+    game = await _reload(session, result.game_id)
+    assert game.live_state["current_round"] == 2
+    assert game.live_state["round_phase"] == "playing"

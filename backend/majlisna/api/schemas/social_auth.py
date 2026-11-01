@@ -20,14 +20,20 @@ class SocialLoginRequest(BaseModel):
 
 
 class SocialLoginResponse(BaseModel):
-    """Response schema for social login endpoint."""
+    """Response schema for social login endpoint (the refresh token is the httpOnly cookie)."""
 
     access_token: str = Field(..., description="JWT access token")
-    refresh_token: str = Field(..., description="JWT refresh token")
     token_type: str = Field(default="bearer", description="Token type")
     expires_in: int = Field(..., description="Access token expiry in seconds")
     is_new_user: bool = Field(..., description="Whether a new account was created")
     user: "SocialLoginUserData" = Field(..., description="User data")
+
+
+class SocialLoginResult(SocialLoginResponse):
+    """Internal result of a Google sign-in: the response plus the refresh token the route
+    sets as the httpOnly cookie, never in the body (review INT-06, SEC F13)."""
+
+    refresh_token: str = Field(..., description="JWT refresh token")
 
 
 class SocialLoginUserData(BaseModel):

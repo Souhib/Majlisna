@@ -90,9 +90,12 @@ filterwarnings = [
 ]
 
 [tool.coverage.run]
+# dependencies.py is measured: it holds get_current_user and get_current_admin_user, the
+# auth layer every route stands on, and leaving it out hid an untested branch (TQ-14).
+# CI runs `--cov-branch --cov-fail-under=88` (.github/workflows/pipeline.yml), which
+# overrides the local floor in addopts above.
 omit = [
     "majlisna/app.py",
-    "majlisna/dependencies.py",
     "majlisna/database.py",
     "majlisna/logger_config.py",
     "majlisna/settings.py",

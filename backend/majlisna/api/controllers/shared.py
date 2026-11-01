@@ -4,16 +4,26 @@ import string
 
 from bcrypt import checkpw, gensalt, hashpw
 
+from majlisna.api.models.user import password_fits_bcrypt
+from majlisna.api.schemas.error import PasswordTooLongError
+
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
     Verify a password against a hashed password. Return True if the password is correct, False otherwise.
 
+    bcrypt 5 raises ``ValueError`` for a password over 72 bytes (and for a malformed
+    hash). No stored hash can be of such a password (``get_password_hash`` refuses one),
+    so it simply does not match: a login with one is a 401, never a 500 (SEC F10).
+
     :param plain_password: The plain password to verify.
     :param hashed_password: The hashed password to verify against.
     :return: True if the password is correct, False otherwise.
     """
-    return checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
+    try:
+        return checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
+    except ValueError:
+        return False
 
 
 async def async_verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -28,7 +38,11 @@ def get_password_hash(password: str) -> str:
 
     :param password: The password to hash.
     :return: The hashed password.
+    :raises PasswordTooLongError: over ``BCRYPT_MAX_PASSWORD_BYTES`` of UTF-8, which
+        bcrypt 5 refuses (its ValueError was a 500 on register, change and reset).
     """
+    if not password_fits_bcrypt(password):
+        raise PasswordTooLongError()
     return hashpw(password.encode("utf-8"), gensalt()).decode("utf-8")
 
 

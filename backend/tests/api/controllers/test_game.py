@@ -1,22 +1,21 @@
 import datetime
-from uuid import uuid4
+from uuid import UUID
 
 import pytest
 from freezegun import freeze_time
-from sqlalchemy.exc import NoResultFound
+from sqlalchemy.orm.attributes import flag_modified
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from majlisna.api.controllers.game import GameController
-from majlisna.api.models.event import EventCreate
+from majlisna.api.controllers.mcqquiz_game import McqQuizGameController
 from majlisna.api.models.game import GameCreate, GameStatus, GameType, GameUpdate
+from majlisna.api.models.relationship import UserGameLink
 from majlisna.api.models.room import RoomType
-from majlisna.api.models.table import Room, User
+from majlisna.api.models.table import Game, Room, User
 from majlisna.api.schemas.error import (
-    GameNotFoundError,
     GameStillInProgressError,
     NotAGameParticipantError,
-    NoTurnInsideGameError,
     RoomIsNotActiveError,
 )
 
@@ -80,34 +79,6 @@ async def test_get_games_multiple(sample_room: Room, game_controller: GameContro
     assert len(games) == 2
 
 
-async def test_get_game_by_id_success(sample_room: Room, game_controller: GameController):
-    """Getting a game by its ID returns the correct game with all fields matching."""
-    # Arrange
-    game_create = GameCreate(room_id=sample_room.id, type=GameType.UNDERCOVER, number_of_players=4)
-    created_game = await game_controller.create_game(game_create)
-
-    # Act
-    found_game = await game_controller.get_game_by_id(created_game.id)
-
-    # Assert
-    assert found_game.id == created_game.id
-    assert found_game.room_id == created_game.room_id
-    assert found_game.type == created_game.type
-    assert found_game.number_of_players == created_game.number_of_players
-    assert found_game.start_time == created_game.start_time
-    assert found_game.end_time is None
-
-
-async def test_get_game_by_id_not_found(game_controller: GameController):
-    """Getting a game by a non-existent ID raises NoResultFound."""
-    # Arrange
-    non_existent_id = uuid4()
-
-    # Act & Assert
-    with pytest.raises(NoResultFound):
-        await game_controller.get_game_by_id(non_existent_id)
-
-
 async def test_update_game_success(sample_game, game_controller: GameController):
     """Updating a game's number_of_players changes it while leaving other fields unchanged."""
     # Arrange
@@ -134,8 +105,8 @@ async def test_end_game_success(sample_game, game_controller: GameController):
     assert ended_game.end_time is not None
 
 
-async def test_delete_game_success(sample_game, game_controller: GameController):
-    """Deleting a game removes it so that get_game_by_id raises NoResultFound."""
+async def test_delete_game_success(sample_game, game_controller: GameController, session: AsyncSession):
+    """Deleting a game removes its row."""
     # Arrange
     game_id = sample_game.id
 
@@ -143,95 +114,15 @@ async def test_delete_game_success(sample_game, game_controller: GameController)
     await game_controller.delete_game(game_id)
 
     # Assert
-    with pytest.raises(NoResultFound):
-        await game_controller.get_game_by_id(game_id)
+    assert (await session.exec(select(Game).where(Game.id == game_id))).first() is None
 
 
-async def test_create_turn_success(sample_game, game_controller: GameController):
-    """Creating a turn for an existing game returns a Turn with all fields correctly populated."""
-    # Arrange
-    game_id = sample_game.id
-
-    # Act
-    turn = await game_controller.create_turn(game_id)
-
-    # Assert
-    assert turn.id is not None
-    assert turn.game_id == game_id
-    assert turn.start_time is not None
-    assert turn.completed is False
-
-
-async def test_create_turn_game_not_found(game_controller: GameController):
-    """Creating a turn for a non-existent game raises GameNotFoundError."""
-    # Arrange
-    non_existent_id = uuid4()
-
-    # Act & Assert
-    with pytest.raises(GameNotFoundError):
-        await game_controller.create_turn(non_existent_id)
-
-
-async def test_create_turn_event_success(sample_owner, sample_game, game_controller: GameController):
-    """Creating an event for an existing turn returns an Event with all fields correctly populated."""
-    # Arrange
-    turn = await game_controller.create_turn(sample_game.id)
-    event_create = EventCreate(name="vote", data={"target": "player1"}, user_id=sample_owner.id)
-
-    # Act
-    event = await game_controller.create_turn_event(sample_game.id, event_create)
-
-    # Assert
-    assert event.id is not None
-    assert event.name == "vote"
-    assert event.data == {"target": "player1"}
-    assert event.turn_id == turn.id
-    assert event.user_id == sample_owner.id
-
-
-async def test_create_turn_event_no_turn(sample_owner, sample_game, game_controller: GameController):
-    """Creating an event for a game with no turns raises NoTurnInsideGameError."""
-    # Arrange
-    event_create = EventCreate(name="vote", data={}, user_id=sample_owner.id)
-
-    # Act & Assert
-    with pytest.raises(NoTurnInsideGameError):
-        await game_controller.create_turn_event(sample_game.id, event_create)
-
-
-async def test_create_turn_event_game_not_found(game_controller: GameController):
-    """Creating an event for a non-existent game raises GameNotFoundError."""
-    # Arrange
-    non_existent_id = uuid4()
-    event_create = EventCreate(name="vote", data={}, user_id=uuid4())
-
-    # Act & Assert
-    with pytest.raises(GameNotFoundError):
-        await game_controller.create_turn_event(non_existent_id, event_create)
-
-
-async def test_get_latest_turn_success(sample_game, game_controller: GameController):
-    """Getting the latest turn after creating three returns the third turn."""
-    # Arrange
-    await game_controller.create_turn(sample_game.id)
-    await game_controller.create_turn(sample_game.id)
-    turn3 = await game_controller.create_turn(sample_game.id)
-
-    # Act
-    latest = await game_controller.get_latest_turn(sample_game.id)
-
-    # Assert
-    assert latest.id == turn3.id
-
-
-async def test_get_latest_turn_no_turns(sample_game, game_controller: GameController):
-    """Getting the latest turn for a game with no turns raises NoTurnInsideGameError."""
-    # Arrange
-    game_id = sample_game.id
-
-    # Act & Assert
-    with pytest.raises(NoTurnInsideGameError):
-        await game_controller.get_latest_turn(game_id)
+async def test_the_turn_and_event_writers_are_gone():
+    """BDP-08: create_turn / create_turn_event wrote Turn and Event rows nothing ever
+    read, inside the game lock, behind a seq scan; get_latest_turn and get_game_by_id
+    had no caller. live_state is the record of a game."""
+    for name in ("create_turn", "create_turn_event", "get_latest_turn", "get_game_by_id"):
+        assert not hasattr(GameController, name), name
 
 
 # ========== get_game_summary authorization ==========
@@ -469,3 +360,82 @@ async def test_get_game_summary_includes_codenames_guesses_in_arabic(
     guesses = [(g.word, g.word_ar, g.word_ar_vocalized) for clue in summary.clue_history for g in clue.guesses]
     assert guesses == [("Sabr", "صبر", "صَبْر"), ("NoArabic", None, None), ("Uhud", "أحد", None), ("Hajj", "حج", "حَجّ")]
     assert summary.word_explanations is None
+
+
+# ========== get_games_by_user — user_won from the one resolver ==========
+
+
+async def test_quiz_history_says_won_and_lost(session: AsyncSession, setup_mcqquiz_game):
+    """BR-19 probe: a quiz entry always had user_won None while UserStats counted the win."""
+    # Prepare
+    setup = await setup_mcqquiz_game(num_players=2, num_questions=3)
+    winner, loser = setup["users"]
+    room = (await session.exec(select(Room).where(Room.id == setup["room"].id))).one()
+    room.settings = {**(room.settings or {}), "mcq_quiz_rounds": 1}
+    flag_modified(room, "settings")
+    session.add(room)
+    await session.commit()
+    # The fixture's Room was loaded with its owner alone; create_game links every
+    # member from Room.users, so reload it (a request would start from a fresh session).
+    await session.refresh(room, attribute_names=["users"])
+    controller = McqQuizGameController(session)
+    started = await controller.create_and_start(room.id, winner.id)
+    game = (await session.exec(select(Game).where(Game.id == UUID(started.game_id)))).one()
+    correct = game.live_state["current_question"]["correct_answer_index"]
+    await controller.submit_answer(UUID(started.game_id), winner.id, correct)
+    await controller.submit_answer(UUID(started.game_id), loser.id, (correct + 1) % 4)
+    await controller.advance_to_next_round(UUID(started.game_id), winner.id)
+
+    # Act
+    won = await GameController(session).get_games_by_user(winner.id, requester_id=winner.id)
+    lost = await GameController(session).get_games_by_user(loser.id, requester_id=winner.id)
+
+    # Assert
+    assert won[0].game_status == "finished"
+    assert won[0].user_won is True
+    assert lost[0].user_won is False
+
+
+async def test_history_has_no_result_for_a_leaver_or_a_solo_game(
+    session: AsyncSession, sample_room: Room, sample_owner: User, create_user
+):
+    """Owner rules (a) and (b): neither is a win nor a loss."""
+    # Prepare
+    others = [await create_user(username=f"hl{i}", email=f"hl{i}@test.com") for i in range(3)]
+    left = Game(
+        room_id=sample_room.id,
+        type=GameType.UNDERCOVER,
+        game_status=GameStatus.FINISHED,
+        number_of_players=4,
+        live_state={
+            "players": [
+                {"user_id": str(sample_owner.id), "role": "civilian", "is_alive": False},
+                {"user_id": str(others[0].id), "role": "civilian", "is_alive": True},
+                {"user_id": str(others[1].id), "role": "civilian", "is_alive": True},
+                {"user_id": str(others[2].id), "role": "undercover", "is_alive": False},
+            ],
+            "winner": "civilians",
+            "winner_ids": sorted([str(others[0].id), str(others[1].id)]),
+            "left_player_ids": [str(sample_owner.id)],
+        },
+    )
+    solo = Game(
+        room_id=sample_room.id,
+        type=GameType.MCQ_QUIZ,
+        game_status=GameStatus.FINISHED,
+        number_of_players=1,
+        live_state={"players": [{"user_id": str(sample_owner.id), "total_score": 3}], "winner_ids": []},
+    )
+    for game in (left, solo):
+        session.add(game)
+        await session.commit()
+        session.add(UserGameLink(user_id=sample_owner.id, game_id=game.id))
+    await session.commit()
+
+    # Act
+    history = await GameController(session).get_games_by_user(sample_owner.id, requester_id=sample_owner.id)
+
+    # Assert
+    assert len(history) == 2
+    assert [entry.user_won for entry in history] == [None, None]
+    assert {entry.user_role for entry in history} == {"civilian", None}

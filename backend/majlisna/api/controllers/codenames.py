@@ -1,22 +1,18 @@
 from collections.abc import Sequence
-from typing import cast
 from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError, NoResultFound
-from sqlmodel import select
+from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from majlisna.api.constants import CACHE_TTL_GAME_CONTENT_SECONDS
 from majlisna.api.models.codenames import (
     CodenamesWord,
     CodenamesWordCreate,
     CodenamesWordPack,
     CodenamesWordPackCreate,
 )
-from majlisna.api.utils.cache import cache
+from majlisna.api.utils.draw import in_draw_order
 from majlisna.api.utils.rng import rng
-
-WORD_PACKS_CACHE_KEY = "codenames:word_packs"
 
 
 class CodenamesWordPackNotFoundError(Exception):
@@ -73,7 +69,6 @@ class CodenamesController:
             self.session.add(new_pack)
             await self.session.commit()
             await self.session.refresh(new_pack)
-            cache.invalidate(WORD_PACKS_CACHE_KEY)
             return new_pack
         except IntegrityError:
             await self.session.rollback()
@@ -82,14 +77,12 @@ class CodenamesController:
     async def get_word_packs(self) -> Sequence[CodenamesWordPack]:
         """Get all word packs.
 
+        Read from the database every time: it used to sit in TTLCache for an hour as
+        ORM rows, which a write on another worker never invalidated.
+
         :return: List of all word packs.
         """
-        cached = cache.get(WORD_PACKS_CACHE_KEY)
-        if cached is not None:
-            return cast(Sequence[CodenamesWordPack], cached)
-        packs = (await self.session.exec(select(CodenamesWordPack))).all()
-        cache.set(WORD_PACKS_CACHE_KEY, packs, CACHE_TTL_GAME_CONTENT_SECONDS)
-        return packs
+        return (await self.session.exec(select(CodenamesWordPack))).all()
 
     async def get_word_pack(self, pack_id: UUID) -> CodenamesWordPack:
         """Get a word pack by ID.
@@ -113,7 +106,6 @@ class CodenamesController:
             db_pack = (await self.session.exec(select(CodenamesWordPack).where(CodenamesWordPack.id == pack_id))).one()
             await self.session.delete(db_pack)
             await self.session.commit()
-            cache.invalidate(WORD_PACKS_CACHE_KEY)
         except NoResultFound:
             raise CodenamesWordPackNotFoundError(pack_id=pack_id) from None
 
@@ -165,26 +157,23 @@ class CodenamesController:
             raise CodenamesWordNotFoundError(word_id=word_id) from None
 
     async def get_random_words(self, count: int = 25, pack_ids: list[UUID] | None = None) -> list[CodenamesWord]:
-        """Get random words for building a Codenames board.
+        """Get random words for building a Codenames board, in drawn (card) order.
+
+        Reads the candidates' ids and texts, draws, then fetches only the drawn rows.
 
         :param count: Number of words to retrieve (default 25).
         :param pack_ids: Optional list of word pack IDs to draw from. If None, draws from all active packs.
         :return: List of randomly selected words.
         :raises NotEnoughWordsError: If there aren't enough words available.
         """
+        candidates = select(col(CodenamesWord.id), col(CodenamesWord.word))
         if pack_ids:
-            query = select(CodenamesWord).where(CodenamesWord.word_pack_id.in_(pack_ids))  # ty: ignore[unresolved-attribute]
+            candidates = candidates.where(col(CodenamesWord.word_pack_id).in_(pack_ids))
         else:
-            # Get words from all active packs
-            active_pack_ids_query = select(CodenamesWordPack.id).where(
-                CodenamesWordPack.is_active == True  # noqa: E712
-            )
-            active_pack_ids = (await self.session.exec(active_pack_ids_query)).all()
-            if not active_pack_ids:
-                raise NotEnoughWordsError(requested=count, available=0)
-            query = select(CodenamesWord).where(CodenamesWord.word_pack_id.in_(active_pack_ids))  # ty: ignore[unresolved-attribute]
-
-        all_words = list((await self.session.exec(query)).all())
+            candidates = candidates.join(
+                CodenamesWordPack, col(CodenamesWord.word_pack_id) == col(CodenamesWordPack.id)
+            ).where(col(CodenamesWordPack.is_active).is_(True))
+        pool = (await self.session.exec(candidates)).all()
 
         # Distinct by word TEXT, not by row. The same word can exist in more than one
         # pack — and did: the seed data carried Ikhlas, Tafsir and Tajweed twice — so
@@ -193,12 +182,17 @@ class CodenamesController:
         # of the two identical cards the spymaster meant, and anything addressing a
         # card by its word (the UI, the E2E suite) hits whichever it finds first.
         # ~4% of boards were affected.
-        unique_by_text: dict[str, CodenamesWord] = {}
-        for word in all_words:
-            unique_by_text.setdefault(word.word, word)
-        distinct_words = list(unique_by_text.values())
+        id_by_text: dict[str, UUID] = {}
+        for word_id, text in pool:
+            id_by_text.setdefault(text, word_id)
 
-        if len(distinct_words) < count:
-            raise NotEnoughWordsError(requested=count, available=len(distinct_words))
+        if len(id_by_text) < count:
+            raise NotEnoughWordsError(requested=count, available=len(id_by_text))
 
-        return rng.sample(distinct_words, count)
+        drawn_ids = rng.sample(list(id_by_text.values()), count)
+        rows = (await self.session.exec(select(CodenamesWord).where(col(CodenamesWord.id).in_(drawn_ids)))).all()
+        words = in_draw_order(rows, drawn_ids)
+        # A drawn word deleted between the two reads would leave a hole in the board.
+        if len(words) < count:
+            raise NotEnoughWordsError(requested=count, available=len(words))
+        return words

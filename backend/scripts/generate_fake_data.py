@@ -35,23 +35,43 @@ Options:
     --games N            Number of games to generate (default: 30)
 
 Note:
-    You must use exactly ONE of: --delete or --create-db.
+    You must use exactly ONE of: --delete, --create-db or --seed.
     These flags are mutually exclusive.
+
+Production (MAJLISNA_ENV or ENVIRONMENT = production):
+    Only --seed runs there. --delete drops every table and --create-db fills the
+    database with fake accounts whose passwords are printed in this public repo, so
+    both exit with code 2 before touching the database, unless BOTH of these are given:
+      --i-know-this-is-production
+      --dump-taken PATH   a `pg_dump -Fc` archive (it starts with PGDMP) written less
+                          than an hour ago, at a path this process can read (docker cp
+                          it into the container). Take it first:
+                          docker exec majlisna-db pg_dump -U majlisna -Fc majlisna > majlisna.dump
+    Seed residue already on a server is removed by scripts/purge_seed_data.py.
 """
 
 import argparse
 import asyncio
 import importlib.util
+import os
 import random
 import string
 import sys
+import time
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from majlisna.api.constants import (
+    PG_DUMP_CUSTOM_FORMAT_MAGIC,
+    PRODUCTION_DUMP_MAX_AGE_SECONDS,
+    PRODUCTION_ENVIRONMENT,
+    PRODUCTION_REFUSAL_EXIT_CODE,
+)
 from majlisna.api.controllers.achievement import AchievementController
 from majlisna.api.controllers.challenge import ChallengeController
 from majlisna.api.controllers.shared import get_password_hash
@@ -240,8 +260,11 @@ async def create_random_users(session: AsyncSession, count: int) -> list[User]:
     for _ in range(count):
         user = User(
             id=uuid4(),
-            username=fake.user_name(),
-            email_address=fake.email(),
+            # `unique`: Faker repeats a name in ~0.14 % of 15-user seeds, and on PostgreSQL
+            # the unique lower(username) / lower(email_address) indexes (database.py) then
+            # crash the reseed. Faker's names and emails are already lowercase.
+            username=fake.unique.user_name(),
+            email_address=fake.unique.email(),
             password=get_password_hash(fake.password()),
             country=random.choice(country_codes),
         )
@@ -764,10 +787,16 @@ async def seed_game_content(engine: AsyncEngine) -> None:
     print("\nGame content seeding complete!")
 
 
-def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments."""
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse command-line arguments (``argv`` defaults to ``sys.argv[1:]``)."""
     parser = argparse.ArgumentParser(
         description="Generate fake data for Majlisna platform testing",
+        epilog=(
+            "In production (MAJLISNA_ENV or ENVIRONMENT = production) only --seed runs: "
+            "--delete and --create-db exit with code 2 unless both "
+            "--i-know-this-is-production and --dump-taken are given. Never run them there "
+            "before a dump."
+        ),
     )
 
     group = parser.add_mutually_exclusive_group(required=True)
@@ -799,8 +828,102 @@ def parse_args() -> argparse.Namespace:
         default=30,
         help="Number of games to generate (default: 30)",
     )
+    parser.add_argument(
+        "--i-know-this-is-production",
+        action="store_true",
+        help="Production only: confirm a --delete or --create-db (needs --dump-taken too)",
+    )
+    parser.add_argument(
+        "--dump-taken",
+        type=Path,
+        metavar="PATH",
+        help=(
+            "Production only: a `pg_dump -Fc` archive (starts with PGDMP) written less than "
+            "an hour ago, at a path this process can read"
+        ),
+    )
 
-    return parser.parse_args()
+    return parser.parse_args(argv)
+
+
+def is_production(settings: Settings) -> bool:
+    """Whether this process runs against production.
+
+    Either marker is enough: MAJLISNA_ENV picks the env file and the production compose
+    sets it, while ENVIRONMENT (``settings.environment``) is what that env file sets. A
+    container where only one of them says production is still production.
+    """
+    markers = (os.getenv("MAJLISNA_ENV", ""), settings.environment)
+    return any(marker.strip().lower() == PRODUCTION_ENVIRONMENT for marker in markers)
+
+
+def dump_problem(path: Path | None) -> str | None:
+    """Why ``path`` is not a fresh pg_dump archive, or None when it is one.
+
+    Fresh: modified less than PRODUCTION_DUMP_MAX_AGE_SECONDS ago, and not in the future
+    (a `touch -d tomorrow` must not make an old dump look new). A pg_dump archive: the
+    file starts with the custom-format magic ``PGDMP`` — a plain-SQL dump, an empty file
+    or a truncated copy is not something `pg_restore` can bring back.
+    """
+    if path is None:
+        return "--dump-taken was not given"
+    if not path.is_file():
+        return f"--dump-taken {path} is not a file this process can read"
+    age_seconds = time.time() - path.stat().st_mtime
+    if age_seconds < 0:
+        return f"--dump-taken {path} is dated in the future; take a new dump"
+    if age_seconds > PRODUCTION_DUMP_MAX_AGE_SECONDS:
+        return (
+            f"--dump-taken {path} is {int(age_seconds // 60)} minutes old; "
+            f"it must be less than {PRODUCTION_DUMP_MAX_AGE_SECONDS // 60} minutes old"
+        )
+    with path.open("rb") as dump:
+        magic = dump.read(len(PG_DUMP_CUSTOM_FORMAT_MAGIC))
+    if magic != PG_DUMP_CUSTOM_FORMAT_MAGIC:
+        return (
+            f"--dump-taken {path} does not start with PGDMP: it is not a `pg_dump -Fc` "
+            "(custom-format) archive"
+        )
+    return None
+
+
+def refuse_destructive_run_in_production(args: argparse.Namespace, settings: Settings) -> None:
+    """Exit with PRODUCTION_REFUSAL_EXIT_CODE before a production --delete or --create-db.
+
+    --delete drops every table; --create-db fills the database with fake accounts whose
+    passwords are printed in this public repository. Both ran on production once, which
+    left it on the fake dataset with no backup (PD-02). --seed is the content upsert and
+    always runs. In production the other two need BOTH the confirmation flag and a fresh
+    pg_dump archive; outside production (E2E, development) nothing changes.
+    """
+    if args.seed or not is_production(settings):
+        return
+    action = "--delete (drops every table)" if args.delete else "--create-db (creates fake accounts)"
+    problems = []
+    if not args.i_know_this_is_production:
+        problems.append("--i-know-this-is-production was not given")
+    problem = dump_problem(args.dump_taken)
+    if problem:
+        problems.append(problem)
+    if problems:
+        print(
+            f"REFUSED: {action} on production.\n"
+            "       Production must only ever run --seed (game content, an upsert).\n"
+            + "".join(f"       - {line}\n" for line in problems)
+            + "\n"
+            "       If you really mean it, take a dump first and pass both flags:\n"
+            "         docker exec majlisna-db pg_dump -U majlisna -Fc majlisna > majlisna.dump\n"
+            "         docker cp majlisna.dump majlisna-backend:/tmp/majlisna.dump\n"
+            "         ... generate_fake_data.py <flag> --i-know-this-is-production "
+            "--dump-taken /tmp/majlisna.dump\n"
+            "       Seed residue already on the server: scripts/purge_seed_data.py.",
+            file=sys.stderr,
+        )
+        raise SystemExit(PRODUCTION_REFUSAL_EXIT_CODE)
+    print(
+        f"WARNING: running {action} on PRODUCTION, confirmed, with the dump {args.dump_taken}.",
+        file=sys.stderr,
+    )
 
 
 def _faker_available() -> bool:
@@ -821,10 +944,15 @@ def _faker_available() -> bool:
         return False
 
 
-async def main() -> None:
+async def main(argv: list[str] | None = None) -> None:
     """Main entry point for the fake data generation script."""
     global fake
-    args = parse_args()
+    args = parse_args(argv)
+    settings = Settings()  # type: ignore[call-arg]
+
+    # FIRST, before faker, before any engine: a production --delete / --create-db exits
+    # here unless it is confirmed and backed by a fresh dump.
+    refuse_destructive_run_in_production(args, settings)
 
     # faker is imported lazily so that --delete and --seed keep working even if it
     # is somehow unavailable, and the check MUST come before anything touches the
@@ -866,8 +994,6 @@ async def main() -> None:
             "         content. Continuing with the drop/recreate.",
             file=sys.stderr,
         )
-
-    settings = Settings()  # type: ignore[call-arg]
 
     # This script runs DDL (drop/create every table) and then bulk-inserts, which
     # must NOT go through PgBouncer: asyncpg's per-connection type cache goes

@@ -1,3 +1,4 @@
+from datetime import datetime
 from enum import StrEnum
 from uuid import UUID
 
@@ -10,6 +11,7 @@ from majlisna.api.constants import (
     MAX_TIMER_SECONDS,
     MIN_HINT_INTERVAL_SECONDS,
     MIN_QUIZ_ROUNDS,
+    MIN_QUIZ_TURN_SECONDS,
     MIN_TIMER_SECONDS,
 )
 from majlisna.api.models.game import GameType
@@ -119,12 +121,15 @@ class RoomSettingsRequest(BaseModel):
     codenames_guess_timer: int | None = Field(default=None, ge=MIN_TIMER_SECONDS, le=MAX_TIMER_SECONDS)
     enable_mr_white: bool | None = None
     custom_word_packs: list[str] | None = Field(default=None, max_length=MAX_CUSTOM_WORD_PACKS)
-    word_quiz_turn_duration: int | None = Field(default=None, ge=MIN_TIMER_SECONDS, le=MAX_TIMER_SECONDS)
+    # The quizzes have no "no limit" value: a round of 0-2 s expired the moment it opened
+    # (their expiry is elapsed >= duration - tolerance), so they get their own minimum
+    # (BR-17). Undercover and Codenames keep 0 = untimed.
+    word_quiz_turn_duration: int | None = Field(default=None, ge=MIN_QUIZ_TURN_SECONDS, le=MAX_TIMER_SECONDS)
     word_quiz_rounds: int | None = Field(default=None, ge=MIN_QUIZ_ROUNDS, le=MAX_QUIZ_ROUNDS)
     word_quiz_hint_interval: int | None = Field(
         default=None, ge=MIN_HINT_INTERVAL_SECONDS, le=MAX_HINT_INTERVAL_SECONDS
     )
-    mcq_quiz_turn_duration: int | None = Field(default=None, ge=MIN_TIMER_SECONDS, le=MAX_TIMER_SECONDS)
+    mcq_quiz_turn_duration: int | None = Field(default=None, ge=MIN_QUIZ_TURN_SECONDS, le=MAX_TIMER_SECONDS)
     mcq_quiz_rounds: int | None = Field(default=None, ge=MIN_QUIZ_ROUNDS, le=MAX_QUIZ_ROUNDS)
     word_quiz_difficulty: DifficultyLevel | None = None
     mcq_quiz_difficulty: DifficultyLevel | None = None
@@ -143,3 +148,15 @@ class RoomInviteResponse(BaseModel):
 class ShareLinkResponse(BaseModel):
     public_id: str
     password: str
+
+
+class RoomBanView(BaseModel):
+    """A player the host kicked from the room, who may not come back until lifted.
+
+    Served to the host only (``GET /rooms/{id}/bans``). ``banned_at`` is the ban's
+    ``created_at`` (UTC).
+    """
+
+    user_id: UUID
+    username: str
+    banned_at: datetime

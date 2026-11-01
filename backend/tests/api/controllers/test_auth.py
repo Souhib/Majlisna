@@ -1,8 +1,13 @@
 import asyncio
+import hashlib
+import re
 from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock, Mock
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from jose import jwt
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -10,16 +15,19 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from majlisna.api.controllers.auth import AuthController
 from majlisna.api.controllers.shared import get_password_hash
 from majlisna.api.models.table import User
+from majlisna.api.models.token import EmailVerificationToken, PasswordResetToken
 from majlisna.api.models.user import UserCreate
-from majlisna.api.schemas.auth import LoginResult, TokenPairResponse, TokenPayload
+from majlisna.api.schemas.auth import LoginResult, TokenPayload
 from majlisna.api.schemas.error import (
     InvalidCredentialsError,
+    InvalidOrExpiredTokenError,
     InvalidTokenError,
     TokenExpiredError,
     UserAlreadyExistsError,
     UsernameAlreadyTakenError,
 )
 from majlisna.api.schemas.social_auth import SocialTokenPayload
+from majlisna.api.services.social_auth import SocialAuthService
 from majlisna.settings import Settings
 
 
@@ -312,35 +320,31 @@ async def test_create_refresh_token(auth_controller: AuthController, test_settin
     assert expected_min <= exp_dt <= expected_max
 
 
-async def test_create_token_pair(auth_controller: AuthController, test_settings: Settings):
-    """Creating a token pair returns both valid tokens that decode to the same user."""
+async def test_login_returns_a_session_pair(auth_controller: AuthController, create_user, test_settings: Settings):
+    """The pair a login answers: both tokens decode to the same user and the same session.
+
+    (``create_token_pair`` minted a pair with no session behind it; it is gone, so no
+    caller can hand out tokens a logout or a reset cannot end.)
+    """
     # Arrange
-    user_id = "user-789"
-    email = "pair@test.com"
+    created = await create_user(username="pairuser", email="pair@test.com", password="pairpass123")
 
     # Act
-    pair = auth_controller.create_token_pair(user_id, email)
+    result = await auth_controller.login("pair@test.com", "pairpass123")
 
     # Assert
-    assert isinstance(pair, TokenPairResponse)
-    assert pair.access_token
-    assert pair.refresh_token
-    assert pair.token_type == "bearer"
-
+    assert result.access_token
+    assert result.refresh_token
     access_payload = jwt.decode(
-        pair.access_token,
-        test_settings.jwt_secret_key,
-        algorithms=[test_settings.jwt_encryption_algorithm],
+        result.access_token, test_settings.jwt_secret_key, algorithms=[test_settings.jwt_encryption_algorithm]
     )
     refresh_payload = jwt.decode(
-        pair.refresh_token,
-        test_settings.jwt_secret_key,
-        algorithms=[test_settings.jwt_encryption_algorithm],
+        result.refresh_token, test_settings.jwt_secret_key, algorithms=[test_settings.jwt_encryption_algorithm]
     )
-    assert access_payload["sub"] == "user-789"
-    assert access_payload["email"] == "pair@test.com"
-    assert refresh_payload["sub"] == "user-789"
-    assert refresh_payload["email"] == "pair@test.com"
+    assert access_payload["sub"] == refresh_payload["sub"] == str(created.id)
+    assert access_payload["email"] == refresh_payload["email"] == "pair@test.com"
+    assert access_payload["sid"] == refresh_payload["sid"]
+    assert not hasattr(auth_controller, "create_token_pair")
 
 
 async def test_decode_token_valid(auth_controller: AuthController):
@@ -487,3 +491,296 @@ async def test_get_user_by_email_not_found(auth_controller: AuthController):
 
     # Assert
     assert result is None
+
+
+# ─── SEC F14: one account per mailbox, whatever the case ─────
+
+
+async def test_an_address_in_another_case_cannot_register_twice(auth_controller: AuthController, session: AsyncSession):
+    """'Ali@Example.com' is the mailbox 'ali@example.com' already registered (probe
+    test_f14_email_unique_only_case_sensitively: both registered, 201 and 201)."""
+    # Prepare
+    await auth_controller.register(UserCreate(username="ali", email_address="ali@example.com", password="secret123"))
+
+    # Act / Assert
+    with pytest.raises(UserAlreadyExistsError):
+        await auth_controller.register(
+            UserCreate(username="ali_two", email_address="Ali@Example.com", password="secret456")
+        )
+    rows = (await session.exec(select(User))).all()
+    assert [row.username for row in rows] == ["ali"]
+
+
+async def test_registration_stores_the_address_lowercased(auth_controller: AuthController, session: AsyncSession):
+    """The stored address is the normalised one, so the later guarded unique index (WP-21) holds."""
+    # Act
+    user = await auth_controller.register(
+        UserCreate(username="maryam", email_address="  Maryam@Example.COM ", password="secret123")
+    )
+
+    # Assert
+    stored = (await session.exec(select(User).where(User.id == user.id))).one()
+    assert stored.email_address == "maryam@example.com"
+
+
+@pytest.mark.parametrize("typed", ["login@test.com", "Login@Test.com", "LOGIN@TEST.COM", " login@test.com "])
+async def test_login_works_in_any_case(auth_controller: AuthController, create_user, typed: str):
+    """The address a player types at login is compared case-insensitively."""
+    # Prepare
+    created = await create_user(username="loginuser", email="login@test.com", password="mypassword")
+
+    # Act
+    result = await auth_controller.login(typed, "mypassword")
+
+    # Assert
+    assert result.user.id == str(created.id)
+
+
+async def test_a_legacy_mixed_case_row_is_still_found(auth_controller: AuthController, create_user):
+    """Rows registered before normalisation keep their case; the lookup compares lower() on both sides."""
+    # Prepare
+    created = await create_user(username="legacy", email="Legacy.Player@Example.com")
+
+    # Act
+    found = await auth_controller.get_user_by_email("legacy.player@example.com")
+
+    # Assert
+    assert found is not None
+    assert found.id == created.id
+
+
+async def test_forgot_password_and_resend_find_the_account_in_any_case(auth_controller: AuthController, create_user):
+    """Both mails reach the account whatever case the form was filled in."""
+    # Prepare
+    await create_user(username="caseuser", email="case@test.com")
+    mail = Mock()
+    mail.send_password_reset_email = AsyncMock(return_value=True)
+    mail.send_verification_email = AsyncMock(return_value=True)
+
+    # Act
+    await auth_controller.request_password_reset("CASE@Test.com", mail)
+    await auth_controller.resend_verification("Case@TEST.com", mail)
+
+    # Assert
+    mail.send_password_reset_email.assert_awaited_once()
+    mail.send_verification_email.assert_awaited_once()
+
+
+async def test_google_sign_in_finds_an_account_registered_in_another_case(
+    auth_controller: AuthController, session: AsyncSession, create_user, test_settings: Settings
+):
+    """A Google address in lowercase used to miss the mixed-case row and create a second account."""
+    # Prepare — a verified account, so the link is the ordinary one
+    created = await create_user(username="hamza", email="Hamza@Example.com")
+    created.email_verified = True
+    session.add(created)
+    await session.commit()
+    service = SocialAuthService(test_settings)
+    service.verify_google_access_token = AsyncMock(
+        return_value=SocialTokenPayload(sub="g-hamza", email="hamza@example.com", email_verified=True)
+    )
+
+    # Act
+    result = await auth_controller.social_login(social_auth_service=service, access_token="google-token")
+
+    # Assert
+    assert result.is_new_user is False
+    assert result.user.id == str(created.id)
+    assert len((await session.exec(select(User))).all()) == 1
+
+
+# ─── TQ-03 / PD-15: reset and verification, end to end ───────
+
+
+def _mail() -> Mock:
+    mail = Mock()
+    mail.send_password_reset_email = AsyncMock(return_value=True)
+    mail.send_verification_email = AsyncMock(return_value=True)
+    return mail
+
+
+def _token_in(url: str) -> str:
+    return parse_qs(urlparse(url).query)["token"][0]
+
+
+async def _reread(session: AsyncSession, model, user_id):
+    """Rows as the database has them now: SQLite hands back NAIVE timestamps only on a real read."""
+    session.expire_all()
+    return (await session.exec(select(model).where(model.user_id == user_id))).all()
+
+
+async def test_password_reset_round_trip_then_login(
+    auth_controller: AuthController, session: AsyncSession, create_user
+):
+    """request → reset → login with the new password. On SQLite the reset used to raise
+    "can't compare offset-naive and offset-aware datetimes" (a 500 on every dev reset link)."""
+    # Prepare
+    user = await create_user(username="tq03", email="tq03@test.com", password="oldpass123")
+    mail = _mail()
+    await auth_controller.request_password_reset("tq03@test.com", mail)
+    raw_token = _token_in(mail.send_password_reset_email.await_args.args[2])
+    session.expire_all()
+
+    # Act
+    assert await auth_controller.reset_password(raw_token, "newpass456")
+
+    # Assert
+    assert (await auth_controller.login("tq03@test.com", "newpass456")).user.id == str(user.id)
+    with pytest.raises(InvalidCredentialsError):
+        await auth_controller.login("tq03@test.com", "oldpass123")
+    assert await _reread(session, PasswordResetToken, user.id) == []
+
+
+async def test_a_reset_token_works_once(auth_controller: AuthController, session: AsyncSession, create_user):
+    """A used token is refused, and the password it set stays."""
+    # Prepare
+    await create_user(username="once", email="once@test.com", password="oldpass123")
+    mail = _mail()
+    await auth_controller.request_password_reset("once@test.com", mail)
+    raw_token = _token_in(mail.send_password_reset_email.await_args.args[2])
+    await auth_controller.reset_password(raw_token, "newpass456")
+    session.expire_all()
+
+    # Act / Assert
+    with pytest.raises(InvalidOrExpiredTokenError):
+        await auth_controller.reset_password(raw_token, "thirdpass789")
+    assert (await auth_controller.login("once@test.com", "newpass456")).user.username == "once"
+
+
+async def test_an_expired_reset_token_is_refused(auth_controller: AuthController, session: AsyncSession, create_user):
+    """Past ``expires_at`` the link is dead, on both dialects."""
+    # Prepare
+    user = await create_user(username="late", email="late@test.com", password="oldpass123")
+    mail = _mail()
+    await auth_controller.request_password_reset("late@test.com", mail)
+    raw_token = _token_in(mail.send_password_reset_email.await_args.args[2])
+    await session.exec(
+        update(PasswordResetToken)
+        .where(PasswordResetToken.user_id == user.id)
+        .values(expires_at=datetime.now(UTC) - timedelta(minutes=1))
+    )
+    await session.commit()
+    session.expire_all()
+
+    # Act / Assert
+    with pytest.raises(InvalidOrExpiredTokenError):
+        await auth_controller.reset_password(raw_token, "newpass456")
+    assert (await auth_controller.login("late@test.com", "oldpass123")).user.username == "late"
+
+
+async def test_the_reset_token_is_stored_as_its_sha256_digest(
+    auth_controller: AuthController, session: AsyncSession, create_user
+):
+    """A database read (a dump, a backup) must not yield a usable reset link (PD-15, SEC F06)."""
+    # Prepare
+    user = await create_user(username="digest", email="digest@test.com")
+    mail = _mail()
+
+    # Act
+    await auth_controller.request_password_reset("digest@test.com", mail)
+
+    # Assert
+    raw_token = _token_in(mail.send_password_reset_email.await_args.args[2])
+    [stored] = await _reread(session, PasswordResetToken, user.id)
+    assert re.fullmatch(r"[0-9a-f]{64}", stored.token)
+    assert stored.token == hashlib.sha256(raw_token.encode()).hexdigest()
+    assert raw_token not in stored.token
+
+
+async def test_the_stored_digest_itself_does_not_reset(
+    auth_controller: AuthController, session: AsyncSession, create_user
+):
+    """Whoever reads the column holds the digest, which is not the link's token."""
+    # Prepare
+    user = await create_user(username="reader", email="reader@test.com", password="oldpass123")
+    await auth_controller.request_password_reset("reader@test.com", _mail())
+    [stored] = await _reread(session, PasswordResetToken, user.id)
+
+    # Act / Assert
+    with pytest.raises(InvalidOrExpiredTokenError):
+        await auth_controller.reset_password(stored.token, "newpass456")
+
+
+async def test_requesting_a_reset_purges_expired_tokens(
+    auth_controller: AuthController, session: AsyncSession, create_user
+):
+    """Expired links of anyone are deleted, so the table stays bounded."""
+    # Prepare — another account's long-expired link
+    other = await create_user(username="other", email="other@test.com")
+    session.add(PasswordResetToken(user_id=other.id, token="0" * 64, expires_at=datetime.now(UTC) - timedelta(days=2)))
+    await session.commit()
+    await create_user(username="asker", email="asker@test.com")
+
+    # Act
+    await auth_controller.request_password_reset("asker@test.com", _mail())
+
+    # Assert
+    assert await _reread(session, PasswordResetToken, other.id) == []
+
+
+async def test_email_verification_round_trip(auth_controller: AuthController, session: AsyncSession, create_user):
+    """send → verify sets ``email_verified`` (part of the admin gate). Crashed on SQLite too."""
+    # Prepare
+    user = await create_user(username="tq03b", email="tq03b@test.com")
+    user_id = user.id
+    mail = _mail()
+    await auth_controller.send_verification_email(user, mail)
+    raw_token = _token_in(mail.send_verification_email.await_args.args[2])
+    [stored_token] = await _reread(session, EmailVerificationToken, user_id)
+    stored_digest = stored_token.token
+
+    # Act
+    assert await auth_controller.verify_email(raw_token)
+
+    # Assert
+    assert stored_digest == hashlib.sha256(raw_token.encode()).hexdigest()
+    session.expire_all()
+    assert (await session.exec(select(User).where(User.id == user_id))).one().email_verified is True
+    assert await _reread(session, EmailVerificationToken, user_id) == []
+    with pytest.raises(InvalidOrExpiredTokenError):
+        await auth_controller.verify_email(raw_token)
+
+
+async def test_an_expired_verification_token_is_refused(
+    auth_controller: AuthController, session: AsyncSession, create_user
+):
+    """And the account stays unverified."""
+    # Prepare
+    user = await create_user(username="lateverify", email="lateverify@test.com")
+    user_id = user.id
+    mail = _mail()
+    await auth_controller.send_verification_email(user, mail)
+    raw_token = _token_in(mail.send_verification_email.await_args.args[2])
+    await session.exec(
+        update(EmailVerificationToken)
+        .where(EmailVerificationToken.user_id == user_id)
+        .values(expires_at=datetime.now(UTC) - timedelta(minutes=1))
+    )
+    await session.commit()
+    session.expire_all()
+
+    # Act / Assert
+    with pytest.raises(InvalidOrExpiredTokenError):
+        await auth_controller.verify_email(raw_token)
+    assert (await session.exec(select(User).where(User.id == user_id))).one().email_verified is False
+
+
+async def test_resend_verification_sends_a_new_link(
+    auth_controller: AuthController, session: AsyncSession, create_user
+):
+    """Resend replaces the earlier link: the old one stops working, the new one verifies."""
+    # Prepare
+    user = await create_user(username="resend", email="resend@test.com")
+    mail = _mail()
+    await auth_controller.send_verification_email(user, mail)
+    first = _token_in(mail.send_verification_email.await_args.args[2])
+
+    # Act
+    await auth_controller.resend_verification("resend@test.com", mail)
+    second = _token_in(mail.send_verification_email.await_args.args[2])
+
+    # Assert
+    session.expire_all()
+    with pytest.raises(InvalidOrExpiredTokenError):
+        await auth_controller.verify_email(first)
+    assert await auth_controller.verify_email(second)

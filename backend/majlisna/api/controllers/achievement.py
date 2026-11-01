@@ -182,7 +182,7 @@ ACHIEVEMENT_DEFINITIONS: list[dict] = [
         "threshold": 1,
         "tier": 5,
         "game_type": "undercover",
-        "stat_field": None,  # Special: checked via custom logic
+        "stat_field": None,  # game_end_stats.SPECIAL_ACHIEVEMENT_RULES
     },
     # ── CODENAMES_MASTER ──────────────────────────────────────────────────
     {
@@ -271,7 +271,7 @@ ACHIEVEMENT_DEFINITIONS: list[dict] = [
         "threshold": 1,
         "tier": 4,
         "game_type": "codenames",
-        "stat_field": None,  # Special: checked via custom logic
+        "stat_field": None,  # game_end_stats.SPECIAL_ACHIEVEMENT_RULES
     },
     # ── SOCIAL ────────────────────────────────────────────────────────────
     {
@@ -495,7 +495,7 @@ ACHIEVEMENT_DEFINITIONS: list[dict] = [
         "threshold": 1,
         "tier": 2,
         "game_type": "codenames",
-        "stat_field": None,
+        "stat_field": None,  # game_end_stats.SPECIAL_ACHIEVEMENT_RULES
     },
     {
         "code": "unanimous_vote",
@@ -506,7 +506,7 @@ ACHIEVEMENT_DEFINITIONS: list[dict] = [
         "threshold": 1,
         "tier": 2,
         "game_type": "undercover",
-        "stat_field": None,
+        "stat_field": None,  # game_end_stats.SPECIAL_ACHIEVEMENT_RULES
     },
     {
         "code": "last_survivor",
@@ -517,12 +517,19 @@ ACHIEVEMENT_DEFINITIONS: list[dict] = [
         "threshold": 1,
         "tier": 3,
         "game_type": "undercover",
-        "stat_field": None,
+        "stat_field": None,  # game_end_stats.SPECIAL_ACHIEVEMENT_RULES
     },
 ]
 
 # Mapping from achievement code to the stat field it checks
 _ACHIEVEMENT_STAT_MAP: dict[str, str | None] = {defn["code"]: defn["stat_field"] for defn in ACHIEVEMENT_DEFINITIONS}
+
+# The codes with no stat field. They unlock through `unlock_special` only, from the
+# rules in game_end_stats.SPECIAL_ACHIEVEMENT_RULES (owner rule (f)); they used to say
+# "checked via custom logic" while no logic existed, so they could never unlock.
+SPECIAL_ACHIEVEMENT_CODES: frozenset[str] = frozenset(
+    code for code, stat_field in _ACHIEVEMENT_STAT_MAP.items() if stat_field is None
+)
 
 
 class AchievementController:
@@ -602,8 +609,32 @@ class AchievementController:
             )
         return entries
 
+    async def load_user_achievements(self, user_ids: Sequence[UUID]) -> dict[UUID, dict[UUID, UserAchievement]]:
+        """Every ``UserAchievement`` row of these users, ``{user_id: {achievement_id: row}}``.
+
+        ONE query for a whole game end (BDP-07): ``check_achievements`` and
+        ``unlock_special`` take a user's map as ``known`` instead of each reading the
+        table again — they ran once per player, inside the game lock.
+        """
+        by_user: dict[UUID, dict[UUID, UserAchievement]] = {user_id: {} for user_id in user_ids}
+        if not user_ids:
+            return by_user
+        rows = (
+            await self.session.exec(
+                select(UserAchievement).where(UserAchievement.user_id.in_(user_ids))  # ty: ignore[unresolved-attribute]
+            )
+        ).all()
+        for row in rows:
+            by_user.setdefault(row.user_id, {})[row.achievement_id] = row
+        return by_user
+
     async def check_achievements(
-        self, user_id: UUID, stats: UserStats, *, commit: bool = True
+        self,
+        user_id: UUID,
+        stats: UserStats,
+        *,
+        commit: bool = True,
+        known: dict[UUID, UserAchievement] | None = None,
     ) -> list[AchievementDefinition]:
         """Check which achievements the user has newly unlocked based on their stats.
 
@@ -613,19 +644,15 @@ class AchievementController:
 
         :param user_id: The id of the user.
         :param stats: The user's current stats.
+        :param known: the user's rows from ``load_user_achievements`` (read here when
+            omitted). Updated in place with what this call unlocks.
         :return: A list of newly unlocked AchievementDefinition records.
         """
         # Load all definitions (memoised per instance)
         all_definitions = await self._all_definitions()
-
-        # Load already-unlocked achievement IDs for this user
-        existing = await self.session.exec(
-            select(UserAchievement).where(
-                UserAchievement.user_id == user_id,
-                UserAchievement.unlocked_at.is_not(None),  # ty: ignore[unresolved-attribute]
-            )
-        )
-        unlocked_ids: set[UUID] = {ua.achievement_id for ua in existing.all()}
+        if known is None:
+            known = (await self.load_user_achievements([user_id]))[user_id]
+        unlocked_ids: set[UUID] = {aid for aid, row in known.items() if row.unlocked_at is not None}
 
         newly_unlocked: list[AchievementDefinition] = []
 
@@ -635,15 +662,70 @@ class AchievementController:
 
             stat_field = _ACHIEVEMENT_STAT_MAP.get(defn.code)
             if stat_field is None:
-                # Special achievements are not auto-checked via stats
+                # A special achievement: no counter to compare, `unlock_special` handles
+                # it from the game's final state (record_game_end).
                 continue
 
             current_value = getattr(stats, stat_field, 0)
             if current_value >= defn.threshold:
-                await self.unlock_achievement(user_id, defn.id, commit=commit)
+                self._stage_unlock(user_id, defn.id, known)
                 newly_unlocked.append(defn)
 
+        if commit and newly_unlocked:
+            await self.session.commit()
         return newly_unlocked
+
+    async def unlock_special(
+        self,
+        user_id: UUID,
+        code: str,
+        *,
+        commit: bool = False,
+        known: dict[UUID, UserAchievement] | None = None,
+    ) -> AchievementDefinition | None:
+        """Unlock a special achievement (one with no stat field) for a user.
+
+        ``record_game_end`` decides THAT it is earned (game_end_stats.SPECIAL_ACHIEVEMENT_RULES);
+        this only writes it, idempotently on the existing ``UserAchievement`` row, and
+        stages it (``commit=False``) because the caller holds the game lock.
+
+        :param known: the user's rows from ``load_user_achievements`` (read here when omitted).
+        :return: the definition when it is newly unlocked (for the toast), None when it
+            was already unlocked or the definitions were never seeded.
+        :raises ValueError: for a code that is not special — those unlock from their
+            counter in ``check_achievements``, never by decree. A programming error,
+            unreachable from the API (the rule table is checked against the definitions).
+        """
+        if code not in SPECIAL_ACHIEVEMENT_CODES:
+            msg = f"{code!r} is not a special achievement"
+            raise ValueError(msg)
+        definition = next((d for d in await self._all_definitions() if d.code == code), None)
+        if definition is None:
+            return None
+        if known is None:
+            known = (await self.load_user_achievements([user_id]))[user_id]
+        existing = known.get(definition.id)
+        if existing is not None and existing.unlocked_at is not None:
+            return None
+        self._stage_unlock(user_id, definition.id, known)
+        if commit:
+            await self.session.commit()
+        return definition
+
+    def _stage_unlock(self, user_id: UUID, achievement_id: UUID, known: dict[UUID, UserAchievement]) -> None:
+        """Mark the achievement unlocked in the session (insert, or fill in an existing
+        progress row), and record it in ``known`` so the same game end never adds it twice."""
+        now = datetime.now(UTC)
+        existing = known.get(achievement_id)
+        if existing is not None:
+            if existing.unlocked_at is None:
+                existing.unlocked_at = now
+                existing.updated_at = now
+                self.session.add(existing)
+            return
+        row = UserAchievement(user_id=user_id, achievement_id=achievement_id, progress=1, unlocked_at=now)
+        self.session.add(row)
+        known[achievement_id] = row
 
     async def unlock_achievement(self, user_id: UUID, achievement_id: UUID, *, commit: bool = True) -> UserAchievement:
         """Unlock an achievement for a user. Creates or updates the UserAchievement record.

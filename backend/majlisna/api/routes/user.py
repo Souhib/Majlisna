@@ -1,7 +1,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 
 from majlisna.api.controllers.user import UserController
 from majlisna.api.models.table import User
@@ -9,7 +9,10 @@ from majlisna.api.models.user import UserUpdate, UserUpdatePassword
 from majlisna.api.models.view import PublicUserView, UserView
 from majlisna.api.schemas.error import ForbiddenError
 from majlisna.api.schemas.user import DeleteAccountRequest
-from majlisna.dependencies import get_current_user, get_user_controller
+from majlisna.api.services.social_auth import SocialAuthService
+from majlisna.api.ws.handlers import remove_user_from_room_socket
+from majlisna.api.ws.notify import notify_member_removed
+from majlisna.dependencies import get_current_user, get_social_auth_service, get_user_controller
 
 router = APIRouter(
     prefix="/users",
@@ -52,12 +55,14 @@ async def update_user(
 
 @router.patch("/{user_id}/password", response_model=UserView)
 async def update_user_password(
+    request: Request,
     *,
     user_id: UUID,
     user_update_password: UserUpdatePassword,
     current_user: Annotated[User, Depends(get_current_user)],
     user_controller: Annotated[UserController, Depends(get_user_controller)],
 ) -> UserView:
+    """Change the password; every OTHER session of the account is signed out (SEC F01)."""
     if current_user.id != user_id:
         raise ForbiddenError("You can only change your own password")
     return UserView.model_validate(
@@ -65,6 +70,8 @@ async def update_user_password(
             user_id,
             user_update_password.current_password,
             user_update_password.new_password,
+            # The caller's session, recorded by get_current_user (None for a legacy token).
+            keep_session_id=getattr(request.state, "session_id", None),
         )
     )
 
@@ -83,6 +90,20 @@ async def delete_account(
     body: DeleteAccountRequest,
     current_user: Annotated[User, Depends(get_current_user)],
     user_controller: Annotated[UserController, Depends(get_user_controller)],
+    social_auth_service: Annotated[SocialAuthService, Depends(get_social_auth_service)],
 ) -> None:
-    """Delete current user's account. Requires password confirmation."""
-    await user_controller.delete_user_account(current_user.id, body.password)
+    """Delete the current user's account, confirmed by the password or, for a Google
+    account, a fresh Google access token naming it.
+
+    The account first leaves every room like a leave does (its game is played on
+    without it), so each room is told, and the socket cut off it, as the leave route does.
+    """
+    departed = await user_controller.delete_user_account(
+        current_user.id,
+        body.password,
+        google_access_token=body.google_access_token,
+        social_auth_service=social_auth_service,
+    )
+    for room in departed:
+        await remove_user_from_room_socket(str(current_user.id), str(room.room_id))
+        await notify_member_removed(str(room.room_id), str(room.game_id) if room.game_id else None)

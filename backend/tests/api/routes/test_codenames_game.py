@@ -1,14 +1,21 @@
 """Route-level tests for codenames game action endpoints (/api/v1/codenames/games)."""
 
+import json
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from unittest.mock import AsyncMock, Mock
-from uuid import uuid4
+from uuid import UUID, uuid4
 
+import httpx
+import pytest
+import pytest_asyncio
 from fastapi import FastAPI
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
 from starlette.testclient import TestClient
 
 from majlisna.api.controllers.codenames_game import CodenamesGameController
 from majlisna.api.models.error import GameNotFoundError
-from majlisna.api.models.table import User
+from majlisna.api.models.table import Game, User
 from majlisna.api.schemas.codenames import (
     CodenamesBoardState,
     CodenamesTurnState,
@@ -17,9 +24,13 @@ from majlisna.api.schemas.codenames import (
     GuessCardResponse,
 )
 from majlisna.api.schemas.common import GameStartResponse, HintRecordResponse
-from majlisna.dependencies import get_codenames_game_controller, get_current_user
+from majlisna.dependencies import get_codenames_game_controller, get_current_user, get_session, get_settings
+from majlisna.settings import Settings
 
 BASE_URL = "/api/v1/codenames"
+
+# Sends one request as the given user: (user, method, url, **httpx kwargs).
+ApiAs = Callable[..., Awaitable[httpx.Response]]
 
 
 def _mock_user() -> User:
@@ -608,3 +619,138 @@ def test_board_defaults_lang_to_en(test_app: FastAPI, client: TestClient) -> Non
         mock_controller.get_board.assert_awaited_once_with(game_id, user.id, lang="en", sid=None)
     finally:
         test_app.dependency_overrides.clear()
+
+
+# ========== WP-09: the rules through the real stack (routes, controller, database) ==========
+
+
+@pytest_asyncio.fixture(name="api")
+async def get_api(test_app: FastAPI, session: AsyncSession, test_settings: Settings) -> AsyncGenerator[ApiAs]:
+    """Call the real app as a given user, on the test database.
+
+    Only the signed-in user is set by hand: the token rules have their own tests
+    (test_wp00_token_type.py); these are about what the game answers.
+    """
+
+    async def _test_session() -> AsyncGenerator[AsyncSession]:
+        yield session
+
+    test_app.dependency_overrides[get_session] = _test_session
+    test_app.dependency_overrides[get_settings] = lambda: test_settings
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=test_app), base_url="http://test") as client:
+
+        async def _as(user: User, method: str, url: str, **kwargs) -> httpx.Response:
+            test_app.dependency_overrides[get_current_user] = lambda: user
+            return await client.request(method, url, **kwargs)
+
+        yield _as
+    test_app.dependency_overrides.clear()
+
+
+async def _started(setup_codenames_game, session: AsyncSession) -> tuple[str, dict, dict[str, User]]:
+    """A 4-player game, its live_state and its users by id."""
+    setup = await setup_codenames_game(4)
+    started = await CodenamesGameController(session).create_and_start(setup["room"].id, setup["users"][0].id)
+    game = (await session.exec(select(Game).where(Game.id == UUID(started.game_id)))).one()
+    return started.game_id, game.live_state, {str(u.id): u for u in setup["users"]}
+
+
+def _seat(state: dict, role: str) -> str:
+    return next(p["user_id"] for p in state["players"] if p["team"] == state["current_team"] and p["role"] == role)
+
+
+@pytest.mark.asyncio
+async def test_a_two_word_clue_answers_the_translated_one_word_error(api: ApiAs, setup_codenames_game, session):
+    """BR-14 over HTTP: 400 errors.api.clueMustBeOneWord, and the turn still has no clue."""
+    # Prepare
+    game_id, state, users = await _started(setup_codenames_game, session)
+    spymaster = users[_seat(state, "spymaster")]
+
+    # Act
+    response = await api(
+        spymaster, "POST", f"{BASE_URL}/games/{game_id}/clue", json={"clue_word": "the Sunnah", "clue_number": 1}
+    )
+
+    # Assert
+    assert response.status_code == 400
+    assert response.json()["error_key"] == "errors.api.clueMustBeOneWord"
+    game = (
+        await session.exec(select(Game).where(Game.id == UUID(game_id)).execution_options(populate_existing=True))
+    ).one()
+    assert game.live_state["current_turn"]["clue_word"] is None
+
+
+@pytest.mark.asyncio
+async def test_end_turn_before_a_clue_answers_no_clue_given(api: ApiAs, setup_codenames_game, session):
+    """BR-15 over HTTP: 400 errors.api.noClueGiven, and the team keeps its turn."""
+    # Prepare
+    game_id, state, users = await _started(setup_codenames_game, session)
+    operative = users[_seat(state, "operative")]
+
+    # Act
+    response = await api(operative, "POST", f"{BASE_URL}/games/{game_id}/end-turn")
+
+    # Assert
+    assert response.status_code == 400
+    assert response.json()["error_key"] == "errors.api.noClueGiven"
+    game = (
+        await session.exec(select(Game).where(Game.id == UUID(game_id)).execution_options(populate_existing=True))
+    ).one()
+    assert game.live_state["current_team"] == state["current_team"]
+
+
+@pytest.mark.asyncio
+async def test_a_strangers_hint_view_and_timer_call_answer_403(api: ApiAs, setup_codenames_game, session, create_user):
+    """SEC F07 / F08 over HTTP: 403 errors.api.notAGameParticipant, and nothing is written."""
+    # Prepare
+    game_id, state, _ = await _started(setup_codenames_game, session)
+    stranger = await create_user(username="cn_route_stranger", email="cn_route_stranger@test.com")
+
+    # Act
+    hint = await api(
+        stranger, "POST", f"{BASE_URL}/games/{game_id}/hint-viewed", json={"word": state["board"][0]["word"]}
+    )
+    timer = await api(stranger, "POST", f"{BASE_URL}/games/{game_id}/timer-expired")
+
+    # Assert
+    assert hint.status_code == 403
+    assert hint.json()["error_key"] == "errors.api.notAGameParticipant"
+    assert timer.status_code == 403
+    assert timer.json()["error_key"] == "errors.api.notAGameParticipant"
+    game = (
+        await session.exec(select(Game).where(Game.id == UUID(game_id)).execution_options(populate_existing=True))
+    ).one()
+    assert game.live_state["hint_usage"] == {}
+
+
+async def _stored_game(session: AsyncSession, game_id: str) -> Game:
+    return (
+        await session.exec(select(Game).where(Game.id == UUID(game_id)).execution_options(populate_existing=True))
+    ).one()
+
+
+@pytest.mark.asyncio
+async def test_a_players_made_up_hint_words_never_grow_the_game(api: ApiAs, setup_codenames_game, session):
+    """SEC F07 over HTTP, the Codenames half of the audit's test_f07: a player's distinct
+    100-character words are each refused and leave live_state as it was; a card's word counts."""
+    # Prepare
+    game_id, state, users = await _started(setup_codenames_game, session)
+    spymaster_id = _seat(state, "spymaster")
+    spymaster = users[spymaster_id]
+    card_word = state["board"][0]["word"]
+    size_before = len(json.dumps(state, sort_keys=True))
+    made_up = [f"{i:06d}" + "x" * 94 for i in range(30)]
+    url = f"{BASE_URL}/games/{game_id}/hint-viewed"
+
+    # Act
+    responses = [await api(spymaster, "POST", url, json={"word": word}) for word in made_up]
+    size_after = len(json.dumps((await _stored_game(session, game_id)).live_state, sort_keys=True))
+    card = await api(spymaster, "POST", url, json={"word": card_word})
+
+    # Assert
+    assert [r.status_code for r in responses] == [200] * len(made_up)
+    assert not any(r.json()["recorded"] for r in responses)
+    assert size_after == size_before
+    assert card.status_code == 200
+    assert card.json()["recorded"] is True
+    assert (await _stored_game(session, game_id)).live_state["hint_usage"] == {spymaster_id: [card_word]}

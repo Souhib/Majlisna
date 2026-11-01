@@ -3,8 +3,10 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
+from starlette.requests import Request
 from starlette.status import HTTP_201_CREATED
 
+from majlisna.api.constants import HINT_VIEW_RATE_LIMIT, TIMER_EXPIRED_RATE_LIMIT
 from majlisna.api.controllers.codenames import CodenamesController
 from majlisna.api.controllers.codenames_game import CodenamesGameController
 from majlisna.api.models.codenames import (
@@ -14,6 +16,7 @@ from majlisna.api.models.codenames import (
     CodenamesWordPackCreate,
 )
 from majlisna.api.models.table import User
+from majlisna.api.rate_limit import limiter, user_or_ip_key
 from majlisna.api.schemas.codenames import (
     CodenamesBoardState,
     CodenamesHintViewedRequest,
@@ -32,7 +35,7 @@ from majlisna.api.schemas.common import (
     TimerExpiredResponse,
 )
 from majlisna.api.ws.handlers import auto_join_game_room
-from majlisna.api.ws.notify import notify_game_changed, notify_room_changed
+from majlisna.api.ws.notify import notify_game_changed, notify_room_changed, notify_timer_outcome
 from majlisna.dependencies import (
     get_codenames_controller,
     get_codenames_game_controller,
@@ -101,18 +104,23 @@ async def guess_card(
 
 
 @router.post("/games/{game_id}/timer-expired")
+@limiter.limit(TIMER_EXPIRED_RATE_LIMIT, key_func=user_or_ip_key)
 async def timer_expired(
+    request: Request,  # noqa: ARG001 — required by limiter
     game_id: UUID,
     current_user: Annotated[User, Depends(get_current_user)],
     controller: Annotated[CodenamesGameController, Depends(get_codenames_game_controller)],
 ) -> TimerExpiredResponse:
     result = await controller.handle_timer_expired(game_id, current_user.id)
-    await notify_game_changed(str(game_id))
+    # Every client fires this from its own clock: only the call that acted broadcasts.
+    await notify_timer_outcome(str(game_id), result.action)
     return result
 
 
 @router.post("/games/{game_id}/hint-viewed")
+@limiter.limit(HINT_VIEW_RATE_LIMIT, key_func=user_or_ip_key)
 async def record_hint_viewed(
+    request: Request,  # noqa: ARG001 — required by limiter
     game_id: UUID,
     body: CodenamesHintViewedRequest,
     current_user: Annotated[User, Depends(get_current_user)],

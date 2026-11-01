@@ -1,17 +1,28 @@
 """Route-level tests for Word Quiz game action endpoints (/api/v1/wordquiz/games)."""
 
+from collections.abc import AsyncGenerator
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, Mock, patch
-from uuid import uuid4
+from uuid import UUID, uuid4
 
+import httpx
+import pytest_asyncio
 from fastapi import FastAPI
+from sqlalchemy.orm.attributes import flag_modified
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
+from starlette.requests import Request
 from starlette.testclient import TestClient
 
+from majlisna.api.constants import WORDQUIZ_MAX_ATTEMPTS_PER_ROUND
 from majlisna.api.controllers.wordquiz_game import WordQuizGameController
-from majlisna.api.models.table import User
+from majlisna.api.models.table import Game, User
+from majlisna.api.rate_limit import limiter
 from majlisna.api.schemas.common import (
     AdvanceRoundResponse,
     GameStartResponse,
     HintRecordResponse,
+    TimerExpiredAction,
     TimerExpiredResponse,
 )
 from majlisna.api.schemas.wordquiz import SubmitAnswerResponse, WordQuizGameState
@@ -239,7 +250,7 @@ def test_submit_answer_missing_body(test_app: FastAPI, client: TestClient) -> No
 # ========== POST /wordquiz/games/{game_id}/timer-expired ==========
 
 
-@patch("majlisna.api.routes.wordquiz.notify_game_changed", new_callable=AsyncMock)
+@patch("majlisna.api.routes.wordquiz.notify_timer_outcome", new_callable=AsyncMock)
 def test_timer_expired_success(mock_notify: AsyncMock, test_app: FastAPI, client: TestClient) -> None:
     """Timer expired returns 200 with action."""
     # Arrange
@@ -261,7 +272,8 @@ def test_timer_expired_success(mock_notify: AsyncMock, test_app: FastAPI, client
         data = response.json()
         assert data["action"] == "results"
         mock_controller.handle_timer_expired.assert_awaited_once_with(game_id, user.id)
-        mock_notify.assert_awaited_once()
+        # Only the call that acted broadcasts (WP-11): the route hands the outcome on.
+        mock_notify.assert_awaited_once_with(str(game_id), TimerExpiredAction.RESULTS)
     finally:
         test_app.dependency_overrides.clear()
 
@@ -338,3 +350,107 @@ def test_hint_viewed_unauthenticated(test_app: FastAPI, client: TestClient) -> N
         assert response.status_code == 401
     finally:
         test_app.dependency_overrides.clear()
+
+
+# ========== Through the real controller and database (WP-10) ==========
+
+
+class _HeaderAuthenticator:
+    """A stand-in for get_current_user: the user named by the header, recorded on the
+    request exactly as the real dependency records it."""
+
+    def __init__(self, users: dict[str, User]):
+        self.users = users
+
+    def __call__(self, request: Request) -> User:
+        user = self.users[request.headers["X-Test-User"]]
+        request.state.user_id = str(user.id)
+        return user
+
+
+@pytest_asyncio.fixture(name="real_stack")
+async def get_real_stack(test_app: FastAPI, session: AsyncSession) -> AsyncGenerator[tuple[httpx.AsyncClient, dict]]:
+    """The real routes, controller and test database; only the token check is stood in for."""
+    users: dict[str, User] = {}
+    test_app.dependency_overrides[get_current_user] = _HeaderAuthenticator(users)
+    test_app.dependency_overrides[get_wordquiz_game_controller] = lambda: WordQuizGameController(session)
+    limiter.reset()
+    with (
+        patch("majlisna.api.routes.wordquiz.notify_game_changed", new_callable=AsyncMock),
+        patch("majlisna.api.routes.wordquiz.notify_timer_outcome", new_callable=AsyncMock),
+    ):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=test_app), base_url="http://test") as client:
+            yield client, users
+    limiter.reset()
+    test_app.dependency_overrides.clear()
+
+
+async def _reload(session: AsyncSession, game_id: str) -> Game:
+    statement = select(Game).where(Game.id == UUID(game_id)).execution_options(populate_existing=True)
+    return (await session.exec(statement)).one()
+
+
+async def test_the_try_past_the_cap_answers_409_with_its_key(real_stack, setup_wordquiz_game, session) -> None:
+    """Five wrong tries are answered; the sixth — the word itself — is a translatable 409 that scores nothing.
+
+    Port of SEC F15's probe, where 60 wrong answers were accepted and the word still paid 6.
+    """
+    # Prepare
+    client, users = real_stack
+    setup = await setup_wordquiz_game(num_players=2)
+    host, player = setup["users"]
+    users.update({"host": host, "player": player})
+    started = await WordQuizGameController(session).create_and_start(setup["room"].id, host.id)
+    word = (await _reload(session, started.game_id)).live_state["current_word"]["word_en"]
+    url = f"{BASE_URL}/games/{started.game_id}/answer"
+
+    # Act
+    misses = [
+        await client.post(url, json={"answer": f"guess{i}"}, headers={"X-Test-User": "player"})
+        for i in range(WORDQUIZ_MAX_ATTEMPTS_PER_ROUND)
+    ]
+    refused = await client.post(url, json={"answer": word}, headers={"X-Test-User": "player"})
+
+    # Assert
+    assert [(r.status_code, r.json()["correct"]) for r in misses] == [(200, False)] * WORDQUIZ_MAX_ATTEMPTS_PER_ROUND
+    assert refused.status_code == 409
+    body = refused.json()
+    assert (body["error"], body["error_key"]) == ("AnswerAttemptsExhaustedError", "errors.api.answerAttemptsExhausted")
+    assert body["error_params"] == {"max": WORDQUIZ_MAX_ATTEMPTS_PER_ROUND}
+    game = await _reload(session, started.game_id)
+    assert str(player.id) not in game.live_state["answers"]
+    assert next(p for p in game.live_state["players"] if p["user_id"] == str(player.id))["total_score"] == 0
+    state = await client.get(f"{BASE_URL}/games/{started.game_id}/state", headers={"X-Test-User": "player"})
+    assert state.json()["my_attempts_left"] == 0
+
+
+async def test_a_strangers_timer_call_is_refused_even_on_a_zero_second_round(
+    real_stack, setup_wordquiz_game, session, create_user
+) -> None:
+    """Port of SEC F08: a non-member ended a 0-second round at once. Now: 403, and 0 is untimed for players too."""
+    # Prepare — a round whose stored duration is 0, opened two minutes ago
+    client, users = real_stack
+    setup = await setup_wordquiz_game(num_players=2)
+    host, player = setup["users"]
+    stranger = await create_user(username="wqoutsider", email="wqoutsider@test.com")
+    users.update({"player": player, "stranger": stranger})
+    started = await WordQuizGameController(session).create_and_start(setup["room"].id, host.id)
+    game = await _reload(session, started.game_id)
+    game.live_state["turn_duration_seconds"] = 0
+    game.live_state["round_started_at"] = (datetime.now(UTC) - timedelta(seconds=120)).isoformat()
+    flag_modified(game, "live_state")
+    session.add(game)
+    await session.commit()
+    url = f"{BASE_URL}/games/{started.game_id}/timer-expired"
+
+    # Act
+    from_stranger = await client.post(url, headers={"X-Test-User": "stranger"})
+    from_player = await client.post(url, headers={"X-Test-User": "player"})
+
+    # Assert
+    assert from_stranger.status_code == 403
+    assert from_stranger.json()["error_key"] == "errors.api.notAGameParticipant"
+    assert from_player.status_code == 200
+    assert from_player.json()["action"] == "timer_not_expired"
+    game = await _reload(session, started.game_id)
+    assert game.live_state["round_phase"] == "playing"

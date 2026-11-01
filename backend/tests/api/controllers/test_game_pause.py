@@ -557,8 +557,22 @@ async def test_hint_views_are_still_recorded_while_paused(games: GameStarter, se
     # Act
     if kind == "wordquiz":
         result = await started.controller.record_hint_view(started.game_id, started.host_id)
+    elif kind == "undercover":
+        # Only the caller's own word is recorded (WP-02, SEC F07): 3 players, no Mr. White.
+        dealt = (await _reload(session, started.game_id)).live_state
+        host = next(p for p in dealt["players"] if p["user_id"] == str(started.host_id))
+        own_word = dealt["undercover_word"] if host["role"] == "undercover" else dealt["civilian_word"]
+        result = await started.controller.record_hint_view(started.game_id, started.host_id, own_word)
     else:
-        result = await started.controller.record_hint_view(started.game_id, started.host_id, "mosque")
+        # Only a board word whose meaning the caller can open is recorded (WP-09, SEC F07):
+        # a turned card's opens for everyone, the host being a spymaster or an operative.
+        dealt = await _reload(session, started.game_id)
+        dealt.live_state["board"][0]["revealed"] = True
+        flag_modified(dealt, "live_state")
+        session.add(dealt)
+        await session.commit()
+        word = dealt.live_state["board"][0]["word"]
+        result = await started.controller.record_hint_view(started.game_id, started.host_id, word)
 
     # Assert
     assert result.recorded is True

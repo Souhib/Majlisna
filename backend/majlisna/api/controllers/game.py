@@ -2,19 +2,18 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy.exc import NoResultFound
 from sqlalchemy.orm import selectinload
 from sqlmodel import desc, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from majlisna.api.constants import DEFAULT_LANGUAGE
+from majlisna.api.controllers.stats import did_user_win
 from majlisna.api.controllers.term_script import TermScriptController
-from majlisna.api.models.error import GameNotFoundError, NoTurnInsideGameError, RoomIsNotActiveError
-from majlisna.api.models.event import EventCreate
+from majlisna.api.models.error import GameNotFoundError, RoomIsNotActiveError
 from majlisna.api.models.game import GameCreate, GameStatus, GameType, GameUpdate
-from majlisna.api.models.relationship import GameTurnLink, RoomGameLink, TurnEventLink, UserGameLink
+from majlisna.api.models.relationship import RoomGameLink, UserGameLink
 from majlisna.api.models.room import RoomType
-from majlisna.api.models.table import Event, Game, Room, Turn
+from majlisna.api.models.table import Game, Room
 from majlisna.api.schemas.error import GameStillInProgressError, NotAGameParticipantError
 from majlisna.api.schemas.game import (
     ClueGuess,
@@ -79,19 +78,6 @@ class GameController:
         :return: A list of all games.
         """
         return (await self.session.exec(select(Game))).all()
-
-    async def get_game_by_id(self, game_id: UUID) -> Game:
-        """
-        Get a game by its id. If the game does not exist, raise a NoResultFound exception.
-
-        :param game_id: The id of the game to get.
-        :return: The game.
-        """
-        return (
-            await self.session.exec(
-                select(Game).where(Game.id == game_id).options(selectinload(Game.turns), selectinload(Game.room))  # ty: ignore[invalid-argument-type]
-            )
-        ).one()
 
     async def update_game(self, game_id: UUID, game_update: GameUpdate) -> Game:
         """
@@ -161,27 +147,11 @@ class GameController:
             state = game.live_state or {}
             winner = state.get("winner")
             game_status = game.game_status.value if game.game_status else None
-            user_role = None
-            user_won = None
-
-            players = state.get("players", [])
-            for p in players:
-                if p.get("user_id") == str_uid:
-                    user_role = p.get("role")
-                    if winner:
-                        if game.type == GameType.UNDERCOVER:
-                            if (
-                                winner == "civilians"
-                                and user_role == "civilian"
-                                or winner == "undercovers"
-                                and user_role in ("undercover", "mr_white")
-                            ):
-                                user_won = True
-                            else:
-                                user_won = False
-                        elif game.type == GameType.CODENAMES:
-                            user_won = p.get("team") == winner
-                    break
+            player = next((p for p in state.get("players", []) if p.get("user_id") == str_uid), None)
+            user_role = player.get("role") if player else None
+            # The same resolver as the chart and head-to-head, so the quizzes finally
+            # show Won / Lost too (BR-19); null for a leaver or a solo game.
+            user_won = did_user_win(game, user_id)
 
             entries.append(
                 GameHistoryEntry(
@@ -357,86 +327,3 @@ class GameController:
             clue_history=clue_history,
             word_explanations=word_explanations,
         )
-
-    async def create_turn(self, game_id: UUID, *, commit: bool = True) -> Turn:
-        """
-        Create a turn. If the game does not exist, raise a NoResultFound exception.
-
-        :param game_id: The id of the game to create a turn for.
-        :param commit: Commit when True (default); flush only when the caller owns the transaction.
-        :return: None
-        """
-        try:
-            db_game = (await self.session.exec(select(Game).where(Game.id == game_id))).one()
-            turn = Turn(
-                game_id=db_game.id,
-            )
-            self.session.add(turn)
-            await self.session.flush()
-            await self.session.refresh(turn)
-            turn_game_link = GameTurnLink(game_id=db_game.id, turn_id=turn.id)
-            self.session.add(turn_game_link)
-            await self._persist(commit=commit)
-            return turn
-        except NoResultFound:
-            raise GameNotFoundError(game_id=game_id) from None
-
-    async def create_turn_event(self, game_id: UUID, event_create: EventCreate, *, commit: bool = True) -> Event:
-        """
-        Create an event. If the game does not exist, raise a NoResultFound exception.
-
-        :param game_id: The id of the game to create an event for.
-        :param event_create: The event to create.
-        :param commit: Commit when True (default); flush only when the caller owns the transaction.
-        :return: Event (TurnEvent or RoomEvent)
-        """
-        try:
-            db_game = (
-                await self.session.exec(select(Game).where(Game.id == game_id).options(selectinload(Game.turns)))  # ty: ignore[invalid-argument-type]
-            ).one()
-            if not db_game.turns:
-                raise NoTurnInsideGameError(game_id=game_id)
-            latest_turn = (
-                await self.session.exec(select(Turn).where(Turn.game_id == db_game.id).order_by(desc(Turn.start_time)))
-            ).first()
-            # `db_game.turns` being non-empty does not prove this query found one:
-            # the eager-loaded collection and this SELECT are two different reads.
-            if latest_turn is None:
-                raise NoTurnInsideGameError(game_id=game_id)
-            event = Event(
-                turn_id=latest_turn.id,
-                name=event_create.name,
-                data=event_create.data,
-                user_id=event_create.user_id,
-            )
-            self.session.add(event)
-            await self.session.flush()
-            await self.session.refresh(event)
-            turn_event_link = TurnEventLink(turn_id=latest_turn.id, event_id=event.id)
-            self.session.add(turn_event_link)
-            await self._persist(commit=commit)
-            return event
-        except NoResultFound:
-            raise GameNotFoundError(game_id=game_id) from None
-
-    async def get_latest_turn(self, game_id: UUID) -> Turn:
-        """
-        Get the latest turn. If the game does not exist, raise a NoResultFound exception.
-
-        :param game_id: The id of the game to get the latest turn for.
-        :return: Turn
-        """
-        try:
-            db_game = (
-                await self.session.exec(select(Game).where(Game.id == game_id).options(selectinload(Game.turns)))  # ty: ignore[invalid-argument-type]
-            ).one()
-            if not db_game.turns:
-                raise NoTurnInsideGameError(game_id=game_id)
-            latest_turn = (
-                await self.session.exec(select(Turn).where(Turn.game_id == db_game.id).order_by(desc(Turn.start_time)))
-            ).first()
-            if latest_turn is None:
-                raise NoTurnInsideGameError(game_id=game_id)
-            return latest_turn
-        except NoResultFound:
-            raise GameNotFoundError(game_id=game_id) from None

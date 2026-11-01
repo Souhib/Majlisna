@@ -1,8 +1,9 @@
+import pytest
 from sqlmodel import select
 
 from majlisna.api.controllers.achievement import ACHIEVEMENT_DEFINITIONS, AchievementController
 from majlisna.api.controllers.stats import StatsController
-from majlisna.api.models.stats import AchievementDefinition, UserStats
+from majlisna.api.models.stats import AchievementDefinition, UserAchievement, UserStats
 
 
 async def test_seed_achievements(achievement_controller: AchievementController):
@@ -238,3 +239,68 @@ async def test_get_user_achievements_after_unlock(
     assert unlocked[0].code == defn.code
     assert unlocked[0].name == defn.name
     assert unlocked[0].progress == 1
+
+
+# ========== unlock_special (owner rule (f)) ==========
+
+
+async def test_unlock_special_unlocks_once_and_says_so(achievement_controller: AchievementController, create_user):
+    # Prepare
+    user = await create_user(username="special", email="special@test.com")
+    await achievement_controller.seed_achievements()
+
+    # Act
+    first = await achievement_controller.unlock_special(user.id, "last_survivor")
+    await achievement_controller.session.commit()
+    second = await achievement_controller.unlock_special(user.id, "last_survivor")
+    await achievement_controller.session.commit()
+
+    # Assert
+    assert first is not None and first.code == "last_survivor"
+    assert second is None
+    rows = (
+        await achievement_controller.session.exec(
+            select(UserAchievement).where(UserAchievement.user_id == user.id, UserAchievement.unlocked_at.is_not(None))  # ty: ignore[unresolved-attribute]
+        )
+    ).all()
+    assert [r.achievement_id for r in rows] == [first.id]
+
+
+async def test_unlock_special_stages_without_committing(achievement_controller: AchievementController, create_user):
+    """Its caller holds the game lock: the default is commit=False."""
+    # Prepare
+    user = await create_user(username="staged_special", email="staged_special@test.com")
+    user_id = user.id  # read before the rollback expires the row
+    await achievement_controller.seed_achievements()
+
+    # Act
+    await achievement_controller.unlock_special(user_id, "sweep_victory")
+    await achievement_controller.session.rollback()
+
+    # Assert
+    rows = (
+        await achievement_controller.session.exec(select(UserAchievement).where(UserAchievement.user_id == user_id))
+    ).all()
+    assert rows == []
+
+
+async def test_unlock_special_refuses_a_counter_achievement(achievement_controller: AchievementController, create_user):
+    """first_win unlocks from its counter in check_achievements, never by decree."""
+    # Prepare
+    user = await create_user(username="decree", email="decree@test.com")
+    await achievement_controller.seed_achievements()
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="first_win"):
+        await achievement_controller.unlock_special(user.id, "first_win")
+
+
+async def test_unlock_special_before_seeding_is_a_no_op(achievement_controller: AchievementController, create_user):
+    # Prepare
+    user = await create_user(username="unseeded", email="unseeded@test.com")
+
+    # Act
+    unlocked = await achievement_controller.unlock_special(user.id, "assassin_finder")
+
+    # Assert
+    assert unlocked is None

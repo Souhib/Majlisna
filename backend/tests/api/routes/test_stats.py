@@ -1,17 +1,27 @@
 """Route-level tests for the stats endpoints (/api/v1/stats)."""
 
 import uuid
+from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock
+from uuid import UUID
 
+import httpx
+import pytest_asyncio
 from fastapi import FastAPI
+from sqlalchemy import func
+from sqlalchemy.orm.attributes import flag_modified
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
 from starlette.testclient import TestClient
 
 from majlisna.api.controllers.achievement import AchievementController
+from majlisna.api.controllers.mcqquiz_game import McqQuizGameController
 from majlisna.api.controllers.stats import StatsController
 from majlisna.api.models.stats import UserStats
+from majlisna.api.models.table import Game, Room
 from majlisna.api.schemas.stats import AchievementWithProgress, LeaderboardEntry
-from majlisna.dependencies import get_achievement_controller, get_stats_controller
+from majlisna.dependencies import get_achievement_controller, get_current_user, get_session, get_stats_controller
 
 # ──────────────────────────────────────────────────────────────
 # User Stats (GET /api/v1/stats/users/{user_id}/stats)
@@ -25,7 +35,7 @@ def test_stats_get_user_stats_success(test_app: FastAPI, client: TestClient):
     user_id = uuid.uuid4()
     now = datetime.now(UTC)
     mock_controller = Mock(spec=StatsController)
-    mock_controller.get_or_create_user_stats = AsyncMock(
+    mock_controller.read_user_stats = AsyncMock(
         return_value=UserStats(
             id=stats_id,
             user_id=user_id,
@@ -108,7 +118,7 @@ def test_stats_get_user_stats_success(test_app: FastAPI, client: TestClient):
     assert "created_at" in data
     assert "updated_at" in data
 
-    mock_controller.get_or_create_user_stats.assert_awaited_once_with(user_id)
+    mock_controller.read_user_stats.assert_awaited_once_with(user_id)
 
     test_app.dependency_overrides.clear()
 
@@ -286,3 +296,92 @@ def test_leaderboard_get_leaderboard_with_params(test_app: FastAPI, client: Test
     mock_controller.get_leaderboard.assert_awaited_once_with(stat_field="longest_win_streak", limit=5)
 
     test_app.dependency_overrides.clear()
+
+
+# ──────────────────────────────────────────────────────────────
+# Through the real app and the test database
+# ──────────────────────────────────────────────────────────────
+
+
+@pytest_asyncio.fixture(name="api")
+async def get_api(test_app: FastAPI, session: AsyncSession) -> AsyncGenerator[httpx.AsyncClient]:
+    """An async client on the real app, on the test database."""
+
+    async def _test_session() -> AsyncGenerator[AsyncSession]:
+        yield session
+
+    test_app.dependency_overrides[get_session] = _test_session
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=test_app), base_url="http://test") as client:
+        yield client
+    test_app.dependency_overrides.clear()
+
+
+async def _stats_rows(session: AsyncSession) -> int:
+    return (await session.exec(select(func.count()).select_from(UserStats))).one()
+
+
+async def test_anonymous_stats_read_for_an_unknown_user_is_a_404(api: httpx.AsyncClient, session: AsyncSession):
+    """PD-11 / SEC F11: it answered 500 (an INSERT failing its foreign key, logged at
+    ERROR) for any random id, on PostgreSQL and SQLite alike."""
+    # Act
+    responses = [await api.get(f"/api/v1/stats/users/{uuid.uuid4()}/stats") for _ in range(3)]
+
+    # Assert
+    assert [r.status_code for r in responses] == [404, 404, 404]
+    assert {r.json()["error_key"] for r in responses} == {"errors.api.userNotFound"}
+    assert await _stats_rows(session) == 0
+
+
+async def test_anonymous_stats_read_writes_nothing(api: httpx.AsyncClient, session: AsyncSession, create_user):
+    """A user who has not played yet: zeros, and no row inserted by a GET."""
+    # Prepare
+    user = await create_user(username="neverplayed", email="neverplayed@test.com")
+
+    # Act
+    response = await api.get(f"/api/v1/stats/users/{user.id}/stats")
+
+    # Assert
+    assert response.status_code == 200
+    body = response.json()
+    assert body["user_id"] == str(user.id)
+    assert (body["total_games_played"], body["total_games_won"], body["games_hosted"]) == (0, 0, 0)
+    assert await _stats_rows(session) == 0
+
+
+async def test_a_twelve_player_mcq_won_by_the_host_reads_as_a_win_everywhere(
+    api: httpx.AsyncClient, test_app: FastAPI, session: AsyncSession, setup_mcqquiz_game
+):
+    """BDP-05, the auditor's harness2: UserStats said 1 win while the chart said 1 loss,
+    the history said "no result" and head-to-head said a draw."""
+    # Prepare
+    setup = await setup_mcqquiz_game(num_players=12, num_questions=3)
+    host, loser = setup["users"][0], setup["users"][1]
+    room = (await session.exec(select(Room).where(Room.id == setup["room"].id))).one()
+    room.settings = {**(room.settings or {}), "mcq_quiz_rounds": 1}
+    flag_modified(room, "settings")
+    session.add(room)
+    await session.commit()
+    # create_game links every member from Room.users, loaded so far with the owner alone.
+    await session.refresh(room, attribute_names=["users"])
+    controller = McqQuizGameController(session)
+    started = await controller.create_and_start(room.id, host.id)
+    game = (await session.exec(select(Game).where(Game.id == UUID(started.game_id)))).one()
+    correct = game.live_state["current_question"]["correct_answer_index"]
+    for i, user in enumerate(setup["users"]):
+        await controller.submit_answer(UUID(started.game_id), user.id, correct if i == 0 else (correct + 1) % 4)
+    await controller.advance_to_next_round(UUID(started.game_id), host.id)
+    test_app.dependency_overrides[get_current_user] = lambda: host
+
+    # Act
+    stats = (await api.get(f"/api/v1/stats/users/{host.id}/stats")).json()
+    chart = (await api.get(f"/api/v1/stats/users/{host.id}/history?days=30")).json()
+    host_history = (await api.get(f"/api/v1/games/user/{host.id}")).json()
+    loser_history = (await api.get(f"/api/v1/games/user/{loser.id}")).json()
+    versus = (await api.get(f"/api/v1/stats/users/{host.id}/vs/{loser.id}")).json()
+
+    # Assert
+    assert (stats["total_games_played"], stats["total_games_won"], stats["games_hosted"]) == (1, 1, 1)
+    assert [(day["wins"], day["losses"]) for day in chart] == [(1, 0)]
+    assert host_history[0]["user_won"] is True
+    assert loser_history[0]["user_won"] is False
+    assert (versus["user_wins"], versus["opponent_wins"], versus["draws"]) == (1, 0, 0)

@@ -2,13 +2,13 @@ from collections.abc import AsyncGenerator
 from functools import lru_cache
 from typing import Annotated, Any
 
-from fastapi import Depends, Request
+from fastapi import Body, Depends, Request
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from majlisna.api.controllers.achievement import AchievementController
-from majlisna.api.controllers.auth import TOKEN_TYPE_ACCESS, AuthController
+from majlisna.api.controllers.auth import AuthController, refresh_token_subject
 from majlisna.api.controllers.challenge import ChallengeController
 from majlisna.api.controllers.chat import ChatController
 from majlisna.api.controllers.codenames import CodenamesController
@@ -22,6 +22,7 @@ from majlisna.api.controllers.notebook import NotebookController
 from majlisna.api.controllers.profile import ProfileController
 from majlisna.api.controllers.room import RoomController
 from majlisna.api.controllers.stats import StatsController
+from majlisna.api.controllers.token_auth import authenticate_caller
 from majlisna.api.controllers.undercover import UndercoverController
 from majlisna.api.controllers.undercover_game import UndercoverGameController
 from majlisna.api.controllers.user import UserController
@@ -37,6 +38,9 @@ from majlisna.settings import Settings
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
 # The httpOnly cookie a browser session carries its access token in.
 ACCESS_TOKEN_COOKIE = "majlisna-access-token"
+# The httpOnly cookie its refresh token lives in (Path=/api/v1/auth: sent to the auth
+# endpoints only, never readable by a script).
+REFRESH_TOKEN_COOKIE = "majlisna-refresh-token"
 
 
 def _presented_token(request: Request, token: str | None) -> str | None:
@@ -136,19 +140,42 @@ async def get_current_user(
     if not effective_token:
         raise InvalidTokenError("No authentication token provided")
 
-    payload = auth_controller.decode_token(effective_token, expected_type=TOKEN_TYPE_ACCESS)
-    user = await auth_controller.get_user_by_email(payload.email)
-    # The token must name the same account by BOTH claims. Resolving on `email`
-    # alone (and never looking at `sub`) meant a token stayed valid across a
-    # delete-and-re-register of the same address: the new owner of that mailbox
-    # inherited every session still holding the old token. `/auth/refresh`
-    # already checked this; the request path did not.
-    if user is None or str(user.id) != payload.sub:
-        raise InvalidTokenError("User not found for token")
+    # The token's type, BOTH of its claims (`sub` and `email`) and its session are checked
+    # in the one helper the Socket.IO connects share (controllers/token_auth.py).
+    caller = await authenticate_caller(auth_controller.session, auth_controller.settings, effective_token)
     # Who is asking, for the per-user rate limits (rate_limit.user_or_ip_key) — set
     # only once the token has been verified against the account.
-    request.state.user_id = str(user.id)
-    return user
+    request.state.user_id = str(caller.user.id)
+    # Which session (the `sid` claim; None for a legacy token): a password change signs
+    # out every OTHER session (revoke_user_sessions(..., except_session_id=)).
+    request.state.session_id = caller.session_id
+    return caller.user
+
+
+async def get_presented_access_token(
+    request: Request,
+    token: Annotated[str | None, Depends(oauth2_scheme)],
+) -> str | None:
+    """The access token a request presents, unverified (logout reads its session from it)."""
+    return _presented_token(request, token)
+
+
+async def get_presented_refresh_token(
+    request: Request,
+    settings: Annotated[Settings, Depends(get_settings)],
+    refresh_token: Annotated[str | None, Body(embed=True)] = None,
+) -> str | None:
+    """The refresh token of a ``/auth/refresh`` call: the JSON body's, else the httpOnly cookie.
+
+    Body only, never a query parameter (it would leak into access logs and history).
+    Also records the account the token names on ``request.state.refresh_token_sub`` for
+    the route's rate-limit key (``rate_limit.refresh_sub_key``): slowapi checks the limit
+    after the dependencies resolve, so it is there by then. Signature-checked, but NOT an
+    authentication — ``AuthController.refresh_session`` does that.
+    """
+    effective_token = refresh_token or request.cookies.get(REFRESH_TOKEN_COOKIE)
+    request.state.refresh_token_sub = refresh_token_subject(effective_token, settings)
+    return effective_token
 
 
 async def get_optional_current_user(

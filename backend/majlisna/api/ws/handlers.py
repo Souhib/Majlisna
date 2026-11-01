@@ -1,23 +1,41 @@
+from collections.abc import Collection
+from datetime import UTC, datetime
 from uuid import UUID
 
 from loguru import logger
-from sqlmodel import select
+from sqlalchemy import and_
+from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from majlisna.api.controllers.auth import TOKEN_TYPE_ACCESS, AuthController
-from majlisna.api.controllers.disconnect import mark_user_disconnected, update_heartbeat
+from majlisna.api.controllers.disconnect import HeartbeatResult, mark_user_disconnected, update_heartbeat
+from majlisna.api.controllers.token_auth import authenticate_caller
+from majlisna.api.models.auth_session import AuthSession
 from majlisna.api.models.relationship import RoomUserLink
+from majlisna.api.models.room_ban import RoomBan
 from majlisna.api.models.table import Game
-from majlisna.api.schemas.error import InvalidTokenError, TokenExpiredError
+from majlisna.api.schemas.error import InvalidTokenError, SessionRevokedError, TokenExpiredError
 from majlisna.api.utils.multilingual import normalize_lang
-from majlisna.api.ws.notify import fire_notify_room_changed
+from majlisna.api.ws.notify import fire_notify_room_changed, member_channel
 from majlisna.api.ws.server import sio
 from majlisna.api.ws.state import fetch_game_state, fetch_room_state
 from majlisna.database import get_engine
 from majlisna.settings import Settings
 
-# Track user→sid mapping for multi-tab deduplication
+# Track user→sid mapping for multi-tab deduplication. Keyed "{user_id}:{room_id}",
+# both canonical UUID strings. PER PROCESS: with 4 uvicorn workers each holds only its
+# own sockets, which is why a kick cannot detach a socket held by another worker
+# directly (``audit_local_socket_memberships``).
 _user_sids: dict[str, str] = {}
+
+# The AuthSession (the token's ``sid``) behind each socket of THIS worker, personal and
+# room sockets alike; a legacy token names none and is not listed. The session was
+# checked at connect only, so a socket opened before a logout, a reset or a reuse
+# detection kept hearing the room state and the invites (code and PIN) until it happened
+# to reconnect (review R5): ``audit_local_socket_memberships`` cuts them every tick.
+_socket_sessions: dict[str, UUID] = {}
+
+# The token refusals a handshake answers with a clean ConnectionRefusedError.
+_TOKEN_ERRORS = (InvalidTokenError, TokenExpiredError, SessionRevokedError)
 
 
 async def _connect_personal(sid: str, token: str) -> None:
@@ -34,46 +52,92 @@ async def _connect_personal(sid: str, token: str) -> None:
     try:
         engine = await get_engine()
         async with AsyncSession(engine) as session:
-            auth_controller = AuthController(session, Settings())
-            payload = auth_controller.decode_token(token, expected_type=TOKEN_TYPE_ACCESS)
-            user = await auth_controller.get_user_by_email(payload.email)
-    except (InvalidTokenError, TokenExpiredError) as e:
+            # Type and BOTH claims, like every HTTP request (controllers/token_auth.py).
+            caller = await authenticate_caller(session, Settings(), token)
+    except _TOKEN_ERRORS as e:
         logger.debug("Socket.IO personal auth failed for sid={}: {}", sid, e)
         raise ConnectionRefusedError("Invalid or expired token") from e
-    if user is None:
-        raise ConnectionRefusedError("User not found")
 
-    user_id = str(user.id)
+    user_id = str(caller.user.id)
+    _track_session(sid, caller.session_id)
     await sio.save_session(sid, {"user_id": user_id, "room_id": None, "lang": None})
     await sio.enter_room(sid, f"user:{user_id}")
     logger.debug("Socket.IO personal connect: sid={} user={}", sid, user_id)
 
 
+async def _seated_members(session: AsyncSession, pairs: Collection[tuple[UUID, UUID]]) -> set[tuple[UUID, UUID]]:
+    """Which of these (user, room) pairs hold a seat and no ban — ONE statement for all of them.
+
+    A seat is a ``RoomUserLink``; a ``RoomBan`` (owner rule (c): a kick bans for the
+    room's lifetime) voids it. The query reads the cross product of the users and rooms
+    asked about and keeps the asked pairs only.
+    """
+    if not pairs:
+        return set()
+    user_ids = {user_id for user_id, _ in pairs}
+    room_ids = {room_id for _, room_id in pairs}
+    rows = (
+        await session.exec(
+            select(RoomUserLink.user_id, RoomUserLink.room_id)
+            .outerjoin(
+                RoomBan,
+                and_(
+                    col(RoomBan.room_id) == col(RoomUserLink.room_id),
+                    col(RoomBan.user_id) == col(RoomUserLink.user_id),
+                ),
+            )
+            .where(col(RoomUserLink.user_id).in_(user_ids))
+            .where(col(RoomUserLink.room_id).in_(room_ids))
+            .where(col(RoomBan.id).is_(None))
+        )
+    ).all()
+    asked = set(pairs)
+    return {(user_id, room_id) for user_id, room_id in rows if (user_id, room_id) in asked}
+
+
 async def _authenticate_member(sid: str, token: str, room_uuid: UUID) -> str:
-    """The user id behind ``token``, who must be a member of the room; refuse otherwise."""
+    """The user id behind ``token``, who must hold a seat in the room and no ban; refuse otherwise."""
     try:
         engine = await get_engine()
         async with AsyncSession(engine) as session:
-            auth_controller = AuthController(session, Settings())
-            payload = auth_controller.decode_token(token, expected_type=TOKEN_TYPE_ACCESS)
-            user = await auth_controller.get_user_by_email(payload.email)
-            if user is None:
-                raise ConnectionRefusedError("User not found")
+            # Type and BOTH claims, like every HTTP request (controllers/token_auth.py):
+            # resolving on `email` alone let a token of a deleted account into the room
+            # of whoever registered the same address next (SEC F09).
+            caller = await authenticate_caller(session, Settings(), token)
 
             # Authorization: the user must actually be a member of this room —
             # otherwise any authenticated user could listen to any room's state
-            # (which carries the room PIN) and chat.
-            link = (
-                await session.exec(
-                    select(RoomUserLink).where(RoomUserLink.room_id == room_uuid).where(RoomUserLink.user_id == user.id)
-                )
-            ).first()
-            if not link:
+            # (which carries the room PIN) and chat. A banned player is not one, even
+            # while a seat row exists.
+            if not await _seated_members(session, [(caller.user.id, room_uuid)]):
                 raise ConnectionRefusedError("Not a member of this room")
-            return str(user.id)
-    except (InvalidTokenError, TokenExpiredError) as e:
+            _track_session(sid, caller.session_id)
+            return str(caller.user.id)
+    except _TOKEN_ERRORS as e:
         logger.debug("Socket.IO auth failed for sid={}: {}", sid, e)
         raise ConnectionRefusedError("Invalid or expired token") from e
+
+
+def _track_session(sid: str, session_id: UUID | None) -> None:
+    """Remember the session behind a socket that has been let in (``_socket_sessions``)."""
+    if session_id is not None:
+        _socket_sessions[sid] = session_id
+
+
+async def _detach_socket(sid: str, room_id: str) -> None:
+    """Cut a LOCAL socket off the room: leave ``room:{id}`` and every ``game:*`` channel, then disconnect.
+
+    Leaving first, so that no broadcast reaches it while its disconnect handler runs.
+    ``sio.rooms(sid)`` only knows this worker's sockets, which is all this is given.
+    """
+    try:
+        for name in sio.rooms(sid):
+            if name == f"room:{room_id}" or name.startswith(("game:", f"member:{room_id}:")):
+                await sio.leave_room(sid, name)
+        await sio.disconnect(sid)
+        logger.debug("Detached and disconnected sid={} from room:{}", sid, room_id)
+    except Exception:
+        logger.opt(exception=True).debug("Failed to detach sid={} from room:{}", sid, room_id)
 
 
 @sio.event
@@ -87,8 +151,8 @@ async def connect(sid, environ, auth):  # noqa: ARG001
         raise ConnectionRefusedError("Missing auth token")
 
     token = auth["token"]
-    room_id = auth.get("room_id")
-    if not room_id:
+    raw_room_id = auth.get("room_id")
+    if not raw_room_id:
         await _connect_personal(sid, token)
         return
 
@@ -98,9 +162,11 @@ async def connect(sid, environ, auth):  # noqa: ARG001
     # ConnectionRefusedError, so anything else propagates to the engine.io layer
     # as a server error instead of a clean refusal.
     try:
-        room_uuid = UUID(str(room_id))
+        room_uuid = UUID(str(raw_room_id))
     except (ValueError, AttributeError, TypeError) as e:
         raise ConnectionRefusedError("Invalid room_id") from e
+    # Canonical, like every broadcast's `room:{room_id}` and every `_user_sids` key.
+    room_id = str(room_uuid)
 
     user_id = await _authenticate_member(sid, token, room_uuid)
 
@@ -122,18 +188,28 @@ async def connect(sid, environ, auth):  # noqa: ARG001
     # meanings in it (optional — older clients send none and get English).
     await sio.save_session(sid, {"user_id": user_id, "room_id": room_id, "lang": normalize_lang(auth.get("lang"))})
 
-    # Join Socket.IO rooms: room-specific + personal user room for invites
+    # Join Socket.IO rooms: room-specific (chat, game_updated), this member's own
+    # channel in the room (the room state, which carries the PIN: notify.member_channel),
+    # and the personal user room for invites
     await sio.enter_room(sid, f"room:{room_id}")
+    await sio.enter_room(sid, member_channel(room_id, user_id))
     await sio.enter_room(sid, f"user:{user_id}")
     logger.debug("Socket.IO connect: sid={} user={} room={}", sid, user_id, room_id)
 
     # Update heartbeat in DB — mark user as connected with fresh last_seen_at
+    heartbeat_result = None
     try:
         engine = await get_engine()
         async with AsyncSession(engine) as session:
-            await update_heartbeat(session, user_id, room_id)
+            heartbeat_result = await update_heartbeat(session, user_id, room_id)
     except Exception:
         logger.opt(exception=True).warning("Failed to update heartbeat on connect for sid={}", sid)
+
+    # The player came back: everyone else still shows them away (BDP-04). The
+    # broadcast reaches this socket too — it has entered room:{room_id} above.
+    if heartbeat_result is HeartbeatResult.RESTORED:
+        fire_notify_room_changed(room_id)
+        return
 
     # Send initial room state to this client only
     try:
@@ -150,6 +226,9 @@ async def join_game(sid, data):
     ``data``: ``{"game_id": str, "lang"?: "en" | "ar" | "fr"}``. The initial
     ``game_state`` this sends is resolved in ``lang`` (else the handshake's
     ``auth.lang``, else English), like ``GET .../state?lang=``.
+
+    A socket whose seat is gone (a kick or a leave served by another worker) is
+    refused AND cut: it has no business in the room's channels any more.
     """
     if not data or not data.get("game_id"):
         return
@@ -178,6 +257,7 @@ async def join_game(sid, data):
             ).first()
             if not link:
                 logger.warning("join_game rejected: user {} not in room {}", user_id, room_id)
+                await _forget_and_detach(user_id, room_id, sid)
                 return
 
             # Check game belongs to this room
@@ -192,25 +272,50 @@ async def join_game(sid, data):
     # Store game_id (and the language the state is read in) in session and join game room
     session_data["game_id"] = game_id
     session_data["lang"] = lang
-    await sio.save_session(sid, session_data)
+    if not await _save_session_of_live_socket(sid, session_data):
+        logger.debug("join_game: sid={} went away before it could join game {}", sid, game_id)
+        return
     await sio.enter_room(sid, f"game:{game_id}")
     logger.debug("Socket.IO join_game: sid={} user={} game={}", sid, user_id, game_id)
+    await _welcome_to_game(sid, user_id, room_id, game_id, lang)
 
-    # Update heartbeat so players using only Socket.IO don't get flagged as disconnected
+
+async def _welcome_to_game(sid: str, user_id: str, room_id: str, game_id: str, lang: str) -> None:
+    """What follows a socket's entry into a game room: its heartbeat, then its own state.
+
+    The heartbeat, so a player using only Socket.IO is not flagged as disconnected (a
+    return is announced to the room); then the initial game state, to this client only.
+    Each step logs its own failure and the other still runs.
+    """
     try:
         engine = await get_engine()
         async with AsyncSession(engine) as session:
-            await update_heartbeat(session, user_id, room_id)
+            if await update_heartbeat(session, user_id, room_id) is HeartbeatResult.RESTORED:
+                fire_notify_room_changed(room_id)
     except Exception:
         logger.opt(exception=True).warning("Failed to update heartbeat on join_game for sid={}", sid)
 
-    # Send initial game state to this client only
     try:
         state = await fetch_game_state(game_id, user_id, lang=lang)
         if state:
             await sio.emit("game_state", state, to=sid)
     except Exception:
         logger.opt(exception=True).warning("Failed to send initial game_state to sid={}", sid)
+
+
+async def _save_session_of_live_socket(sid: str, session_data: dict) -> bool:
+    """Save a socket's session; False when the socket is already gone.
+
+    python-engineio answers ``KeyError('Session not found')`` for a sid that has
+    disconnected — a page navigating away while a handler was reading the database.
+    It used to escape ``join_game`` as "Task exception was never retrieved", an ERROR
+    in the log (and a tracked issue in production) for an ordinary race.
+    """
+    try:
+        await sio.save_session(sid, session_data)
+    except KeyError:
+        return False
+    return True
 
 
 async def auto_join_game_room(game_id: str, room_id: str) -> int:
@@ -240,28 +345,115 @@ async def auto_join_game_room(game_id: str, room_id: str) -> int:
     return joined
 
 
-async def remove_user_from_room_socket(user_id: str, room_id: str) -> None:
-    """Detach a user's SID from a room's Socket.IO room (kick/leave).
+async def _forget_and_detach(user_id: str, room_id: str, sid: str) -> None:
+    """Drop ``sid`` from ``_user_sids`` (only if it is still the tracked one) and cut it off the room."""
+    key = f"{user_id}:{room_id}"
+    if _user_sids.get(key) == sid:
+        _user_sids.pop(key, None)
+    await _detach_socket(sid, room_id)
 
-    Stops the client from receiving further room broadcasts (which carry the
-    room PIN) after they are no longer a member. Best-effort: the `_user_sids`
-    map is per-process, so with multiple workers only SIDs on this worker are
-    detached — kicked users are also disconnected client-side via
-    ``you_were_kicked``.
+
+async def remove_user_from_room_socket(user_id: str, room_id: str) -> None:
+    """Cut a removed member's socket off the room, on THIS worker (kick, leave, account deletion).
+
+    Leaves ``room:{id}`` (whose broadcasts carry the PIN) and the ``game:{id}``
+    channel, then disconnects the socket, so the client stops hearing the room at
+    once. ``_user_sids`` is per process: a socket held by another worker is cut by
+    that worker's next ``audit_local_socket_memberships`` tick (within
+    ``DISCONNECT_CHECK_INTERVAL_SECONDS``), and refused by its own ``heartbeat`` or
+    ``join_game`` before that. Kicked users are also told via ``you_were_kicked``
+    (emitted first by the route: the local emit is queued before the disconnect).
     """
     sid = _user_sids.pop(f"{user_id}:{room_id}", None)
     if not sid:
         return
+    await _detach_socket(sid, room_id)
+
+
+async def audit_local_socket_memberships(session: AsyncSession) -> int:
+    """Cut every socket of THIS worker whose session has ended, or whose seat is gone or banned.
+
+    Returns how many were cut. Runs in every worker on every tick of the checker loop
+    (``on_worker_tick``), outside the single-sweeper election: a kick served by another
+    worker removes the seat and bans the player, and a logout or a reset revokes the
+    session, but only the worker holding the socket can cut it, and the client cannot be
+    trusted to leave on ``you_were_kicked``. ONE query for the sessions of all of this
+    worker's sockets and ONE for all its (user, room) pairs; none when it holds no socket.
+    """
+    cut = await _cut_sockets_of_ended_sessions(session)
+    return cut + await _cut_sockets_without_a_seat(session)
+
+
+async def _cut_sockets_of_ended_sessions(session: AsyncSession) -> int:
+    """Cut every local socket whose AuthSession is revoked, past ``expires_at`` or gone (review R5)."""
+    snapshot = dict(_socket_sessions)
+    if not snapshot:
+        return 0
+    live = set(
+        (
+            await session.exec(
+                select(AuthSession.id)
+                .where(col(AuthSession.id).in_(set(snapshot.values())))
+                .where(col(AuthSession.revoked_at).is_(None))
+                .where(col(AuthSession.expires_at) > datetime.now(UTC))
+            )
+        ).all()
+    )
+    ended = [sid for sid, session_id in snapshot.items() if session_id not in live]
+    for sid in ended:
+        _socket_sessions.pop(sid, None)
+        for key in [key for key, tracked in _user_sids.items() if tracked == sid]:
+            _user_sids.pop(key, None)
+        await _cut_socket(sid)
+    if ended:
+        logger.info("Socket audit: cut {} socket(s) whose session has ended", len(ended))
+    return len(ended)
+
+
+async def _cut_socket(sid: str) -> None:
+    """Take a LOCAL socket off every channel it is in (personal, room, game), then disconnect it."""
     try:
-        await sio.leave_room(sid, f"room:{room_id}")
-        logger.debug("Detached sid={} from room:{} (user={})", sid, room_id, user_id)
+        for name in sio.rooms(sid):
+            if name != sid:
+                await sio.leave_room(sid, name)
+        await sio.disconnect(sid)
     except Exception:
-        logger.opt(exception=True).debug("Failed to detach sid={} from room:{}", sid, room_id)
+        logger.opt(exception=True).debug("Failed to cut sid={}", sid)
+
+
+async def _cut_sockets_without_a_seat(session: AsyncSession) -> int:
+    """Cut every local room socket whose seat is gone or banned."""
+    snapshot = list(_user_sids.items())
+    pairs: dict[tuple[UUID, UUID], tuple[str, str]] = {}
+    for key, sid in snapshot:
+        user_part, _, room_part = key.partition(":")
+        try:
+            pairs[(UUID(user_part), UUID(room_part))] = (key, sid)
+        except ValueError:
+            continue
+    if not pairs:
+        return 0
+
+    seated = await _seated_members(session, pairs.keys())
+    cut = 0
+    for pair, (key, sid) in pairs.items():
+        if pair in seated or _user_sids.get(key) != sid:
+            continue
+        _user_sids.pop(key, None)
+        await _detach_socket(sid, str(pair[1]))
+        cut += 1
+    if cut:
+        logger.info("Socket audit: cut {} socket(s) whose seat is gone", cut)
+    return cut
 
 
 @sio.event
 async def heartbeat(sid):
-    """Update heartbeat timestamp to prevent stale-user detection."""
+    """Update heartbeat timestamp to prevent stale-user detection.
+
+    Also the cheapest re-check of the seat: no seat any more (a kick served by another
+    worker) cuts the socket; a player the sweep had marked away is announced back.
+    """
     session_data = await sio.get_session(sid)
     user_id = session_data.get("user_id")
     room_id = session_data.get("room_id")
@@ -270,9 +462,16 @@ async def heartbeat(sid):
     try:
         engine = await get_engine()
         async with AsyncSession(engine) as session:
-            await update_heartbeat(session, user_id, room_id)
+            result = await update_heartbeat(session, user_id, room_id)
     except Exception:
         logger.opt(exception=True).warning("Failed to update heartbeat for sid={}", sid)
+        return
+
+    if result is HeartbeatResult.NOT_A_MEMBER:
+        logger.info("heartbeat refused: user {} has no seat in room {}", user_id, room_id)
+        await _forget_and_detach(user_id, room_id, sid)
+    elif result is HeartbeatResult.RESTORED:
+        fire_notify_room_changed(room_id)
 
 
 @sio.event
@@ -284,6 +483,7 @@ async def disconnect(sid):
     logger.debug("Socket.IO disconnect: sid={} user={} room={}", sid, user_id, room_id)
 
     # Clean up SID tracking
+    _socket_sessions.pop(sid, None)
     replaced = False
     if room_id:
         user_room_key = f"{user_id}:{room_id}"
@@ -300,8 +500,10 @@ async def disconnect(sid):
         try:
             engine = await get_engine()
             async with AsyncSession(engine) as session:
-                await mark_user_disconnected(session, user_id, room_id)
-            # Notify room so other players see the disconnection
-            fire_notify_room_changed(room_id)
+                flipped = await mark_user_disconnected(session, user_id, room_id)
+            # Notify room so other players see the disconnection — only if this flipped
+            # the seat: an already-away or removed seat (a kick) is no news.
+            if flipped:
+                fire_notify_room_changed(room_id)
         except Exception:
             logger.opt(exception=True).warning("Failed to mark user {} as disconnected", user_id)

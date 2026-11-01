@@ -154,7 +154,8 @@ def create_app(lifespan) -> FastAPI:
 
     _include_api_routers(app)
 
-    # Mount Socket.IO (separate ASGI app, bypasses FastAPI middleware)
+    # Mount Socket.IO (a separate ASGI app). The middleware above still wraps it — Starlette
+    # middleware wraps every route, mounts included — CORSMiddleware included (ws/server.py).
     app.mount("/socket.io", socketio_app)
 
     @app.get("/scalar", include_in_schema=False)
@@ -166,7 +167,12 @@ def create_app(lifespan) -> FastAPI:
 
     @app.get("/health")
     async def health_check():
-        """Health check endpoint with DB connectivity verification."""
+        """Health check endpoint with DB connectivity verification.
+
+        `version` is the commit the image was built from (settings.git_sha). It is
+        answered on a 503 too, so a deploy check can tell a new build with its database
+        down from the old build still running.
+        """
         db_status = "ok"
         status_code = 200
         try:
@@ -185,6 +191,7 @@ def create_app(lifespan) -> FastAPI:
             "status": "healthy" if status_code == 200 else "degraded",
             "db": db_status,
             "timestamp": datetime.now(UTC).isoformat(),
+            "version": settings.git_sha,
         }
         return JSONResponse(content=body, status_code=status_code)
 

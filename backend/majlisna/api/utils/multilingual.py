@@ -10,18 +10,27 @@ from majlisna.api.constants import DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES
 
 
 def resolve_multilingual(data: dict | None, lang: str) -> str | None:
-    """Resolve a multilingual dict to one string: the exact ``lang``, then ``en``, then any value."""
+    """Resolve a multilingual dict to one string: ``lang``'s own text, then ``en``, then any value.
+
+    ``lang`` goes through ``normalize_lang`` first, so a browser's regional tag reads as its
+    language: ``fr-FR`` gets the French text rather than the English fallback. Every REST
+    ``?lang=`` that reaches game content comes through here.
+    """
     if not data or not isinstance(data, dict):
         return None
-    return data.get(lang) or data.get("en") or next(iter(data.values()), None)
+    return data.get(normalize_lang(lang)) or data.get("en") or next(iter(data.values()), None)
 
 
 def normalize_lang(value: object) -> str:
     """A client-supplied language code as one of ``SUPPORTED_LANGUAGES``, else the default.
 
-    Used where the value does not come through a typed FastAPI parameter — the
-    Socket.IO handshake and ``join_game`` payload are free-form dicts.
+    The language part of a BCP 47 tag, case-insensitively: ``fr-FR`` → ``fr``, ``ar-SA`` →
+    ``ar``, ``fr_CA`` → ``fr``; anything unknown (``de-DE``, ``arn``, a non-string) → ``en``.
+    Browsers send regional tags, and an exact-match check used to turn every one of them
+    into English. Used by ``resolve_multilingual`` and by the Socket.IO handshake and
+    ``join_game`` payload, which are free-form dicts.
     """
-    if isinstance(value, str) and value in SUPPORTED_LANGUAGES:
-        return value
-    return DEFAULT_LANGUAGE
+    if not isinstance(value, str):
+        return DEFAULT_LANGUAGE
+    language = value.strip().replace("_", "-").split("-", 1)[0].lower()
+    return language if language in SUPPORTED_LANGUAGES else DEFAULT_LANGUAGE

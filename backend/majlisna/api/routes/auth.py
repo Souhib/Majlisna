@@ -1,30 +1,33 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Body, Depends, Request, Response
+from fastapi import APIRouter, Depends, Request, Response
 
-from majlisna.api.controllers.auth import TOKEN_TYPE_REFRESH, AuthController
+from majlisna.api.controllers.auth import AuthController
 from majlisna.api.models.table import User
 from majlisna.api.models.user import UserCreate
 from majlisna.api.models.view import UserView
-from majlisna.api.rate_limit import limiter
+from majlisna.api.rate_limit import limiter, refresh_sub_key
 from majlisna.api.schemas.auth import (
+    AccessTokenResponse,
     ForgotPasswordRequest,
     LoginRequest,
     LoginResponse,
     ResendVerificationRequest,
     ResetPasswordRequest,
-    TokenPairResponse,
     VerifyEmailRequest,
 )
 from majlisna.api.schemas.common import StatusMessageResponse, StatusResponse
-from majlisna.api.schemas.error import InvalidTokenError
 from majlisna.api.schemas.social_auth import SocialLoginRequest, SocialLoginResponse
 from majlisna.api.services.email import EmailService
 from majlisna.api.services.social_auth import SocialAuthService
 from majlisna.dependencies import (
+    ACCESS_TOKEN_COOKIE,
+    REFRESH_TOKEN_COOKIE,
     get_auth_controller,
     get_current_user,
     get_email_service,
+    get_presented_access_token,
+    get_presented_refresh_token,
     get_settings,
     get_social_auth_service,
 )
@@ -37,10 +40,13 @@ router = APIRouter(
 
 
 def _set_auth_cookies(response: Response, access_token: str, refresh_token: str, settings: Settings) -> None:
-    """Set httpOnly auth cookies on the response."""
+    """Set httpOnly auth cookies on the response (Secure on https, SameSite=Lax).
+
+    The refresh cookie is scoped to ``/api/v1/auth``: only refresh and logout ever read it.
+    """
     use_secure = settings.frontend_url.startswith("https://")
     response.set_cookie(
-        key="majlisna-access-token",
+        key=ACCESS_TOKEN_COOKIE,
         value=access_token,
         httponly=True,
         secure=use_secure,
@@ -49,7 +55,7 @@ def _set_auth_cookies(response: Response, access_token: str, refresh_token: str,
         path="/",
     )
     response.set_cookie(
-        key="majlisna-refresh-token",
+        key=REFRESH_TOKEN_COOKIE,
         value=refresh_token,
         httponly=True,
         secure=use_secure,
@@ -61,8 +67,8 @@ def _set_auth_cookies(response: Response, access_token: str, refresh_token: str,
 
 def _clear_auth_cookies(response: Response) -> None:
     """Clear auth cookies."""
-    response.delete_cookie(key="majlisna-access-token", path="/")
-    response.delete_cookie(key="majlisna-refresh-token", path="/api/v1/auth")
+    response.delete_cookie(key=ACCESS_TOKEN_COOKIE, path="/")
+    response.delete_cookie(key=REFRESH_TOKEN_COOKIE, path="/api/v1/auth")
 
 
 @router.post("/register", response_model=UserView, status_code=201)
@@ -93,41 +99,36 @@ async def login(
     """Login and get JWT token pair with user data."""
     result = await auth_controller.login(login_request.email, login_request.password)
     _set_auth_cookies(response, result.access_token, result.refresh_token, settings)
+    # The refresh token goes in the httpOnly cookie only, never in the body (SEC F13).
     return LoginResponse(
         access_token=result.access_token,
-        refresh_token=result.refresh_token,
         expires_in=result.expires_in,
         user=result.user,
     )
 
 
-@router.post("/refresh", response_model=TokenPairResponse)
-@limiter.limit("10/minute")
+@router.post("/refresh", response_model=AccessTokenResponse)
+# Per account the token names, not per address: every page load spends a refresh, and a
+# table of phones on one connection used to exhaust a shared per-IP budget (FR-3 d).
+@limiter.limit("10/minute", key_func=refresh_sub_key)
 async def refresh_token(
-    request: Request,
+    request: Request,  # noqa: ARG001 — required by limiter
     response: Response,
     *,
+    presented_token: Annotated[str | None, Depends(get_presented_refresh_token)],
     auth_controller: Annotated[AuthController, Depends(get_auth_controller)],
     settings: Annotated[Settings, Depends(get_settings)],
-    refresh_token: Annotated[str | None, Body(embed=True)] = None,
-) -> TokenPairResponse:
-    """Refresh access token using refresh token (from request body or httpOnly cookie).
+) -> AccessTokenResponse:
+    """Spend the refresh token (JSON body, else the httpOnly cookie) for a new pair.
 
-    The token is accepted in the JSON body only — never as a query parameter,
-    so it cannot leak into access logs / browser history.
+    Single use: ``AuthController.refresh_session`` rotates it, answers a tab that raced
+    another one, and revokes the session when an old copy is replayed (SEC F01). The new
+    refresh token is set as the httpOnly cookie only (SEC F13): a body still holding one
+    is accepted (an old client's stored token), but none is ever sent back.
     """
-    effective_token = refresh_token or request.cookies.get("majlisna-refresh-token")
-    if not effective_token:
-        raise InvalidTokenError("No refresh token provided")
-
-    payload = auth_controller.decode_token(effective_token, expected_type=TOKEN_TYPE_REFRESH)
-    # The user must still exist — otherwise we'd mint tokens for deleted accounts.
-    user = await auth_controller.get_user_by_email(payload.email)
-    if user is None or str(user.id) != payload.sub:
-        raise InvalidTokenError("User not found for token")
-    tokens = auth_controller.create_token_pair(payload.sub, payload.email)
+    tokens = await auth_controller.refresh_session(presented_token)
     _set_auth_cookies(response, tokens.access_token, tokens.refresh_token, settings)
-    return tokens
+    return AccessTokenResponse(access_token=tokens.access_token, expires_in=tokens.expires_in)
 
 
 @router.get("/me", response_model=UserView)
@@ -139,8 +140,15 @@ async def get_me(
 
 
 @router.post("/logout")
-async def logout(response: Response) -> StatusResponse:
-    """Logout by clearing auth cookies."""
+async def logout(
+    request: Request,
+    response: Response,
+    *,
+    access_token: Annotated[str | None, Depends(get_presented_access_token)],
+    auth_controller: Annotated[AuthController, Depends(get_auth_controller)],
+) -> StatusResponse:
+    """Sign this session out on the server (its tokens stop working), then clear the cookies."""
+    await auth_controller.logout(access_token=access_token, refresh_token=request.cookies.get(REFRESH_TOKEN_COOKIE))
     _clear_auth_cookies(response)
     return StatusResponse(status="ok")
 
@@ -216,4 +224,5 @@ async def social_login(
         access_token=body.access_token,
     )
     _set_auth_cookies(response, result.access_token, result.refresh_token, settings)
-    return result
+    # The refresh token goes in the httpOnly cookie only, never in the body (SEC F13).
+    return SocialLoginResponse.model_validate(result.model_dump(exclude={"refresh_token"}))

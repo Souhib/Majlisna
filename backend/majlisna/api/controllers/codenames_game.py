@@ -1,4 +1,3 @@
-import unicodedata
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -9,8 +8,11 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from majlisna.api.constants import (
     CODENAMES_BOARD_SIZE,
+    CODENAMES_CLUE_TURN_KEY,
+    CODENAMES_REVEAL_LOG_KEY,
     DEFAULT_CODENAMES_CLUE_TIMER_SECONDS,
     DEFAULT_CODENAMES_GUESS_TIMER_SECONDS,
+    HINT_USAGE_MAX_WORDS_PER_USER,
     HOST_USERNAME_STATE_KEY,
     MAX_PLAYERS_CODENAMES,
     TIMER_EXPIRATION_TOLERANCE_SECONDS,
@@ -22,11 +24,22 @@ from majlisna.api.controllers.codenames_helpers import (
     CodenamesGameStatus,
     CodenamesRole,
     CodenamesTeam,
+    advance_clue_turn,
+    apply_card_reveal,
     assign_players,
     build_board,
+    clue_names_a_card,
+    counted_operative_votes,
+    current_operative_ids,
     get_board_for_player,
     get_player_from_game,
+    hint_is_visible,
+    new_turn,
+    switch_turn,
+    tally_operative_votes,
+    top_voted_cards,
 )
+from majlisna.api.controllers.game_cancel import detach_room_if_current
 from majlisna.api.controllers.game_end_stats import codenames_winners, record_game_end
 from majlisna.api.controllers.game_lock import get_game_lock
 from majlisna.api.models.error import (
@@ -62,12 +75,12 @@ from majlisna.api.schemas.common import (
 from majlisna.api.schemas.error import (
     BaseError,
     ClueAlreadyGivenError,
+    ClueMustBeOneWordError,
 )
 from majlisna.api.schemas.term_script import TermScriptForms
 from majlisna.api.utils.game_pause import is_paused, parse_instant
 from majlisna.api.utils.game_state import require_state
 from majlisna.api.utils.rng import rng
-from majlisna.api.utils.text_match import matches_any
 
 
 class CodenamesGameController(BaseGameController):
@@ -131,14 +144,7 @@ class CodenamesGameController(BaseGameController):
                 "board": board,
                 "players": players,
                 "current_team": first_team.value,
-                "current_turn": {
-                    "team": first_team.value,
-                    "clue_word": None,
-                    "clue_number": 0,
-                    "guesses_made": 0,
-                    "max_guesses": 0,
-                    "card_votes": {},
-                },
+                "current_turn": new_turn(first_team.value),
                 "red_remaining": red_remaining,
                 "blue_remaining": blue_remaining,
                 "status": CodenamesGameStatus.IN_PROGRESS.value,
@@ -146,6 +152,9 @@ class CodenamesGameController(BaseGameController):
                 "word_hints": word_hints,
                 "hint_usage": {},
                 "clue_history": [],
+                # Every card turned, and the clue it was turned under (WP-09).
+                CODENAMES_REVEAL_LOG_KEY: [],
+                CODENAMES_CLUE_TURN_KEY: 0,
                 "timer_config": {
                     "clue_seconds": (getattr(db_room, "settings", None) or {}).get(
                         "codenames_clue_timer", DEFAULT_CODENAMES_CLUE_TIMER_SECONDS
@@ -180,8 +189,7 @@ class CodenamesGameController(BaseGameController):
             game = await self._get_game(game_id)
             state = require_state(game)
 
-            if state["status"] != CodenamesGameStatus.IN_PROGRESS.value:
-                raise GameNotInProgressError(game_id=str(game_id))
+            self._ensure_in_progress(game, state)
             self._ensure_not_paused(game, state)
 
             player = get_player_from_game(state["players"], str(user_id))
@@ -194,19 +202,11 @@ class CodenamesGameController(BaseGameController):
             if state["current_turn"].get("clue_word") is not None:
                 raise ClueAlreadyGivenError()
 
-            normalized_clue = unicodedata.normalize("NFKD", clue_word).lower()
-            board_words_normalized = [unicodedata.normalize("NFKD", card["word"]).lower() for card in state["board"]]
-            if normalized_clue in board_words_normalized:
-                raise ClueWordIsOnBoardError(clue_word=clue_word)
-            # Every card also shows its Arabic form, so that form is on the board
-            # too: "صبر" as a clue for the Sabr card is the card's own word.
-            board_scripts = await self._term_script_controller.get_forms(card["word"] for card in state["board"])
-            if matches_any(clue_word, (script.ar for script in board_scripts.values())):
-                raise ClueWordIsOnBoardError(clue_word=clue_word)
+            clue = await self._validated_clue(state, clue_word)
 
             state["current_turn"] = {
                 "team": state["current_team"],
-                "clue_word": clue_word,
+                "clue_word": clue,
                 "clue_number": clue_number,
                 "guesses_made": 0,
                 "max_guesses": CODENAMES_BOARD_SIZE if clue_number == 0 else clue_number + 1,
@@ -215,13 +215,13 @@ class CodenamesGameController(BaseGameController):
 
             state["timer_started_at"] = datetime.now(UTC).isoformat()
 
-            # Append to clue history
-            if "clue_history" not in state:
-                state["clue_history"] = []
-            state["clue_history"].append(
+            # Count the clue, then append it to the clue history: a reveal's clue_turn
+            # is this clue's 1-based position there.
+            advance_clue_turn(state)
+            state.setdefault("clue_history", []).append(
                 {
                     "team": state["current_team"],
-                    "clue_word": clue_word,
+                    "clue_word": clue,
                     "clue_number": clue_number,
                     "guesses": [],
                 }
@@ -234,9 +234,27 @@ class CodenamesGameController(BaseGameController):
 
         return GiveClueResponse(
             game_id=str(game_id),
-            clue_word=clue_word,
+            clue_word=clue,
             clue_number=clue_number,
         )
+
+    async def _validated_clue(self, state: dict, clue_word: str) -> str:
+        """The clue as the table will read it: stripped, one word, and no card's word (BR-14).
+
+        A board word with a trailing space passed the on-board check, and a blank clue
+        or a whole sentence ("the Sunnah", with the Sunnah card on the board) was given
+        as it came. Blank or holding whitespace → ``ClueMustBeOneWordError``; a card's
+        word in any case, accent or script — every card also prints its Arabic form —
+        → ``ClueWordIsOnBoardError``.
+        """
+        clue = clue_word.strip()
+        if len(clue.split()) != 1:
+            raise ClueMustBeOneWordError()
+        board_words = [card["word"] for card in state["board"]]
+        board_scripts = await self._term_script_controller.get_forms(board_words)
+        if clue_names_a_card(clue, board_words, (script.ar for script in board_scripts.values())):
+            raise ClueWordIsOnBoardError(clue_word=clue)
+        return clue
 
     async def guess_card(self, game_id: UUID, user_id: UUID, card_index: int) -> GuessCardResponse:
         """Process an operative voting for a card (or instant reveal if solo operative)."""
@@ -245,18 +263,17 @@ class CodenamesGameController(BaseGameController):
             game = await self._get_game(game_id)
             state = require_state(game)
 
+            self._ensure_in_progress(game, state)
             self._ensure_not_paused(game, state)
             self._validate_guess(state, str(user_id), card_index)
 
-            current_team = state["current_team"]
-            team_operatives = [
-                p for p in state["players"] if p["team"] == current_team and p["role"] == CodenamesRole.OPERATIVE.value
-            ]
-            total_operatives = len(team_operatives)
+            # The quorum is the operatives on the team NOW, and only their votes count
+            # (BR-09): a departed operative's ballot neither completes it nor picks a card.
+            total_operatives = len(current_operative_ids(state))
 
             # Single operative: instant reveal (skip voting)
             if total_operatives <= 1:
-                return await self._reveal_card(game, state, card_index)
+                return await self._reveal_card(game, state, card_index, [str(user_id)])
 
             # Multi-operative: record vote
             card_votes = state["current_turn"].setdefault("card_votes", {})
@@ -264,10 +281,13 @@ class CodenamesGameController(BaseGameController):
             card_votes[str(user_id)] = card_index
             vote_changed = previous_vote is not None and previous_vote != card_index
 
-            voted_count = len(card_votes)
+            # Keep only the ballots that count: a stale one would still show on the card.
+            votes = counted_operative_votes(state)
+            state["current_turn"]["card_votes"] = votes
+            winning_index = tally_operative_votes(state)
 
             # Not all voted yet — save and return progress
-            if voted_count < total_operatives:
+            if winning_index is None:
                 game.live_state = state
                 flag_modified(game, "live_state")
                 self.session.add(game)
@@ -277,59 +297,28 @@ class CodenamesGameController(BaseGameController):
                     game_id=str(game_id),
                     all_voted=False,
                     vote_changed=vote_changed,
-                    card_votes_count=voted_count,
+                    card_votes_count=len(votes),
                     total_operatives=total_operatives,
                 )
 
-            # All operatives voted — resolve
-            winning_index, was_tied = self._resolve_votes(state)
-            state["current_turn"]["card_votes"] = {}
+            # Every operative voted — the card is the most voted (a tie was drawn at random)
+            was_tied = len(top_voted_cards(votes)) > 1
+            voter_ids = [voter for voter, card in votes.items() if card == winning_index]
 
-            result = await self._reveal_card(game, state, winning_index)
+            result = await self._reveal_card(game, state, winning_index, voter_ids)
             result.all_voted = True
             result.tied = was_tied
             result.card_votes_count = total_operatives
             result.total_operatives = total_operatives
             return result
 
-    async def _reveal_card(self, game: Game, state: dict, card_index: int) -> GuessCardResponse:
-        """Reveal a card and process the result. Commits to DB."""
-        card = state["board"][card_index]
-        card["revealed"] = True
-        state["current_turn"]["guesses_made"] += 1
-
-        result = self._resolve_card(state, card)
-
-        # Append guess to clue history
-        clue_history = state.get("clue_history", [])
-        if clue_history:
-            clue_history[-1]["guesses"].append(
-                {
-                    "word": card["word"],
-                    "card_type": card["card_type"],
-                    "correct": card["card_type"] == state["current_team"],
-                }
-            )
-
-        if (
-            result in ("opponent_card", "neutral", "max_guesses")
-            and state["status"] == CodenamesGameStatus.IN_PROGRESS.value
-        ):
-            self._switch_turn(state)
+    async def _reveal_card(self, game: Game, state: dict, card_index: int, voter_ids: list[str]) -> GuessCardResponse:
+        """Turn a card (``apply_card_reveal``: the state, the clue history and the reveal
+        log), end the game if that decided it, and commit — once, under the caller's lock."""
+        outcome = apply_card_reveal(state, card_index, voter_ids)
 
         if state["status"] == CodenamesGameStatus.FINISHED.value:
-            game.game_status = GameStatus.FINISHED
-            game.end_time = datetime.now(UTC)
-            # Clear active game on room
-            room = (await self.session.exec(select(Room).where(Room.id == game.room_id))).first()
-            if room:
-                room.active_game_id = None
-                self.session.add(room)
-            # Process stats and achievements
-            winner_team = state.get("winner", "")
-            newly_unlocked = await self._process_game_end_stats(state, winner_team)
-            if newly_unlocked:
-                state["newly_unlocked_achievements"] = newly_unlocked
+            await self._finish_game(game, state)
 
         game.live_state = state
         flag_modified(game, "live_state")
@@ -339,9 +328,26 @@ class CodenamesGameController(BaseGameController):
         return GuessCardResponse(
             game_id=str(game.id),
             card_index=card_index,
-            card_type=card["card_type"],
-            result=result,
+            card_type=state["board"][card_index]["card_type"],
+            result=outcome.value,
         )
+
+    async def _finish_game(self, game: Game, state: dict) -> None:
+        """End the Game row of a game ``live_state`` says is over, and stage its stats. No commit.
+
+        The room is let go of only if it still points at THIS game
+        (``detach_room_if_current``, BR-06): finishing an old game used to unlink the
+        room's new running one.
+        """
+        game.game_status = GameStatus.FINISHED
+        game.end_time = datetime.now(UTC)
+        room = (await self.session.exec(select(Room).where(Room.id == game.room_id))).first()
+        if room:
+            detach_room_if_current(room, game)
+            self.session.add(room)
+        newly_unlocked = await self._process_game_end_stats(state, state.get("winner", ""))
+        if newly_unlocked:
+            state["newly_unlocked_achievements"] = newly_unlocked
 
     async def end_turn(self, game_id: UUID, user_id: UUID) -> EndTurnResponse:
         """Allow an operative to voluntarily end their turn."""
@@ -349,8 +355,7 @@ class CodenamesGameController(BaseGameController):
             game = await self._get_game(game_id)
             state = require_state(game)
 
-            if state["status"] != CodenamesGameStatus.IN_PROGRESS.value:
-                raise GameNotInProgressError(game_id=str(game_id))
+            self._ensure_in_progress(game, state)
             self._ensure_not_paused(game, state)
 
             player = get_player_from_game(state["players"], str(user_id))
@@ -359,8 +364,12 @@ class CodenamesGameController(BaseGameController):
                 raise NotYourTurnError(user_id=str(user_id))
             if player["role"] != CodenamesRole.OPERATIVE.value:
                 raise NotOperativeError(user_id=str(user_id))
+            # BR-15: before the clue there is nothing to end — one operative (or a crafted
+            # request) passed the team's whole turn. The UI hides the button until then.
+            if not state["current_turn"].get("clue_word"):
+                raise NoClueGivenError()
 
-            self._switch_turn(state)
+            switch_turn(state)
 
             game.live_state = state
             flag_modified(game, "live_state")
@@ -520,9 +529,9 @@ class CodenamesGameController(BaseGameController):
         async with get_game_lock(str(game_id), self.session):
             game = await self._get_game(game_id)
             state = require_state(game)
-
-            if state["status"] != CodenamesGameStatus.IN_PROGRESS.value:
-                raise GameNotInProgressError(game_id=str(game_id))
+            # Only someone in the game fires its timers (SEC F08): a player or a spectator.
+            await self._require_participant(game, state, user_id)
+            self._ensure_in_progress(game, state)
 
             # No clock runs while the host has paused the game for the prayer. Not an
             # error: clients fire this from their own local timers.
@@ -549,7 +558,7 @@ class CodenamesGameController(BaseGameController):
                 if elapsed < allowed - TIMER_EXPIRATION_TOLERANCE_SECONDS:
                     return TimerExpiredResponse(game_id=str(game_id), action=TimerExpiredAction.TIMER_NOT_EXPIRED)
 
-            self._switch_turn(state)
+            switch_turn(state)
 
             game.live_state = state
             flag_modified(game, "live_state")
@@ -595,10 +604,21 @@ class CodenamesGameController(BaseGameController):
             for entry in state.get("clue_history", [])
         ]
 
+    @staticmethod
+    def _ensure_in_progress(game: Game, state: dict) -> None:
+        """Every move first: the Game ROW and ``live_state`` must both say IN_PROGRESS (BR-06).
+
+        Checking ``live_state["status"]`` alone kept a CANCELLED game (a rematch, a closed
+        room) playable from a stale tab, and finishing it rewrote it as FINISHED, credited
+        wins and losses, and unlinked the room's new game. Answers
+        ``GameNotInProgressError``, the error a Codenames move has always given for a game
+        that is over.
+        """
+        if game.game_status != GameStatus.IN_PROGRESS or state.get("status") != CodenamesGameStatus.IN_PROGRESS.value:
+            raise GameNotInProgressError(game_id=str(game.id))
+
     def _validate_guess(self, state: dict, user_id: str, card_index: int) -> None:
-        """Validate that the guess is legal."""
-        if state["status"] != CodenamesGameStatus.IN_PROGRESS.value:
-            raise GameNotInProgressError(game_id="")
+        """Validate that the guess is legal (``_ensure_in_progress`` has run)."""
         player = get_player_from_game(state["players"], user_id)
         if player["team"] != state["current_team"]:
             raise NotYourTurnError(user_id=user_id)
@@ -611,76 +631,38 @@ class CodenamesGameController(BaseGameController):
         if state["board"][card_index]["revealed"]:
             raise CardAlreadyRevealedError(card_index=card_index)
 
-    def _resolve_votes(self, state: dict) -> tuple[int, bool]:
-        """Count votes and resolve winning card index. Returns (card_index, was_tied)."""
-        card_votes = state["current_turn"].get("card_votes", {})
-        vote_counts: dict[int, int] = {}
-        for idx in card_votes.values():
-            vote_counts[idx] = vote_counts.get(idx, 0) + 1
-
-        max_count = max(vote_counts.values())
-        top_cards = [idx for idx, count in vote_counts.items() if count == max_count]
-
-        if len(top_cards) == 1:
-            return top_cards[0], False
-
-        return rng.choice(top_cards), True
-
-    def _resolve_card(self, state: dict, card: dict) -> str:
-        """Resolve what happens when a card is revealed."""
-        if card["card_type"] == CodenamesCardType.ASSASSIN.value:
-            state["status"] = CodenamesGameStatus.FINISHED.value
-            state["winner"] = (
-                CodenamesTeam.BLUE.value
-                if state["current_team"] == CodenamesTeam.RED.value
-                else CodenamesTeam.RED.value
-            )
-            return "assassin"
-
-        if card["card_type"] == state["current_team"]:
-            # Own team's card
-            remaining = self._decrement_remaining(state, state["current_team"])
-            if remaining == 0:
-                state["status"] = CodenamesGameStatus.FINISHED.value
-                state["winner"] = state["current_team"]
-                return "win"
-            return (
-                "max_guesses"
-                if state["current_turn"]["guesses_made"] >= state["current_turn"]["max_guesses"]
-                else "correct"
-            )
-
-        if card["card_type"] != CodenamesCardType.NEUTRAL.value:
-            # Opponent's card
-            other_team = (
-                CodenamesTeam.BLUE.value
-                if state["current_team"] == CodenamesTeam.RED.value
-                else CodenamesTeam.RED.value
-            )
-            remaining = self._decrement_remaining(state, other_team)
-            if remaining == 0:
-                state["status"] = CodenamesGameStatus.FINISHED.value
-                state["winner"] = other_team
-                return "opponent_wins"
-            return "opponent_card"
-
-        return "neutral"
-
     async def record_hint_view(self, game_id: UUID, user_id: UUID, word: str) -> HintRecordResponse:
-        """Record that a player viewed a hint for a word (deduplicated)."""
+        """Record that a player opened a card's meaning (once per word per game).
+
+        Only someone in the game (``_require_participant``: else 403), and only a board
+        word whose meaning the caller can open — every card for the spymaster, a turned
+        card for an operative (``hint_is_visible``). Anything else answers
+        ``recorded=False`` and changes nothing: a spectator has no hint usage, and a
+        made-up word is not a hint. The list is capped at ``HINT_USAGE_MAX_WORDS_PER_USER``.
+
+        It took any word from any signed-in caller: anyone with a game id grew its
+        ``live_state`` without bound, and a player farmed the hint achievements with
+        made-up words (BR-13, SEC F07).
+        """
         async with get_game_lock(str(game_id), self.session):
             game = await self._get_game(game_id)
+            state = require_state(game)
+            player = await self._require_participant(game, state, user_id)
             # Hint views feed achievements ("won without hints"), so they must not
             # be accepted after the game has ended — the end-of-game stats have
             # already been computed from hint_usage.
             self._check_game_in_progress(game)
-            state = require_state(game)
 
-            hint_usage = state.setdefault("hint_usage", {})
-            user_key = str(user_id)
-            user_hints = hint_usage.setdefault(user_key, [])
-            if word not in user_hints:
-                user_hints.append(word)
+            card = next((card for card in state["board"] if card["word"] == word), None)
+            if player is None or card is None or not hint_is_visible(card, player):
+                return HintRecordResponse(game_id=str(game_id), recorded=False)
+
+            user_hints = state.setdefault("hint_usage", {}).setdefault(str(user_id), [])
+            if word in user_hints:
+                return HintRecordResponse(game_id=str(game_id), recorded=True)
+            if len(user_hints) >= HINT_USAGE_MAX_WORDS_PER_USER:
+                return HintRecordResponse(game_id=str(game_id), recorded=False)
+            user_hints.append(word)
 
             game.live_state = state
             flag_modified(game, "live_state")
@@ -698,27 +680,3 @@ class CodenamesGameController(BaseGameController):
             winners=codenames_winners(state, winner),
             default_role="operative",
         )
-
-    def _decrement_remaining(self, state: dict, team: str) -> int:
-        """Decrement the remaining card count for a team and return the new count."""
-        if team == CodenamesTeam.RED.value:
-            state["red_remaining"] -= 1
-            return state["red_remaining"]
-        state["blue_remaining"] -= 1
-        return state["blue_remaining"]
-
-    def _switch_turn(self, state: dict) -> None:
-        """Switch the current turn to the other team."""
-        next_team = (
-            CodenamesTeam.BLUE.value if state["current_team"] == CodenamesTeam.RED.value else CodenamesTeam.RED.value
-        )
-        state["current_team"] = next_team
-        state["current_turn"] = {
-            "team": next_team,
-            "clue_word": None,
-            "clue_number": 0,
-            "guesses_made": 0,
-            "max_guesses": 0,
-            "card_votes": {},
-        }
-        state["timer_started_at"] = datetime.now(UTC).isoformat()

@@ -45,9 +45,23 @@ class SubmitVoteResponse(BaseModel):
 
 
 class StartNextRoundResponse(BaseModel):
+    """The host's "next round", or a player's "I'm ready" (owner rule (d)).
+
+    ``advanced`` says which: True when the next round opened (the host forced it, or
+    this mark completed the quorum) — then ``turn_number`` and ``description_order``
+    describe it; False when the call only marked the caller ready — then the ready
+    fields describe the resolved round still waiting.
+    """
+
     game_id: str
-    turn_number: int
-    description_order: list[DescriptionOrderEntry]
+    advanced: bool
+    turn_number: int | None = None
+    description_order: list[DescriptionOrderEntry] = []
+    # user_ids of the players asked (alive, not the host) who are ready, in arrival order.
+    ready_players: list[str] = []
+    ready_count: int = 0
+    # How many are asked: the alive players but the host (all of them with no host).
+    ready_quorum: int = 0
 
 
 class UndercoverPlayerState(BaseModel):
@@ -134,6 +148,13 @@ class UndercoverGameState(BaseModel):
     has_voted: bool
     turn_phase: str
     round_resolved: bool = False
+    # The ready quorum between rounds (owner rule (d)), filled only while the resolved
+    # round waits for the next one; empty / 0 / False otherwise. Same meaning as in
+    # StartNextRoundResponse; `is_ready` is the caller's own mark.
+    ready_players: list[str] = []
+    ready_count: int = 0
+    ready_quorum: int = 0
+    is_ready: bool = False
     description_order: list[DescriptionOrderEntry]
     current_describer_index: int
     descriptions: dict

@@ -4,18 +4,21 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Request
 from starlette.status import HTTP_201_CREATED, HTTP_204_NO_CONTENT
 
+from majlisna.api.constants import ROOM_INVITE_RATE_LIMIT, ROOM_JOIN_RATE_LIMIT
 from majlisna.api.controllers.room import RoomController
 from majlisna.api.models.error import UserNotInRoomError
 from majlisna.api.models.room import RoomCreateRequest, RoomJoin, RoomLeave
 from majlisna.api.models.table import User
 from majlisna.api.models.view import RoomView
-from majlisna.api.rate_limit import limiter
+from majlisna.api.rate_limit import limiter, user_or_ip_key
+from majlisna.api.schemas.common import StatusResponse
 from majlisna.api.schemas.room import (
     ActiveRoomResponse,
     JoinSpectatorRequest,
     KickPlayerRequest,
     KickPlayerResponse,
     RematchResponse,
+    RoomBanView,
     RoomInviteRequest,
     RoomInviteResponse,
     RoomSettings,
@@ -105,8 +108,13 @@ async def get_share_link(
     return await room_controller.get_share_link(room_id, current_user.id)
 
 
+# Join and spectate take the room PIN, so they are limited — per signed-in USER
+# (user_or_ip_key), not per IP: a majlis is several phones on one home connection, and
+# per IP one of them locked the others out (while a spoofed X-Forwarded-For bought a
+# fresh budget; SEC F03). A per-room failed-PIN counter is deliberately absent: rotating
+# the PIN on failures would let anyone break a room's share link.
 @router.patch("/join", response_model=RoomView)
-@limiter.limit("10/minute")
+@limiter.limit(ROOM_JOIN_RATE_LIMIT, key_func=user_or_ip_key)
 async def join_room(
     request: Request,  # noqa: ARG001
     *,
@@ -138,7 +146,7 @@ async def leave_room(
 
 
 @router.patch("/join-spectator", response_model=RoomView)
-@limiter.limit("10/minute")
+@limiter.limit(ROOM_JOIN_RATE_LIMIT, key_func=user_or_ip_key)
 async def join_room_as_spectator(
     request: Request,  # noqa: ARG001
     *,
@@ -159,14 +167,39 @@ async def kick_player(
     current_user: Annotated[User, Depends(get_current_user)],
     room_controller: RoomController = Depends(get_room_controller),
 ) -> KickPlayerResponse:
-    """Kick a player from the room. Host only."""
+    """Kick a player from the room. Host only. Bans them from the room and rotates the PIN."""
     # read before the kick, which can end the game (see notify_member_removed)
     game_id = await get_active_game_id(str(room_id))
     result = await room_controller.kick_player(room_id, current_user.id, body.user_id)
     await notify_user_kicked(str(body.user_id), str(room_id))
+    # Detached BEFORE the push below: that room_state carries the new PIN.
     await remove_user_from_room_socket(str(body.user_id), str(room_id))
-    # the room, and its game: a kicked player is eliminated from it
+    # the room (the new PIN at once in the host's lobby), and its game: a kicked
+    # player is eliminated from it
     await notify_member_removed(str(room_id), game_id)
+    return result
+
+
+@router.get("/{room_id}/bans")
+async def list_room_bans(
+    room_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    room_controller: RoomController = Depends(get_room_controller),
+) -> list[RoomBanView]:
+    """The players the host kicked from this room (banned for its lifetime). Host only."""
+    return await room_controller.list_bans(room_id, current_user.id)
+
+
+@router.delete("/{room_id}/bans/{user_id}")
+async def lift_room_ban(
+    room_id: UUID,
+    user_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    room_controller: RoomController = Depends(get_room_controller),
+) -> StatusResponse:
+    """Lift a ban. Host only. The player is not re-seated and the PIN stays the new one."""
+    result = await room_controller.lift_ban(room_id, current_user.id, user_id)
+    await notify_room_changed(str(room_id))
     return result
 
 
@@ -196,7 +229,9 @@ async def rematch(
 
 
 @router.post("/{room_id}/invite")
+@limiter.limit(ROOM_INVITE_RATE_LIMIT, key_func=user_or_ip_key)
 async def invite_friend_to_room(
+    request: Request,  # noqa: ARG001 — required by limiter
     room_id: UUID,
     body: RoomInviteRequest,
     current_user: Annotated[User, Depends(get_current_user)],

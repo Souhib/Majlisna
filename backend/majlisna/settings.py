@@ -39,8 +39,9 @@ class Settings(BaseSettings):
     # Database
     database_url: str
 
-    # Direct PostgreSQL URL that BYPASSES PgBouncer, for admin scripts that run
-    # DDL (scripts/generate_fake_data.py).
+    # Direct PostgreSQL URL that BYPASSES PgBouncer, for whatever runs DDL: admin
+    # scripts (scripts/generate_fake_data.py) and the app's startup DDL
+    # (database.create_schema, on a throwaway engine; requests keep database_url).
     #
     # asyncpg caches type introspection per connection. Under PgBouncer's
     # transaction pooling, a DROP/CREATE of every table invalidates those types
@@ -70,6 +71,13 @@ class Settings(BaseSettings):
 
     # Server
     port: int = 5111
+
+    # The commit this build was made from: `ARG GIT_SHA` in backend/Dockerfile, which
+    # becomes `ENV GIT_SHA`. /health answers it as `version`, and CI's promote job
+    # polls that until it reads the commit it promoted — a Dokploy build that failed
+    # after promote left production 13.7 h behind with every signal green (INFRA-11).
+    # "unknown" when the image was built without the build arg (dev, an old compose).
+    git_sha: str = "unknown"
 
     # Frontend
     frontend_url: str = "http://localhost:3000"

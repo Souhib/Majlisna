@@ -1,10 +1,14 @@
-from uuid import uuid4
+from types import TracebackType
+from uuid import UUID, uuid4
 
 import pytest
+from sqlalchemy import event
 from sqlalchemy.exc import NoResultFound
+from sqlmodel import SQLModel
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from majlisna.api.controllers.undercover import UndercoverController
-from majlisna.api.models.undercover import WordCreate, WordUpdate
+from majlisna.api.models.undercover import TermPair, Word, WordCreate, WordUpdate
 from majlisna.api.schemas.error import (
     TermPairAlreadyExistsError,
     TermPairNotFoundError,
@@ -12,6 +16,7 @@ from majlisna.api.schemas.error import (
     WordNotFoundByIdError,
     WordNotFoundByNameError,
 )
+from majlisna.api.utils.cache import cache
 
 # --- Word CRUD ---
 
@@ -331,3 +336,120 @@ async def test_delete_term_pair_success(undercover_controller: UndercoverControl
     # Assert
     with pytest.raises(TermPairNotFoundError):
         await undercover_controller.get_term_pair_by_id(term_pair.id)
+
+
+# --- WP-24: no ORM rows in the cache, a draw reads only what it keeps ---
+
+
+class TermPairDrawProbe:
+    """Watches a draw: the TermPair rows it hydrates and the SQL it sends.
+
+    Rows already in the session's identity map are not hydrated again, so expunge
+    the session before entering the probe.
+    """
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._engine = session.bind.sync_engine
+        self.hydrated: list[tuple[UUID, UUID]] = []
+        self.statements: list[str] = []
+
+    def __enter__(self) -> "TermPairDrawProbe":
+        event.listen(TermPair, "load", self._on_load)
+        event.listen(self._engine, "before_cursor_execute", self._on_execute)
+        return self
+
+    def __exit__(
+        self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None
+    ) -> None:
+        event.remove(TermPair, "load", self._on_load)
+        event.remove(self._engine, "before_cursor_execute", self._on_execute)
+
+    def _on_load(self, target: TermPair, context: object) -> None:
+        self.hydrated.append((target.word1_id, target.word2_id))
+
+    def _on_execute(self, conn, cursor, statement: str, parameters, context, executemany) -> None:  # noqa: ARG002
+        self.statements.append(statement)
+
+    def full_row_reads(self) -> list[str]:
+        """The statements that read whole term pairs (the pool reads only the keys)."""
+        return [s for s in self.statements if "termpair.id" in s]
+
+
+def orm_rows_in_cache() -> list[SQLModel]:
+    """Every SQLModel instance the process-wide TTLCache holds, inside lists or not."""
+    found: list[SQLModel] = []
+    for _, value in cache._store.values():
+        items = value if isinstance(value, list | tuple) else [value]
+        found.extend(item for item in items if isinstance(item, SQLModel))
+    return found
+
+
+async def test_admin_lists_leave_no_orm_row_in_the_cache(undercover_controller: UndercoverController, create_word):
+    """The admin lists used to park their ORM rows in TTLCache for an hour.
+
+    A row belongs to the session that loaded it; the cache handed it, detached, to
+    every later request on the worker.
+    """
+    # Prepare
+    word1 = await create_word(word="cache_one")
+    word2 = await create_word(word="cache_two")
+    await undercover_controller.create_term_pair(word1.id, word2.id)
+
+    # Act
+    words = await undercover_controller.get_words()
+    pairs = await undercover_controller.get_term_pairs()
+
+    # Assert
+    assert len(words) == 2
+    assert len(pairs) == 1
+    assert orm_rows_in_cache() == []
+
+
+async def test_admin_lists_see_a_write_made_by_another_worker(
+    undercover_controller: UndercoverController, create_word, session: AsyncSession
+):
+    """`invalidate()` reaches one worker in four: a write elsewhere must still show.
+
+    The row is added straight through the session, as another worker's controller
+    would have — this process's cache is never told.
+    """
+    # Prepare
+    word1 = await create_word(word="worker_one")
+    word2 = await create_word(word="worker_two")
+    assert len(await undercover_controller.get_words()) == 2
+    assert len(await undercover_controller.get_term_pairs()) == 0
+    session.add(Word(word="worker_three", category="c", short_description="s", long_description="l"))
+    session.add(TermPair(word1_id=word1.id, word2_id=word2.id))
+    await session.commit()
+
+    # Act
+    words = await undercover_controller.get_words()
+    pairs = await undercover_controller.get_term_pairs()
+
+    # Assert
+    assert {w.word for w in words} == {"worker_one", "worker_two", "worker_three"}
+    assert [(p.word1_id, p.word2_id) for p in pairs] == [(word1.id, word2.id)]
+
+
+async def test_get_random_term_pair_hydrates_only_the_drawn_pair(
+    undercover_controller: UndercoverController, create_word, session: AsyncSession
+):
+    """The draw reads the pairs' keys, then the one pair it keeps."""
+    # Prepare
+    pair_keys = set()
+    for i in range(5):
+        w1 = await create_word(word=f"draw_a{i}")
+        w2 = await create_word(word=f"draw_b{i}")
+        await undercover_controller.create_term_pair(w1.id, w2.id)
+        pair_keys.add((w1.id, w2.id))
+    session.expunge_all()
+
+    # Act
+    with TermPairDrawProbe(session) as probe:
+        result = await undercover_controller.get_random_term_pair()
+
+    # Assert
+    assert (result.word1_id, result.word2_id) in pair_keys
+    assert len(probe.hydrated) <= 1
+    for statement in probe.full_row_reads():
+        assert "WHERE termpair.word1_id" in statement, statement

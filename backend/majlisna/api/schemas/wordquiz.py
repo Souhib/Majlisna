@@ -118,10 +118,23 @@ class WordQuizGameState(BaseModel):
     players: list[WordQuizPlayerState]
     my_answered: bool
     my_points: int
+    # Owner rule (e): a round allows `max_attempts` tries. How many the caller has left
+    # in the open round; null for a spectator, once they found the word, and outside
+    # the playing phase. At 0 the next try answers 409 errors.api.answerAttemptsExhausted.
+    my_attempts_left: int | None = None
+    # The rungs the caller's wrong tries have cost them this round (one per miss): the
+    # word is worth `max_hints - min(max_hints, rung on screen + my_rungs_lost) + 1`.
+    # The ladder on screen is the table's; this lowers the score, it reveals no hint.
+    my_rungs_lost: int = 0
+    max_attempts: int = 0
     round_results: list[WordQuizRoundResult]
     correct_answer: str | None = None
     explanation: str | None = None
+    # The one winner's username; null for a shared win, a 0-0 game or a solo game
+    # (owner rule (a)) — `winner_ids` then names every top scorer.
     winner: str | None = None
+    # Every winner's user_id, set at game over (empty before, and when nobody won).
+    winner_ids: list[str] = []
     leaderboard: list[WordQuizPlayerState]
     game_over: bool
     timer_config: WordQuizTimerConfig | None = None

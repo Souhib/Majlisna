@@ -4,26 +4,41 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import pytest
+from sqlalchemy import func
 from sqlalchemy.orm.attributes import flag_modified
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from majlisna.api.constants import MAX_PLAYERS_UNDERCOVER, UNDERCOVER_MR_WHITE_MIN_PLAYERS
+from majlisna.api.constants import (
+    GRACE_PERIOD_SECONDS,
+    HINT_USAGE_MAX_WORDS_PER_USER,
+    MAX_PLAYERS_UNDERCOVER,
+    MR_WHITE_GUESS_RESULT_KEY,
+    UNDERCOVER_AUTO_VOTERS_KEY,
+    UNDERCOVER_MR_WHITE_MIN_PLAYERS,
+    UNDERCOVER_READY_PLAYERS_KEY,
+)
+from majlisna.api.controllers.disconnect import _remove_expired_users
+from majlisna.api.controllers.room import RoomController
 from majlisna.api.controllers.shared import get_password_hash
 from majlisna.api.controllers.undercover_game import UndercoverGameController
-from majlisna.api.models.game import GameStatus
-from majlisna.api.models.relationship import RoomUserLink
-from majlisna.api.models.table import Game, Room, User
+from majlisna.api.models.game import GameCreate, GameStatus, GameType
+from majlisna.api.models.relationship import GameTurnLink, RoomUserLink, TurnEventLink
+from majlisna.api.models.table import Event, Game, Room, Turn, User
 from majlisna.api.models.undercover import UndercoverRole
 from majlisna.api.schemas.error import (
     BaseError,
     CantVoteBecauseYouDeadError,
     CantVoteForDeadPersonError,
     CantVoteForYourselfError,
+    DescriptionRevealsWordError,
+    NotAGameParticipantError,
     NotEnoughPlayersError,
     PlayerRemovedFromGameError,
+    RoundNotResolvedError,
     TooManyPlayersError,
 )
+from majlisna.api.utils.rng import rng
 
 # ─── Helpers ──────────────────────────────────────────────────
 
@@ -415,13 +430,15 @@ async def test_vote_civilians_win_when_all_undercovers_eliminated(
         else:
             await undercover_game_controller.submit_vote(game_uuid, voter.id, UUID(undercover_player["user_id"]))
 
-    # Assert
+    # Assert — two votes against one: the undercover is out, and with him every impostor.
+    # (These asserts were conditional on the outcome they are meant to check.)
     game = await _get_game(session, result.game_id)
     state = game.live_state
     uc = next(p for p in state["players"] if p["role"] == UndercoverRole.UNDERCOVER.value)
-    if not uc["is_alive"]:
-        assert game.game_status == GameStatus.FINISHED
-        assert game.end_time is not None
+    assert uc["is_alive"] is False
+    assert game.game_status == GameStatus.FINISHED
+    assert game.end_time is not None
+    assert state["winner"] == "civilians"
 
 
 @pytest.mark.asyncio
@@ -752,96 +769,101 @@ async def test_edge_undercovers_win_when_outnumbering_civilians(
         else:
             await undercover_game_controller.submit_vote(game_uuid, voter.id, UUID(target_civilian["user_id"]))
 
-    # Assert — undercovers should win (1 undercover >= 1 remaining civilian)
+    # Assert — two votes against one: the civilian is out, and 1 undercover >= 1 civilian.
+    # (These asserts were conditional on the outcome they are meant to check.)
     game = await _get_game(session, result.game_id)
-    # Check win condition
+    target = next(p for p in game.live_state["players"] if p["user_id"] == target_civilian["user_id"])
+    assert target["is_alive"] is False
     alive_uc = sum(
         1 for p in game.live_state["players"] if p["role"] == UndercoverRole.UNDERCOVER.value and p["is_alive"]
     )
     alive_civ = sum(
         1 for p in game.live_state["players"] if p["role"] == UndercoverRole.CIVILIAN.value and p["is_alive"]
     )
-    if alive_uc >= alive_civ:
-        assert game.game_status == GameStatus.FINISHED
-        assert game.end_time is not None
+    assert (alive_uc, alive_civ) == (1, 1)
+    assert game.game_status == GameStatus.FINISHED
+    assert game.end_time is not None
+    assert game.live_state["winner"] == "undercovers"
 
 
 @pytest.mark.asyncio
-async def test_edge_mayor_breaks_tie_vote(undercover_game_controller, setup_undercover_game, session):
-    """In a tie, mayor's vote decides who gets eliminated."""
-    # Prepare — need at least 4 players to create a tie
-    setup = await setup_undercover_game(4)
-    result = await _start_game(undercover_game_controller, setup["room"].id, setup["users"][0].id)
+@pytest.mark.parametrize("attempt", range(12))
+async def test_edge_mayor_breaks_tie_vote(undercover_game_controller, setup_undercover_game, session, attempt):  # noqa: ARG001
+    """A real 2-2 tie: the mayor's side goes, every time.
 
+    The test this replaces built a 3-1 vote and asserted only that someone was
+    eliminated, so removing the mayor rule passed it. Here the tally is A 2 - B 2
+    with the mayor voting A; without the rule the outcome is a coin flip, which twelve
+    runs catch with probability 1 - 2^-12.
+    """
+    # Prepare — 4 players (no Mr. White below 5): the mayor M, A, B and X
+    setup = await setup_undercover_game(4)
+    mayor, target_a, target_b, other = setup["users"]
+    result = await _start_game(undercover_game_controller, setup["room"].id, mayor.id)
     game_uuid = UUID(result.game_id)
     game = await _get_game(session, result.game_id)
     state = game.live_state
-    order = state["turns"][0]["description_order"]
-
-    # Submit all descriptions
-    for uid in order:
+    for p in state["players"]:
+        p["is_mayor"] = p["user_id"] == str(mayor.id)
+    game.live_state = state
+    flag_modified(game, "live_state")
+    session.add(game)
+    await session.commit()
+    for uid in state["turns"][0]["description_order"]:
         await undercover_game_controller.submit_description(game_uuid, UUID(uid), "word")
 
-    game = await _get_game(session, result.game_id)
-    state = game.live_state
-    mayor = next(p for p in state["players"] if p.get("is_mayor"))
-    users = setup["users"]
-
-    # Create a tie: 2 votes for user A, 2 for user B
-    non_mayor_users = [u for u in users if str(u.id) != mayor["user_id"]]
-    target_a = non_mayor_users[0]
-    target_b = non_mayor_users[1]
-
-    # Mayor votes for target_a
-    await undercover_game_controller.submit_vote(game_uuid, UUID(mayor["user_id"]), target_a.id)
-
-    # Find another user (not mayor, not target_a, not target_b) to vote for target_a
-    mayor_uuid = UUID(mayor["user_id"])
-    other_voter_for_a = next(u for u in users if u.id not in (mayor_uuid, target_a.id, target_b.id))
-    await undercover_game_controller.submit_vote(game_uuid, other_voter_for_a.id, target_a.id)
-    # target_a votes for target_b
-    await undercover_game_controller.submit_vote(game_uuid, target_a.id, target_b.id)
-    # target_b votes for target_a (to complete all votes)
+    # Act — M→A, B→A, A→B, X→B: two each
+    await undercover_game_controller.submit_vote(game_uuid, mayor.id, target_a.id)
     await undercover_game_controller.submit_vote(game_uuid, target_b.id, target_a.id)
+    await undercover_game_controller.submit_vote(game_uuid, target_a.id, target_b.id)
+    vote = await undercover_game_controller.submit_vote(game_uuid, other.id, target_b.id)
 
-    # Assert — target_a should be eliminated (has most votes or tied with mayor's vote)
+    # Assert
+    assert vote.all_voted is True
+    assert vote.eliminated_player == str(target_a.id)
+    assert vote.number_of_votes == 2
     game = await _get_game(session, result.game_id)
-    eliminated = game.live_state["eliminated_players"]
-    assert len(eliminated) > 0
-    assert game.game_status in (GameStatus.IN_PROGRESS, GameStatus.FINISHED)
+    alive = {p["user_id"]: p["is_alive"] for p in game.live_state["players"]}
+    assert alive[str(target_a.id)] is False
+    assert alive[str(target_b.id)] is True
+    assert [e["user_id"] for e in game.live_state["eliminated_players"]] == [str(target_a.id)]
 
 
 @pytest.mark.asyncio
 async def test_edge_mr_white_never_first_in_description_order(
-    undercover_game_controller, setup_undercover_game, session
+    undercover_game_controller, setup_undercover_game, session, monkeypatch
 ):
-    """Mr. White should never be first in description order."""
-    # Prepare — 5 players to get Mr. White
+    """Mr. White is moved off the first seat when the draw puts him there.
+
+    Deterministic: the shuffle is replaced by one that leaves the roles in the order
+    _compute_roles builds them (so the last player is Mr. White) and seats the players
+    in reverse (so he comes first). The loop this replaces relied on ten real draws,
+    which let a broken swap through about one run in nine, and broke out of the loop
+    on any error.
+    """
+    # Prepare — 5 players: 1 undercover, 3 civilians, 1 Mr. White
     setup = await setup_undercover_game(5)
+    roles = {role.value for role in UndercoverRole}
 
-    # Run repeatedly to exercise different draws. Game draws come from
-    # SystemRandom (see api/utils/rng.py), so there is no seed to set — the
-    # assertion below is an invariant that must hold for every draw.
-    for seed in range(10):
-        try:
-            result = await _start_game(undercover_game_controller, setup["room"].id, setup["users"][0].id)
-            game = await _get_game(session, result.game_id)
-            state = game.live_state
+    def _shuffle(seq: list) -> None:
+        if not all(item in roles for item in seq):
+            seq.reverse()
 
-            mr_white = _find_player_by_role(state, UndercoverRole.MR_WHITE.value)
-            order = state["turns"][0]["description_order"]
+    monkeypatch.setattr(rng, "shuffle", _shuffle)
 
-            if mr_white and len(order) > 1:
-                assert order[0] != mr_white["user_id"], f"Mr. White was first with seed {seed}"
+    # Act
+    result = await _start_game(undercover_game_controller, setup["room"].id, setup["users"][0].id)
 
-            # Clean up for next iteration — remove active_game_id
-            room = (await session.exec(select(Room).where(Room.id == setup["room"].id))).first()
-            room.active_game_id = None
-            session.add(room)
-            await session.commit()
-        except BaseError:
-            # Room might already have active game, skip
-            break
+    # Assert
+    game = await _get_game(session, result.game_id)
+    state = game.live_state
+    mr_white = _find_player_by_role(state, UndercoverRole.MR_WHITE.value)
+    assert mr_white is not None
+    # The reversed seating put him first: the swap, not the draw, moved him.
+    assert state["players"][-1]["user_id"] == mr_white["user_id"]
+    order = state["turns"][0]["description_order"]
+    assert sorted(order) == sorted(str(u.id) for u in setup["users"])
+    assert order[0] != mr_white["user_id"]
 
 
 @pytest.mark.asyncio
@@ -907,62 +929,87 @@ def test_resolve_hint_exact_en():
 # ========== record_hint_view ==========
 
 
+def _own_word(state: dict, user_id) -> str | None:
+    """The secret word dealt to ``user_id`` (None for Mr. White)."""
+    player = next(p for p in state["players"] if p["user_id"] == str(user_id))
+    if player["role"] == UndercoverRole.MR_WHITE.value:
+        return None
+    if player["role"] == UndercoverRole.UNDERCOVER.value:
+        return state["undercover_word"]
+    return state["civilian_word"]
+
+
+def _other_word(state: dict, user_id) -> str:
+    """The word of the other side, which ``user_id`` never sees while the game runs."""
+    own = _own_word(state, user_id)
+    return state["undercover_word"] if own == state["civilian_word"] else state["civilian_word"]
+
+
 @pytest.mark.asyncio
 async def test_record_hint_view_success(undercover_game_controller, setup_undercover_game, session):
-    """Recording a hint view stores the word in hint_usage for the user."""
+    """Recording a hint view of the caller's own word stores it in hint_usage."""
     # Prepare
     setup = await setup_undercover_game(3)
     result = await _start_game(undercover_game_controller, setup["room"].id, setup["users"][0].id)
     game_uuid = UUID(result.game_id)
     user = setup["users"][0]
+    own = _own_word((await _get_game(session, result.game_id)).live_state, user.id)
 
     # Act
-    hint_result = await undercover_game_controller.record_hint_view(game_uuid, user.id, "mosque")
+    hint_result = await undercover_game_controller.record_hint_view(game_uuid, user.id, own)
 
     # Assert
     assert hint_result.recorded is True
     game = await _get_game(session, result.game_id)
-    assert str(user.id) in game.live_state["hint_usage"]
-    assert "mosque" in game.live_state["hint_usage"][str(user.id)]
+    assert game.live_state["hint_usage"][str(user.id)] == [own]
 
 
 @pytest.mark.asyncio
-async def test_record_hint_view_deduplicated(undercover_game_controller, setup_undercover_game, session):
-    """Recording the same hint twice does not create duplicate entries."""
+async def test_record_hint_view_deduplicated(
+    undercover_game_controller, setup_undercover_game, session, create_term_scripts
+):
+    """The same word viewed twice — or once in Latin and once in Arabic — is one entry."""
     # Prepare
+    await create_term_scripts({"mosque": ("مسجد", "مَسْجِد"), "church": ("كنيسة", None)})
     setup = await setup_undercover_game(3)
     result = await _start_game(undercover_game_controller, setup["room"].id, setup["users"][0].id)
     game_uuid = UUID(result.game_id)
     user = setup["users"][0]
+    own = _own_word((await _get_game(session, result.game_id)).live_state, user.id)
+    own_ar = {"mosque": "مسجد", "church": "كنيسة"}[own]
 
-    # Act — record twice
-    await undercover_game_controller.record_hint_view(game_uuid, user.id, "mosque")
-    await undercover_game_controller.record_hint_view(game_uuid, user.id, "mosque")
+    # Act — the Latin word twice, then its Arabic form
+    await undercover_game_controller.record_hint_view(game_uuid, user.id, own)
+    await undercover_game_controller.record_hint_view(game_uuid, user.id, own)
+    arabic = await undercover_game_controller.record_hint_view(game_uuid, user.id, own_ar)
 
-    # Assert — only one entry
+    # Assert — one entry, stored under the game's own (Latin) term
+    assert arabic.recorded is True
     game = await _get_game(session, result.game_id)
-    assert game.live_state["hint_usage"][str(user.id)].count("mosque") == 1
+    assert game.live_state["hint_usage"][str(user.id)] == [own]
 
 
 @pytest.mark.asyncio
-async def test_record_hint_view_multiple_words(undercover_game_controller, setup_undercover_game, session):
-    """Recording different words adds each to the list."""
+async def test_record_hint_view_refuses_the_other_sides_word(
+    undercover_game_controller, setup_undercover_game, session
+):
+    """Only the caller's own word counts: the other side's word is not recorded (BR-13)."""
     # Prepare
     setup = await setup_undercover_game(3)
     result = await _start_game(undercover_game_controller, setup["room"].id, setup["users"][0].id)
     game_uuid = UUID(result.game_id)
     user = setup["users"][0]
+    state = (await _get_game(session, result.game_id)).live_state
+    own, other = _own_word(state, user.id), _other_word(state, user.id)
 
     # Act
-    await undercover_game_controller.record_hint_view(game_uuid, user.id, "mosque")
-    await undercover_game_controller.record_hint_view(game_uuid, user.id, "church")
+    await undercover_game_controller.record_hint_view(game_uuid, user.id, own)
+    refused = await undercover_game_controller.record_hint_view(game_uuid, user.id, other)
 
     # Assert
+    assert refused.recorded is False
     game = await _get_game(session, result.game_id)
-    user_hints = game.live_state["hint_usage"][str(user.id)]
-    assert "mosque" in user_hints
-    assert "church" in user_hints
-    assert len(user_hints) == 2
+    assert game.live_state["hint_usage"][str(user.id)] == [own]
 
 
 # ========== get_state hint fields ==========
@@ -1404,43 +1451,107 @@ def test_auto_fill_missing_votes():
     assert votes["u3"] != "u3"
 
 
+def test_auto_fill_never_casts_a_self_vote(monkeypatch):
+    """TQ-05: with two alive, each auto-vote names the other — deterministically.
+
+    The draw is pinned to the first candidate, so a candidate list that included the
+    voter (the mutant the audit found surviving the suite) is caught every run.
+    """
+    # Prepare
+    state = {
+        "players": [
+            {"user_id": "u1", "username": "p1", "role": "civilian", "is_alive": True},
+            {"user_id": "u2", "username": "p2", "role": "undercover", "is_alive": True},
+            {"user_id": "u3", "username": "p3", "role": "civilian", "is_alive": False},
+        ],
+        "turns": [{"votes": {}, "words": {}, "description_order": [], "current_describer_index": 0, "phase": "voting"}],
+    }
+    monkeypatch.setattr(rng, "choice", lambda seq: seq[0])
+
+    # Act
+    UndercoverGameController._auto_fill_missing_votes(state)
+
+    # Assert — and the dead player casts nothing
+    assert state["turns"][-1]["votes"] == {"u1": "u2", "u2": "u1"}
+
+
+def test_auto_fill_records_whose_ballot_the_timer_cast():
+    """The unanimous_vote achievement must tell a drawn ballot from a cast one."""
+    # Prepare
+    state = {
+        "players": [
+            {"user_id": "u1", "username": "p1", "role": "civilian", "is_alive": True},
+            {"user_id": "u2", "username": "p2", "role": "civilian", "is_alive": True},
+            {"user_id": "u3", "username": "p3", "role": "undercover", "is_alive": True},
+        ],
+        "turns": [
+            {
+                "votes": {"u1": "u3"},
+                "words": {},
+                "description_order": [],
+                "current_describer_index": 0,
+                "phase": "voting",
+            }
+        ],
+    }
+
+    # Act
+    UndercoverGameController._auto_fill_missing_votes(state)
+
+    # Assert — u1 voted; the timer voted for u2 and u3
+    assert sorted(state["turns"][-1][UNDERCOVER_AUTO_VOTERS_KEY]) == ["u2", "u3"]
+
+
 # ========== record_hint_view edge case ==========
 
 
 @pytest.mark.asyncio
 async def test_record_hint_view_wrong_word(undercover_game_controller, setup_undercover_game, session):
-    """Recording a hint view for a word not in the game should still succeed."""
+    """A word that is not in the game is refused and leaves live_state as it was.
+
+    It used to be accepted: any made-up word grew hint_usage and counted toward the
+    hint achievements (BR-13, SEC F07).
+    """
     # Prepare
     setup = await setup_undercover_game(3)
     result = await _start_game(undercover_game_controller, setup["room"].id, setup["users"][0].id)
     game_uuid = UUID(result.game_id)
     user = setup["users"][0]
 
-    # Act — record a hint for a word that is not in the game
-    hint_result = await undercover_game_controller.record_hint_view(game_uuid, user.id, "nonexistentword")
+    # Act — thirty made-up words, each distinct
+    outcomes = [
+        (await undercover_game_controller.record_hint_view(game_uuid, user.id, f"made-up-{i}")).recorded
+        for i in range(30)
+    ]
 
     # Assert
-    assert hint_result.recorded is True
+    assert outcomes == [False] * 30
     game = await _get_game(session, result.game_id)
-    assert "nonexistentword" in game.live_state["hint_usage"][str(user.id)]
+    assert game.live_state["hint_usage"].get(str(user.id), []) == []
 
 
 # ========== start_next_round ==========
 
 
 @pytest.mark.asyncio
-async def test_start_next_round_non_host_rejected(undercover_game_controller, setup_undercover_game):
-    """Non-host calling start_next_round is rejected with 403."""
+async def test_start_next_round_non_host_rejected(undercover_game_controller, setup_undercover_game, session):
+    """A non-host's next-round on a round still open is refused like the host's (409).
+
+    It used to be a 403 for being the host's call only; a non-host now marks ready
+    once the round has resolved (owner rule (d), test_wp02_ready_quorum.py).
+    """
     # Prepare
     setup = await setup_undercover_game(3)
     result = await _start_game(undercover_game_controller, setup["room"].id, setup["users"][0].id)
     game_uuid = UUID(result.game_id)
     non_host = setup["users"][1]
 
-    # Act / Assert — non-host is rejected
-    with pytest.raises(BaseError) as exc_info:
+    # Act / Assert
+    with pytest.raises(RoundNotResolvedError):
         await undercover_game_controller.start_next_round(game_uuid, setup["room"].id, non_host.id)
-    assert exc_info.value.status_code == 403
+    game = await _get_game(session, result.game_id)
+    assert len(game.live_state["turns"]) == 1
+    assert UNDERCOVER_READY_PLAYERS_KEY not in game.live_state["turns"][0]
 
 
 # ========== Description validation ==========
@@ -2141,3 +2252,590 @@ async def test_colophon_falls_back_to_the_current_host_for_an_older_game(
     # Assert
     assert state.host_username == setup["users"][0].username
     assert state.ended_at is None
+
+
+# ========== WP-02: the round state machine (audit 2026-10) ==========
+
+CIVILIAN = UndercoverRole.CIVILIAN.value
+UNDERCOVER = UndercoverRole.UNDERCOVER.value
+MR_WHITE = UndercoverRole.MR_WHITE.value
+
+
+async def _reread(session: AsyncSession, game_id) -> Game:
+    """The game as committed, never a stale instance of the identity map."""
+    statement = select(Game).where(Game.id == UUID(str(game_id))).execution_options(populate_existing=True)
+    return (await session.exec(statement)).one()
+
+
+async def _deal(session: AsyncSession, game_id, roles: dict, order: list[str] | None = None) -> None:
+    """Fix the deal: ``roles`` maps a user id to a role (everyone else is a civilian),
+    ``order`` replaces the first turn's description order."""
+    game = await _reread(session, game_id)
+    state = game.live_state
+    for p in state["players"]:
+        p["role"] = roles.get(p["user_id"], CIVILIAN)
+    if order is not None:
+        state["turns"][-1]["description_order"] = order
+    game.live_state = state
+    flag_modified(game, "live_state")
+    session.add(game)
+    await session.commit()
+
+
+async def _describe_all(controller: UndercoverGameController, session: AsyncSession, game_id) -> None:
+    """Every alive player still owed a description gives one, in order."""
+    game = await _reread(session, game_id)
+    turn = game.live_state["turns"][-1]
+    alive = {p["user_id"] for p in game.live_state["players"] if p["is_alive"]}
+    for uid in turn["description_order"][turn["current_describer_index"] :]:
+        if uid in alive:
+            await controller.submit_description(UUID(str(game_id)), UUID(uid), "word")
+
+
+async def _vote_out(controller: UndercoverGameController, session: AsyncSession, game_id, target: str):
+    """Every alive player votes for ``target`` (who votes for someone else). Returns the last answer."""
+    game = await _reread(session, game_id)
+    alive = [p["user_id"] for p in game.live_state["players"] if p["is_alive"]]
+    response = None
+    for voter in alive:
+        choice = target if voter != target else next(uid for uid in alive if uid != voter)
+        response = await controller.submit_vote(UUID(str(game_id)), UUID(voter), UUID(choice))
+    return response
+
+
+async def _add_spectator(session: AsyncSession, room_id) -> User:
+    spectator = User(username="watcher", email_address="watcher@test.com", password=get_password_hash("password123"))
+    session.add(spectator)
+    await session.commit()
+    await session.refresh(spectator)
+    session.add(RoomUserLink(room_id=room_id, user_id=spectator.id, connected=True, is_spectator=True))
+    await session.commit()
+    return spectator
+
+
+async def _add_stranger(session: AsyncSession) -> User:
+    stranger = User(username="stranger", email_address="stranger@test.com", password=get_password_hash("password123"))
+    session.add(stranger)
+    await session.commit()
+    await session.refresh(stranger)
+    return stranger
+
+
+async def _to_mr_white_guess(controller, setup_undercover_game, session):
+    """5 players: the undercover goes in round 1 and Mr. White in round 2, who now owes his guess.
+
+    Returns (setup, game_id, users by part).
+    """
+    setup = await setup_undercover_game(5)
+    host, uc, mw, c1, c2 = setup["users"]
+    result = await _start_game(controller, setup["room"].id, host.id)
+    game_id = UUID(result.game_id)
+    await _deal(session, game_id, {str(uc.id): UNDERCOVER, str(mw.id): MR_WHITE})
+    await _describe_all(controller, session, game_id)
+    await _vote_out(controller, session, game_id, str(uc.id))
+    await controller.start_next_round(game_id, setup["room"].id, host.id)
+    await _describe_all(controller, session, game_id)
+    await _vote_out(controller, session, game_id, str(mw.id))
+    return setup, game_id, {"host": host, "uc": uc, "mw": mw, "c1": c1, "c2": c2}
+
+
+@pytest.mark.asyncio
+async def test_mr_white_owing_his_guess_reads_no_winner_and_neither_word(
+    undercover_game_controller, setup_undercover_game, session
+):
+    """BR-01: while Mr. White owes his guess nobody reads a winner, and nobody — him
+    least of all — reads the civilian word.
+
+    get_state recomputed the winner from alive counts (no impostor alive → civilians)
+    and then built word_explanations from it, so his own payload carried the word he
+    was about to guess, and every client showed the game as over.
+    """
+    # Prepare
+    setup, game_id, cast = await _to_mr_white_guess(undercover_game_controller, setup_undercover_game, session)
+    game = await _reread(session, game_id)
+    assert game.live_state["turns"][-1]["phase"] == "mr_white_guessing"
+    assert game.live_state.get("winner") is None
+    spectator = await _add_spectator(session, setup["room"].id)
+
+    for viewer in (cast["mw"], cast["c1"], spectator):
+        # Act
+        view = await undercover_game_controller.get_state(game_id, viewer.id, update_heartbeat=False)
+
+        # Assert
+        assert view.winner is None, viewer.username
+        assert view.word_explanations is None, viewer.username
+        assert view.turn_phase == "mr_white_guessing", viewer.username
+        assert view.mr_white_guesser == str(cast["mw"].id)
+
+
+@pytest.mark.asyncio
+async def test_mr_white_guess_records_its_result_for_the_end_of_game(
+    undercover_game_controller, setup_undercover_game, session
+):
+    """The resolved guess is written to live_state[MR_WHITE_GUESS_RESULT_KEY] (read by the stats)."""
+    # Prepare
+    _, game_id, cast = await _to_mr_white_guess(undercover_game_controller, setup_undercover_game, session)
+    civilian_word = (await _reread(session, game_id)).live_state["civilian_word"]
+
+    # Act
+    guess = await undercover_game_controller.submit_mr_white_guess(game_id, cast["mw"].id, civilian_word)
+
+    # Assert
+    assert guess.correct is True
+    assert guess.winner == "undercovers"
+    game = await _reread(session, game_id)
+    assert game.game_status == GameStatus.FINISHED
+    assert game.live_state["winner"] == "undercovers"
+    assert game.live_state[MR_WHITE_GUESS_RESULT_KEY] == {"user_id": str(cast["mw"].id), "correct": True}
+
+
+@pytest.mark.asyncio
+async def test_a_wrong_guess_by_the_last_impostor_ends_the_game(
+    undercover_game_controller, setup_undercover_game, session
+):
+    """TQ-05: Mr. White was the last impostor; his wrong guess hands the civilians the game."""
+    # Prepare
+    _, game_id, cast = await _to_mr_white_guess(undercover_game_controller, setup_undercover_game, session)
+
+    # Act
+    guess = await undercover_game_controller.submit_mr_white_guess(game_id, cast["mw"].id, "not-the-word")
+
+    # Assert
+    assert guess.correct is False
+    assert guess.winner == "civilians"
+    game = await _reread(session, game_id)
+    assert game.game_status == GameStatus.FINISHED
+    assert game.live_state["winner"] == "civilians"
+    assert game.live_state["turns"][-1]["phase"] == "game_over"
+    assert game.live_state[MR_WHITE_GUESS_RESULT_KEY] == {"user_id": str(cast["mw"].id), "correct": False}
+
+
+@pytest.mark.asyncio
+async def test_mr_white_guess_timeout_records_a_wrong_result(
+    undercover_game_controller, setup_undercover_game, session
+):
+    """A guess the clock closed is a wrong one, in the record as on the verdict."""
+    # Prepare — a 1-second voting clock that ran out long ago
+    _, game_id, cast = await _to_mr_white_guess(undercover_game_controller, setup_undercover_game, session)
+    game = await _reread(session, game_id)
+    state = game.live_state
+    state["timer_config"] = {"description_seconds": 0, "voting_seconds": 1}
+    state["timer_started_at"] = (datetime.now(UTC) - timedelta(minutes=5)).isoformat()
+    game.live_state = state
+    flag_modified(game, "live_state")
+    session.add(game)
+    await session.commit()
+
+    # Act
+    timer = await undercover_game_controller.handle_timer_expired(game_id, cast["c1"].id)
+
+    # Assert — no impostor is alive, so the wrong guess hands the civilians the game
+    assert timer.action == "mr_white_guess_timeout"
+    game = await _reread(session, game_id)
+    assert game.live_state[MR_WHITE_GUESS_RESULT_KEY] == {"user_id": str(cast["mw"].id), "correct": False}
+    assert game.game_status == GameStatus.FINISHED
+    assert game.live_state["winner"] == "civilians"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("leaver_part", ["c1", "uc"])
+async def test_a_departure_during_the_guess_leaves_the_guess_to_decide(
+    undercover_game_controller, setup_undercover_game, session, leaver_part
+):
+    """BR-08: a civilian — or the undercover already out — leaves while Mr. White is
+    guessing: the game stays open, and his correct guess still wins it for the undercovers.
+
+    The departure used to decide the game at once (no impostor alive → civilians), so
+    Mr. White lost the guess that decides it because somebody else closed the app.
+    """
+    # Prepare
+    setup, game_id, cast = await _to_mr_white_guess(undercover_game_controller, setup_undercover_game, session)
+    leaver = cast[leaver_part]
+
+    # Act
+    await RoomController(session).leave_room(setup["room"].id, leaver.id)
+
+    # Assert — still owed
+    game = await _reread(session, game_id)
+    assert game.game_status == GameStatus.IN_PROGRESS
+    assert game.live_state.get("winner") is None
+    assert game.live_state["turns"][-1]["phase"] == "mr_white_guessing"
+    assert game.live_state["mr_white_guesser"] == str(cast["mw"].id)
+
+    # Act — and the guess decides
+    guess = await undercover_game_controller.submit_mr_white_guess(
+        game_id, cast["mw"].id, game.live_state["civilian_word"]
+    )
+
+    # Assert
+    assert guess.winner == "undercovers"
+    game = await _reread(session, game_id)
+    assert game.game_status == GameStatus.FINISHED
+    assert game.live_state["winner"] == "undercovers"
+    assert game.live_state[MR_WHITE_GUESS_RESULT_KEY] == {"user_id": str(cast["mw"].id), "correct": True}
+
+
+async def _six_player_describing_game(controller, setup_undercover_game, session, undercover_seat: int):
+    """6 players seated in user order, one undercover at ``undercover_seat``, no Mr. White."""
+    setup = await setup_undercover_game(6)
+    users = setup["users"]
+    result = await _start_game(controller, setup["room"].id, users[0].id)
+    game_id = UUID(result.game_id)
+    order = [str(u.id) for u in users]
+    await _deal(session, game_id, {order[undercover_seat]: UNDERCOVER}, order=order)
+    return setup, game_id
+
+
+async def _depart(session: AsyncSession, setup: dict, user: User, how: str) -> None:
+    """A voluntary leave, or the grace sweep removing a phone that went quiet."""
+    if how == "leave":
+        await RoomController(session).leave_room(setup["room"].id, user.id)
+        return
+    link = (
+        await session.exec(
+            select(RoomUserLink).where(RoomUserLink.room_id == setup["room"].id).where(RoomUserLink.user_id == user.id)
+        )
+    ).one()
+    link.connected = False
+    link.disconnected_at = datetime.now() - timedelta(seconds=GRACE_PERIOD_SECONDS + 20)  # naive, like the column
+    session.add(link)
+    await session.commit()
+    await _remove_expired_users(session)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("how", ["leave", "sweep"])
+async def test_a_later_describer_leaving_does_not_lock_the_round(
+    undercover_game_controller, setup_undercover_game, session, how
+):
+    """BR-02: the player at position 2 leaves while position 0 describes. After 0 and 1
+    have described, the turn is at position 3, and the round reaches voting.
+
+    The index used to land on the leaver's seat: nobody could describe, the timer
+    (0 = no limit by default) never fired, and next-round needs a resolved round.
+    """
+    # Prepare
+    setup, game_id = await _six_player_describing_game(
+        undercover_game_controller, setup_undercover_game, session, undercover_seat=5
+    )
+    users = setup["users"]
+    await _depart(session, setup, users[2], how)
+    game = await _reread(session, game_id)
+    assert game.game_status == GameStatus.IN_PROGRESS
+
+    # Act
+    await undercover_game_controller.submit_description(game_id, users[0].id, "word")
+    await undercover_game_controller.submit_description(game_id, users[1].id, "word")
+
+    # Assert
+    game = await _reread(session, game_id)
+    turn = game.live_state["turns"][-1]
+    assert turn["current_describer_index"] == 3
+    assert turn["phase"] == "describing"
+
+    # Act — the rest of the table describes
+    for user in users[3:]:
+        await undercover_game_controller.submit_description(game_id, user.id, "word")
+
+    # Assert
+    game = await _reread(session, game_id)
+    turn = game.live_state["turns"][-1]
+    assert turn["phase"] == "voting"
+    assert set(turn["words"]) == {str(u.id) for u in users if u.id != users[2].id}
+
+
+@pytest.mark.asyncio
+async def test_the_last_describer_leaving_opens_voting_after_the_others(
+    undercover_game_controller, setup_undercover_game, session
+):
+    """BR-02, past the end: the last seat left, so the second-to-last description opens voting."""
+    # Prepare
+    setup, game_id = await _six_player_describing_game(
+        undercover_game_controller, setup_undercover_game, session, undercover_seat=1
+    )
+    users = setup["users"]
+    await _depart(session, setup, users[5], "leave")
+    before = (await _reread(session, game_id)).live_state["timer_started_at"]
+
+    # Act
+    responses = [await undercover_game_controller.submit_description(game_id, u.id, "word") for u in users[:5]]
+
+    # Assert
+    assert responses[-1].all_described is True
+    game = await _reread(session, game_id)
+    turn = game.live_state["turns"][-1]
+    assert turn["phase"] == "voting"
+    assert turn["current_describer_index"] == 6
+    assert game.live_state["timer_started_at"] != before
+
+
+@pytest.mark.asyncio
+async def test_votes_for_a_player_who_leaves_can_be_cast_again(
+    undercover_game_controller, setup_undercover_game, session
+):
+    """BR-07: four players voted for X, then X left. Their ballots are returned and
+    they vote again; the elimination is the whole table's, not the two late voters'.
+    """
+    # Prepare — 7 players, one undercover (the last), no Mr. White
+    setup = await setup_undercover_game(7)
+    users = setup["users"]
+    result = await _start_game(undercover_game_controller, setup["room"].id, users[0].id)
+    game_id = UUID(result.game_id)
+    await _deal(session, game_id, {str(users[6].id): UNDERCOVER})
+    await _describe_all(undercover_game_controller, session, game_id)
+    x = users[3]
+    early = [users[0], users[1], users[2], users[4]]
+    for voter in early:
+        await undercover_game_controller.submit_vote(game_id, voter.id, x.id)
+
+    # Act
+    await RoomController(session).leave_room(setup["room"].id, x.id)
+
+    # Assert — no ballot names the leaver any more
+    game = await _reread(session, game_id)
+    assert game.game_status == GameStatus.IN_PROGRESS
+    votes = game.live_state["turns"][-1]["votes"]
+    assert str(x.id) not in votes.values()
+    assert votes == {}
+
+    # Act — they vote again, then the two late voters
+    for voter in early:
+        await undercover_game_controller.submit_vote(game_id, voter.id, users[6].id)
+    await undercover_game_controller.submit_vote(game_id, users[5].id, users[6].id)
+    last = await undercover_game_controller.submit_vote(game_id, users[6].id, users[0].id)
+
+    # Assert
+    assert last.eliminated_player == str(users[6].id)
+    assert last.number_of_votes == 5
+    game = await _reread(session, game_id)
+    assert game.game_status == GameStatus.FINISHED
+    assert game.live_state["winner"] == "civilians"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("attempt", range(6))
+async def test_nobody_is_eliminated_with_zero_votes_when_the_suspect_walks_out(
+    undercover_game_controller,
+    setup_undercover_game,
+    session,
+    attempt,  # noqa: ARG001
+):
+    """BR-07: everyone else voted for civilian X and X left without voting. The tally
+    used to be complete by subtraction with every count at 0, and a random player was
+    eliminated; now the ballots return to their voters and the round stays open.
+    """
+    # Prepare — 5 players, the undercover last, no Mr. White
+    setup = await setup_undercover_game(5)
+    users = setup["users"]
+    result = await _start_game(undercover_game_controller, setup["room"].id, users[0].id)
+    game_id = UUID(result.game_id)
+    await _deal(session, game_id, {str(users[4].id): UNDERCOVER})
+    await _describe_all(undercover_game_controller, session, game_id)
+    x = users[2]
+    for voter in users:
+        if voter.id != x.id:
+            await undercover_game_controller.submit_vote(game_id, voter.id, x.id)
+
+    # Act
+    await RoomController(session).leave_room(setup["room"].id, x.id)
+
+    # Assert
+    game = await _reread(session, game_id)
+    turn = game.live_state["turns"][-1]
+    assert game.game_status == GameStatus.IN_PROGRESS
+    assert not turn.get("resolved")
+    assert turn["votes"] == {}
+    alive = sorted(p["user_id"] for p in game.live_state["players"] if p["is_alive"])
+    assert alive == sorted(str(u.id) for u in users if u.id != x.id)
+    assert [e["round"] for e in game.live_state["eliminated_players"]] == [0]  # X's own departure only
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("spelling", ["latin", "upper", "arabic"])
+async def test_a_description_may_not_be_the_describers_own_word(
+    undercover_game_controller, setup_undercover_game, session, create_term_scripts, spelling
+):
+    """BR-16: the word itself, in any case or in Arabic, is refused and the turn does not move."""
+    # Prepare — order u0, u1, u2; u0 is a civilian
+    await create_term_scripts({"mosque": ("مسجد", "مَسْجِد"), "church": ("كنيسة", None)})
+    setup = await setup_undercover_game(3)
+    users = setup["users"]
+    result = await _start_game(undercover_game_controller, setup["room"].id, users[0].id)
+    game_id = UUID(result.game_id)
+    await _deal(session, game_id, {str(users[2].id): UNDERCOVER}, order=[str(u.id) for u in users])
+    own = (await _reread(session, game_id)).live_state["civilian_word"]
+    word = {"latin": own, "upper": own.upper(), "arabic": {"mosque": "مسجد", "church": "كنيسة"}[own]}[spelling]
+
+    # Act / Assert
+    with pytest.raises(DescriptionRevealsWordError) as exc_info:
+        await undercover_game_controller.submit_description(game_id, users[0].id, word)
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.error_key == "errors.api.descriptionRevealsWord"
+    game = await _reread(session, game_id)
+    turn = game.live_state["turns"][-1]
+    assert turn["words"] == {}
+    assert turn["current_describer_index"] == 0
+
+
+@pytest.mark.asyncio
+async def test_a_description_may_be_the_other_sides_word(undercover_game_controller, setup_undercover_game, session):
+    """Refusing the other side's word would tell the describer what it is: it is accepted."""
+    # Prepare
+    setup = await setup_undercover_game(3)
+    users = setup["users"]
+    result = await _start_game(undercover_game_controller, setup["room"].id, users[0].id)
+    game_id = UUID(result.game_id)
+    await _deal(session, game_id, {str(users[2].id): UNDERCOVER}, order=[str(u.id) for u in users])
+    other = (await _reread(session, game_id)).live_state["undercover_word"]
+
+    # Act
+    response = await undercover_game_controller.submit_description(game_id, users[0].id, other)
+
+    # Assert
+    assert response.word == other
+    game = await _reread(session, game_id)
+    assert game.live_state["turns"][-1]["words"] == {str(users[0].id): other}
+
+
+@pytest.mark.asyncio
+async def test_hint_viewed_by_a_stranger_is_refused(undercover_game_controller, setup_undercover_game, session):
+    """SEC F07: someone who is not in the game cannot grow its live_state.
+
+    The audit's probe had 400 distinct 100-character words accepted from a non-member.
+    """
+    # Prepare
+    setup = await setup_undercover_game(3)
+    result = await _start_game(undercover_game_controller, setup["room"].id, setup["users"][0].id)
+    game_id = UUID(result.game_id)
+    stranger = await _add_stranger(session)
+    words = [f"{i:06d}" + "x" * 94 for i in range(30)] + ["mosque", "church"]
+
+    # Act
+    refused = 0
+    for word in words:
+        with pytest.raises(NotAGameParticipantError):
+            await undercover_game_controller.record_hint_view(game_id, stranger.id, word)
+        refused += 1
+
+    # Assert
+    assert refused == len(words)
+    game = await _reread(session, game_id)
+    assert game.live_state["hint_usage"] == {}
+
+
+@pytest.mark.asyncio
+async def test_hint_viewed_by_a_spectator_or_mr_white_records_nothing(
+    undercover_game_controller, setup_undercover_game, session
+):
+    """Neither has a word of their own while the game runs, so neither can record one."""
+    # Prepare
+    setup = await setup_undercover_game(5)
+    users = setup["users"]
+    result = await _start_game(undercover_game_controller, setup["room"].id, users[0].id)
+    game_id = UUID(result.game_id)
+    await _deal(session, game_id, {str(users[1].id): MR_WHITE, str(users[2].id): UNDERCOVER})
+    spectator = await _add_spectator(session, setup["room"].id)
+    state = (await _reread(session, game_id)).live_state
+
+    # Act
+    by_spectator = await undercover_game_controller.record_hint_view(game_id, spectator.id, state["civilian_word"])
+    by_mr_white = await undercover_game_controller.record_hint_view(game_id, users[1].id, state["civilian_word"])
+
+    # Assert
+    assert by_spectator.recorded is False
+    assert by_mr_white.recorded is False
+    assert (await _reread(session, game_id)).live_state["hint_usage"] == {}
+
+
+@pytest.mark.asyncio
+async def test_hint_usage_never_grows_past_its_cap(undercover_game_controller, setup_undercover_game, session):
+    """A list already at HINT_USAGE_MAX_WORDS_PER_USER (an older row) takes no more words."""
+    # Prepare
+    setup = await setup_undercover_game(3)
+    user = setup["users"][0]
+    result = await _start_game(undercover_game_controller, setup["room"].id, user.id)
+    game_id = UUID(result.game_id)
+    game = await _reread(session, game_id)
+    legacy = [f"legacy-{i}" for i in range(HINT_USAGE_MAX_WORDS_PER_USER)]
+    game.live_state["hint_usage"] = {str(user.id): list(legacy)}
+    flag_modified(game, "live_state")
+    session.add(game)
+    await session.commit()
+    own = _own_word(game.live_state, user.id)
+
+    # Act
+    response = await undercover_game_controller.record_hint_view(game_id, user.id, own)
+
+    # Assert
+    assert response.recorded is False
+    game = await _reread(session, game_id)
+    assert game.live_state["hint_usage"][str(user.id)] == legacy
+
+
+@pytest.mark.asyncio
+async def test_timer_expired_by_a_stranger_is_refused(undercover_game_controller, setup_undercover_game, session):
+    """SEC F08 (Undercover half): only someone in the game may report its clock."""
+    # Prepare
+    setup = await setup_undercover_game(3)
+    result = await _start_game(undercover_game_controller, setup["room"].id, setup["users"][0].id)
+    game_id = UUID(result.game_id)
+    stranger = await _add_stranger(session)
+    spectator = await _add_spectator(session, setup["room"].id)
+
+    # Act / Assert
+    with pytest.raises(NotAGameParticipantError):
+        await undercover_game_controller.handle_timer_expired(game_id, stranger.id)
+    watched = await undercover_game_controller.handle_timer_expired(game_id, spectator.id)
+    assert watched.action == "timer_not_expired"
+    game = await _reread(session, game_id)
+    assert game.live_state["turns"][-1]["phase"] == "describing"
+
+
+@pytest.mark.asyncio
+async def test_start_and_next_round_write_no_turn_or_event_rows(
+    undercover_game_controller, setup_undercover_game, session
+):
+    """BDP-08: live_state is the source of truth; the Turn/Event rows nothing read are gone."""
+    # Prepare
+    setup = await setup_undercover_game(4)
+    result = await _start_game(undercover_game_controller, setup["room"].id, setup["users"][0].id)
+    game_id = UUID(result.game_id)
+    await _resolve_round_eliminating_a_civilian(undercover_game_controller, result, session)
+
+    # Act
+    await undercover_game_controller.start_next_round(game_id, setup["room"].id, setup["users"][0].id)
+
+    # Assert
+    game = await _reread(session, game_id)
+    assert len(game.live_state["turns"]) == 2
+    for model in (Turn, Event, GameTurnLink, TurnEventLink):
+        rows = (await session.exec(select(func.count()).select_from(model))).one()
+        assert rows == 0, model.__name__
+
+
+@pytest.mark.asyncio
+async def test_finishing_a_game_leaves_the_rooms_newer_game_attached(
+    undercover_game_controller, setup_undercover_game, session, game_controller
+):
+    """A finish detaches the room only from THIS game (WP-00's detach_room_if_current)."""
+    # Prepare — the room has already moved on to another game
+    setup, result, game = await _setup_voting_phase(undercover_game_controller, setup_undercover_game, session)
+    game_id = UUID(result.game_id)
+    newer = await game_controller.create_game(
+        GameCreate(room_id=setup["room"].id, number_of_players=3, type=GameType.UNDERCOVER, game_configurations={})
+    )
+    room = (await session.exec(select(Room).where(Room.id == setup["room"].id))).one()
+    room.active_game_id = newer.id
+    session.add(room)
+    await session.commit()
+    undercover = _find_player_by_role(game.live_state, UndercoverRole.UNDERCOVER.value)
+
+    # Act — the old game ends: everyone votes the undercover out
+    await _vote_out(undercover_game_controller, session, game_id, undercover["user_id"])
+
+    # Assert
+    assert (await _reread(session, game_id)).game_status == GameStatus.FINISHED
+    room = (
+        await session.exec(select(Room).where(Room.id == setup["room"].id).execution_options(populate_existing=True))
+    ).one()
+    assert room.active_game_id == newer.id

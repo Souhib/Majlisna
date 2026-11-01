@@ -16,7 +16,7 @@ import pytest_asyncio
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from majlisna.api.constants import GRACE_PERIOD_SECONDS
+from majlisna.api.constants import GRACE_PERIOD_SECONDS, WINNER_IDS_KEY
 from majlisna.api.controllers.base_game import BaseGameController
 from majlisna.api.controllers.disconnect import _remove_expired_users
 from majlisna.api.controllers.quiz_rules import everyone_has_answered, settle_round_if_everyone_answered
@@ -259,3 +259,44 @@ def test_only_an_open_round_is_settled():
 
     assert settle_round_if_everyone_answered(state, GameType.MCQ_QUIZ) is False
     assert state["round_results"] == ["kept as is"]
+
+
+# ─── Who wins once someone has left (owner rules (a) and (b), WP-10) ──
+
+
+@pytest.mark.parametrize("kind", QUIZ_KINDS)
+async def test_a_game_everyone_else_left_is_a_solo_game_with_no_winner(
+    setup_wordquiz_game,
+    setup_mcqquiz_game,
+    wordquiz_game_controller,
+    mcqquiz_game_controller,
+    session: AsyncSession,
+    room_controller: RoomController,
+    kind: str,
+):
+    """Two players, one leaves: the one who stays plays it out, and a final roster of one has no winner."""
+    # Prepare — a one-round game
+    setups = {"wordquiz": setup_wordquiz_game, "mcqquiz": setup_mcqquiz_game}
+    controllers = {"wordquiz": wordquiz_game_controller, "mcqquiz": mcqquiz_game_controller}
+    rounds_key = {"wordquiz": "word_quiz_rounds", "mcqquiz": "mcq_quiz_rounds"}[kind]
+    setup = await setups[kind](num_players=2)
+    room, (host, leaver) = setup["room"], setup["users"]
+    room.settings = {**(room.settings or {}), rounds_key: 1}
+    session.add(room)
+    await session.commit()
+    controller = controllers[kind]
+    result = await controller.create_and_start(room.id, host.id)
+    started = StartedQuiz(kind, controller, UUID(result.game_id), room.id, host.id, [host.id, leaver.id])
+    await room_controller.leave_room(room.id, leaver.id)
+
+    # Act — the host finds it and closes the game
+    await _finish_the_round(started, session, host.id)
+    await controller.advance_to_next_round(started.game_id, host.id)
+
+    # Assert
+    game = await _reload(session, started.game_id)
+    assert game.game_status == GameStatus.FINISHED
+    assert game.live_state["winner"] is None
+    assert game.live_state[WINNER_IDS_KEY] == []
+    view = await controller.get_state(started.game_id, host.id, update_heartbeat=False)
+    assert (view.winner, view.winner_ids) == (None, [])

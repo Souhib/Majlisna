@@ -424,8 +424,8 @@ async def test_delete_user_account_with_related_data(
     user.password = get_password_hash("mypassword")
     session.add(user)
     await session.commit()
+    # create_room writes the owner's stats row (rooms_created), so the user has one.
     room = await create_room(owner=user)
-    session.add(UserStats(user_id=user.id))
     game = await game_controller.create_game(GameCreate(room_id=room.id, type=GameType.UNDERCOVER, number_of_players=1))
     game.game_status = GameStatus.FINISHED
     session.add(game)

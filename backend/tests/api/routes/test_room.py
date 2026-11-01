@@ -1,23 +1,30 @@
 """Route-level tests for room endpoints (prefix /api/v1/rooms)."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock, patch
 from uuid import uuid4
 
-from fastapi import FastAPI
+import pytest
+from fastapi import FastAPI, Request
 from starlette.testclient import TestClient
 
+from majlisna.api.constants import ROOM_INVITE_RATE_LIMIT, ROOM_JOIN_RATE_LIMIT
 from majlisna.api.controllers.room import RoomController
 from majlisna.api.models.game import GameType
 from majlisna.api.models.room import RoomStatus, RoomType
 from majlisna.api.models.table import Room, User
+from majlisna.api.rate_limit import limiter
+from majlisna.api.schemas.common import StatusResponse
 from majlisna.api.schemas.error import (
+    NotRoomHostError,
+    RoomBannedError,
+    RoomBanNotFoundError,
     RoomNotFoundError,
     UserAlreadyInRoomError,
     UserNotInRoomError,
     WrongRoomPasswordError,
 )
-from majlisna.api.schemas.room import KickPlayerResponse
+from majlisna.api.schemas.room import KickPlayerResponse, RoomBanView, RoomInviteResponse
 from majlisna.dependencies import get_current_user, get_room_controller
 
 BASE_URL = "/api/v1/rooms"
@@ -823,5 +830,264 @@ def test_leave_room_wrong_field_name_returns_422(test_app: FastAPI, client: Test
 
         # Assert
         assert response.status_code == 422
+    finally:
+        test_app.dependency_overrides.clear()
+
+
+# ========== WP-07: bans, the 403 on join, per-user limits ==========
+
+
+def _room(public_id: str = "BAN11") -> Room:
+    room = Room(
+        id=uuid4(),
+        public_id=public_id,
+        owner_id=uuid4(),
+        password="1234",
+        status=RoomStatus.ONLINE,
+        type=RoomType.ACTIVE,
+        created_at=datetime.now(),
+    )
+    room.users = []
+    room.games = []
+    return room
+
+
+class _HeaderAuthenticator:
+    """A stand-in for get_current_user: the user named by ``X-Test-User``, recorded on
+    the request exactly as the real dependency records it (``request.state.user_id``)."""
+
+    def __init__(self, users: dict[str, User]):
+        self.users = users
+
+    def __call__(self, request: Request) -> User:
+        user = self.users[request.headers["X-Test-User"]]
+        request.state.user_id = str(user.id)
+        return user
+
+
+@pytest.fixture(name="per_user_client")
+def get_per_user_client(test_app: FastAPI):
+    """Two signed-in users behind ONE address (the TestClient's), each request naming
+    its user; the limiter's memory is wiped so no other test inherits a spent budget."""
+    users = {name: User(id=uuid4(), username=name, email_address=f"{name}@test.com") for name in ("first", "second")}
+    controller = Mock(spec=RoomController)
+    controller.join_room = AsyncMock(return_value=_room())
+    controller.join_room_as_spectator = AsyncMock(return_value=_room())
+    controller.invite_friend_to_room = AsyncMock(
+        return_value=RoomInviteResponse(room_id=str(uuid4()), invited_user_id=str(uuid4()), message="Invite sent")
+    )
+    test_app.dependency_overrides[get_current_user] = _HeaderAuthenticator(users)
+    test_app.dependency_overrides[get_room_controller] = lambda: controller
+    limiter.reset()
+    with (
+        patch("majlisna.api.routes.room.notify_room_changed", new_callable=AsyncMock),
+        patch("majlisna.api.routes.room.notify_room_invite", new_callable=AsyncMock),
+    ):
+        yield TestClient(test_app)
+    limiter.reset()
+    test_app.dependency_overrides.clear()
+
+
+def _limit_count(limit: str) -> int:
+    return int(limit.split("/", maxsplit=1)[0])
+
+
+def test_the_join_limit_is_counted_per_user(per_user_client: TestClient) -> None:
+    """SEC F03: per IP, one noisy phone locked the whole home connection out of joining
+    (and a spoofed address bought a fresh budget); per user, the 11th join of one
+    player is a 429 while another player on the same address joins."""
+    # Prepare
+    body = {"public_room_id": "BAN11", "password": "1234"}
+    for _ in range(_limit_count(ROOM_JOIN_RATE_LIMIT)):
+        assert per_user_client.patch(f"{BASE_URL}/join", json=body, headers={"X-Test-User": "first"}).status_code == 200
+
+    # Act
+    limited = per_user_client.patch(f"{BASE_URL}/join", json=body, headers={"X-Test-User": "first"})
+    other = per_user_client.patch(f"{BASE_URL}/join", json=body, headers={"X-Test-User": "second"})
+
+    # Assert
+    assert limited.status_code == 429
+    assert limited.json()["error_key"] == "errors.api.rateLimitExceeded"
+    assert other.status_code == 200
+
+
+def test_the_spectator_join_limit_is_counted_per_user(per_user_client: TestClient) -> None:
+    """The spectator door takes a PIN too, so it shares the join rule."""
+    # Prepare
+    body = {"room_id": str(uuid4()), "password": "1234"}
+    for _ in range(_limit_count(ROOM_JOIN_RATE_LIMIT)):
+        response = per_user_client.patch(f"{BASE_URL}/join-spectator", json=body, headers={"X-Test-User": "first"})
+        assert response.status_code == 200
+
+    # Act
+    limited = per_user_client.patch(f"{BASE_URL}/join-spectator", json=body, headers={"X-Test-User": "first"})
+    other = per_user_client.patch(f"{BASE_URL}/join-spectator", json=body, headers={"X-Test-User": "second"})
+
+    # Assert
+    assert limited.status_code == 429
+    assert other.status_code == 200
+
+
+def test_the_invite_limit_is_counted_per_user(per_user_client: TestClient) -> None:
+    """SEC F15: invites had no limit at all, so one player could spam every friend."""
+    # Prepare
+    url = f"{BASE_URL}/{uuid4()}/invite"
+    body = {"friend_user_id": str(uuid4())}
+    for _ in range(_limit_count(ROOM_INVITE_RATE_LIMIT)):
+        assert per_user_client.post(url, json=body, headers={"X-Test-User": "first"}).status_code == 200
+
+    # Act
+    limited = per_user_client.post(url, json=body, headers={"X-Test-User": "first"})
+    other = per_user_client.post(url, json=body, headers={"X-Test-User": "second"})
+
+    # Assert
+    assert limited.status_code == 429
+    assert other.status_code == 200
+
+
+def test_a_banned_player_joining_answers_403_room_banned(test_app: FastAPI, client: TestClient) -> None:
+    """The envelope the client translates: errors.api.roomBanned."""
+    # Prepare
+    room_id = uuid4()
+    controller = Mock(spec=RoomController)
+    controller.join_room = AsyncMock(side_effect=RoomBannedError(room_id=room_id))
+    test_app.dependency_overrides[get_current_user] = lambda: User(id=uuid4(), username="b", email_address="b@test.com")
+    test_app.dependency_overrides[get_room_controller] = lambda: controller
+
+    try:
+        # Act
+        response = client.patch(f"{BASE_URL}/join", json={"public_room_id": "BAN11", "password": "1234"})
+
+        # Assert
+        assert response.status_code == 403
+        assert response.json()["error_key"] == "errors.api.roomBanned"
+    finally:
+        test_app.dependency_overrides.clear()
+
+
+def test_the_host_lists_the_bans(test_app: FastAPI, client: TestClient) -> None:
+    """GET /rooms/{id}/bans returns the RoomBanView rows of the controller, for the caller."""
+    # Prepare
+    room_id, host_id, banned_id = uuid4(), uuid4(), uuid4()
+    banned_at = datetime.now(UTC)
+    controller = Mock(spec=RoomController)
+    controller.list_bans = AsyncMock(
+        return_value=[RoomBanView(user_id=banned_id, username="troll", banned_at=banned_at)]
+    )
+    test_app.dependency_overrides[get_current_user] = lambda: User(id=host_id, username="h", email_address="h@test.com")
+    test_app.dependency_overrides[get_room_controller] = lambda: controller
+
+    try:
+        # Act
+        response = client.get(f"{BASE_URL}/{room_id}/bans")
+
+        # Assert
+        assert response.status_code == 200
+        rows = response.json()
+        assert [(row["user_id"], row["username"]) for row in rows] == [(str(banned_id), "troll")]
+        assert datetime.fromisoformat(rows[0]["banned_at"]) == banned_at
+        controller.list_bans.assert_awaited_once_with(room_id, host_id)
+    finally:
+        test_app.dependency_overrides.clear()
+
+
+def test_a_member_listing_the_bans_answers_403(test_app: FastAPI, client: TestClient) -> None:
+    """Host only, enforced in the controller: NotRoomHostError → 403."""
+    # Prepare
+    controller = Mock(spec=RoomController)
+    controller.list_bans = AsyncMock(side_effect=NotRoomHostError())
+    test_app.dependency_overrides[get_current_user] = lambda: User(id=uuid4(), username="m", email_address="m@test.com")
+    test_app.dependency_overrides[get_room_controller] = lambda: controller
+
+    try:
+        # Act
+        response = client.get(f"{BASE_URL}/{uuid4()}/bans")
+
+        # Assert
+        assert response.status_code == 403
+        assert response.json()["error_key"] == "errors.api.notRoomHost"
+    finally:
+        test_app.dependency_overrides.clear()
+
+
+def test_lifting_a_ban_answers_status_and_pushes_the_room(test_app: FastAPI, client: TestClient) -> None:
+    """DELETE /rooms/{id}/bans/{user_id}: StatusResponse, then room_state to the lobby."""
+    # Prepare
+    room_id, host_id, banned_id = uuid4(), uuid4(), uuid4()
+    controller = Mock(spec=RoomController)
+    controller.lift_ban = AsyncMock(return_value=StatusResponse(status="lifted"))
+    test_app.dependency_overrides[get_current_user] = lambda: User(id=host_id, username="h", email_address="h@test.com")
+    test_app.dependency_overrides[get_room_controller] = lambda: controller
+
+    try:
+        with patch("majlisna.api.routes.room.notify_room_changed", new_callable=AsyncMock) as notify:
+            # Act
+            response = client.delete(f"{BASE_URL}/{room_id}/bans/{banned_id}")
+
+        # Assert
+        assert response.status_code == 200
+        assert response.json() == {"status": "lifted"}
+        controller.lift_ban.assert_awaited_once_with(room_id, host_id, banned_id)
+        notify.assert_awaited_once_with(str(room_id))
+    finally:
+        test_app.dependency_overrides.clear()
+
+
+def test_lifting_an_absent_ban_answers_404(test_app: FastAPI, client: TestClient) -> None:
+    """RoomBanNotFoundError → 404 errors.api.roomBanNotFound, and nothing is pushed."""
+    # Prepare
+    room_id, banned_id = uuid4(), uuid4()
+    controller = Mock(spec=RoomController)
+    controller.lift_ban = AsyncMock(side_effect=RoomBanNotFoundError(room_id=room_id, user_id=banned_id))
+    test_app.dependency_overrides[get_current_user] = lambda: User(id=uuid4(), username="h", email_address="h@test.com")
+    test_app.dependency_overrides[get_room_controller] = lambda: controller
+
+    try:
+        with patch("majlisna.api.routes.room.notify_room_changed", new_callable=AsyncMock) as notify:
+            # Act
+            response = client.delete(f"{BASE_URL}/{room_id}/bans/{banned_id}")
+
+        # Assert
+        assert response.status_code == 404
+        assert response.json()["error_key"] == "errors.api.roomBanNotFound"
+        notify.assert_not_awaited()
+    finally:
+        test_app.dependency_overrides.clear()
+
+
+def test_a_kick_detaches_the_socket_before_the_new_pin_is_pushed(test_app: FastAPI, client: TestClient) -> None:
+    """The kicked player is told and detached BEFORE the room_state carrying the new PIN goes out."""
+    # Prepare
+    room_id, target_id = uuid4(), uuid4()
+    order: list[str] = []
+    controller = Mock(spec=RoomController)
+    controller.kick_player = AsyncMock(
+        side_effect=lambda *_: order.append("kick") or KickPlayerResponse(message="Player kicked")
+    )
+    test_app.dependency_overrides[get_current_user] = lambda: User(id=uuid4(), username="h", email_address="h@test.com")
+    test_app.dependency_overrides[get_room_controller] = lambda: controller
+
+    try:
+        with (
+            patch("majlisna.api.routes.room.get_active_game_id", AsyncMock(return_value=None)),
+            patch(
+                "majlisna.api.routes.room.notify_user_kicked",
+                AsyncMock(side_effect=lambda *_: order.append("told")),
+            ),
+            patch(
+                "majlisna.api.routes.room.remove_user_from_room_socket",
+                AsyncMock(side_effect=lambda *_: order.append("detached")),
+            ),
+            patch(
+                "majlisna.api.routes.room.notify_member_removed",
+                AsyncMock(side_effect=lambda *_: order.append("room_state")),
+            ),
+        ):
+            # Act
+            response = client.patch(f"{BASE_URL}/{room_id}/kick", json={"user_id": str(target_id)})
+
+        # Assert
+        assert response.status_code == 200
+        assert order == ["kick", "told", "detached", "room_state"]
     finally:
         test_app.dependency_overrides.clear()

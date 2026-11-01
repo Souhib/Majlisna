@@ -1,17 +1,20 @@
 from datetime import UTC, datetime, timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from sqlmodel import select
 
 from majlisna.api.constants import GRACE_PERIOD_SECONDS, LOBBY_GRACE_PERIOD_SECONDS, PAUSED_GAME_GRACE_PERIOD_SECONDS
 from majlisna.api.controllers.room import RoomController
+from majlisna.api.controllers.undercover_game import UndercoverGameController
 from majlisna.api.models.game import GameStatus, GameType
-from majlisna.api.models.relationship import RoomUserLink
+from majlisna.api.models.relationship import RoomGameLink, RoomUserLink
 from majlisna.api.models.room import RoomJoin, RoomType
+from majlisna.api.models.stats import UserStats
 from majlisna.api.models.table import Game, Room, User
 from majlisna.api.schemas.error import (
     BaseError,
+    GameAlreadyOverError,
     RoomNotFoundError,
     UserAlreadyInRoomError,
     UserNotFoundError,
@@ -916,3 +919,269 @@ async def test_update_room_settings_keeps_the_hosts_game_pick(
     # Assert
     assert state.game_type == "codenames"
     assert state.settings is not None and state.settings.game_type == "codenames"
+
+
+# ========== WP-07: one room at a time, closed rooms, cancelled games, counters ==========
+
+
+async def _two_rooms(create_user, create_room) -> dict:
+    """Room A (host + seated player) and room B (another host): ids, B's code and PIN."""
+    host_a = await create_user(username="hosta", email="hosta@test.com")
+    host_b = await create_user(username="hostb", email="hostb@test.com")
+    player = await create_user(username="fatima", email="fatima@test.com")
+    room_a = await create_room(owner=host_a)
+    room_b = await create_room(owner=host_b)
+    return {
+        "player": player.id,
+        "room_a": room_a.id,
+        "a_code": room_a.public_id,
+        "a_pin": room_a.password,
+        "room_b": room_b.id,
+        "b_code": room_b.public_id,
+        "b_pin": room_b.password,
+    }
+
+
+async def test_joining_a_second_room_while_seated_in_one_is_refused(
+    create_user, create_room, room_controller: RoomController
+):
+    """BR-21 / FR-2: a share link no longer seats a player in a second room.
+
+    create_room already refused a player seated elsewhere; join_room did not, so the
+    player sat in B's lobby while A's host could deal them into a game they never saw.
+    """
+    # Prepare
+    ids = await _two_rooms(create_user, create_room)
+    await room_controller.join_room(RoomJoin(public_room_id=ids["a_code"], password=ids["a_pin"]), ids["player"])
+
+    # Act / Assert
+    with pytest.raises(UserAlreadyInRoomError) as caught:
+        await room_controller.join_room(RoomJoin(public_room_id=ids["b_code"], password=ids["b_pin"]), ids["player"])
+    assert caught.value.status_code == 409
+    assert caught.value.details["room_id"] == str(ids["room_a"])
+
+    # Assert — still seated in A only
+    room_controller.session.expunge_all()
+    links = (
+        await room_controller.session.exec(
+            select(RoomUserLink).where(RoomUserLink.user_id == ids["player"], RoomUserLink.connected == True)  # noqa: E712
+        )
+    ).all()
+    assert [link.room_id for link in links] == [ids["room_a"]]
+
+
+async def test_spectating_a_second_room_while_seated_in_one_is_refused(
+    create_user, create_room, room_controller: RoomController
+):
+    """The one-room rule holds for the spectator door too: a seat in A is a seat A deals into."""
+    # Prepare
+    ids = await _two_rooms(create_user, create_room)
+    await room_controller.join_room(RoomJoin(public_room_id=ids["a_code"], password=ids["a_pin"]), ids["player"])
+
+    # Act / Assert
+    with pytest.raises(UserAlreadyInRoomError):
+        await room_controller.join_room_as_spectator(ids["room_b"], ids["player"], ids["b_pin"])
+
+    room_controller.session.expunge_all()
+    link_b = (
+        await room_controller.session.exec(
+            select(RoomUserLink).where(RoomUserLink.room_id == ids["room_b"], RoomUserLink.user_id == ids["player"])
+        )
+    ).first()
+    assert link_b is None
+
+
+async def test_a_player_away_from_their_old_room_may_join_another(
+    create_user, create_room, room_controller: RoomController
+):
+    """Only a CONNECTED seat blocks, exactly as for create_room: an away seat does not."""
+    # Prepare
+    ids = await _two_rooms(create_user, create_room)
+    await room_controller.join_room(RoomJoin(public_room_id=ids["a_code"], password=ids["a_pin"]), ids["player"])
+    link_a = (
+        await room_controller.session.exec(
+            select(RoomUserLink).where(RoomUserLink.room_id == ids["room_a"], RoomUserLink.user_id == ids["player"])
+        )
+    ).one()
+    link_a.connected = False
+    link_a.disconnected_at = datetime.now()
+    room_controller.session.add(link_a)
+    await room_controller.session.commit()
+
+    # Act
+    await room_controller.join_room(RoomJoin(public_room_id=ids["b_code"], password=ids["b_pin"]), ids["player"])
+
+    # Assert
+    room_controller.session.expunge_all()
+    link_b = (
+        await room_controller.session.exec(
+            select(RoomUserLink).where(RoomUserLink.room_id == ids["room_b"], RoomUserLink.user_id == ids["player"])
+        )
+    ).one()
+    assert link_b.connected is True
+
+
+async def test_rejoining_the_room_you_are_seated_in_is_not_refused(
+    create_user, create_room, room_controller: RoomController
+):
+    """The guard looks at OTHER rooms: re-opening your own room's link is a heartbeat."""
+    # Prepare
+    ids = await _two_rooms(create_user, create_room)
+    join = RoomJoin(public_room_id=ids["a_code"], password=ids["a_pin"])
+    await room_controller.join_room(join, ids["player"])
+
+    # Act
+    room = await room_controller.join_room(join, ids["player"])
+
+    # Assert
+    assert room.id == ids["room_a"]
+
+
+async def test_spectating_a_closed_room_is_refused(create_user, create_room, room_controller: RoomController):
+    """BR-22: like join_room, the spectator join only reaches an ACTIVE room."""
+    # Prepare
+    host = await create_user(username="host", email="host@test.com")
+    viewer = await create_user(username="viewer", email="viewer@test.com")
+    room = await create_room(owner=host)
+    room_id, pin, viewer_id = room.id, room.password, viewer.id
+    await room_controller.delete_room(room_id, host.id)
+
+    # Act / Assert
+    with pytest.raises(RoomNotFoundError):
+        await room_controller.join_room_as_spectator(room_id, viewer_id, pin)
+
+    room_controller.session.expunge_all()
+    link = (
+        await room_controller.session.exec(
+            select(RoomUserLink).where(RoomUserLink.room_id == room_id, RoomUserLink.user_id == viewer_id)
+        )
+    ).first()
+    assert link is None
+
+
+async def test_deleting_a_room_mid_game_cancels_its_game(room_controller: RoomController, setup_undercover_game):
+    """BR-05: delete_room used to leave the game IN_PROGRESS forever, still playable."""
+    # Prepare
+    setup = await setup_undercover_game(4)
+    room_id, host_id = setup["room"].id, setup["users"][0].id
+    controller = UndercoverGameController(room_controller.session)
+    started = await controller.create_and_start(room_id, host_id)
+    game_id = UUID(started.game_id)
+
+    # Act
+    await room_controller.delete_room(room_id, host_id)
+
+    # Assert
+    room_controller.session.expunge_all()
+    game = (await room_controller.session.exec(select(Game).where(Game.id == game_id))).one()
+    room = (await room_controller.session.exec(select(Room).where(Room.id == room_id))).one()
+    assert game.game_status == GameStatus.CANCELLED
+    assert game.end_time is not None
+    assert room.type == RoomType.INACTIVE
+    assert room.active_game_id is None
+
+    # Act / Assert — nobody can play it any more
+    assert game.live_state is not None
+    describer = UUID(game.live_state["turns"][0]["description_order"][0])
+    with pytest.raises(GameAlreadyOverError):
+        await controller.submit_description(game_id, describer, "word")
+
+
+async def test_a_rematch_cancels_the_running_game(room_controller: RoomController, setup_undercover_game):
+    """BR-06 / TQ-04: the outgoing IN_PROGRESS game becomes CANCELLED with an end time."""
+    # Prepare
+    setup = await setup_undercover_game(3)
+    room_id, host_id = setup["room"].id, setup["users"][0].id
+    controller = UndercoverGameController(room_controller.session)
+    started = await controller.create_and_start(room_id, host_id)
+    game_id = UUID(started.game_id)
+
+    # Act
+    result = await room_controller.rematch(room_id, host_id)
+
+    # Assert
+    assert result.status == "lobby"
+    room_controller.session.expunge_all()
+    game = (await room_controller.session.exec(select(Game).where(Game.id == game_id))).one()
+    room = (await room_controller.session.exec(select(Room).where(Room.id == room_id))).one()
+    assert game.game_status == GameStatus.CANCELLED
+    assert game.end_time is not None
+    assert room.active_game_id is None
+    assert room.type == RoomType.ACTIVE
+
+    # Act / Assert — a move that arrives after the rematch sees the cancellation
+    assert game.live_state is not None
+    describer = UUID(game.live_state["turns"][0]["description_order"][0])
+    with pytest.raises(GameAlreadyOverError):
+        await controller.submit_description(game_id, describer, "word")
+
+
+async def test_a_rematch_leaves_a_finished_game_finished(room_controller: RoomController, setup_undercover_game):
+    """Only a running game is cancelled: history keeps a finished one as it ended."""
+    # Prepare
+    setup = await setup_undercover_game(3)
+    room_id, host_id = setup["room"].id, setup["users"][0].id
+    started = await UndercoverGameController(room_controller.session).create_and_start(room_id, host_id)
+    game_id = UUID(started.game_id)
+    game = (await room_controller.session.exec(select(Game).where(Game.id == game_id))).one()
+    ended_at = datetime.now(UTC)
+    game.game_status = GameStatus.FINISHED
+    game.end_time = ended_at
+    room_controller.session.add(game)
+    await room_controller.session.commit()
+
+    # Act
+    await room_controller.rematch(room_id, host_id)
+
+    # Assert
+    room_controller.session.expunge_all()
+    game = (await room_controller.session.exec(select(Game).where(Game.id == game_id))).one()
+    assert game.game_status == GameStatus.FINISHED
+
+
+async def test_creating_a_room_counts_in_the_creators_stats(create_user, room_controller: RoomController):
+    """PD-05: rooms_created was never written, so "Rooms created" read 0 for every host."""
+    # Prepare
+    owner = await create_user(username="owner", email="owner@test.com")
+    owner_id = owner.id
+
+    # Act
+    await room_controller.create_room(owner_id=owner_id, game_type=GameType.UNDERCOVER)
+
+    # Assert
+    room_controller.session.expunge_all()
+    stats = (await room_controller.session.exec(select(UserStats).where(UserStats.user_id == owner_id))).one()
+    assert stats.rooms_created == 1
+
+
+async def test_room_reads_never_load_the_rooms_past_games(
+    create_user, create_room, room_controller: RoomController, count_statements
+):
+    """BDP-09: create/join/spectate/leave/get loaded every past game's live_state and threw it away."""
+    # Prepare — a room with 100 linked games (a long rematch night)
+    host = await create_user(username="host", email="host@test.com")
+    joiner = await create_user(username="joiner", email="joiner@test.com")
+    viewer = await create_user(username="viewer", email="viewer@test.com")
+    room = await create_room(owner=host)
+    room_id, code, pin = room.id, room.public_id, room.password
+    games = [
+        Game(room_id=room_id, type=GameType.UNDERCOVER, number_of_players=3, live_state={"players": []})
+        for _ in range(100)
+    ]
+    room_controller.session.add_all(games)
+    await room_controller.session.flush()
+    room_controller.session.add_all([RoomGameLink(room_id=room_id, game_id=game.id) for game in games])
+    await room_controller.session.commit()
+    room_controller.session.expunge_all()
+    counter = count_statements("live_state")
+
+    # Act
+    joined = await room_controller.join_room(RoomJoin(public_room_id=code, password=pin), joiner.id)
+    await room_controller.join_room_as_spectator(room_id, viewer.id, pin)
+    fetched = await room_controller.get_room_by_id(room_id)
+    await room_controller.leave_room(room_id, viewer.id)
+
+    # Assert — the users are there for RoomView, and no game row was read
+    assert {user.id for user in joined.users} >= {host.id, joiner.id}
+    assert {user.id for user in fetched.users} >= {host.id, joiner.id}
+    assert counter.count == 0

@@ -273,3 +273,219 @@ async def test_check_progress_game_type_filter(challenge_controller: ChallengeCo
         await challenge_controller.session.exec(select(UserChallenge).where(UserChallenge.id == uc_any.id))
     ).one()
     assert refreshed_any.progress == 1, "Any-game challenge should be incremented by an undercover game"
+
+
+# ========== staged inside the game lock (commit=False) ==========
+
+
+async def _assign_play_any(challenge_controller: ChallengeController, user_id) -> UserChallenge:
+    await challenge_controller.seed_challenges()
+    definition = (
+        await challenge_controller.session.exec(
+            select(ChallengeDefinition).where(ChallengeDefinition.code == "daily_play_any")
+        )
+    ).one()
+    now = datetime.now(UTC)
+    row = UserChallenge(
+        user_id=user_id,
+        challenge_id=definition.id,
+        progress=0,
+        completed=False,
+        assigned_at=now,
+        expires_at=now + timedelta(hours=12),
+    )
+    challenge_controller.session.add(row)
+    await challenge_controller.session.commit()
+    return row
+
+
+async def test_check_progress_without_commit_stages_only(challenge_controller: ChallengeController, create_user):
+    """record_game_end runs it inside pg_try_advisory_xact_lock: it must not commit.
+    A rollback after it leaves the progress where it was."""
+    # Prepare
+    user = await create_user(username="staged", email="staged@test.com")
+    row = await _assign_play_any(challenge_controller, user.id)
+    row_id = row.id  # read before the rollback expires the row
+
+    # Act
+    completed = await challenge_controller.check_progress(user.id, "undercover", False, None, commit=False)
+    await challenge_controller.session.rollback()
+
+    # Assert
+    assert [c.code for c in completed] == ["daily_play_any"]
+    fresh = (
+        await challenge_controller.session.exec(
+            select(UserChallenge).where(UserChallenge.id == row_id).execution_options(populate_existing=True)
+        )
+    ).one()
+    assert (fresh.progress, fresh.completed) == (0, False)
+
+
+async def test_assign_missing_challenges_fills_every_slot(challenge_controller: ChallengeController, create_user):
+    """The game end assigns before it counts, so a first game is never lost."""
+    # Prepare
+    user = await create_user(username="newcomer", email="newcomer@test.com")
+    await challenge_controller.seed_challenges()
+
+    # Act
+    await challenge_controller.assign_missing_challenges(user.id, commit=False)
+    await challenge_controller.session.commit()
+
+    # Assert
+    rows = (
+        await challenge_controller.session.exec(select(UserChallenge).where(UserChallenge.user_id == user.id))
+    ).all()
+    assert len(rows) == DAILY_CHALLENGE_COUNT + WEEKLY_CHALLENGE_COUNT
+
+
+async def test_assign_missing_challenges_keeps_what_is_assigned(challenge_controller: ChallengeController, create_user):
+    # Prepare
+    user = await create_user(username="keeper", email="keeper@test.com")
+    kept = await _assign_play_any(challenge_controller, user.id)
+
+    # Act
+    await challenge_controller.assign_missing_challenges(user.id)
+    await challenge_controller.assign_missing_challenges(user.id)
+
+    # Assert
+    rows = (
+        await challenge_controller.session.exec(select(UserChallenge).where(UserChallenge.user_id == user.id))
+    ).all()
+    assert len(rows) == DAILY_CHALLENGE_COUNT + WEEKLY_CHALLENGE_COUNT
+    assert kept.id in {r.id for r in rows}
+
+
+# ========== review R7: definitions that complete on the wrong games ==========
+
+
+async def _assign(challenge_controller: ChallengeController, user_id, code: str) -> UserChallenge:
+    await challenge_controller.seed_challenges()
+    definition = (
+        await challenge_controller.session.exec(select(ChallengeDefinition).where(ChallengeDefinition.code == code))
+    ).one()
+    now = datetime.now(UTC)
+    row = UserChallenge(
+        user_id=user_id,
+        challenge_id=definition.id,
+        progress=0,
+        completed=False,
+        assigned_at=now,
+        expires_at=now + timedelta(days=7),
+    )
+    challenge_controller.session.add(row)
+    await challenge_controller.session.commit()
+    return row
+
+
+async def _shown(challenge_controller: ChallengeController, user_id, code: str):
+    """The challenge as /challenges shows it (progress and completion)."""
+    active = await challenge_controller.get_active_challenges(user_id)
+    return next(c for c in active if c.code == code)
+
+
+async def test_win_as_the_undercover_agent_needs_the_undercover_role(
+    challenge_controller: ChallengeController, create_user
+):
+    """It completed on any Undercover win, a civilian's included."""
+    # Prepare
+    user = await create_user(username="agent", email="agent@test.com")
+    await _assign(challenge_controller, user.id, "weekly_win_undercover_role")
+
+    # Act
+    await challenge_controller.check_progress(user.id, "undercover", True, "civilian")
+    await challenge_controller.check_progress(user.id, "undercover", False, "undercover")
+
+    # Assert
+    shown = await _shown(challenge_controller, user.id, "weekly_win_undercover_role")
+    assert (shown.progress, shown.completed) == (0, False)
+
+    # Act
+    completed = await challenge_controller.check_progress(user.id, "undercover", True, "undercover")
+
+    # Assert
+    assert "weekly_win_undercover_role" in [c.code for c in completed]
+    shown = await _shown(challenge_controller, user.id, "weekly_win_undercover_role")
+    assert (shown.progress, shown.completed) == (1, True)
+
+
+async def test_play_both_undercover_and_codenames_needs_one_of_each(
+    challenge_controller: ChallengeController, create_user
+):
+    """It completed after any two games, two quizzes included."""
+    # Prepare
+    user = await create_user(username="both", email="both@test.com")
+    await _assign(challenge_controller, user.id, "weekly_play_both")
+
+    # Act — two quizzes, then two Undercover games
+    for game_type in ("word_quiz", "mcq_quiz", "undercover", "undercover"):
+        await challenge_controller.check_progress(user.id, game_type, False, None)
+
+    # Assert
+    shown = await _shown(challenge_controller, user.id, "weekly_play_both")
+    assert (shown.progress, shown.target_count, shown.completed) == (1, 2, False)
+
+    # Act
+    completed = await challenge_controller.check_progress(user.id, "codenames", False, "operative")
+
+    # Assert — /challenges also assigned the day's own challenges, which may complete too
+    done = next(c for c in completed if c.code == "weekly_play_both")
+    assert done.progress == 2
+    shown = await _shown(challenge_controller, user.id, "weekly_play_both")
+    assert (shown.progress, shown.completed) == (2, True)
+
+
+async def test_play_three_different_games_counts_each_game_once(challenge_controller: ChallengeController, create_user):
+    """It completed after any three games, the same one three times included."""
+    # Prepare
+    user = await create_user(username="three", email="three@test.com")
+    await _assign(challenge_controller, user.id, "weekly_play_all_3")
+
+    # Act
+    for game_type in ("undercover", "undercover", "undercover", "codenames"):
+        await challenge_controller.check_progress(user.id, game_type, False, None)
+
+    # Assert
+    shown = await _shown(challenge_controller, user.id, "weekly_play_all_3")
+    assert (shown.progress, shown.target_count, shown.completed) == (2, 3, False)
+
+    # Act
+    completed = await challenge_controller.check_progress(user.id, "mcq_quiz", False, None)
+
+    # Assert
+    assert "weekly_play_all_3" in [c.code for c in completed]
+    shown = await _shown(challenge_controller, user.id, "weekly_play_all_3")
+    assert (shown.progress, shown.completed) == (3, True)
+
+
+async def test_seed_brings_a_stored_definition_up_to_date(challenge_controller: ChallengeController):
+    """The seed only inserted missing codes, so a corrected definition never reached a database that had it."""
+    # Prepare — the definition as an older seed wrote it
+    challenge_controller.session.add(
+        ChallengeDefinition(
+            code="weekly_win_undercover_role",
+            description="Win as the Undercover agent this week",
+            challenge_type="weekly",
+            target_count=1,
+            game_type="undercover",
+            condition="win",
+            role=None,
+        )
+    )
+    await challenge_controller.session.commit()
+
+    # Act
+    await challenge_controller.seed_challenges()
+
+    # Assert
+    stored = (
+        await challenge_controller.session.exec(
+            select(ChallengeDefinition)
+            .where(ChallengeDefinition.code == "weekly_win_undercover_role")
+            .execution_options(populate_existing=True)
+        )
+    ).one()
+    expected = next(d for d in CHALLENGE_DEFINITIONS if d["code"] == "weekly_win_undercover_role")
+    assert (stored.condition, stored.role, stored.game_type) == (expected["condition"], "undercover", "undercover")
+    assert len((await challenge_controller.session.exec(select(ChallengeDefinition))).all()) == len(
+        CHALLENGE_DEFINITIONS
+    )

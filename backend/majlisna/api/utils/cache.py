@@ -13,7 +13,8 @@ class TTLCache:
     """Simple in-memory cache with time-to-live expiration.
 
     Uses monotonic clock for reliable timing regardless of system clock changes.
-    Intended for near-static data (word pairs, achievement definitions, leaderboards).
+    Intended for near-static data whose staleness is bounded by its TTL (today: the
+    leaderboard). Game content is not cached: it is read on every draw.
 
     **Per-process.** Each uvicorn worker has its own instance, so `invalidate()`
     only reaches the worker that calls it — never cache anything whose staleness

@@ -3,10 +3,13 @@ from uuid import uuid4
 
 import pytest
 from freezegun import freeze_time
+from sqlalchemy import func
+from sqlmodel import select
 
-from majlisna.api.controllers.stats import StatsController
+from majlisna.api.controllers.stats import StatsController, did_user_win
 from majlisna.api.models.game import GameStatus, GameType
 from majlisna.api.models.relationship import UserGameLink
+from majlisna.api.models.stats import UserStats
 from majlisna.api.models.table import Game
 from majlisna.api.schemas.error import InvalidLeaderboardSortError, UserNotFoundError
 from majlisna.api.schemas.stats import DailyGameRecord, GameDurationStats, HeadToHeadStats
@@ -793,108 +796,367 @@ async def test_head_to_head_no_shared_games(stats_controller: StatsController, c
     assert result.total_games == 0
 
 
-# ========== _did_user_win ==========
+# ========== did_user_win: the one resolver ==========
 
 
-async def test_did_user_win_undercover_civilian_wins(create_user):
-    """In undercover, a civilian player wins when winner is 'civilians'."""
-
-    # Arrange
-    user = await create_user(username="dwciv", email="dwciv@test.com")
-    game = Game(
+def _finished(game_type: GameType, players: list[dict], status: GameStatus = GameStatus.FINISHED, **state) -> Game:
+    return Game(
         id=uuid4(),
         room_id=uuid4(),
-        type=GameType.UNDERCOVER,
-        game_status=GameStatus.FINISHED,
-        number_of_players=3,
-        live_state={
-            "players": [
-                {"user_id": str(user.id), "role": "civilian", "team": None},
-            ],
-            "winner": "civilians",
-        },
+        type=game_type,
+        game_status=status,
+        number_of_players=len(players),
+        live_state={"players": players, **state},
     )
 
-    # Act
-    result = StatsController._did_user_win(game, user.id, "civilians")
 
-    # Assert
-    assert result is True
+def _uc(user_id, role: str, alive: bool = True) -> dict:
+    return {"user_id": str(user_id), "role": role, "is_alive": alive}
 
 
-async def test_did_user_win_undercover_undercover_wins(create_user):
-    """In undercover, an undercover player wins when winner is 'undercovers'."""
+def test_did_user_win_undercover_civilian_wins():
+    """A legacy row (no winner_ids): the side label and the role decide."""
+    # Prepare
+    civ, under = uuid4(), uuid4()
+    game = _finished(GameType.UNDERCOVER, [_uc(civ, "civilian"), _uc(under, "undercover")], winner="civilians")
 
-    # Arrange
-    user = await create_user(username="dwuc", email="dwuc@test.com")
-    game = Game(
-        id=uuid4(),
-        room_id=uuid4(),
-        type=GameType.UNDERCOVER,
-        game_status=GameStatus.FINISHED,
-        number_of_players=3,
-        live_state={
-            "players": [
-                {"user_id": str(user.id), "role": "undercover", "team": None},
-            ],
-            "winner": "undercovers",
-        },
+    # Act / Assert
+    assert did_user_win(game, civ) is True
+    assert did_user_win(game, under) is False
+
+
+def test_did_user_win_undercover_undercover_wins():
+    # Prepare
+    civ, under, mr_white = uuid4(), uuid4(), uuid4()
+    game = _finished(
+        GameType.UNDERCOVER,
+        [_uc(civ, "civilian"), _uc(under, "undercover"), _uc(mr_white, "mr_white")],
+        winner="undercovers",
     )
 
-    # Act
-    result = StatsController._did_user_win(game, user.id, "undercovers")
+    # Act / Assert
+    assert did_user_win(game, under) is True
+    assert did_user_win(game, mr_white) is True
+    assert did_user_win(game, civ) is False
 
-    # Assert
-    assert result is True
 
-
-async def test_did_user_win_codenames(create_user):
-    """In codenames, a player wins when their team matches the winner."""
-
-    # Arrange
-    user = await create_user(username="dwcn", email="dwcn@test.com")
-    game = Game(
-        id=uuid4(),
-        room_id=uuid4(),
-        type=GameType.CODENAMES,
-        game_status=GameStatus.FINISHED,
-        number_of_players=4,
-        live_state={
-            "players": [
-                {"user_id": str(user.id), "role": "operative", "team": "red"},
-            ],
-            "winner": "red",
-        },
+def test_did_user_win_codenames():
+    # Prepare
+    red, blue = uuid4(), uuid4()
+    game = _finished(
+        GameType.CODENAMES,
+        [
+            {"user_id": str(red), "role": "operative", "team": "red"},
+            {"user_id": str(blue), "role": "operative", "team": "blue"},
+        ],
+        winner="red",
     )
 
-    # Act
-    result = StatsController._did_user_win(game, user.id, "red")
-
-    # Assert
-    assert result is True
+    # Act / Assert
+    assert did_user_win(game, red) is True
+    assert did_user_win(game, blue) is False
 
 
-async def test_did_user_win_no_winner(create_user):
-    """When winner is None, _did_user_win returns False."""
+def test_did_user_win_no_recorded_winner_is_no_result():
+    """An old Undercover row that never recorded its winner: unknown, not a loss."""
+    # Prepare
+    civ, under = uuid4(), uuid4()
+    game = _finished(GameType.UNDERCOVER, [_uc(civ, "civilian"), _uc(under, "undercover")], winner=None)
 
-    # Arrange
-    user = await create_user(username="dwnw", email="dwnw@test.com")
-    game = Game(
-        id=uuid4(),
-        room_id=uuid4(),
-        type=GameType.UNDERCOVER,
-        game_status=GameStatus.FINISHED,
-        number_of_players=3,
-        live_state={
-            "players": [
-                {"user_id": str(user.id), "role": "civilian", "team": None},
-            ],
-            "winner": None,
-        },
+    # Act / Assert
+    assert did_user_win(game, civ) is None
+
+
+@pytest.mark.parametrize("game_type", [GameType.WORD_QUIZ, GameType.MCQ_QUIZ])
+def test_did_user_win_reads_winner_ids_for_a_quiz(game_type: GameType):
+    """BDP-05: every quiz win was a loss on the chart, a draw head-to-head and
+    'no result' in history — the resolver only knew Undercover and Codenames."""
+    # Prepare
+    a, b, c = uuid4(), uuid4(), uuid4()
+    players = [{"user_id": str(u), "total_score": s} for u, s in ((a, 6), (b, 6), (c, 2))]
+    game = _finished(game_type, players, winner=None, winner_ids=sorted([str(a), str(b)]))
+
+    # Act / Assert
+    assert [did_user_win(game, u) for u in (a, b, c)] == [True, True, False]
+
+
+def test_did_user_win_winner_ids_win_over_the_legacy_label():
+    # Prepare
+    a, b = uuid4(), uuid4()
+    players = [{"user_id": str(a), "total_score": 3}, {"user_id": str(b), "total_score": 1}]
+    game = _finished(GameType.MCQ_QUIZ, players, winner="b-username", winner_ids=[])
+
+    # Act / Assert
+    assert did_user_win(game, a) is False
+
+
+def test_did_user_win_falls_back_to_rule_a_for_an_old_quiz_row():
+    """Old quiz rows stored one username; the fallback is the top score above 0."""
+    # Prepare
+    a, b, c, d = uuid4(), uuid4(), uuid4(), uuid4()
+    tie = _finished(
+        GameType.WORD_QUIZ,
+        [{"user_id": str(a), "total_score": 5}, {"user_id": str(b), "total_score": 5}],
+        winner="first-seat",
+    )
+    zero = _finished(
+        GameType.MCQ_QUIZ,
+        [{"user_id": str(c), "total_score": 0}, {"user_id": str(d), "total_score": 0}],
+        winner="first-seat",
     )
 
+    # Act / Assert
+    assert (did_user_win(tie, a), did_user_win(tie, b)) == (True, True)
+    assert (did_user_win(zero, c), did_user_win(zero, d)) == (False, False)
+
+
+def test_did_user_win_is_none_for_a_leaver():
+    """Owner rule (b): an Undercover drop-out on the winning side neither won nor lost."""
+    # Prepare
+    civ, leaver, under, other = uuid4(), uuid4(), uuid4(), uuid4()
+    game = _finished(
+        GameType.UNDERCOVER,
+        [
+            _uc(civ, "civilian"),
+            _uc(leaver, "civilian", alive=False),
+            _uc(other, "civilian"),
+            _uc(under, "undercover", False),
+        ],
+        winner="civilians",
+        winner_ids=sorted([str(civ), str(other)]),
+        left_player_ids=[str(leaver)],
+    )
+
+    # Act / Assert
+    assert did_user_win(game, leaver) is None
+    assert did_user_win(game, civ) is True
+    assert did_user_win(game, under) is False
+
+
+def test_did_user_win_is_none_for_a_leaver_on_an_old_row_too():
+    """left_player_ids is read before the legacy fallback."""
+    # Prepare
+    civ, leaver, under = uuid4(), uuid4(), uuid4()
+    game = _finished(
+        GameType.UNDERCOVER,
+        [_uc(civ, "civilian"), _uc(leaver, "civilian", alive=False), _uc(under, "undercover", False)],
+        winner="civilians",
+        left_player_ids=[str(leaver)],
+    )
+
+    # Act / Assert
+    assert did_user_win(game, leaver) is None
+
+
+def test_did_user_win_is_none_for_a_solo_game():
+    """A solo game is never a win (owner rule (a)) — and not a loss on the chart either."""
+    # Prepare
+    solo = uuid4()
+    game = _finished(GameType.MCQ_QUIZ, [{"user_id": str(solo), "total_score": 9}], winner="solo", winner_ids=[])
+
+    # Act / Assert
+    assert did_user_win(game, solo) is None
+
+
+def test_did_user_win_is_none_when_everyone_else_left():
+    # Prepare
+    stays, left = uuid4(), uuid4()
+    game = _finished(
+        GameType.WORD_QUIZ,
+        [{"user_id": str(stays), "total_score": 9}, {"user_id": str(left), "total_score": 0}],
+        winner_ids=[],
+        left_player_ids=[str(left)],
+    )
+
+    # Act / Assert
+    assert did_user_win(game, stays) is None
+
+
+@pytest.mark.parametrize("status", [GameStatus.IN_PROGRESS, GameStatus.CANCELLED, GameStatus.WAITING])
+def test_did_user_win_is_none_for_a_game_that_did_not_finish(status: GameStatus):
+    # Prepare
+    a, b = uuid4(), uuid4()
+    game = _finished(
+        GameType.CODENAMES,
+        [{"user_id": str(a), "team": "red"}, {"user_id": str(b), "team": "blue"}],
+        status=status,
+        winner="red",
+        winner_ids=[str(a)],
+    )
+
+    # Act / Assert
+    assert did_user_win(game, a) is None
+
+
+def test_did_user_win_is_none_for_a_spectator():
+    """A spectator has a UserGameLink too (create_game links every room member)."""
+    # Prepare
+    a, b, spectator = uuid4(), uuid4(), uuid4()
+    game = _finished(
+        GameType.MCQ_QUIZ,
+        [{"user_id": str(a), "total_score": 3}, {"user_id": str(b), "total_score": 1}],
+        winner_ids=[str(a)],
+    )
+
+    # Act / Assert
+    assert did_user_win(game, spectator) is None
+
+
+# ========== the chart and head-to-head use it ==========
+
+
+async def _store(session, game: Game, *user_ids) -> Game:
+    game.start_time = datetime.now(UTC) - timedelta(hours=1)
+    game.end_time = datetime.now(UTC) - timedelta(minutes=30)
+    session.add(game)
+    await session.commit()
+    for user_id in user_ids:
+        session.add(UserGameLink(user_id=user_id, game_id=game.id))
+    await session.commit()
+    return game
+
+
+async def test_game_history_counts_a_quiz_win_as_a_win(
+    stats_controller: StatsController, create_user, create_room, session
+):
+    """BDP-05: the chart drew the host's MCQ win as a loss."""
+    # Prepare
+    winner = await create_user(username="chw", email="chw@test.com")
+    loser = await create_user(username="chl", email="chl@test.com")
+    room = await create_room(owner=winner)
+    game = _finished(
+        GameType.MCQ_QUIZ,
+        [{"user_id": str(winner.id), "total_score": 3}, {"user_id": str(loser.id), "total_score": 0}],
+        winner=winner.username,
+        winner_ids=[str(winner.id)],
+    )
+    game.room_id = room.id
+    await _store(session, game, winner.id, loser.id)
+
     # Act
-    result = StatsController._did_user_win(game, user.id, None)
+    won = await stats_controller.get_game_history_for_charts(winner.id)
+    lost = await stats_controller.get_game_history_for_charts(loser.id)
 
     # Assert
-    assert result is False
+    assert [(r.wins, r.losses) for r in won] == [(1, 0)]
+    assert [(r.wins, r.losses) for r in lost] == [(0, 1)]
+
+
+async def test_game_history_skips_a_game_the_user_left(
+    stats_controller: StatsController, create_user, create_room, session
+):
+    """Owner rule (b): neither a win nor a loss — the day has no bar at all."""
+    # Prepare
+    users = [await create_user(username=f"chs{i}", email=f"chs{i}@test.com") for i in range(4)]
+    leaver = users[3]
+    room = await create_room(owner=users[0])
+    game = _finished(
+        GameType.UNDERCOVER,
+        [
+            _uc(users[0].id, "civilian"),
+            _uc(users[1].id, "civilian"),
+            _uc(users[2].id, "undercover", False),
+            _uc(leaver.id, "civilian", False),
+        ],
+        winner="civilians",
+        winner_ids=sorted([str(users[0].id), str(users[1].id)]),
+        left_player_ids=[str(leaver.id)],
+    )
+    game.room_id = room.id
+    await _store(session, game, *(u.id for u in users))
+
+    # Act
+    records = await stats_controller.get_game_history_for_charts(leaver.id)
+
+    # Assert
+    assert records == []
+
+
+async def test_head_to_head_counts_a_quiz_win(stats_controller: StatsController, create_user, create_room, session):
+    """BDP-05: every quiz head-to-head was a draw."""
+    # Prepare
+    winner = await create_user(username="hqw", email="hqw@test.com")
+    loser = await create_user(username="hql", email="hql@test.com")
+    room = await create_room(owner=winner)
+    game = _finished(
+        GameType.WORD_QUIZ,
+        [{"user_id": str(winner.id), "total_score": 6}, {"user_id": str(loser.id), "total_score": 2}],
+        winner=winner.username,
+        winner_ids=[str(winner.id)],
+    )
+    game.room_id = room.id
+    await _store(session, game, winner.id, loser.id)
+
+    # Act
+    result = await stats_controller.get_head_to_head(winner.id, loser.id)
+
+    # Assert
+    assert (result.user_wins, result.opponent_wins, result.draws, result.total_games) == (1, 0, 0, 1)
+
+
+async def test_head_to_head_skips_a_game_one_of_them_left(
+    stats_controller: StatsController, create_user, create_room, session
+):
+    # Prepare
+    users = [await create_user(username=f"hhs{i}", email=f"hhs{i}@test.com") for i in range(4)]
+    stays, leaver = users[0], users[3]
+    room = await create_room(owner=stays)
+    game = _finished(
+        GameType.UNDERCOVER,
+        [
+            _uc(stays.id, "civilian"),
+            _uc(users[1].id, "civilian"),
+            _uc(users[2].id, "undercover", False),
+            _uc(leaver.id, "civilian", False),
+        ],
+        winner="civilians",
+        winner_ids=sorted([str(stays.id), str(users[1].id)]),
+        left_player_ids=[str(leaver.id)],
+    )
+    game.room_id = room.id
+    await _store(session, game, *(u.id for u in users))
+
+    # Act
+    result = await stats_controller.get_head_to_head(stays.id, leaver.id)
+
+    # Assert
+    assert (result.user_wins, result.opponent_wins, result.draws, result.total_games) == (0, 0, 0, 0)
+
+
+# ========== read_user_stats: what the public GET answers ==========
+
+
+async def test_read_user_stats_for_an_unknown_user_is_not_found(stats_controller: StatsController, session):
+    """PD-11 / SEC F11: it tried to INSERT a row for any id and failed the FK (a 500)."""
+    # Act / Assert
+    with pytest.raises(UserNotFoundError):
+        await stats_controller.read_user_stats(uuid4())
+    assert (await session.exec(select(func.count()).select_from(UserStats))).one() == 0
+
+
+async def test_read_user_stats_without_a_row_answers_zeros_and_writes_nothing(
+    stats_controller: StatsController, create_user, session
+):
+    # Prepare
+    user = await create_user(username="rnone", email="rnone@test.com")
+
+    # Act
+    stats = await stats_controller.read_user_stats(user.id)
+    await session.commit()
+
+    # Assert
+    assert stats.user_id == user.id
+    assert (stats.total_games_played, stats.total_games_won, stats.games_hosted) == (0, 0, 0)
+    assert (await session.exec(select(func.count()).select_from(UserStats))).one() == 0
+
+
+async def test_read_user_stats_returns_the_stored_row(stats_controller: StatsController, create_user):
+    # Prepare
+    user = await create_user(username="rrow", email="rrow@test.com")
+    await stats_controller.update_stats_after_game(user.id, "undercover", won=True, role="civilian")
+
+    # Act
+    stats = await stats_controller.read_user_stats(user.id)
+
+    # Assert
+    assert (stats.total_games_played, stats.total_games_won) == (1, 1)

@@ -7,12 +7,16 @@ from freezegun import freeze_time
 from sqlmodel import select
 
 from majlisna.api.constants import GRACE_PERIOD_SECONDS, HEARTBEAT_STALE_SECONDS
+from majlisna.api.controllers.base_game import BaseGameController
 from majlisna.api.controllers.disconnect import (
+    HeartbeatResult,
     _mark_stale_users,
     _remove_expired_users,
     mark_user_disconnected,
+    presence_listener,
     update_heartbeat,
 )
+from majlisna.api.controllers.room import RoomController
 from majlisna.api.controllers.shared import get_password_hash
 from majlisna.api.models.game import GameStatus, GameType
 from majlisna.api.models.relationship import RoomUserLink
@@ -467,3 +471,154 @@ async def test_checker_loop_game_cleanup_per_game_type(session):
     wq_player_ids = [p["user_id"] for p in wq_game.live_state["players"]]
     assert str(wq_users[0].id) not in wq_player_ids
     assert len(wq_player_ids) == 2
+
+
+# ========== BDP-04: a player who comes back is announced ==========
+#
+# `update_heartbeat` (every Socket.IO connect, heartbeat and join_game) flipped an away
+# link back to connected and told nobody: the connect answered the room state to the
+# returning socket alone, the heartbeat answered nothing. The rest of the table kept
+# showing the player "away · 9:58…0:00" until an unrelated event re-broadcast the room.
+# It now says what it found, so the handlers broadcast exactly when someone came back.
+
+
+@pytest.mark.asyncio
+async def test_update_heartbeat_says_when_an_away_player_came_back(session):
+    """RESTORED for a link marked away (connected False, grace clock running)."""
+    # Prepare
+    user = await _create_user(session)
+    room = await _create_room(session, user)
+    await _create_link(
+        session,
+        room.id,
+        user.id,
+        connected=False,
+        last_seen_at=datetime.now() - timedelta(seconds=60),
+        disconnected_at=datetime.now() - timedelta(seconds=30),
+    )
+
+    # Act
+    result = await update_heartbeat(session, str(user.id), str(room.id))
+
+    # Assert
+    assert result is HeartbeatResult.RESTORED
+    link = (
+        await session.exec(
+            select(RoomUserLink).where(RoomUserLink.room_id == room.id).where(RoomUserLink.user_id == user.id)
+        )
+    ).one()
+    assert link.connected is True
+    assert link.disconnected_at is None
+
+
+@pytest.mark.asyncio
+async def test_update_heartbeat_of_a_present_player_announces_nothing(session):
+    """REFRESHED for a link already connected: last_seen_at moves, nobody needs telling."""
+    # Prepare
+    user = await _create_user(session)
+    room = await _create_room(session, user)
+    await _create_link(session, room.id, user.id, connected=True, last_seen_at=datetime.now() - timedelta(seconds=8))
+
+    # Act
+    result = await update_heartbeat(session, str(user.id), str(room.id))
+
+    # Assert
+    assert result is HeartbeatResult.REFRESHED
+
+
+@pytest.mark.asyncio
+async def test_update_heartbeat_without_a_seat_says_so(session):
+    """NOT_A_MEMBER when the link is gone (kicked, left, swept): the handler refuses the socket."""
+    # Prepare
+    user = await _create_user(session)
+    room = await _create_room(session, user)
+
+    # Act
+    result = await update_heartbeat(session, str(user.id), str(room.id))
+
+    # Assert
+    assert result is HeartbeatResult.NOT_A_MEMBER
+
+
+@pytest.mark.asyncio
+async def test_mark_user_disconnected_says_whether_it_flipped_the_link(session):
+    """True on the first disconnect, False when the link was already away or is gone."""
+    # Prepare
+    user = await _create_user(session)
+    room = await _create_room(session, user)
+    await _create_link(session, room.id, user.id, connected=True)
+
+    # Act
+    first = await mark_user_disconnected(session, str(user.id), str(room.id))
+    second = await mark_user_disconnected(session, str(user.id), str(room.id))
+
+    # Assert
+    assert first is True
+    assert second is False
+
+
+@pytest.mark.asyncio
+async def test_a_rest_heartbeat_that_restores_a_player_is_announced(session):
+    """`_update_heartbeat_throttled` (a game page polling REST while its socket is down)
+    tells the presence listener when it brought an away player back, and only then."""
+    # Prepare
+    user = await _create_user(session)
+    room = await _create_room(session, user)
+    await _create_link(
+        session, room.id, user.id, connected=False, disconnected_at=datetime.now() - timedelta(seconds=30)
+    )
+    controller = BaseGameController(session)
+    announced: list[str] = []
+
+    # Act
+    with presence_listener(announced.append):
+        restored = await controller._update_heartbeat_throttled(room.id, user.id)
+        again = await controller._update_heartbeat_throttled(room.id, user.id)
+
+    # Assert
+    assert restored is True
+    assert again is False
+    assert announced == [str(room.id)]
+    link = (
+        await session.exec(
+            select(RoomUserLink).where(RoomUserLink.room_id == room.id).where(RoomUserLink.user_id == user.id)
+        )
+    ).one()
+    assert link.connected is True
+    assert link.disconnected_at is None
+
+
+@pytest.mark.asyncio
+async def test_no_presence_listener_outside_the_checker_loop(session):
+    """Without a running checker loop (tests, scripts) a restoration is simply not announced."""
+    # Prepare
+    user = await _create_user(session)
+    room = await _create_room(session, user)
+    await _create_link(
+        session, room.id, user.id, connected=False, disconnected_at=datetime.now() - timedelta(seconds=30)
+    )
+
+    # Act / Assert — nothing to call, nothing raised
+    assert await BaseGameController(session)._update_heartbeat_throttled(room.id, user.id) is True
+
+
+@pytest.mark.asyncio
+async def test_a_lobby_poll_that_restores_a_player_is_announced(session):
+    """`RoomController.get_room_state` (the lobby polling REST while its socket is down)
+    restores the player before the socket reconnects: it must announce it, or nobody does."""
+    # Prepare
+    user = await _create_user(session)
+    room = await _create_room(session, user)
+    await _create_link(
+        session, room.id, user.id, connected=False, disconnected_at=datetime.now() - timedelta(seconds=30)
+    )
+    announced: list[str] = []
+
+    # Act
+    with presence_listener(announced.append):
+        state = await RoomController(session).get_room_state(room.id, user.id)
+        await RoomController(session).get_room_state(room.id, user.id)
+
+    # Assert
+    assert announced == [str(room.id)]
+    assert next(p for p in state.players if p.user_id == str(user.id)).is_connected is True

@@ -1,7 +1,12 @@
 from datetime import datetime
+from types import TracebackType
+from unittest.mock import patch
 from uuid import UUID, uuid4
 
 import pytest
+from sqlalchemy import event
+from sqlmodel import SQLModel
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from majlisna.api.controllers.codenames import (
     CodenamesController,
@@ -10,7 +15,9 @@ from majlisna.api.controllers.codenames import (
     CodenamesWordPackNotFoundError,
     NotEnoughWordsError,
 )
-from majlisna.api.models.codenames import CodenamesWordCreate, CodenamesWordPackCreate
+from majlisna.api.models.codenames import CodenamesWord, CodenamesWordCreate, CodenamesWordPack, CodenamesWordPackCreate
+from majlisna.api.utils.cache import cache
+from majlisna.api.utils.rng import rng
 
 # --- Word Pack CRUD ---
 
@@ -305,3 +312,171 @@ async def test_delete_word_pack_not_found(codenames_controller: CodenamesControl
     # Act & Assert
     with pytest.raises(CodenamesWordPackNotFoundError):
         await codenames_controller.delete_word_pack(non_existent_id)
+
+
+# --- WP-24: no ORM rows in the cache, a draw reads only what it keeps ---
+
+
+class WordDrawProbe:
+    """Watches a draw: the CodenamesWord rows it hydrates and the SQL it sends.
+
+    Rows already in the session's identity map are not hydrated again, so expunge
+    the session before entering the probe.
+    """
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._engine = session.bind.sync_engine
+        self.hydrated_ids: list[UUID] = []
+        self.statements: list[str] = []
+
+    def __enter__(self) -> "WordDrawProbe":
+        event.listen(CodenamesWord, "load", self._on_load)
+        event.listen(self._engine, "before_cursor_execute", self._on_execute)
+        return self
+
+    def __exit__(
+        self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None
+    ) -> None:
+        event.remove(CodenamesWord, "load", self._on_load)
+        event.remove(self._engine, "before_cursor_execute", self._on_execute)
+
+    def _on_load(self, target: CodenamesWord, context: object) -> None:
+        self.hydrated_ids.append(target.id)
+
+    def _on_execute(self, conn, cursor, statement: str, parameters, context, executemany) -> None:  # noqa: ARG002
+        self.statements.append(statement)
+
+    def payload_reads(self) -> list[str]:
+        """The statements that read a word's hint, i.e. its full row."""
+        return [s for s in self.statements if "codenames_word.hint" in s]
+
+
+class RecordingSample:
+    """A deterministic stand-in for rng.sample (the last k, last first) that keeps its draw."""
+
+    def __init__(self) -> None:
+        self.drawn: list = []
+
+    def __call__(self, population, k: int) -> list:
+        self.drawn = list(reversed(list(population)))[:k]
+        return list(self.drawn)
+
+    def drawn_ids(self) -> list:
+        """The drawn ids, whether the draw was made over rows, id rows or bare ids."""
+        return [getattr(item, "id", item) for item in self.drawn]
+
+
+def orm_rows_in_cache() -> list[SQLModel]:
+    """Every SQLModel instance the process-wide TTLCache holds, inside lists or not."""
+    found: list[SQLModel] = []
+    for _, value in cache._store.values():
+        items = value if isinstance(value, list | tuple) else [value]
+        found.extend(item for item in items if isinstance(item, SQLModel))
+    return found
+
+
+async def test_get_word_packs_leaves_no_orm_row_in_the_cache(codenames_controller: CodenamesController):
+    """The admin list used to park its ORM rows in TTLCache for an hour."""
+    # Prepare
+    await codenames_controller.create_word_pack(CodenamesWordPackCreate(name="Cached Pack"))
+
+    # Act
+    packs = await codenames_controller.get_word_packs()
+
+    # Assert
+    assert [p.name for p in packs] == ["Cached Pack"]
+    assert orm_rows_in_cache() == []
+
+
+async def test_get_word_packs_sees_a_pack_added_by_another_worker(
+    codenames_controller: CodenamesController, session: AsyncSession
+):
+    """`invalidate()` reaches one worker in four: a pack created elsewhere must show."""
+    # Prepare
+    await codenames_controller.create_word_pack(CodenamesWordPackCreate(name="Here"))
+    assert len(await codenames_controller.get_word_packs()) == 1
+    session.add(CodenamesWordPack(name="Elsewhere"))
+    await session.commit()
+
+    # Act
+    packs = await codenames_controller.get_word_packs()
+
+    # Assert
+    assert {p.name for p in packs} == {"Here", "Elsewhere"}
+
+
+async def test_get_random_words_hydrates_only_the_board(
+    codenames_controller: CodenamesController, session: AsyncSession
+):
+    """A board of 25 reads the ids and texts, then only the 25 words it deals."""
+    # Prepare
+    pack = await codenames_controller.create_word_pack(CodenamesWordPackCreate(name="Big Pack"))
+    for i in range(40):
+        await codenames_controller.add_word(CodenamesWordCreate(word=f"big_{i}"), pack.id)
+    session.expunge_all()
+
+    # Act
+    with WordDrawProbe(session) as probe:
+        words = await codenames_controller.get_random_words(count=25)
+
+    # Assert
+    assert len(words) == 25
+    assert len({w.word for w in words}) == 25
+    assert len(probe.hydrated_ids) <= 25
+    assert probe.payload_reads()
+    for statement in probe.payload_reads():
+        assert "WHERE codenames_word.id IN" in statement, statement
+
+
+async def test_get_random_words_from_chosen_packs_only(codenames_controller: CodenamesController):
+    """`pack_ids` limits the draw to those packs, active or not."""
+    # Prepare
+    chosen = await codenames_controller.create_word_pack(CodenamesWordPackCreate(name="Chosen"))
+    other = await codenames_controller.create_word_pack(CodenamesWordPackCreate(name="Other"))
+    for i in range(25):
+        await codenames_controller.add_word(CodenamesWordCreate(word=f"chosen_{i}"), chosen.id)
+        await codenames_controller.add_word(CodenamesWordCreate(word=f"other_{i}"), other.id)
+
+    # Act
+    words = await codenames_controller.get_random_words(count=25, pack_ids=[chosen.id])
+
+    # Assert
+    assert {w.word_pack_id for w in words} == {chosen.id}
+
+
+async def test_get_random_words_skips_inactive_packs(codenames_controller: CodenamesController, session: AsyncSession):
+    """Without `pack_ids`, only the active packs deal."""
+    # Prepare
+    active = await codenames_controller.create_word_pack(CodenamesWordPackCreate(name="Active"))
+    inactive = await codenames_controller.create_word_pack(CodenamesWordPackCreate(name="Inactive"))
+    for i in range(25):
+        await codenames_controller.add_word(CodenamesWordCreate(word=f"active_{i}"), active.id)
+        await codenames_controller.add_word(CodenamesWordCreate(word=f"inactive_{i}"), inactive.id)
+    inactive.is_active = False
+    session.add(inactive)
+    await session.commit()
+
+    # Act
+    words = await codenames_controller.get_random_words(count=25)
+
+    # Assert
+    assert {w.word_pack_id for w in words} == {active.id}
+
+
+async def test_get_random_words_returns_the_board_in_draw_order(
+    codenames_controller: CodenamesController, session: AsyncSession
+):
+    """The cards are laid out in the order they were drawn, not in the database's."""
+    # Prepare
+    pack = await codenames_controller.create_word_pack(CodenamesWordPackCreate(name="Order Pack"))
+    for i in range(30):
+        await codenames_controller.add_word(CodenamesWordCreate(word=f"order_{i}"), pack.id)
+    session.expunge_all()
+    sample = RecordingSample()
+
+    # Act
+    with patch.object(rng, "sample", side_effect=sample):
+        words = await codenames_controller.get_random_words(count=25)
+
+    # Assert
+    assert [w.id for w in words] == sample.drawn_ids()

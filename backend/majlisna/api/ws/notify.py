@@ -6,6 +6,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from majlisna.api.models.table import Game, Room
+from majlisna.api.schemas.common import TimerExpiredAction
 from majlisna.api.ws.server import sio
 from majlisna.api.ws.state import fetch_room_state
 from majlisna.database import get_engine
@@ -37,12 +38,16 @@ def fire_notify_game_changed(game_id: str, room_id: str | None = None) -> None:
 
 
 async def _get_room_id_for_game(game_id: str) -> str | None:
-    """Look up room_id from the Game table."""
+    """Look up room_id from the Game table.
+
+    The one column, not the row: ``select(Game)`` loaded the whole ``live_state`` JSON
+    on every game broadcast only to read ``room_id`` (BDP-03).
+    """
     try:
         engine = await get_engine()
         async with AsyncSession(engine, expire_on_commit=False) as session:
-            game = (await session.exec(select(Game).where(Game.id == UUID(game_id)))).first()
-            return str(game.room_id) if game and game.room_id else None
+            room_id = (await session.exec(select(Game.room_id).where(Game.id == UUID(game_id)))).first()
+            return str(room_id) if room_id else None
     except Exception:
         logger.opt(exception=True).debug("Failed to look up room_id for game={}", game_id)
         return None
@@ -100,14 +105,33 @@ async def notify_room_invite(friend_user_id: str, room_id: str, invited_by: str)
         logger.opt(exception=True).error("notify_room_invite FAILED for user={} room={}", friend_user_id, room_id)
 
 
+def member_channel(room_id: str, user_id: str) -> str:
+    """The Socket.IO room of ONE member's sockets in one room (``connect`` enters it).
+
+    The room state is addressed through these, never through ``room:{id}``: it carries
+    the room PIN, and a kicked member's socket held by another uvicorn worker stays in
+    ``room:{id}`` until that worker's next audit tick (``audit_local_socket_memberships``,
+    up to ``DISCONNECT_CHECK_INTERVAL_SECONDS``) — after the kick route's own push of the
+    NEW PIN, which owner rule (c) rotates precisely so the kicked player cannot come back.
+    """
+    return f"member:{room_id}:{user_id}"
+
+
 async def notify_room_changed(room_id: str) -> None:
-    """Broadcast fresh room state to all clients in the room.
+    """Send fresh room state to every member the state lists (players and spectators).
+
+    One emit to the members' channels (``member_channel``), read from the state itself,
+    so a socket whose seat is gone is never addressed, whichever worker holds it: the
+    pub/sub manager forwards the one message, and each worker delivers it to its own
+    sockets of those channels, once per socket.
 
     Awaited in route handlers to guarantee delivery before the HTTP response.
     """
     try:
         state = await fetch_room_state(room_id)
-        await sio.emit("room_state", state, to=f"room:{room_id}")
+        members = [member_channel(room_id, player["user_id"]) for player in state.get("players", [])]
+        if members:
+            await sio.emit("room_state", state, to=members)
     except Exception:
         logger.opt(exception=True).error("notify_room_changed FAILED for room={}", room_id)
 
@@ -184,3 +208,31 @@ async def notify_game_changed(game_id: str, room_id: str | None = None) -> None:
 
     if room_id:
         await notify_room_changed(room_id)
+
+
+# The timer-expired answers that changed nothing. Every page fires timer-expired from
+# its own clock, so a table of N players sends N calls at each deadline: one acts, the
+# others find it done (``not_playing``, ``round_already_resolved``), early
+# (``timer_not_expired``) or paused. Broadcasting all of them sent each client N
+# ``game_updated`` — N refetches — for one change (BDP-03: 10 clients, 100 pushes).
+# ``none`` is Undercover's "no timed phase": the state is written back as it was.
+# Only a true no-op belongs here: one that hid a change would leave the table stale.
+NO_OP_TIMER_ACTIONS: frozenset[TimerExpiredAction] = frozenset(
+    {
+        TimerExpiredAction.PAUSED,
+        TimerExpiredAction.TIMER_NOT_EXPIRED,
+        TimerExpiredAction.NOT_PLAYING,
+        TimerExpiredAction.ROUND_ALREADY_RESOLVED,
+        TimerExpiredAction.NONE,
+    }
+)
+
+
+async def notify_timer_outcome(game_id: str, action: TimerExpiredAction) -> None:
+    """After a timer-expired call: ``notify_game_changed`` unless it changed nothing.
+
+    Awaited by the four timer-expired routes, like every notify.
+    """
+    if action in NO_OP_TIMER_ACTIONS:
+        return
+    await notify_game_changed(game_id)

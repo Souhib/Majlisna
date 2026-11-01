@@ -2,10 +2,12 @@ from collections.abc import Sequence
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 
+from majlisna.api.constants import FRIEND_REQUEST_RATE_LIMIT
 from majlisna.api.controllers.friend import FriendController
 from majlisna.api.models.table import User
+from majlisna.api.rate_limit import limiter, user_or_ip_key
 from majlisna.api.schemas.friend import FriendActionResponse, FriendEntry, FriendRequestBody, FriendshipStatusResponse
 from majlisna.dependencies import get_current_user, get_friend_controller
 
@@ -47,8 +49,11 @@ async def get_friendship_status(
     return await friend_controller.get_friendship_status(current_user.id, user_id)
 
 
+# Per signed-in USER (SEC F15): a script could spam every player it could name.
 @router.post("/request", status_code=201)
+@limiter.limit(FRIEND_REQUEST_RATE_LIMIT, key_func=user_or_ip_key)
 async def send_friend_request(
+    request: Request,  # noqa: ARG001
     *,
     body: FriendRequestBody,
     current_user: Annotated[User, Depends(get_current_user)],

@@ -13,16 +13,23 @@ from majlisna.api.constants import (
     DEFAULT_WORD_QUIZ_TURN_DURATION,
     HOST_USERNAME_STATE_KEY,
     TIMER_EXPIRATION_TOLERANCE_SECONDS,
+    WINNER_IDS_KEY,
     WORD_QUIZ_CATEGORY_KEYS,
     WORD_QUIZ_TYPED_ANSWER_MAX_LENGTH,
+    WORDQUIZ_MAX_ATTEMPTS_PER_ROUND,
 )
 from majlisna.api.controllers.base_game import BaseGameController
+from majlisna.api.controllers.game_cancel import detach_room_if_current
 from majlisna.api.controllers.game_end_stats import record_game_end, top_score_winners
 from majlisna.api.controllers.game_lock import get_game_lock
 from majlisna.api.controllers.quiz_rules import (
     everyone_has_answered,
+    quiz_winner_label,
     settle_round_if_everyone_answered,
+    wordquiz_out_of_tries,
+    wordquiz_rungs_lost,
     wordquiz_transition_to_results,
+    wordquiz_tries_used,
 )
 from majlisna.api.controllers.wordquiz import WordQuizController
 from majlisna.api.models.error import (
@@ -45,6 +52,7 @@ from majlisna.api.schemas.common import (
     TimerExpiredResponse,
 )
 from majlisna.api.schemas.error import (
+    AnswerAttemptsExhaustedError,
     NotAGamePlayerError,
     RoundNotInResultsError,
 )
@@ -57,7 +65,7 @@ from majlisna.api.schemas.wordquiz import (
     WordQuizTimerConfig,
 )
 from majlisna.api.utils.game_pause import clock_now, is_paused, parse_instant
-from majlisna.api.utils.game_state import require_state
+from majlisna.api.utils.game_state import left_player_ids, require_state
 from majlisna.api.utils.text_match import answers_match, matches_quiz_answer, normalize_answer, strip_article
 
 
@@ -288,6 +296,7 @@ class WordQuizGameController(BaseGameController):
         my_answer = answers.get(str(user_id)) if not is_spectator else None
         my_answered = my_answer is not None
         my_points = my_answer["points"] if my_answer else 0
+        my_attempts_left = self._attempts_left(state, str(user_id), is_spectator=is_spectator)
 
         # Round results, correct answer, and explanation — only visible during results/game_over
         round_results, correct_answer, explanation = self._build_round_results(state, lang)
@@ -318,10 +327,14 @@ class WordQuizGameController(BaseGameController):
             players=player_states,
             my_answered=my_answered,
             my_points=my_points,
+            my_attempts_left=my_attempts_left,
+            my_rungs_lost=0 if is_spectator else wordquiz_rungs_lost(state, str(user_id)),
+            max_attempts=WORDQUIZ_MAX_ATTEMPTS_PER_ROUND,
             round_results=round_results,
             correct_answer=correct_answer,
             explanation=explanation,
             winner=state.get("winner"),
+            winner_ids=list(state.get(WINNER_IDS_KEY) or []) if state.get("game_over") else [],
             leaderboard=leaderboard,
             game_over=state.get("game_over", False),
             timer_config=WordQuizTimerConfig(
@@ -335,6 +348,17 @@ class WordQuizGameController(BaseGameController):
             started_at=colophon.started_at,
             ended_at=colophon.ended_at,
         )
+
+    @staticmethod
+    def _attempts_left(state: dict, user_id: str, *, is_spectator: bool) -> int | None:
+        """The caller's tries left in the open round (owner rule (e)).
+
+        None when there is nothing left to try for: a spectator, a player who found the
+        word, or a round that is not being played.
+        """
+        if is_spectator or state.get("round_phase") != "playing" or user_id in (state.get("answers") or {}):
+            return None
+        return max(WORDQUIZ_MAX_ATTEMPTS_PER_ROUND - wordquiz_tries_used(state, user_id), 0)
 
     @staticmethod
     def _category_key(category: object) -> WordQuizCategory | None:
@@ -354,55 +378,44 @@ class WordQuizGameController(BaseGameController):
         }
 
     async def submit_answer(self, game_id: UUID, user_id: UUID, answer: str) -> SubmitAnswerResponse:
-        """Submit an answer for the current round."""
+        """Submit an answer for the current round.
+
+        Owner rule (e), the multiplayer twin of the word of the day's rule: each wrong
+        try costs the player one rung (``WORDQUIZ_WRONG_ANSWER_RUNG_PENALTY``) on the
+        answer that finally finds the word, and a round takes at most
+        ``WORDQUIZ_MAX_ATTEMPTS_PER_ROUND`` tries (``AnswerAttemptsExhaustedError``, 409,
+        past that). A free wrong try made the ladder pointless: walking the theme's
+        17-53 words at hint 1 paid the full 6 points (BR-10, SEC F15). The ladder on
+        screen stays the table's: the penalty lowers the score, it reveals no hint.
+        """
         logger.info("WordQuiz answer: game={} user={}", game_id, user_id)
         async with get_game_lock(str(game_id), self.session):
             game = await self._get_game(game_id)
+            # A cancelled (or finished) game no longer moves: answers on it used to be
+            # scored and broadcast (BR-18).
+            self._check_game_in_progress(game)
             state = require_state(game)
             self._ensure_not_paused(game, state)
 
             if state["round_phase"] != "playing":
                 raise RoundNotPlayingError()
+            player = await self._require_answering_player(game, state, user_id)
+            self._check_can_try(state, user_id, answer)
 
-            player = next((p for p in state["players"] if p["user_id"] == str(user_id)), None)
-            if not player:
-                # Check if spectator
-                link = (
-                    await self.session.exec(
-                        select(RoomUserLink)
-                        .where(RoomUserLink.room_id == game.room_id)
-                        .where(RoomUserLink.user_id == user_id)
-                        .where(RoomUserLink.is_spectator == True)  # noqa: E712
-                    )
-                ).first()
-                if link:
-                    raise SpectatorCannotAnswerError(user_id=user_id)
-                raise PlayerRemovedFromGameError(user_id=str(user_id), game_id=str(game_id))
-
-            answers = state.setdefault("answers", {})
-            if str(user_id) in answers:
-                raise AlreadyAnsweredError(user_id=user_id)
-
-            if not answer.strip():
-                raise EmptyAnswerError()
-
-            # Calculate current hint based on server time
             max_hints = DEFAULT_WORD_QUIZ_MAX_HINTS
+            elapsed = (datetime.now(UTC) - parse_instant(state["round_started_at"])).total_seconds()
             hint_interval = state.get("hint_interval_seconds", DEFAULT_WORD_QUIZ_HINT_INTERVAL)
-            started = datetime.fromisoformat(state["round_started_at"])
-            if started.tzinfo is None:
-                started = started.replace(tzinfo=UTC)
-            elapsed = (datetime.now(UTC) - started).total_seconds()
             current_hint = max_hints if hint_interval <= 0 else min(max_hints, int(elapsed / hint_interval) + 1)
 
             correct = self._check_answer(answer, state["current_word"])
-            points = 0
             typed = answer.strip()[:WORD_QUIZ_TYPED_ANSWER_MAX_LENGTH]
+            # Read before this try is recorded: every earlier try of the round missed.
+            rung = min(max_hints, current_hint + wordquiz_rungs_lost(state, str(user_id)))
             self._record_attempt(state, str(user_id), typed, current_hint)
 
+            points = max_hints - rung + 1 if correct else 0
             if correct:
-                points = max_hints - current_hint + 1
-                answers[str(user_id)] = {
+                state.setdefault("answers", {})[str(user_id)] = {
                     "correct": True,
                     "points": points,
                     "hint_number": current_hint,
@@ -410,17 +423,12 @@ class WordQuizGameController(BaseGameController):
                     "answer_text": typed,
                 }
                 player["total_score"] += points
-            else:
-                # Wrong answer — not an answer (the player may retry), but kept as their
-                # latest try for the round's results.
-                game.live_state = state
-                flag_modified(game, "live_state")
-                self.session.add(game)
-                await self.session.commit()
-                return SubmitAnswerResponse(correct=False, points_earned=0, hint_number=current_hint)
+            # A wrong try is not an answer (the player may retry while tries are left),
+            # but it is kept as their latest try for the round's results.
 
-            # Every player found the word → results (the departure path and the resume
-            # reach the same rule through quiz_rules).
+            # Nobody still owes an answer (every player found the word or used every
+            # try) → results. The departure path and the resume reach the same rule
+            # through quiz_rules; the last allowed miss can close the round too.
             if everyone_has_answered(state):
                 self._transition_to_results(state)
 
@@ -429,7 +437,37 @@ class WordQuizGameController(BaseGameController):
             self.session.add(game)
             await self.session.commit()
 
-        return SubmitAnswerResponse(correct=True, points_earned=points, hint_number=current_hint)
+        return SubmitAnswerResponse(correct=correct, points_earned=points, hint_number=current_hint)
+
+    async def _require_answering_player(self, game: Game, state: dict, user_id: UUID) -> dict:
+        """The caller's player entry, or the error that says why they cannot answer."""
+        player = next((p for p in state["players"] if p["user_id"] == str(user_id)), None)
+        if player:
+            return player
+        link = (
+            await self.session.exec(
+                select(RoomUserLink)
+                .where(RoomUserLink.room_id == game.room_id)
+                .where(RoomUserLink.user_id == user_id)
+                .where(RoomUserLink.is_spectator == True)  # noqa: E712
+            )
+        ).first()
+        if link:
+            raise SpectatorCannotAnswerError(user_id=user_id)
+        raise PlayerRemovedFromGameError(user_id=str(user_id), game_id=str(game.id))
+
+    @staticmethod
+    def _check_can_try(state: dict, user_id: UUID, answer: str) -> None:
+        """Refuse a try the round no longer takes: found already, out of tries, or blank.
+
+        Out of tries comes before blank, and neither is recorded as a try.
+        """
+        if str(user_id) in (state.get("answers") or {}):
+            raise AlreadyAnsweredError(user_id=user_id)
+        if wordquiz_out_of_tries(state, str(user_id)):
+            raise AnswerAttemptsExhaustedError(max_attempts=WORDQUIZ_MAX_ATTEMPTS_PER_ROUND)
+        if not answer.strip():
+            raise EmptyAnswerError()
 
     def _phase_timer(self, state: dict) -> PhaseTimer | None:
         """The round's timer while it is being played; between rounds there is none.
@@ -440,7 +478,7 @@ class WordQuizGameController(BaseGameController):
         if state.get("round_phase") != "playing" or not started_at:
             return None
         seconds = state.get("turn_duration_seconds", DEFAULT_WORD_QUIZ_TURN_DURATION)
-        if not seconds:
+        if not seconds or seconds <= 0:
             return None
         return PhaseTimer(started_at=parse_instant(started_at), duration_seconds=seconds)
 
@@ -448,8 +486,10 @@ class WordQuizGameController(BaseGameController):
         """Handle timer expiration — transition to results phase."""
         async with get_game_lock(str(game_id), self.session):
             game = await self._get_game(game_id)
-            self._check_game_in_progress(game)
             state = require_state(game)
+            # Any player or spectator — not anyone who knows the game id (BR-13, SEC F08).
+            await self._require_participant(game, state, user_id)
+            self._check_game_in_progress(game)
 
             # No clock runs while the host has paused the game for the prayer. Not an
             # error: clients fire this from their own local timers.
@@ -543,20 +583,21 @@ class WordQuizGameController(BaseGameController):
             # Game over
             state["round_phase"] = "game_over"
             state["game_over"] = True
-            # Determine winner
-            sorted_players = sorted(state["players"], key=lambda p: p["total_score"], reverse=True)
-            if sorted_players:
-                state["winner"] = sorted_players[0]["username"]
+            # Owner rule (a): every top scorer above 0 shares the win, a solo game is
+            # never won; the label names a winner only when there is exactly one.
+            # record_game_end writes the winners into live_state[WINNER_IDS_KEY].
+            winners = top_score_winners(state["players"], left_ids=left_player_ids(state))
+            state["winner"] = quiz_winner_label(state["players"], winners)
 
             game.game_status = GameStatus.FINISHED
             game.end_time = datetime.now(UTC)
             room = (await self.session.exec(select(Room).where(Room.id == game.room_id))).first()
             if room:
-                room.active_game_id = None
+                detach_room_if_current(room, game)
                 self.session.add(room)
 
             # Process stats and achievements
-            newly_unlocked = await self._process_game_end_stats(state)
+            newly_unlocked = await self._process_game_end_stats(state, winners)
             if newly_unlocked:
                 state["newly_unlocked_achievements"] = newly_unlocked
         else:
@@ -598,7 +639,12 @@ class WordQuizGameController(BaseGameController):
         await self.session.commit()
 
     async def record_hint_view(self, game_id: UUID, user_id: UUID) -> HintRecordResponse:
-        """Record that a player viewed a hint (for achievements)."""
+        """Record that a player viewed a hint (for achievements), once per round.
+
+        Like Undercover's and Codenames' (BR-13, SEC F07, review INT-05): a stranger is
+        refused (``_require_participant``, 403), and a spectator's view is answered
+        ``recorded=False`` without a write — a spectator has no game to win without hints.
+        """
         async with get_game_lock(str(game_id), self.session):
             game = await self._get_game(game_id)
             # Hint views feed achievements ("won without hints"), so they must not
@@ -606,6 +652,9 @@ class WordQuizGameController(BaseGameController):
             # already been computed from hint_usage.
             self._check_game_in_progress(game)
             state = require_state(game)
+            if await self._require_participant(game, state, user_id) is None:
+                await self.session.commit()  # nothing to write: ends the transaction, releasing the lock
+                return HintRecordResponse(game_id=str(game_id), recorded=False)
 
             hint_usage = state.setdefault("hint_usage", {})
             user_key = str(user_id)
@@ -626,16 +675,24 @@ class WordQuizGameController(BaseGameController):
         """Transition from playing to results phase. See ``quiz_rules``."""
         wordquiz_transition_to_results(state)
 
-    def _settle_after_resume(self, state: dict) -> None:
+    def _settle_after_resume(self, state: dict, host_id: str | None) -> None:  # noqa: ARG002 — the quorum is not asked
         """A drop-out during the pause may have completed the round: settle it now."""
         settle_round_if_everyone_answered(state, GameType.WORD_QUIZ)
 
     def _is_timer_actually_expired(self, state: dict) -> bool:
-        """Check if the game timer has actually elapsed server-side."""
+        """Check if the game timer has actually elapsed server-side.
+
+        A duration of 0 or less is untimed, like ``_phase_timer`` reads it (BR-17): the
+        check is ``elapsed >= duration - tolerance``, so 0 made every round expire the
+        moment it opened. The room settings refuse it (``MIN_QUIZ_TURN_SECONDS``); this
+        is the safeguard for a value that is already stored.
+        """
         timer_started = state.get("round_started_at")
         if not timer_started:
             return True
         turn_duration = state.get("turn_duration_seconds", DEFAULT_WORD_QUIZ_TURN_DURATION)
+        if not turn_duration or turn_duration <= 0:
+            return False
         started = datetime.fromisoformat(timer_started)
         if started.tzinfo is None:
             started = started.replace(tzinfo=UTC)
@@ -671,18 +728,21 @@ class WordQuizGameController(BaseGameController):
         ]
         return round_results, correct_answer, explanation
 
-    async def _process_game_end_stats(self, state: dict) -> list[dict]:
+    async def _process_game_end_stats(self, state: dict, winners: set[str]) -> list[dict]:
         """Stage the end-of-game stat and achievement writes. See game_end_stats.
 
         The quizzes used to update stats but never run the achievement check, so a
         player who only played quizzes had their counters rise while no badge ever
         unlocked. Hint tracking stays off: the quizzes have their own progressive
         hint mechanic, which is not what `games_without_hints` counts.
+
+        :param winners: ``top_score_winners`` over the final roster, the same set the
+            label was read from.
         """
         return await record_game_end(
             self.session,
             state,
             game_type="word_quiz",
-            winners=top_score_winners(state["players"]),
+            winners=winners,
             track_hints=False,
         )

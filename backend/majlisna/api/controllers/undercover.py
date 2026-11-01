@@ -1,12 +1,10 @@
 from collections.abc import Sequence
-from typing import cast
 from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError, NoResultFound
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from majlisna.api.constants import CACHE_TTL_GAME_CONTENT_SECONDS
 from majlisna.api.models.error import (
     TermPairAlreadyExistsError,
     TermPairNotFoundError,
@@ -15,14 +13,18 @@ from majlisna.api.models.error import (
     WordNotFoundByNameError,
 )
 from majlisna.api.models.undercover import TermPair, Word, WordCreate, WordUpdate
-from majlisna.api.utils.cache import cache
 from majlisna.api.utils.rng import rng
-
-WORDS_CACHE_KEY = "undercover:words"
-TERM_PAIRS_CACHE_KEY = "undercover:term_pairs"
 
 
 class UndercoverController:
+    """Undercover content: words and term pairs.
+
+    The admin lists are read from the database every time. They used to sit in
+    TTLCache for an hour as ORM rows — detached rows shared across sessions, and,
+    since `invalidate()` reaches one worker in four, a list that kept showing the
+    old content after an admin write elsewhere.
+    """
+
     def __init__(self, session: AsyncSession):
         self.session = session
 
@@ -32,18 +34,12 @@ class UndercoverController:
             self.session.add(new_word)
             await self.session.commit()
             await self.session.refresh(new_word)
-            cache.invalidate(WORDS_CACHE_KEY)
             return new_word
         except IntegrityError:
             raise WordAlreadyExistsError(word=word_create.word) from None
 
     async def get_words(self) -> Sequence[Word]:
-        cached = cache.get(WORDS_CACHE_KEY)
-        if cached is not None:
-            return cast(Sequence[Word], cached)
-        words = (await self.session.exec(select(Word))).all()
-        cache.set(WORDS_CACHE_KEY, words, CACHE_TTL_GAME_CONTENT_SECONDS)
-        return words
+        return (await self.session.exec(select(Word))).all()
 
     async def get_word_by_id(self, word_id: UUID) -> Word:
         """
@@ -69,7 +65,6 @@ class UndercoverController:
         db_word = (await self.session.exec(select(Word).where(Word.id == word_id))).one()
         await self.session.delete(db_word)
         await self.session.commit()
-        cache.invalidate(WORDS_CACHE_KEY)
 
     async def update_word(self, word_id: UUID, word_update: WordUpdate) -> Word:
         try:
@@ -92,18 +87,12 @@ class UndercoverController:
             self.session.add(new_term_pair)
             await self.session.commit()
             await self.session.refresh(new_term_pair)
-            cache.invalidate(TERM_PAIRS_CACHE_KEY)
             return new_term_pair
         except IntegrityError:
             raise TermPairAlreadyExistsError(term1=str(word1_id), term2=str(word2_id)) from None
 
     async def get_term_pairs(self) -> Sequence[TermPair]:
-        cached = cache.get(TERM_PAIRS_CACHE_KEY)
-        if cached is not None:
-            return cast(Sequence[TermPair], cached)
-        pairs = (await self.session.exec(select(TermPair))).all()
-        cache.set(TERM_PAIRS_CACHE_KEY, pairs, CACHE_TTL_GAME_CONTENT_SECONDS)
-        return pairs
+        return (await self.session.exec(select(TermPair))).all()
 
     async def get_term_pair_by_id(self, term_pair_id: UUID) -> TermPair:
         try:
@@ -112,16 +101,24 @@ class UndercoverController:
             raise TermPairNotFoundError(term_pair_id=term_pair_id) from None
 
     async def get_random_term_pair(self) -> TermPair:
-        try:
-            return rng.choice((await self.session.exec(select(TermPair))).all())
-        except IndexError:
-            raise NoResultFound from None
+        """Draw a term pair: read the pairs' keys, then fetch the one drawn.
+
+        :raises NoResultFound: If there is no term pair.
+        """
+        keys = (await self.session.exec(select(TermPair.word1_id, TermPair.word2_id))).all()
+        if not keys:
+            raise NoResultFound
+        word1_id, word2_id = rng.choice(keys)
+        return (
+            await self.session.exec(
+                select(TermPair).where(TermPair.word1_id == word1_id, TermPair.word2_id == word2_id)
+            )
+        ).one()
 
     async def delete_term_pair(self, term_pair_id: UUID) -> None:
         try:
             db_term_pair = (await self.session.exec(select(TermPair).where(TermPair.id == term_pair_id))).one()
             await self.session.delete(db_term_pair)
             await self.session.commit()
-            cache.invalidate(TERM_PAIRS_CACHE_KEY)
         except NoResultFound:
             raise TermPairNotFoundError(term_pair_id=term_pair_id) from None

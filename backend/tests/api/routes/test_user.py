@@ -1,15 +1,17 @@
 """Route-level tests for /api/v1/users endpoints."""
 
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, call, patch
 from uuid import uuid4
 
 from fastapi import FastAPI
+from starlette.requests import Request
 from starlette.testclient import TestClient
 
 from majlisna.api.controllers.user import UserController
 from majlisna.api.models.table import User
 from majlisna.api.schemas.error import UserNotFoundError
-from majlisna.dependencies import get_current_user, get_user_controller
+from majlisna.api.schemas.user import DepartedRoom
+from majlisna.dependencies import get_current_user, get_social_auth_service, get_user_controller
 
 
 def _make_user(user_id=None, username="JohnDoe", email="john.doe@test.com", country="FRA"):
@@ -312,3 +314,119 @@ def test_delete_user_by_id_endpoint_is_gone(test_app: FastAPI, client: TestClien
     assert response.status_code == 405  # the path exists for GET/PATCH, not DELETE
 
     test_app.dependency_overrides.clear()
+
+
+# ========== DELETE /api/v1/users/me/account (WP-27) ==========
+
+
+def test_delete_account_detaches_and_notifies_every_room_it_left(test_app: FastAPI, client: TestClient):
+    """SEC F05: the deletion leaves each room like a leave does — the socket is cut off the
+    room and the room (and its game, read before the departure) hears it."""
+    # Arrange
+    user = _make_user()
+    lobby_id, table_id, game_id = uuid4(), uuid4(), uuid4()
+    mock_controller = Mock(spec=UserController)
+    mock_controller.delete_user_account = AsyncMock(
+        return_value=[DepartedRoom(room_id=lobby_id), DepartedRoom(room_id=table_id, game_id=game_id)]
+    )
+    social_auth_service = Mock()
+    test_app.dependency_overrides[get_user_controller] = lambda: mock_controller
+    test_app.dependency_overrides[get_social_auth_service] = lambda: social_auth_service
+    _override_auth(test_app, user)
+
+    try:
+        with (
+            patch("majlisna.api.routes.user.remove_user_from_room_socket", new=AsyncMock()) as detach,
+            patch("majlisna.api.routes.user.notify_member_removed", new=AsyncMock()) as notify,
+        ):
+            # Act
+            response = client.request("DELETE", "/api/v1/users/me/account", json={"password": "securepassword"})
+
+        # Assert
+        assert response.status_code == 204
+        mock_controller.delete_user_account.assert_awaited_once_with(
+            user.id, "securepassword", google_access_token=None, social_auth_service=social_auth_service
+        )
+        assert detach.await_args_list == [call(str(user.id), str(lobby_id)), call(str(user.id), str(table_id))]
+        assert notify.await_args_list == [call(str(lobby_id), None), call(str(table_id), str(game_id))]
+    finally:
+        test_app.dependency_overrides.clear()
+
+
+def test_delete_account_passes_the_google_confirmation_through(test_app: FastAPI, client: TestClient):
+    """SEC F14: a Google-only account confirms with a Google access token instead."""
+    # Arrange
+    user = _make_user()
+    mock_controller = Mock(spec=UserController)
+    mock_controller.delete_user_account = AsyncMock(return_value=[])
+    social_auth_service = Mock()
+    test_app.dependency_overrides[get_user_controller] = lambda: mock_controller
+    test_app.dependency_overrides[get_social_auth_service] = lambda: social_auth_service
+    _override_auth(test_app, user)
+
+    try:
+        # Act
+        response = client.request("DELETE", "/api/v1/users/me/account", json={"google_access_token": "ya29.token"})
+
+        # Assert
+        assert response.status_code == 204
+        mock_controller.delete_user_account.assert_awaited_once_with(
+            user.id, None, google_access_token="ya29.token", social_auth_service=social_auth_service
+        )
+    finally:
+        test_app.dependency_overrides.clear()
+
+
+def test_update_user_password_keeps_only_the_callers_session(test_app: FastAPI, client: TestClient):
+    """SEC F01: the route hands the caller's session (request.state.session_id) to the controller."""
+    # Arrange
+    user_id = uuid4()
+    session_id = uuid4()
+    user = _make_user(user_id)
+    mock_controller = Mock(spec=UserController)
+    mock_controller.update_user_password = AsyncMock(return_value=_make_user(user_id))
+    test_app.dependency_overrides[get_user_controller] = lambda: mock_controller
+
+    def _authenticated(request: Request) -> User:
+        request.state.session_id = session_id
+        return user
+
+    test_app.dependency_overrides[get_current_user] = _authenticated
+
+    try:
+        # Act
+        response = client.patch(
+            f"/api/v1/users/{user_id}/password",
+            json={"current_password": "oldpassword", "new_password": "newsecurepassword"},
+        )
+
+        # Assert
+        assert response.status_code == 200
+        mock_controller.update_user_password.assert_awaited_once_with(
+            user_id, "oldpassword", "newsecurepassword", keep_session_id=session_id
+        )
+    finally:
+        test_app.dependency_overrides.clear()
+
+
+def test_update_user_with_an_unknown_country_is_a_422_not_a_500(test_app: FastAPI):
+    """The country check raised a ValueError, whose exception object the app's validation
+    handler put in the body and could not serialise: every bad country was a 500."""
+    # Arrange
+    user_id = uuid4()
+    mock_controller = Mock(spec=UserController)
+    test_app.dependency_overrides[get_user_controller] = lambda: mock_controller
+    _override_auth(test_app, _make_user(user_id))
+
+    try:
+        # Act
+        response = TestClient(test_app, raise_server_exceptions=False).patch(
+            f"/api/v1/users/{user_id}", json={"country": "XYZ"}
+        )
+
+        # Assert
+        assert response.status_code == 422
+        assert response.json()["error_key"] == "errors.api.validation"
+        mock_controller.update_user_by_id.assert_not_called()
+    finally:
+        test_app.dependency_overrides.clear()

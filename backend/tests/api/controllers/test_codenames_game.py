@@ -1,5 +1,6 @@
 """Tests for the CodenamesGameController."""
 
+from copy import deepcopy
 from unittest.mock import patch
 from uuid import UUID, uuid4
 
@@ -8,24 +9,31 @@ from sqlalchemy.orm.attributes import flag_modified
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from majlisna.api.constants import CODENAMES_BOARD_SIZE
+from majlisna.api.constants import CODENAMES_BOARD_SIZE, CODENAMES_CLUE_TURN_KEY, CODENAMES_REVEAL_LOG_KEY
 from majlisna.api.controllers.codenames_game import CodenamesGameController
 from majlisna.api.controllers.codenames_helpers import (
     CodenamesCardType,
     CodenamesGameStatus,
+    CodenamesRevealOutcome,
     CodenamesRole,
     CodenamesTeam,
+    release_departed_operative,
 )
-from majlisna.api.models.game import GameStatus
+from majlisna.api.controllers.game import GameController
+from majlisna.api.controllers.room import RoomController
+from majlisna.api.models.game import GameCreate, GameStatus, GameType
 from majlisna.api.models.relationship import RoomUserLink
+from majlisna.api.models.stats import UserStats
 from majlisna.api.models.table import Game, Room, User
 from majlisna.api.schemas.error import (
     BaseError,
     CardAlreadyRevealedError,
+    ClueMustBeOneWordError,
     ClueWordIsOnBoardError,
     GameNotInProgressError,
     InvalidCardIndexError,
     NoClueGivenError,
+    NotAGameParticipantError,
     NotEnoughPlayersError,
     NotOperativeError,
     NotSpymasterError,
@@ -1040,23 +1048,29 @@ def test_resolve_hint_exact_en():
 # ─── record_hint_view ───────────────────────────────────────
 
 
+async def _spymaster_and_board_words(session: AsyncSession, game_id: str) -> tuple[dict, list[str]]:
+    """The spymaster of the team to move (who may open every card's meaning) and the board."""
+    game = await _get_game(session, game_id)
+    state = game.live_state
+    return _find_spymaster(state, state["current_team"]), [card["word"] for card in state["board"]]
+
+
 @pytest.mark.asyncio
 async def test_record_hint_view_success(codenames_game_controller, setup_codenames_game, session):
-    """Recording a hint view stores the word in hint_usage for the user."""
+    """Recording a hint view stores the board word in hint_usage for the user."""
     # Prepare
     setup = await setup_codenames_game(4)
     result = await _start_game(codenames_game_controller, setup["room"].id, setup["users"][0].id)
     game_uuid = UUID(result.game_id)
-    user = setup["users"][0]
+    spymaster, words = await _spymaster_and_board_words(session, result.game_id)
 
     # Act
-    hint_result = await codenames_game_controller.record_hint_view(game_uuid, user.id, "Quran")
+    hint_result = await codenames_game_controller.record_hint_view(game_uuid, UUID(spymaster["user_id"]), words[0])
 
     # Assert
     assert hint_result.recorded is True
     game = await _get_game(session, result.game_id)
-    assert str(user.id) in game.live_state["hint_usage"]
-    assert "Quran" in game.live_state["hint_usage"][str(user.id)]
+    assert game.live_state["hint_usage"][spymaster["user_id"]] == [words[0]]
 
 
 @pytest.mark.asyncio
@@ -1066,15 +1080,16 @@ async def test_record_hint_view_deduplicated(codenames_game_controller, setup_co
     setup = await setup_codenames_game(4)
     result = await _start_game(codenames_game_controller, setup["room"].id, setup["users"][0].id)
     game_uuid = UUID(result.game_id)
-    user = setup["users"][0]
+    spymaster, words = await _spymaster_and_board_words(session, result.game_id)
 
     # Act — record twice
-    await codenames_game_controller.record_hint_view(game_uuid, user.id, "Quran")
-    await codenames_game_controller.record_hint_view(game_uuid, user.id, "Quran")
+    await codenames_game_controller.record_hint_view(game_uuid, UUID(spymaster["user_id"]), words[0])
+    again = await codenames_game_controller.record_hint_view(game_uuid, UUID(spymaster["user_id"]), words[0])
 
     # Assert — only one entry
+    assert again.recorded is True
     game = await _get_game(session, result.game_id)
-    assert game.live_state["hint_usage"][str(user.id)].count("Quran") == 1
+    assert game.live_state["hint_usage"][spymaster["user_id"]].count(words[0]) == 1
 
 
 @pytest.mark.asyncio
@@ -1084,18 +1099,15 @@ async def test_record_hint_view_multiple_words(codenames_game_controller, setup_
     setup = await setup_codenames_game(4)
     result = await _start_game(codenames_game_controller, setup["room"].id, setup["users"][0].id)
     game_uuid = UUID(result.game_id)
-    user = setup["users"][0]
+    spymaster, words = await _spymaster_and_board_words(session, result.game_id)
 
     # Act
-    await codenames_game_controller.record_hint_view(game_uuid, user.id, "Quran")
-    await codenames_game_controller.record_hint_view(game_uuid, user.id, "Salah")
+    await codenames_game_controller.record_hint_view(game_uuid, UUID(spymaster["user_id"]), words[0])
+    await codenames_game_controller.record_hint_view(game_uuid, UUID(spymaster["user_id"]), words[1])
 
     # Assert
     game = await _get_game(session, result.game_id)
-    user_hints = game.live_state["hint_usage"][str(user.id)]
-    assert "Quran" in user_hints
-    assert "Salah" in user_hints
-    assert len(user_hints) == 2
+    assert game.live_state["hint_usage"][spymaster["user_id"]] == [words[0], words[1]]
 
 
 # ─── create_and_start hint fields ───────────────────────────
@@ -1817,3 +1829,484 @@ async def test_board_carries_the_colophon_and_meanings_in_the_requested_language
     assert board.started_at.utcoffset() is not None and board.ended_at.utcoffset() is not None
     stored = await _get_game(session, result.game_id)
     assert stored.live_state["host_username"] == setup["users"][0].username
+
+
+# ─── WP-09: status guard, quorum, clue and turn rules, reveal log, hint-viewed ───
+
+
+async def _fresh_game(session: AsyncSession, game_id) -> Game:
+    """The Game row as the database has it now, not the session's cached copy."""
+    return (
+        await session.exec(select(Game).where(Game.id == UUID(str(game_id))).execution_options(populate_existing=True))
+    ).one()
+
+
+async def _fresh_room(session: AsyncSession, room_id) -> Room:
+    return (await session.exec(select(Room).where(Room.id == room_id).execution_options(populate_existing=True))).one()
+
+
+async def _save_state(session: AsyncSession, game: Game, state: dict) -> None:
+    game.live_state = state
+    flag_modified(game, "live_state")
+    session.add(game)
+    await session.commit()
+
+
+def _cards_of(state: dict, card_type: str) -> list[int]:
+    return [i for i, card in enumerate(state["board"]) if card["card_type"] == card_type and not card["revealed"]]
+
+
+@pytest.mark.asyncio
+async def test_a_cancelled_game_refuses_every_move_and_leaves_the_new_game_alone(
+    codenames_game_controller, setup_codenames_game, session, engine
+):
+    """BR-06: after a rematch cancelled game 1 and game 2 started, game 1 is not playable.
+
+    It used to be: a player still on the old board found the assassin, which flipped the
+    CANCELLED game to FINISHED, recorded stats for it and unlinked game 2 from the room.
+    """
+    # Prepare
+    setup = await setup_codenames_game(4)
+    host = setup["users"][0]
+    room_id = setup["room"].id
+    first = await _start_game(codenames_game_controller, room_id, host.id)
+    state = (await _fresh_game(session, first.game_id)).live_state
+    team = state["current_team"]
+    spymaster = _find_spymaster(state, team)
+    operative = _find_operative(state, team)
+    await codenames_game_controller.give_clue(UUID(first.game_id), UUID(spymaster["user_id"]), "Zzzclue", 1)
+    await RoomController(session).rematch(room_id, host.id)
+    second = await _start_game(codenames_game_controller, room_id, host.id)
+    assassin = _find_card_of_type(state["board"], CodenamesCardType.ASSASSIN.value)
+
+    # Act / Assert — a stale tab on game 1, on its own session
+    async with AsyncSession(engine, expire_on_commit=False) as stale_session:
+        stale = CodenamesGameController(stale_session)
+        game_1 = UUID(first.game_id)
+        with pytest.raises(GameNotInProgressError):
+            await stale.guess_card(game_1, UUID(operative["user_id"]), assassin)
+        with pytest.raises(GameNotInProgressError):
+            await stale.give_clue(game_1, UUID(spymaster["user_id"]), "Another", 1)
+        with pytest.raises(GameNotInProgressError):
+            await stale.end_turn(game_1, UUID(operative["user_id"]))
+        with pytest.raises(GameNotInProgressError):
+            await stale.handle_timer_expired(game_1, UUID(operative["user_id"]))
+
+    # Assert — the database
+    game_1_row = await _fresh_game(session, first.game_id)
+    assert game_1_row.game_status == GameStatus.CANCELLED
+    assert not any(card["revealed"] for card in game_1_row.live_state["board"])
+    room = await _fresh_room(session, room_id)
+    assert str(room.active_game_id) == second.game_id
+    assert (await _fresh_game(session, second.game_id)).game_status == GameStatus.IN_PROGRESS
+    stats = (await session.exec(select(UserStats).execution_options(populate_existing=True))).all()
+    assert all(row.codenames_games_played == 0 for row in stats)
+
+
+@pytest.mark.asyncio
+async def test_finishing_a_game_never_unlinks_the_rooms_other_game(
+    codenames_game_controller, setup_codenames_game, session
+):
+    """BR-06: the finish path clears room.active_game_id only when it is THIS game."""
+    # Prepare
+    setup = await setup_codenames_game(4)
+    room_id = setup["room"].id
+    result = await _start_game(codenames_game_controller, room_id, setup["users"][0].id)
+    state = (await _give_clue_first(codenames_game_controller, session, result)).live_state
+    operative = _find_operative(state, state["current_team"])
+    other_game = await GameController(session).create_game(
+        GameCreate(room_id=room_id, number_of_players=4, type=GameType.CODENAMES)
+    )
+    room = await _fresh_room(session, room_id)
+    room.active_game_id = other_game.id
+    session.add(room)
+    await session.commit()
+    assassin = _find_card_of_type(state["board"], CodenamesCardType.ASSASSIN.value)
+
+    # Act
+    outcome = await codenames_game_controller.guess_card(UUID(result.game_id), UUID(operative["user_id"]), assassin)
+
+    # Assert
+    assert outcome.result == "assassin"
+    assert (await _fresh_game(session, result.game_id)).game_status == GameStatus.FINISHED
+    assert (await _fresh_room(session, room_id)).active_game_id == other_game.id
+
+
+@pytest.mark.asyncio
+async def test_finishing_the_rooms_game_detaches_it(codenames_game_controller, setup_codenames_game, session):
+    """The control: the room's own game finishing still sends the room back to the lobby."""
+    # Prepare
+    setup = await setup_codenames_game(4)
+    room_id = setup["room"].id
+    result = await _start_game(codenames_game_controller, room_id, setup["users"][0].id)
+    state = (await _give_clue_first(codenames_game_controller, session, result)).live_state
+    operative = _find_operative(state, state["current_team"])
+    assassin = _find_card_of_type(state["board"], CodenamesCardType.ASSASSIN.value)
+
+    # Act
+    await codenames_game_controller.guess_card(UUID(result.game_id), UUID(operative["user_id"]), assassin)
+
+    # Assert
+    assert (await _fresh_room(session, room_id)).active_game_id is None
+
+
+@pytest.mark.asyncio
+async def test_a_departed_operatives_vote_neither_fills_the_quorum_nor_turns_a_card(
+    codenames_game_controller, setup_codenames_game, session
+):
+    """BR-09: A voted card X and left; B votes card Y; C has not voted — nothing turns yet,
+    and when C votes Y, Y turns (never X)."""
+    # Prepare: 7 players, the team to move has a spymaster and 3 operatives
+    setup = await setup_codenames_game(7)
+    result = await _start_game(codenames_game_controller, setup["room"].id, setup["users"][0].id)
+    game = await _give_clue_first(codenames_game_controller, session, result)
+    state = game.live_state
+    team = state["current_team"]
+    a, b, c = _find_all_operatives(state, team)
+    neutral = _cards_of(state, CodenamesCardType.NEUTRAL.value)
+    game_id = UUID(result.game_id)
+    await codenames_game_controller.guess_card(game_id, UUID(a["user_id"]), neutral[0])
+    # A leaves as the disconnect handler removes a player: out of the roster, vote kept
+    game = await _fresh_game(session, result.game_id)
+    state = game.live_state
+    state["players"] = [p for p in state["players"] if p["user_id"] != a["user_id"]]
+    await _save_state(session, game, state)
+
+    # Act
+    b_vote = await codenames_game_controller.guess_card(game_id, UUID(b["user_id"]), neutral[1])
+    after_b = deepcopy((await _fresh_game(session, result.game_id)).live_state)  # the row is re-read below
+    c_vote = await codenames_game_controller.guess_card(game_id, UUID(c["user_id"]), neutral[1])
+
+    # Assert
+    assert b_vote.all_voted is False
+    assert b_vote.card_votes_count == 1
+    assert b_vote.total_operatives == 2
+    assert not any(card["revealed"] for card in after_b["board"])
+    assert after_b["current_turn"]["card_votes"] == {b["user_id"]: neutral[1]}  # A's ballot is gone
+    assert c_vote.all_voted is True
+    assert c_vote.card_index == neutral[1]
+    final = await _fresh_game(session, result.game_id)
+    assert final.live_state["board"][neutral[1]]["revealed"] is True
+    assert final.live_state["board"][neutral[0]]["revealed"] is False
+    assert final.live_state[CODENAMES_REVEAL_LOG_KEY][-1]["voter_ids"] == sorted([b["user_id"], c["user_id"]])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("clue", ["   ", "the Sunnah", "two\twords", "line\nbreak"])
+async def test_a_clue_must_be_one_word(codenames_game_controller, setup_codenames_game, session, clue):
+    """BR-14: a blank clue, or one holding whitespace, is ClueMustBeOneWordError."""
+    # Prepare
+    setup = await setup_codenames_game(4)
+    result = await _start_game(codenames_game_controller, setup["room"].id, setup["users"][0].id)
+    state = (await _fresh_game(session, result.game_id)).live_state
+    spymaster = _find_spymaster(state, state["current_team"])
+
+    # Act / Assert
+    with pytest.raises(ClueMustBeOneWordError):
+        await codenames_game_controller.give_clue(UUID(result.game_id), UUID(spymaster["user_id"]), clue, 1)
+    game = await _fresh_game(session, result.game_id)
+    assert game.live_state["current_turn"]["clue_word"] is None
+    assert game.live_state["clue_history"] == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("shape", ["{} ", " {}", "{}\t", "{upper}"])
+async def test_a_board_word_with_spaces_or_another_case_is_on_the_board(
+    codenames_game_controller, setup_codenames_game, session, shape
+):
+    """BR-14: 'Wudu ' (a card's word plus a space) used to pass the on-board check."""
+    # Prepare
+    setup = await setup_codenames_game(4)
+    result = await _start_game(codenames_game_controller, setup["room"].id, setup["users"][0].id)
+    state = (await _fresh_game(session, result.game_id)).live_state
+    spymaster = _find_spymaster(state, state["current_team"])
+    word = state["board"][0]["word"]
+    clue = shape.format(word, upper=word.upper())
+
+    # Act / Assert
+    with pytest.raises(ClueWordIsOnBoardError):
+        await codenames_game_controller.give_clue(UUID(result.game_id), UUID(spymaster["user_id"]), clue, 1)
+    assert (await _fresh_game(session, result.game_id)).live_state["current_turn"]["clue_word"] is None
+
+
+@pytest.mark.asyncio
+async def test_a_clue_is_stored_stripped(codenames_game_controller, setup_codenames_game, session):
+    """The clue the table reads is the word, without the spaces around it."""
+    # Prepare
+    setup = await setup_codenames_game(4)
+    result = await _start_game(codenames_game_controller, setup["room"].id, setup["users"][0].id)
+    state = (await _fresh_game(session, result.game_id)).live_state
+    spymaster = _find_spymaster(state, state["current_team"])
+
+    # Act
+    response = await codenames_game_controller.give_clue(
+        UUID(result.game_id), UUID(spymaster["user_id"]), "  Knowledge  ", 2
+    )
+
+    # Assert
+    assert response.clue_word == "Knowledge"
+    game = await _fresh_game(session, result.game_id)
+    assert game.live_state["current_turn"]["clue_word"] == "Knowledge"
+    assert game.live_state["clue_history"][-1]["clue_word"] == "Knowledge"
+
+
+@pytest.mark.asyncio
+async def test_end_turn_before_any_clue_is_refused(codenames_game_controller, setup_codenames_game, session):
+    """BR-15: an operative cannot pass the team's whole turn before the spymaster speaks."""
+    # Prepare
+    setup = await setup_codenames_game(4)
+    result = await _start_game(codenames_game_controller, setup["room"].id, setup["users"][0].id)
+    state = (await _fresh_game(session, result.game_id)).live_state
+    team = state["current_team"]
+    operative = _find_operative(state, team)
+
+    # Act / Assert
+    with pytest.raises(NoClueGivenError):
+        await codenames_game_controller.end_turn(UUID(result.game_id), UUID(operative["user_id"]))
+    game = await _fresh_game(session, result.game_id)
+    assert game.live_state["current_team"] == team
+
+
+@pytest.mark.asyncio
+async def test_a_new_game_starts_with_an_empty_reveal_log_and_no_clue_turn(
+    codenames_game_controller, setup_codenames_game, session
+):
+    """The reveal log and the clue counter exist from the deal; each clue counts one."""
+    # Prepare
+    setup = await setup_codenames_game(4)
+    result = await _start_game(codenames_game_controller, setup["room"].id, setup["users"][0].id)
+    started = (await _fresh_game(session, result.game_id)).live_state
+    spymaster = _find_spymaster(started, started["current_team"])
+
+    # Act
+    await codenames_game_controller.give_clue(UUID(result.game_id), UUID(spymaster["user_id"]), "Zzzclue", 1)
+
+    # Assert
+    assert started[CODENAMES_REVEAL_LOG_KEY] == []
+    assert started[CODENAMES_CLUE_TURN_KEY] == 0
+    assert (await _fresh_game(session, result.game_id)).live_state[CODENAMES_CLUE_TURN_KEY] == 1
+
+
+@pytest.mark.asyncio
+async def test_reveal_log_records_guesses_and_a_departure_resolved_guess(
+    codenames_game_controller, setup_codenames_game, session
+):
+    """Owner rule (f) reads it: two guesses, then a guess a departure completes — three
+    entries with the guessing team, the card, its voters and the clue's turn."""
+    # Prepare: 7 players — the first team has 3 operatives, the second 2
+    setup = await setup_codenames_game(7)
+    result = await _start_game(codenames_game_controller, setup["room"].id, setup["users"][0].id)
+    game_id = UUID(result.game_id)
+    state = (await _fresh_game(session, result.game_id)).live_state
+    first, second = state["current_team"], CodenamesTeam.BLUE.value
+    if first == CodenamesTeam.BLUE.value:
+        second = CodenamesTeam.RED.value
+    a, b, c = _find_all_operatives(state, first)
+    d, e = _find_all_operatives(state, second)
+    own = _cards_of(state, first)
+    neutral = _cards_of(state, CodenamesCardType.NEUTRAL.value)
+    second_own = _cards_of(state, second)
+
+    # Act
+    await codenames_game_controller.give_clue(game_id, UUID(_find_spymaster(state, first)["user_id"]), "Zzz", 3)
+    for operative in (a, b, c):  # 1: all three on their own card
+        await codenames_game_controller.guess_card(game_id, UUID(operative["user_id"]), own[0])
+    await codenames_game_controller.guess_card(game_id, UUID(a["user_id"]), neutral[0])  # 2: a neutral, 2 to 1
+    await codenames_game_controller.guess_card(game_id, UUID(b["user_id"]), neutral[0])
+    await codenames_game_controller.guess_card(game_id, UUID(c["user_id"]), own[1])
+    await codenames_game_controller.give_clue(game_id, UUID(_find_spymaster(state, second)["user_id"]), "Yyy", 1)
+    await codenames_game_controller.guess_card(game_id, UUID(d["user_id"]), second_own[0])
+    # 3: E leaves without voting — the departure completes the team's vote
+    game = await _fresh_game(session, result.game_id)
+    departed = game.live_state
+    departed["players"] = [p for p in departed["players"] if p["user_id"] != e["user_id"]]
+    outcome = release_departed_operative(departed, e["user_id"])
+    await _save_state(session, game, departed)
+
+    # Assert
+    assert outcome == CodenamesRevealOutcome.CORRECT
+    log = (await _fresh_game(session, result.game_id)).live_state[CODENAMES_REVEAL_LOG_KEY]
+    assert log == [
+        {
+            "card_index": own[0],
+            "team": first,
+            "card_type": first,
+            "voter_ids": sorted([a["user_id"], b["user_id"], c["user_id"]]),
+            "clue_turn": 1,
+        },
+        {
+            "card_index": neutral[0],
+            "team": first,
+            "card_type": CodenamesCardType.NEUTRAL.value,
+            "voter_ids": sorted([a["user_id"], b["user_id"]]),
+            "clue_turn": 1,
+        },
+        {
+            "card_index": second_own[0],
+            "team": second,
+            "card_type": second,
+            "voter_ids": [d["user_id"]],
+            "clue_turn": 2,
+        },
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_lone_operatives_reveal_is_logged_with_them_as_its_voter(
+    codenames_game_controller, setup_codenames_game, session
+):
+    """A team of one operative reveals at once; the log still names who turned it."""
+    # Prepare
+    setup = await setup_codenames_game(4)
+    result = await _start_game(codenames_game_controller, setup["room"].id, setup["users"][0].id)
+    state = (await _give_clue_first(codenames_game_controller, session, result)).live_state
+    operative = _find_operative(state, state["current_team"])
+    card = _cards_of(state, state["current_team"])[0]
+
+    # Act
+    await codenames_game_controller.guess_card(UUID(result.game_id), UUID(operative["user_id"]), card)
+
+    # Assert
+    entry = (await _fresh_game(session, result.game_id)).live_state[CODENAMES_REVEAL_LOG_KEY][0]
+    assert entry["card_index"] == card
+    assert entry["voter_ids"] == [operative["user_id"]]
+    assert entry["clue_turn"] == 1
+
+
+async def _add_spectator(session: AsyncSession, room_id) -> User:
+    spectator = User(username="cn_watcher", email_address="cn_watcher@test.com", password="password123")
+    session.add(spectator)
+    await session.commit()
+    session.add(RoomUserLink(room_id=room_id, user_id=spectator.id, connected=True, is_spectator=True))
+    await session.commit()
+    return spectator
+
+
+@pytest.mark.asyncio
+async def test_a_strangers_hint_view_and_timer_call_are_refused(
+    codenames_game_controller, setup_codenames_game, session, create_user
+):
+    """BR-13 / SEC F07 / F08: someone outside the game cannot write into it or fire its timers."""
+    # Prepare
+    setup = await setup_codenames_game(4)
+    result = await _start_game(codenames_game_controller, setup["room"].id, setup["users"][0].id)
+    stranger = await create_user(username="cn_stranger", email="cn_stranger@test.com")
+    game = await _fresh_game(session, result.game_id)
+    state = game.live_state
+    state["timer_config"] = {"clue_seconds": 60, "guess_seconds": 60}
+    state["timer_started_at"] = "2020-01-01T00:00:00+00:00"
+    await _save_state(session, game, state)
+    word = state["board"][0]["word"]
+    team_before = state["current_team"]
+
+    # Act / Assert
+    with pytest.raises(NotAGameParticipantError):
+        await codenames_game_controller.record_hint_view(UUID(result.game_id), stranger.id, word)
+    with pytest.raises(NotAGameParticipantError):
+        await codenames_game_controller.handle_timer_expired(UUID(result.game_id), stranger.id)
+    after = (await _fresh_game(session, result.game_id)).live_state
+    assert str(stranger.id) not in after["hint_usage"]
+    assert after["current_team"] == team_before
+
+
+@pytest.mark.asyncio
+async def test_a_spectator_may_fire_the_timer_but_records_no_hint(
+    codenames_game_controller, setup_codenames_game, session
+):
+    """A spectator is in the game: the timer is theirs to fire too, but they have no
+    hint usage to record (it only ever feeds a player's achievements)."""
+    # Prepare
+    setup = await setup_codenames_game(4)
+    result = await _start_game(codenames_game_controller, setup["room"].id, setup["users"][0].id)
+    spectator = await _add_spectator(session, setup["room"].id)
+    game = await _fresh_game(session, result.game_id)
+    state = game.live_state
+    state["timer_config"] = {"clue_seconds": 60, "guess_seconds": 60}
+    state["timer_started_at"] = "2020-01-01T00:00:00+00:00"
+    await _save_state(session, game, state)
+    team_before = state["current_team"]  # the controller mutates the session's copy
+
+    # Act
+    hint = await codenames_game_controller.record_hint_view(
+        UUID(result.game_id), spectator.id, state["board"][0]["word"]
+    )
+    timer = await codenames_game_controller.handle_timer_expired(UUID(result.game_id), spectator.id)
+
+    # Assert
+    assert hint.recorded is False
+    assert timer.action == "auto_end_turn"
+    after = (await _fresh_game(session, result.game_id)).live_state
+    assert str(spectator.id) not in after["hint_usage"]
+    assert after["current_team"] != team_before
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("word", ["Not a card", "x" * 100])
+async def test_a_hint_view_of_a_word_not_on_the_board_is_refused(
+    codenames_game_controller, setup_codenames_game, session, word
+):
+    """SEC F07: only the board's words are hints; anything else writes nothing."""
+    # Prepare
+    setup = await setup_codenames_game(4)
+    result = await _start_game(codenames_game_controller, setup["room"].id, setup["users"][0].id)
+    spymaster, words = await _spymaster_and_board_words(session, result.game_id)
+    assert word not in words
+
+    # Act
+    response = await codenames_game_controller.record_hint_view(UUID(result.game_id), UUID(spymaster["user_id"]), word)
+
+    # Assert
+    assert response.recorded is False
+    assert spymaster["user_id"] not in (await _fresh_game(session, result.game_id)).live_state["hint_usage"]
+
+
+@pytest.mark.asyncio
+async def test_an_operative_records_only_the_meanings_they_can_open(
+    codenames_game_controller, setup_codenames_game, session
+):
+    """An operative opens a card's meaning once it is turned; an unturned card's is hidden
+    from them, so a hint view of it is not one."""
+    # Prepare
+    setup = await setup_codenames_game(4)
+    result = await _start_game(codenames_game_controller, setup["room"].id, setup["users"][0].id)
+    state = (await _give_clue_first(codenames_game_controller, session, result)).live_state
+    operative = _find_operative(state, state["current_team"])
+    turned = _cards_of(state, state["current_team"])[0]
+    await codenames_game_controller.guess_card(UUID(result.game_id), UUID(operative["user_id"]), turned)
+    unturned = next(i for i, card in enumerate(state["board"]) if i != turned)
+
+    # Act
+    hidden = await codenames_game_controller.record_hint_view(
+        UUID(result.game_id), UUID(operative["user_id"]), state["board"][unturned]["word"]
+    )
+    shown = await codenames_game_controller.record_hint_view(
+        UUID(result.game_id), UUID(operative["user_id"]), state["board"][turned]["word"]
+    )
+
+    # Assert
+    assert hidden.recorded is False
+    assert shown.recorded is True
+    after = (await _fresh_game(session, result.game_id)).live_state
+    assert after["hint_usage"][operative["user_id"]] == [state["board"][turned]["word"]]
+
+
+@pytest.mark.asyncio
+async def test_hint_usage_stops_growing_at_the_cap(
+    codenames_game_controller, setup_codenames_game, session, monkeypatch
+):
+    """SEC F07: past HINT_USAGE_MAX_WORDS_PER_USER distinct words, nothing more is stored."""
+    # Prepare: a cap of 2, so three board words are enough to cross it
+    monkeypatch.setattr("majlisna.api.controllers.codenames_game.HINT_USAGE_MAX_WORDS_PER_USER", 2)
+    setup = await setup_codenames_game(4)
+    result = await _start_game(codenames_game_controller, setup["room"].id, setup["users"][0].id)
+    spymaster, words = await _spymaster_and_board_words(session, result.game_id)
+    game_id, user_id = UUID(result.game_id), UUID(spymaster["user_id"])
+
+    # Act
+    responses = [await codenames_game_controller.record_hint_view(game_id, user_id, word) for word in words[:3]]
+    repeat = await codenames_game_controller.record_hint_view(game_id, user_id, words[0])
+
+    # Assert
+    assert [r.recorded for r in responses] == [True, True, False]
+    assert repeat.recorded is True  # already recorded: still true, still one entry
+    assert (await _fresh_game(session, result.game_id)).live_state["hint_usage"][spymaster["user_id"]] == words[:2]

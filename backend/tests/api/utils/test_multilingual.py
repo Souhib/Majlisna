@@ -38,7 +38,7 @@ def test_game_controllers_use_the_same_chain() -> None:
 
 @pytest.mark.parametrize(
     ("value", "expected"),
-    [("ar", "ar"), ("fr", "fr"), ("en", "en"), ("de", "en"), ("", "en"), (None, "en"), (42, "en"), ("AR", "en")],
+    [("ar", "ar"), ("fr", "fr"), ("en", "en"), ("de", "en"), ("", "en"), (None, "en"), (42, "en"), ("AR", "ar")],
 )
 def test_normalize_lang_accepts_only_the_supported_languages(value: object, expected: str) -> None:
     """A free-form Socket.IO value becomes a supported language, never an arbitrary string."""
@@ -47,3 +47,46 @@ def test_normalize_lang_accepts_only_the_supported_languages(value: object, expe
 
     # Assert
     assert lang == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("fr-FR", "fr"),
+        ("ar-SA", "ar"),
+        ("ar-MA", "ar"),
+        ("en-GB", "en"),
+        ("fr_CA", "fr"),
+        ("AR-sa", "ar"),
+        (" fr-FR ", "fr"),
+        ("de-DE", "en"),
+        ("arn", "en"),  # Mapudungun starts with "ar" but is not Arabic
+        ("-", "en"),
+    ],
+)
+def test_normalize_lang_keeps_the_language_of_a_regional_tag(value: str, expected: str) -> None:
+    """A browser's regional tag (fr-FR, ar-SA) reads as its language; anything unknown as English."""
+    # Act
+    lang = normalize_lang(value)
+
+    # Assert
+    assert lang == expected
+
+
+@pytest.mark.parametrize(
+    ("lang", "expected"),
+    [("fr-FR", "Patience (fr)"), ("ar-SA", "صبر"), ("en-US", "Patience"), ("de-DE", "Patience")],
+)
+def test_resolve_multilingual_reads_a_regional_tag_as_its_language(lang: str, expected: str) -> None:
+    """Every REST ``?lang=`` goes through this chain, so ``fr-FR`` gets the French text, not the English fallback."""
+    # Act
+    resolved = resolve_multilingual(HINT, lang)
+
+    # Assert
+    assert resolved == expected
+
+
+def test_resolve_multilingual_regional_tag_on_a_two_language_value() -> None:
+    """The case the audit measured: a French browser used to get ``y`` (English) from ``{fr: x, en: y}``."""
+    # Act / Assert
+    assert resolve_multilingual({"fr": "x", "en": "y"}, "fr-FR") == "x"

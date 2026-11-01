@@ -12,14 +12,17 @@ from majlisna.api.constants import (
     HOST_USERNAME_STATE_KEY,
     MCQ_QUIZ_CHOICE_COUNT,
     TIMER_EXPIRATION_TOLERANCE_SECONDS,
+    WINNER_IDS_KEY,
 )
 from majlisna.api.controllers.base_game import BaseGameController
+from majlisna.api.controllers.game_cancel import detach_room_if_current
 from majlisna.api.controllers.game_end_stats import record_game_end, top_score_winners
 from majlisna.api.controllers.game_lock import get_game_lock
 from majlisna.api.controllers.mcqquiz import McqQuizController
 from majlisna.api.controllers.quiz_rules import (
     everyone_has_answered,
     mcq_transition_to_results,
+    quiz_winner_label,
     settle_round_if_everyone_answered,
 )
 from majlisna.api.models.error import (
@@ -52,7 +55,7 @@ from majlisna.api.schemas.mcqquiz import (
     McqSubmitAnswerResponse,
 )
 from majlisna.api.utils.game_pause import is_paused, parse_instant
-from majlisna.api.utils.game_state import require_state
+from majlisna.api.utils.game_state import left_player_ids, require_state
 
 
 class McqQuizGameController(BaseGameController):
@@ -214,6 +217,7 @@ class McqQuizGameController(BaseGameController):
             my_choice_index=my_answer["choice_index"] if my_answer and revealed else None,
             my_answer_time_ms=my_answer.get("answer_time_ms") if my_answer and revealed else None,
             winner=state.get("winner"),
+            winner_ids=list(state.get(WINNER_IDS_KEY) or []) if state.get("game_over") else [],
             leaderboard=leaderboard,
             game_over=state.get("game_over", False),
             ready_players=state.get("ready_players", []),
@@ -229,6 +233,9 @@ class McqQuizGameController(BaseGameController):
         logger.info("McqQuiz answer: game={} user={}", game_id, user_id)
         async with get_game_lock(str(game_id), self.session):
             game = await self._get_game(game_id)
+            # A cancelled (or finished) game no longer moves: lock-ins on it used to be
+            # scored and broadcast (BR-18).
+            self._check_game_in_progress(game)
             state = require_state(game)
             self._ensure_not_paused(game, state)
 
@@ -306,7 +313,7 @@ class McqQuizGameController(BaseGameController):
         if state.get("round_phase") != "playing" or not started_at:
             return None
         seconds = state.get("turn_duration_seconds", DEFAULT_MCQ_QUIZ_TURN_DURATION)
-        if not seconds:
+        if not seconds or seconds <= 0:
             return None
         return PhaseTimer(started_at=parse_instant(started_at), duration_seconds=seconds)
 
@@ -314,8 +321,10 @@ class McqQuizGameController(BaseGameController):
         """Handle timer expiration — transition to results phase."""
         async with get_game_lock(str(game_id), self.session):
             game = await self._get_game(game_id)
-            self._check_game_in_progress(game)
             state = require_state(game)
+            # Any player or spectator — not anyone who knows the game id (BR-13, SEC F08).
+            await self._require_participant(game, state, user_id)
+            self._check_game_in_progress(game)
 
             # No clock runs while the host has paused the game for the prayer. Not an
             # error: clients fire this from their own local timers.
@@ -409,19 +418,21 @@ class McqQuizGameController(BaseGameController):
             # Game over
             state["round_phase"] = "game_over"
             state["game_over"] = True
-            sorted_players = sorted(state["players"], key=lambda p: p["total_score"], reverse=True)
-            if sorted_players:
-                state["winner"] = sorted_players[0]["username"]
+            # Owner rule (a): every top scorer above 0 shares the win, a solo game is
+            # never won; the label names a winner only when there is exactly one.
+            # record_game_end writes the winners into live_state[WINNER_IDS_KEY].
+            winners = top_score_winners(state["players"], left_ids=left_player_ids(state))
+            state["winner"] = quiz_winner_label(state["players"], winners)
 
             game.game_status = GameStatus.FINISHED
             game.end_time = datetime.now(UTC)
             room = (await self.session.exec(select(Room).where(Room.id == game.room_id))).first()
             if room:
-                room.active_game_id = None
+                detach_room_if_current(room, game)
                 self.session.add(room)
 
             # Process stats and achievements
-            newly_unlocked = await self._process_game_end_stats(state)
+            newly_unlocked = await self._process_game_end_stats(state, winners)
             if newly_unlocked:
                 state["newly_unlocked_achievements"] = newly_unlocked
         else:
@@ -559,34 +570,43 @@ class McqQuizGameController(BaseGameController):
         """Transition from playing to results phase. See ``quiz_rules``."""
         mcq_transition_to_results(state)
 
-    def _settle_after_resume(self, state: dict) -> None:
+    def _settle_after_resume(self, state: dict, host_id: str | None) -> None:  # noqa: ARG002 — the quorum is not asked
         """A drop-out during the pause may have completed the round: settle it now."""
         settle_round_if_everyone_answered(state, GameType.MCQ_QUIZ)
 
     def _is_timer_actually_expired(self, state: dict) -> bool:
-        """Check if the game timer has actually elapsed server-side."""
+        """Check if the game timer has actually elapsed server-side.
+
+        A duration of 0 or less is untimed, like ``_phase_timer`` reads it (BR-17). See
+        ``WordQuizGameController._is_timer_actually_expired``.
+        """
         timer_started = state.get("round_started_at")
         if not timer_started:
             return True
         turn_duration = state.get("turn_duration_seconds", DEFAULT_MCQ_QUIZ_TURN_DURATION)
+        if not turn_duration or turn_duration <= 0:
+            return False
         started = datetime.fromisoformat(timer_started)
         if started.tzinfo is None:
             started = started.replace(tzinfo=UTC)
         elapsed = (datetime.now(UTC) - started).total_seconds()
         return elapsed >= turn_duration - TIMER_EXPIRATION_TOLERANCE_SECONDS
 
-    async def _process_game_end_stats(self, state: dict) -> list[dict]:
+    async def _process_game_end_stats(self, state: dict, winners: set[str]) -> list[dict]:
         """Stage the end-of-game stat and achievement writes. See game_end_stats.
 
         The quizzes used to update stats but never run the achievement check, so a
         player who only played quizzes had their counters rise while no badge ever
         unlocked. Hint tracking stays off: the quizzes have their own progressive
         hint mechanic, which is not what `games_without_hints` counts.
+
+        :param winners: ``top_score_winners`` over the final roster, the same set the
+            label was read from.
         """
         return await record_game_end(
             self.session,
             state,
             game_type="mcq_quiz",
-            winners=top_score_winners(state["players"]),
+            winners=winners,
             track_hints=False,
         )

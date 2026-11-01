@@ -10,14 +10,74 @@ from sqlalchemy.exc import NoResultFound
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from majlisna.api.constants import CACHE_TTL_LEADERBOARD_SECONDS, LEADERBOARD_SORT_FIELDS
+from majlisna.api.constants import (
+    CACHE_TTL_LEADERBOARD_SECONDS,
+    LEADERBOARD_SORT_FIELDS,
+    MIN_PLAYERS_FOR_A_WIN,
+    WINNER_IDS_KEY,
+)
 from majlisna.api.models.game import GameStatus, GameType
 from majlisna.api.models.relationship import UserGameLink
 from majlisna.api.models.stats import UserStats
 from majlisna.api.models.table import Game, User
+from majlisna.api.models.undercover import UndercoverRole
 from majlisna.api.schemas.error import InvalidLeaderboardSortError, UserNotFoundError
 from majlisna.api.schemas.stats import DailyGameRecord, GameDurationStats, HeadToHeadStats, LeaderboardEntry
 from majlisna.api.utils.cache import cache
+from majlisna.api.utils.game_state import left_player_ids
+
+
+def did_user_win(game: Game, user_id: UUID | str) -> bool | None:
+    """Did ``user_id`` win ``game``? The ONE answer for history, the chart and head-to-head.
+
+    ``None`` means the game is no result for this user, and every reader skips it:
+
+    - a game still running, or cancelled;
+    - a leaver (``left_player_ids``; owner rule (b): neither a win nor a loss), and
+      anyone else not in the final ``players`` — a spectator (who has a
+      ``UserGameLink`` too), a Codenames or quiz leaver (removed from ``players``);
+    - a solo game: a final roster below ``MIN_PLAYERS_FOR_A_WIN`` is never a win;
+    - an old row whose winner was never recorded.
+
+    Otherwise it reads ``live_state[WINNER_IDS_KEY]``, which ``record_game_end`` writes
+    for every game type, and falls back to the side / team / top-score rule for rows
+    written before that key. It used to know only Undercover and Codenames, so every
+    quiz win was drawn as a loss on the chart, a draw head-to-head and "no result" in
+    history, while ``UserStats`` counted it (BDP-05, BR-19).
+
+    Module-level, not on ``game_end_stats``: that module imports this one.
+    """
+    if game.game_status != GameStatus.FINISHED:
+        return None
+    state = game.live_state or {}
+    uid = str(user_id)
+    left = left_player_ids(state)
+    roster = [p for p in state.get("players", []) if p.get("user_id") not in left]
+    player = next((p for p in roster if p.get("user_id") == uid), None)
+    if player is None or len(roster) < MIN_PLAYERS_FOR_A_WIN:
+        return None
+
+    winner_ids = state.get(WINNER_IDS_KEY)
+    if isinstance(winner_ids, list):
+        return uid in winner_ids
+    return _legacy_did_user_win(game.type, state, player, roster)
+
+
+def _legacy_did_user_win(game_type: GameType, state: dict, player: dict, roster: list[dict]) -> bool | None:
+    """For a game finished before ``WINNER_IDS_KEY`` existed."""
+    winner = state.get("winner")
+    if game_type == GameType.UNDERCOVER:
+        if winner == "civilians":
+            return player.get("role") == UndercoverRole.CIVILIAN.value
+        if winner == "undercovers":
+            return player.get("role") in (UndercoverRole.UNDERCOVER.value, UndercoverRole.MR_WHITE.value)
+        return None
+    if game_type == GameType.CODENAMES:
+        return player.get("team") == winner if winner else None
+    # The quizzes stored one username in "winner" (a tie went to the first seat, a 0-0
+    # game had a winner): rule (a) over the stored scores instead.
+    best = max((p.get("total_score", 0) for p in roster), default=0)
+    return best > 0 and player.get("total_score", 0) == best
 
 
 class StatsController:
@@ -41,6 +101,46 @@ class StatsController:
             await self.session.commit()
             await self.session.refresh(new_stats)
         return new_stats
+
+    async def get_or_create_many(self, user_ids: Sequence[UUID]) -> dict[UUID, UserStats]:
+        """The stats rows of these users, ``{user_id: row}``, staging a new one for each
+        user who has none (inserted by the caller's commit).
+
+        ONE query for a whole game end (BDP-07) instead of one per player, inside the
+        game lock. The players of a game cannot be ending another one at the same moment
+        (one active room per player), so a missing row has no concurrent creator to race.
+        """
+        if not user_ids:
+            return {}
+        rows = (
+            await self.session.exec(
+                select(UserStats).where(UserStats.user_id.in_(user_ids))  # ty: ignore[unresolved-attribute]
+            )
+        ).all()
+        by_user = {row.user_id: row for row in rows}
+        for user_id in user_ids:
+            if user_id not in by_user:
+                by_user[user_id] = UserStats(user_id=user_id)
+                self.session.add(by_user[user_id])
+        return by_user
+
+    async def read_user_stats(self, user_id: UUID) -> UserStats:
+        """The public stats of a user, read-only: what ``GET /stats/users/{id}/stats`` answers.
+
+        It used to call ``get_or_create_user_stats``, which INSERTs and commits: an
+        anonymous GET wrote a row for any existing user without one, and for an unknown
+        id the insert failed its foreign key — a 500 logged at ERROR, on SQLite too
+        (foreign keys are on), at will (PD-11, SEC F11). Rows are created by the game
+        end and the room paths only.
+
+        :return: the user's row, or an unsaved zero-valued ``UserStats`` when they have none.
+        :raises UserNotFoundError: no such user (404).
+        """
+        user_exists = (await self.session.exec(select(User.id).where(User.id == user_id))).first()
+        if user_exists is None:
+            raise UserNotFoundError(user_id=user_id)
+        row = (await self.session.exec(select(UserStats).where(UserStats.user_id == user_id))).first()
+        return row if row is not None else UserStats(user_id=user_id)
 
     async def get_user_stats(self, user_id: UUID) -> UserStats:
         """Get stats for a user. Raises UserNotFoundError if no stats exist.
@@ -71,34 +171,35 @@ class StatsController:
         self,
         user_id: UUID,
         game_type: str,
-        won: bool,
+        won: bool | None,
         role: str | None = None,
         *,
         commit: bool = True,
+        stats: UserStats | None = None,
     ) -> UserStats:
         """Increment relevant counters after a game ends.
 
         :param user_id: The id of the user.
         :param game_type: The type of game ("undercover" or "codenames").
-        :param won: Whether the user won the game.
+        :param won: Whether the user won the game; ``None`` for a game that is no result
+            (a solo final roster, owner rule (a)): played, neither won nor lost, and the
+            win streak left as it was — what ``did_user_win`` answers for the same game.
         :param role: The role the user played (e.g. "civilian", "undercover",
             "mr_white", "spymaster", "operative").
+        :param stats: the user's row, already read by ``get_or_create_many`` (read here when omitted).
         :return: The updated stats record.
         """
-        stats = await self.get_or_create_user_stats(user_id, commit=commit)
+        if stats is None:
+            stats = await self.get_or_create_user_stats(user_id, commit=commit)
 
-        # Global counts
+        # Global counts and the win streak; a game with no result touches neither.
         stats.total_games_played += 1
-        if won:
+        if won is True:
             stats.total_games_won += 1
-        else:
-            stats.total_games_lost += 1
-
-        # Win streak tracking
-        if won:
             stats.current_win_streak += 1
             stats.longest_win_streak = max(stats.longest_win_streak, stats.current_win_streak)
-        else:
+        elif won is False:
+            stats.total_games_lost += 1
             stats.current_win_streak = 0
 
         # Play streak tracking
@@ -245,11 +346,10 @@ class StatsController:
         for game in games:
             if not game.end_time:
                 continue
+            won = did_user_win(game, user_id)
+            if won is None:
+                continue  # no result for this user: a leaver, a spectator, a solo game
             day_str = game.end_time.date().isoformat()
-            state = game.live_state or {}
-            winner = state.get("winner")
-            # Determine if this user won
-            won = self._did_user_win(game, user_id, winner)
             if won:
                 daily[day_str]["wins"] += 1
             else:
@@ -353,12 +453,14 @@ class StatsController:
         user_wins = 0
         opponent_wins = 0
         draws = 0
+        total_games = 0
 
         for game in games:
-            state = game.live_state or {}
-            winner = state.get("winner")
-            u_won = self._did_user_win(game, user_id, winner)
-            o_won = self._did_user_win(game, opponent_id, winner)
+            u_won = did_user_win(game, user_id)
+            o_won = did_user_win(game, opponent_id)
+            if u_won is None or o_won is None:
+                continue  # one of them left, spectated, or it was no contest
+            total_games += 1
             if u_won and not o_won:
                 user_wins += 1
             elif o_won and not u_won:
@@ -372,27 +474,5 @@ class StatsController:
             user_wins=user_wins,
             opponent_wins=opponent_wins,
             draws=draws,
-            total_games=len(games),
+            total_games=total_games,
         )
-
-    @staticmethod
-    def _did_user_win(game: Game, user_id: UUID, winner: str | None) -> bool:
-        """Determine if the user won the given game."""
-        if not winner:
-            return False
-        state = game.live_state or {}
-        players = state.get("players", [])
-        str_uid = str(user_id)
-
-        if game.type == GameType.UNDERCOVER:
-            for p in players:
-                if p.get("user_id") == str_uid:
-                    role = p.get("role", "")
-                    if winner == "civilians" and role == "civilian":
-                        return True
-                    return winner == "undercovers" and role in ("undercover", "mr_white")
-        elif game.type == GameType.CODENAMES:
-            for p in players:
-                if p.get("user_id") == str_uid:
-                    return p.get("team") == winner
-        return False

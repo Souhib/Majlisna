@@ -9,6 +9,10 @@ PUBLIC_ID_GENERATION_ATTEMPTS = 10  # Retries before giving up on a free room co
 # 10-million-round quiz or a negative timer and wedge (or DoS) the room.
 MIN_TIMER_SECONDS = 0  # 0 means "no time limit"
 MAX_TIMER_SECONDS = 600
+# The quizzes' round duration has no "no limit" value: their expiry check is
+# elapsed >= duration - TIMER_EXPIRATION_TOLERANCE_SECONDS, so 0-2 s made every round
+# expire the moment it opened (BR-17). The settings UI offers 30-180 s / 10-60 s.
+MIN_QUIZ_TURN_SECONDS = 10
 MIN_QUIZ_ROUNDS = 1
 MAX_QUIZ_ROUNDS = 50
 MIN_HINT_INTERVAL_SECONDS = 3
@@ -17,6 +21,10 @@ MAX_CUSTOM_WORD_PACKS = 20
 
 # Game constants
 MIN_PLAYERS_FOR_GAME = 3
+# A game is a win only against someone: a final roster (leavers excluded) of fewer
+# players than this has no winner. Owner rule (a): a solo quiz is never a win, which
+# also stops win farming with a second account that leaves.
+MIN_PLAYERS_FOR_A_WIN = 2
 # Upper bounds, matching what each game is designed and tested for. Only the minimums
 # were enforced: role distribution scales past these numbers without erroring, so a
 # 20-player room produced a game nobody had ever played or tested.
@@ -60,6 +68,15 @@ DEFAULT_WORD_QUIZ_MAX_HINTS = 6
 # What a player typed is kept per round (live_state["attempts"]) and shown in the
 # round's results once it resolves — never before, since a correct one IS the answer.
 WORD_QUIZ_TYPED_ANSWER_MAX_LENGTH = 100
+# Owner rule (e), the multiplayer twin of the word of the day's rule (BR-10): a free
+# wrong try made the ladder pointless — walking a theme's 17-53 words at hint 1 paid
+# the full 6 points. A wrong try costs the player one rung, and a round allows at most
+# WORDQUIZ_MAX_ATTEMPTS_PER_ROUND tries (AnswerAttemptsExhaustedError past that).
+WORDQUIZ_WRONG_ANSWER_RUNG_PENALTY = 1
+WORDQUIZ_MAX_ATTEMPTS_PER_ROUND = 5
+# Per signed-in user (rate_limit.user_or_ip_key). Protects the server: each try is a
+# locked write plus a broadcast to the table. The rule above is what makes a walk not pay.
+WORDQUIZ_ANSWER_RATE_LIMIT = "30/minute"
 # The stable keys of the seeded QuizWord categories (QuizWord.category is free text,
 # so an admin-created category outside this map reads as null). The client
 # translates the key; the stored English label never reaches the UI.
@@ -110,6 +127,26 @@ HEARTBEAT_STALE_SECONDS = 20  # Mark disconnected after 20s without heartbeat
 GRACE_PERIOD_SECONDS = 180  # Permanently remove after 180s of being disconnected (game only)
 LOBBY_GRACE_PERIOD_SECONDS = 600  # Permanently remove after 600s (10 min) of being disconnected in lobby
 DISCONNECT_CHECK_INTERVAL_SECONDS = 5  # How often the checker loop runs
+# The shared sweep (stale heartbeats, expired graces, orphaned games) runs once per tick
+# across ALL uvicorn workers: on PostgreSQL the worker that wins
+# pg_try_advisory_xact_lock(DISCONNECT_SWEEP_LOCK_KEY) does it, the others skip the tick
+# (BDP-11, PD-12: 4 workers swept the same rows). Above 2**32 on purpose: the game locks
+# hash to 32 bits (game_lock._game_id_to_lock_key) and the username locks to int4, so
+# this key can never collide with either.
+DISCONNECT_SWEEP_LOCK_KEY = 0x4D414A4C53575045  # "MAJLSWPE"
+# Startup DDL (database.create_db_and_tables) runs in every uvicorn worker's lifespan.
+# pg_advisory_xact_lock(SCHEMA_DDL_LOCK_KEY) makes them take turns: the first creates
+# what is missing, the others find it there (INFRA-13: 3 of 4 workers crashed on
+# CREATE TYPE). Above 2**32 like the sweep key, so it collides with no other lock.
+SCHEMA_DDL_LOCK_KEY = 0x4D414A4C53434841  # "MAJLSCHA"
+# How long one optional index statement may wait for its table lock before it is skipped
+# (logged, retried at the next boot) — a CREATE/DROP INDEX queued behind a long
+# transaction would otherwise hold every query on that table behind it.
+SCHEMA_DDL_LOCK_TIMEOUT = "5s"
+# Every how many ticks the elected sweeper also cancels orphaned running games (an
+# IN_PROGRESS game whose room is INACTIVE or points at another game). Nothing is waiting
+# on an orphan, and the lookup reads the game table, so once a minute is enough.
+ORPHANED_GAME_SWEEP_EVERY_TICKS = 12
 # While the host has paused a game for the prayer, a disconnected player is kept this
 # long instead of GRACE_PERIOD_SECONDS: phones lock and sockets drop while everyone
 # prays, and nobody is waiting on anyone. Long enough for a congregational prayer
@@ -127,6 +164,53 @@ PRAYER_PAUSE_MAX_SECONDS = PAUSED_GAME_GRACE_PERIOD_SECONDS
 # game-over colophon can say whose majlis it was even after ownership has moved on.
 HOST_USERNAME_STATE_KEY = "host_username"
 
+# ── Shared live_state keys (WP-00 contracts; wave-1 packages read and write these) ──
+# Every player who left before the end — voluntary leave, kick, the grace sweep,
+# account deletion. Shape: list[str] of user ids, de-duplicated, in departure order.
+# Written ONLY through utils/game_state.mark_player_left, read through left_player_ids.
+# Owner rule (b): a leaver gets neither a win nor a loss, in all four games
+# (game_end_stats.scorable_players drops them), and an Undercover drop-out — still in
+# state["players"], dead — never shares the win.
+LEFT_PLAYER_IDS_KEY = "left_player_ids"
+# Who won, for every game type. Shape: list[str] of user ids (empty: no winner, e.g. a
+# 0-0 or a solo quiz). The quizzes' state["winner"] named one player; ties share.
+WINNER_IDS_KEY = "winner_ids"
+# The last Mr. White guess, for the verdict every player reads.
+# Shape: {"user_id": str, "correct": bool}.
+MR_WHITE_GUESS_RESULT_KEY = "mr_white_guess_result"
+# Codenames: every card turned, in order. Shape: list of {"card_index": int, "team":
+# str (the guessing team), "card_type": str (red/blue/neutral/assassin), "voter_ids":
+# list[str] (the operatives who pointed at it), "clue_turn": int}. Read by the
+# assassin_finder and sweep_victory achievements.
+CODENAMES_REVEAL_LOG_KEY = "reveal_log"
+# Codenames: how many clues have been given in the game, an int (0 at the start). Every
+# give_clue adds 1, so the clue_turn of a reveal is that clue's 1-based position in
+# state["clue_history"]. A game that predates the key counts len(clue_history).
+CODENAMES_CLUE_TURN_KEY = "clue_turn"
+# Undercover next-round ready quorum (owner rule (d)), stored on the CURRENT TURN, not
+# at the top of the state: turn["ready_players"] = list[str] of user ids. The round
+# advances when every alive non-host player is ready, or when the host forces it.
+UNDERCOVER_READY_PLAYERS_KEY = "ready_players"
+
+# The unanimous_vote achievement: every ballot of a round but the target's own names the
+# target, with at least this many such ballots (two players agreeing is not a table's
+# verdict), and none of them drawn by the timer.
+UNANIMOUS_VOTE_MIN_VOTES = 3
+# Stored on the turn: the ids whose ballot _auto_fill_missing_votes drew at the deadline.
+UNDERCOVER_AUTO_VOTERS_KEY = "auto_voters"
+# hint-viewed: the distinct words one user may record in a game's live_state["hint_usage"]
+# (a Codenames board is 25). The list was unbounded, so anyone with a game id could grow
+# live_state without limit (SEC F07).
+HINT_USAGE_MAX_WORDS_PER_USER = 25
+
+# Per-user rate limits (rate_limit.user_or_ip_key) on endpoints that each cost a locked
+# write and/or a broadcast; room join stays per IP where the caller is anonymous.
+HINT_VIEW_RATE_LIMIT = "60/minute"
+TIMER_EXPIRED_RATE_LIMIT = "30/minute"
+ROOM_JOIN_RATE_LIMIT = "10/minute"
+ROOM_INVITE_RATE_LIMIT = "20/minute"
+FRIEND_REQUEST_RATE_LIMIT = "20/minute"
+
 # Auth constants
 # NOTE: token lifetimes live in settings.py (access_token_expire_minutes /
 # refresh_token_expire_days) — do not duplicate them here.
@@ -134,6 +218,62 @@ PASSWORD_RESET_TOKEN_EXPIRE_HOURS = 1
 EMAIL_VERIFICATION_TOKEN_EXPIRE_HOURS = 24
 PASSWORD_MIN_LENGTH = 8
 PASSWORD_MAX_LENGTH = 72  # bcrypt truncates at 72 bytes
+# The limit bcrypt actually has is in BYTES of UTF-8, not characters: 72 Arabic
+# letters are 144 bytes, of which bcrypt silently ignores the second half (or, with
+# bcrypt >= 4.1, raises). PasswordTooLongError answers a password over it.
+BCRYPT_MAX_PASSWORD_BYTES = 72
+
+# Server-side sessions (SEC F01). A session (models/auth_session.AuthSession, its id is
+# the tokens' "sid" claim) lives at most this long, however often it is refreshed.
+SESSION_ABSOLUTE_LIFETIME_DAYS = 30
+# A refresh token is single-use; the PREVIOUS one is still accepted this long after a
+# rotation, so two tabs refreshing at once (or a retried request) do not read as theft.
+REFRESH_REUSE_GRACE_SECONDS = 30
+
+# Profile pictures: an https URL on one of these host suffixes (Google's avatar CDN),
+# at most this long. Any URL used to be stored and shown to every visitor (SEC F15).
+AVATAR_URL_MAX_LENGTH = 512
+ALLOWED_AVATAR_HOST_SUFFIXES = (".googleusercontent.com",)
+AVATAR_URL_SCHEME = "https"
+# The host must be plain DNS labels (no userinfo, port, percent-escape or IDN trick that
+# a browser would read as another host than the suffix check saw).
+AVATAR_HOST_PATTERN = r"^[a-z0-9-]+(\.[a-z0-9-]+)+$"
+
+# Cloudflare's published edge ranges: the only peers whose X-Forwarded-For /
+# CF-Connecting-IP may be trusted (uvicorn ran with --forwarded-allow-ips '*', so a
+# direct caller could spoof its address and defeat every per-IP rate limit).
+# Source: https://www.cloudflare.com/ips-v4 and https://www.cloudflare.com/ips-v6
+# (also https://api.cloudflare.com/client/v4/ips), fetched 2026-10-30. Re-fetch when
+# Cloudflare announces a change; a missing range makes its visitors share one limit.
+CLOUDFLARE_IP_RANGES = (
+    # IPv4
+    "173.245.48.0/20",
+    "103.21.244.0/22",
+    "103.22.200.0/22",
+    "103.31.4.0/22",
+    "141.101.64.0/18",
+    "108.162.192.0/18",
+    "190.93.240.0/20",
+    "188.114.96.0/20",
+    "197.234.240.0/22",
+    "198.41.128.0/17",
+    "162.158.0.0/15",
+    "104.16.0.0/13",
+    "104.24.0.0/14",
+    "172.64.0.0/13",
+    "131.0.72.0/22",
+    # IPv6
+    "2400:cb00::/32",
+    "2606:4700::/32",
+    "2803:f800::/32",
+    "2405:b500::/32",
+    "2405:8100::/32",
+    "2a06:98c0::/29",
+    "2c0f:f248::/32",
+)
+# The visitor's address as Cloudflare saw it (it overwrites any copy a client sends).
+# Read by rate_limit.client_ip_key only when the peer is inside CLOUDFLARE_IP_RANGES.
+CF_CONNECTING_IP_HEADER = "CF-Connecting-IP"
 
 # User constants
 USERNAME_MIN_LENGTH = 3
@@ -166,8 +306,8 @@ UNDERCOVER_WORD_MAX_LENGTH = 50
 
 # Cache TTLs (seconds). NOTE: the cache is per-uvicorn-worker, so a TTL is the only
 # real freshness bound — invalidation reaches one worker out of four. User stats are
-# deliberately NOT cached; see StatsController.get_user_stats.
-CACHE_TTL_GAME_CONTENT_SECONDS = 3600  # Words, term pairs, packs, quiz questions
+# deliberately NOT cached; see StatsController.get_user_stats. Nor is game content:
+# draws and the admin lists read the database (see utils/draw.py).
 CACHE_TTL_LEADERBOARD_SECONDS = 30
 
 # What the leaderboard can be ranked by (`GET /stats/leaderboard?stat_field=`). A
@@ -227,3 +367,19 @@ DAILY_WORD_GUESS_RATE_LIMIT = "30/minute"
 
 # Rate limiting: the key of a request whose caller is signed in.
 RATE_LIMIT_USER_KEY_PREFIX = "user:"
+
+# Socket.IO handshake origins (ws/server.socket_allowed_origins, SEC F12): the CORS_ORIGINS
+# entry that means "any origin" (development), which python-socketio reads the same way.
+SOCKET_ALLOW_ALL_ORIGINS = "*"
+
+# Production data safety (scripts/generate_fake_data.py, scripts/purge_seed_data.py).
+# The MAJLISNA_ENV / ENVIRONMENT value of the production deployment (either one names it).
+PRODUCTION_ENVIRONMENT = "production"
+# Every `pg_dump -Fc` (custom-format) archive starts with these bytes.
+PG_DUMP_CUSTOM_FORMAT_MAGIC = b"PGDMP"
+# A destructive run on production needs a dump written less than this long ago.
+PRODUCTION_DUMP_MAX_AGE_SECONDS = 3600
+# The exit code of a run refused for production safety (argparse's usage-error code).
+PRODUCTION_REFUSAL_EXIT_CODE = 2
+# The address domains of seeded accounts: TEST_USERS (@test.com) and Faker's safe emails.
+SEED_EMAIL_DOMAINS = ("test.com", "example.com", "example.org", "example.net")

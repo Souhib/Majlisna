@@ -14,7 +14,9 @@ intervening calls, narrowing an attribute does not.
 """
 
 from datetime import UTC, datetime
+from uuid import UUID
 
+from majlisna.api.constants import LEFT_PLAYER_IDS_KEY
 from majlisna.api.models.error import GameNotFoundError
 from majlisna.api.models.table import Game
 
@@ -42,3 +44,25 @@ def as_utc(instant: datetime | None) -> datetime | None:
     if instant is None:
         return None
     return instant.replace(tzinfo=UTC) if instant.tzinfo is None else instant.astimezone(UTC)
+
+
+def mark_player_left(state: dict, user_id: UUID | str) -> None:
+    """Record that ``user_id`` left the game before its end (``state[LEFT_PLAYER_IDS_KEY]``).
+
+    Every departure path must call it — a voluntary leave, a kick, the grace sweep, an
+    account deletion — so the same player may be marked more than once; the list keeps
+    each id once, in departure order. Owner rule (b): a leaver gets NEITHER a win NOR a loss, in
+    all four games — ``game_end_stats.scorable_players`` drops every id listed here, so
+    an Undercover drop-out (kept in ``state["players"]``, dead) never shares the win.
+
+    Mutates ``state`` in place: the caller still owes ``flag_modified(game, "live_state")``.
+    """
+    left = state.setdefault(LEFT_PLAYER_IDS_KEY, [])
+    leaver = str(user_id)
+    if leaver not in left:
+        left.append(leaver)
+
+
+def left_player_ids(state: dict) -> set[str]:
+    """The user ids ``mark_player_left`` recorded (empty for a state without any)."""
+    return set(state.get(LEFT_PLAYER_IDS_KEY) or ())

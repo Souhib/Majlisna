@@ -18,7 +18,7 @@ def mock_sio():
 @pytest.fixture
 def mock_fetch_room_state():
     with patch("majlisna.api.ws.notify.fetch_room_state", new_callable=AsyncMock) as mock:
-        mock.return_value = {"id": "room-1", "players": []}
+        mock.return_value = {"id": "room-1", "players": [{"user_id": "u-1"}, {"user_id": "u-2"}]}
         yield mock
 
 
@@ -26,10 +26,27 @@ def mock_fetch_room_state():
 
 
 async def test_notify_room_changed_emits_to_room(mock_sio, mock_fetch_room_state):  # noqa: ARG001
-    """Room state broadcast targets the correct Socket.IO room."""
+    """Room state goes to the channel of each member the state lists, in one emit — never to room:{id}.
+
+    room:{id} still holds a kicked member's socket on another worker until that worker's
+    audit tick, and the room state carries the PIN the kick has just rotated.
+    """
     await notify_room_changed("room-abc")
 
-    mock_sio.emit.assert_called_once_with("room_state", {"id": "room-1", "players": []}, to="room:room-abc")
+    mock_sio.emit.assert_called_once_with(
+        "room_state",
+        {"id": "room-1", "players": [{"user_id": "u-1"}, {"user_id": "u-2"}]},
+        to=["member:room-abc:u-1", "member:room-abc:u-2"],
+    )
+
+
+async def test_a_room_state_with_no_member_is_sent_to_nobody(mock_sio, mock_fetch_room_state):
+    """An emptied room's state has nobody to reach (an emit to an empty list would mean "everyone")."""
+    mock_fetch_room_state.return_value = {"id": "room-1", "players": []}
+
+    await notify_room_changed("room-abc")
+
+    mock_sio.emit.assert_not_called()
 
 
 async def test_room_notification_failure_does_not_propagate(mock_sio):  # noqa: ARG001
@@ -57,7 +74,11 @@ async def test_game_updated_emits_signal_to_room(mock_sio, mock_fetch_room_state
     # merges the recipient sets, so a client in both is delivered to once.
     mock_sio.emit.assert_any_call("game_updated", {"game_id": "game-1"}, to=["game:game-1", "room:room-1"])
     # Also notifies room
-    mock_sio.emit.assert_any_call("room_state", {"id": "room-1", "players": []}, to="room:room-1")
+    mock_sio.emit.assert_any_call(
+        "room_state",
+        {"id": "room-1", "players": [{"user_id": "u-1"}, {"user_id": "u-2"}]},
+        to=["member:room-1:u-1", "member:room-1:u-2"],
+    )
 
 
 async def test_game_broadcast_with_room_notification(mock_sio, mock_fetch_room_state):  # noqa: ARG001

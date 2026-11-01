@@ -1,15 +1,21 @@
 """Tests for disconnect handler functions."""
 
-from datetime import datetime, timedelta
+import asyncio
+from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock, patch
+from uuid import UUID
 
 import pytest
 from sqlalchemy.orm.attributes import flag_modified
 from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from majlisna.api.constants import (
     GRACE_PERIOD_SECONDS,
     HEARTBEAT_STALE_SECONDS,
+    LEFT_PLAYER_IDS_KEY,
     LOBBY_GRACE_PERIOD_SECONDS,
+    PAUSE_STATE_KEY,
     PAUSED_GAME_GRACE_PERIOD_SECONDS,
 )
 from majlisna.api.controllers.codenames_helpers import CodenamesGameStatus, CodenamesRole, CodenamesTeam
@@ -20,12 +26,16 @@ from majlisna.api.controllers.disconnect import (
     _handle_wordquiz_disconnect,
     _mark_stale_users,
     _remove_expired_users,
+    _remove_member,
     away_seconds_left,
+    disconnect_checker_loop,
     mark_user_disconnected,
     member_grace_seconds,
     update_heartbeat,
 )
+from majlisna.api.controllers.room import RoomController
 from majlisna.api.controllers.shared import get_password_hash
+from majlisna.api.controllers.undercover_game import UndercoverGameController
 from majlisna.api.models.game import GameStatus, GameType
 from majlisna.api.models.relationship import RoomUserLink
 from majlisna.api.models.room import RoomType
@@ -1156,16 +1166,19 @@ async def test_uc_disconnect_records_stats_for_every_player(session):
     # Act — a civilian drops
     await _handle_undercover_disconnect(session, game, str(users[2].id), room)
 
-    # Assert — the game ended, and every player has a stats row reflecting it
+    # Assert — the game ended, and every player who stayed has a stats row reflecting it
     game = (await session.exec(select(Game).where(Game.id == game.id))).first()
     assert game.game_status == GameStatus.FINISHED
     assert game.live_state["winner"] == "undercovers"
 
-    for user in users:
+    for user in users[:2]:
         stats = (await session.exec(select(UserStats).where(UserStats.user_id == user.id))).first()
         assert stats is not None, f"no stats recorded for {user.username}"
         assert stats.total_games_played == 1
         assert stats.undercover_games_played == 1
+    # The one who left gets neither a win nor a loss (owner rule (b)): the game is not theirs
+    leaver_stats = (await session.exec(select(UserStats).where(UserStats.user_id == users[2].id))).first()
+    assert leaver_stats is None
 
     undercover_stats = (await session.exec(select(UserStats).where(UserStats.user_id == users[1].id))).first()
     civilian_stats = (await session.exec(select(UserStats).where(UserStats.user_id == users[0].id))).first()
@@ -1176,26 +1189,22 @@ async def test_uc_disconnect_records_stats_for_every_player(session):
 @pytest.mark.asyncio
 async def test_codenames_disconnect_records_stats_for_the_winning_team(session):
     """Same guarantee on the Codenames disconnect path."""
-    # Prepare — one player per team; the red player dropping hands blue the win
-    users = [await _create_user(session, f"c{i}", f"c{i}@test.com") for i in range(2)]
+    # Prepare — the 4-player minimum; the red spymaster dropping hands blue the win
+    users = [await _create_user(session, f"c{i}", f"c{i}@test.com") for i in range(4)]
     room = await _create_room(session, users[0])
+    seats = [
+        (CodenamesTeam.RED, CodenamesRole.SPYMASTER),
+        (CodenamesTeam.RED, CodenamesRole.OPERATIVE),
+        (CodenamesTeam.BLUE, CodenamesRole.SPYMASTER),
+        (CodenamesTeam.BLUE, CodenamesRole.OPERATIVE),
+    ]
     players_data = [
-        {
-            "user_id": str(users[0].id),
-            "username": users[0].username,
-            "team": CodenamesTeam.RED.value,
-            "role": CodenamesRole.SPYMASTER.value,
-        },
-        {
-            "user_id": str(users[1].id),
-            "username": users[1].username,
-            "team": CodenamesTeam.BLUE.value,
-            "role": CodenamesRole.SPYMASTER.value,
-        },
+        {"user_id": str(u.id), "username": u.username, "team": team.value, "role": role.value}
+        for u, (team, role) in zip(users, seats, strict=True)
     ]
     game = await _create_codenames_game(session, room, players_data)
 
-    # Act — the red player drops
+    # Act — the red spymaster drops
     await _handle_codenames_disconnect(session, game, str(users[0].id), room)
 
     # Assert
@@ -1203,12 +1212,16 @@ async def test_codenames_disconnect_records_stats_for_the_winning_team(session):
     assert game.game_status == GameStatus.FINISHED
     assert game.live_state["winner"] == CodenamesTeam.BLUE.value
 
-    # The remaining (winning) player is scored. The one who dropped is removed from
-    # live_state["players"] by the handler, so there is nothing left to score them by.
-    winner_stats = (await session.exec(select(UserStats).where(UserStats.user_id == users[1].id))).first()
-    assert winner_stats is not None
-    assert winner_stats.codenames_games_played == 1
-    assert winner_stats.total_games_won == 1
+    # The blue players win, the red operative who stayed loses, and the one who
+    # dropped is credited nothing (owner rule (b)).
+    for winner in users[2:]:
+        winner_stats = (await session.exec(select(UserStats).where(UserStats.user_id == winner.id))).one()
+        assert winner_stats.codenames_games_played == 1
+        assert winner_stats.total_games_won == 1
+    loser_stats = (await session.exec(select(UserStats).where(UserStats.user_id == users[1].id))).one()
+    assert loser_stats.codenames_games_played == 1
+    assert loser_stats.total_games_won == 0
+    assert (await session.exec(select(UserStats).where(UserStats.user_id == users[0].id))).first() is None
 
 
 # ========== A drop-out must never wedge the round it was blocking ==========
@@ -1500,3 +1513,624 @@ def test_member_grace_matches_the_sweep():
     assert member_grace_seconds(lobby, None) == LOBBY_GRACE_PERIOD_SECONDS
     assert member_grace_seconds(in_game, running_game) == GRACE_PERIOD_SECONDS
     assert member_grace_seconds(in_paused, paused_game) == PAUSED_GAME_GRACE_PERIOD_SECONDS
+
+
+# ========== WP-04: every departure is a leaver (owner rule (b)) ==========
+#
+# A player who leaves before the end gets neither a win nor a loss, in all four
+# games: each `_handle_*_disconnect` records them with `mark_player_left` as soon as
+# it finds them, before any end-of-game write, and `game_end_stats.scorable_players`
+# then skips them. The Undercover handler kept the drop-out in `players` (dead), so
+# a civilian who walked out of a game the civilians later won was credited the win.
+
+
+async def _create_mcqquiz_game(session, room, players_data):
+    """Create a game with MCQ live_state, its question open."""
+    game = Game(
+        room_id=room.id,
+        type=GameType.MCQ_QUIZ,
+        number_of_players=len(players_data),
+        game_status=GameStatus.IN_PROGRESS,
+        live_state={
+            "players": players_data,
+            "current_round": 1,
+            "total_rounds": 5,
+            "round_phase": "playing",
+            "answers": {},
+            "game_over": False,
+        },
+    )
+    session.add(game)
+    await session.commit()
+    await session.refresh(game)
+
+    room.active_game_id = game.id
+    session.add(room)
+    await session.commit()
+
+    return game
+
+
+async def _leaver_undercover(session, room, users):
+    roles = [UndercoverRole.CIVILIAN.value] * len(users)
+    roles[1] = UndercoverRole.UNDERCOVER.value
+    return await _create_undercover_game(session, room, _uc_players(users, roles))
+
+
+async def _leaver_codenames(session, room, users):
+    teams = ["red", "red", "red", "blue", "blue", "blue"]
+    roles = [CodenamesRole.SPYMASTER.value, CodenamesRole.OPERATIVE.value, CodenamesRole.OPERATIVE.value] * 2
+    players = [
+        {"user_id": str(u.id), "username": u.username, "team": team, "role": role}
+        for u, team, role in zip(users, teams, roles, strict=True)
+    ]
+    return await _create_codenames_game(session, room, players)
+
+
+async def _leaver_wordquiz(session, room, users):
+    return await _create_wordquiz_game(
+        session, room, [{"user_id": str(u.id), "username": u.username, "score": 0} for u in users]
+    )
+
+
+async def _leaver_mcqquiz(session, room, users):
+    return await _create_mcqquiz_game(
+        session, room, [{"user_id": str(u.id), "username": u.username, "total_score": 0} for u in users]
+    )
+
+
+@pytest.mark.parametrize(
+    "build_game",
+    [_leaver_undercover, _leaver_codenames, _leaver_wordquiz, _leaver_mcqquiz],
+    ids=["undercover", "codenames", "word_quiz", "mcq_quiz"],
+)
+@pytest.mark.asyncio
+async def test_every_departure_marks_the_player_as_a_leaver(session, engine, build_game):
+    """In all four games, a departure appends the user to live_state['left_player_ids']."""
+    # Prepare — six players seated; the third one leaves (a red operative in Codenames)
+    users = [await _create_user(session, f"lv{i}", f"lv{i}@test.com") for i in range(6)]
+    room = await _create_room(session, users[0])
+    links = [await _create_link(session, room.id, u.id) for u in users]
+    game = await build_game(session, room, users)
+
+    # Act
+    await _handle_permanent_disconnect(session, links[2])
+
+    # Assert — read back as committed, in a session of its own
+    async with AsyncSession(engine, expire_on_commit=False) as fresh:
+        stored = (await fresh.exec(select(Game).where(Game.id == game.id))).one()
+    assert stored.live_state[LEFT_PLAYER_IDS_KEY] == [str(users[2].id)]
+    assert stored.game_status == GameStatus.IN_PROGRESS
+
+
+@pytest.mark.asyncio
+async def test_an_undercover_drop_out_never_shares_the_win_of_their_side(session):
+    """A civilian walks out; the civilians later win: the leaver's stats do not move."""
+    # Prepare — users[1] is the undercover, the other three civilians
+    users = [await _create_user(session, f"dw{i}", f"dw{i}@test.com") for i in range(4)]
+    room = await _create_room(session, users[0])
+    links = [await _create_link(session, room.id, u.id) for u in users]
+    roles = [UndercoverRole.CIVILIAN.value] * 4
+    roles[1] = UndercoverRole.UNDERCOVER.value
+    game = await _create_undercover_game(session, room, _uc_players(users, roles))
+
+    # Act — a civilian leaves, then the undercover does: the civilians win
+    await _handle_permanent_disconnect(session, links[2])
+    await _handle_permanent_disconnect(session, links[1])
+
+    # Assert
+    game = (await session.exec(select(Game).where(Game.id == game.id).execution_options(populate_existing=True))).one()
+    assert game.game_status == GameStatus.FINISHED
+    assert game.live_state["winner"] == "civilians"
+    leaver_stats = (await session.exec(select(UserStats).where(UserStats.user_id == users[2].id))).first()
+    assert leaver_stats is None, "the civilian who walked out is credited nothing"
+    for stayed in (users[0], users[3]):
+        stats = (await session.exec(select(UserStats).where(UserStats.user_id == stayed.id))).one()
+        assert stats.total_games_won == 1
+
+
+# ========== WP-04 / BR-05: a room that lets go of its game ends it ==========
+
+
+async def _fresh(session, model, pk):
+    return (await session.exec(select(model).where(model.id == pk).execution_options(populate_existing=True))).one()
+
+
+async def _start_undercover(session, setup_undercover_game, num_players: int):
+    """A started Undercover game without Mr. White; returns (setup, game_id)."""
+    setup = await setup_undercover_game(num_players)
+    room = await _fresh(session, Room, setup["room"].id)
+    room.settings = {**(room.settings or {}), "enable_mr_white": False}
+    flag_modified(room, "settings")
+    session.add(room)
+    await session.commit()
+    started = await UndercoverGameController(session).create_and_start(setup["room"].id, setup["users"][0].id)
+    return setup, UUID(started.game_id)
+
+
+async def _everyone_away_but(session, room_id, present_user_id, *, seconds_ago: float = 0):
+    links = (await session.exec(select(RoomUserLink).where(RoomUserLink.room_id == room_id))).all()
+    for link in links:
+        if present_user_id is not None and link.user_id == present_user_id:
+            continue
+        link.connected = False
+        link.disconnected_at = datetime.now() - timedelta(seconds=seconds_ago)
+        session.add(link)
+    await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_the_last_connected_member_leaving_cancels_the_running_game(session, setup_undercover_game):
+    """Every other phone is away; the one connected player leaves: the game is CANCELLED, not orphaned.
+
+    The room was deactivated and unlinked from a game left IN_PROGRESS for ever: later
+    removals skipped it (no active game), it read "In progress" in every history, and
+    its words could never be kept or summarised.
+    """
+    # Prepare
+    setup, game_id = await _start_undercover(session, setup_undercover_game, 6)
+    room_id = setup["room"].id
+    game = await _fresh(session, Game, game_id)
+    leaver = next(p for p in game.live_state["players"] if p["role"] == "civilian")
+    # Every other phone away for longer than the grace: nobody is coming back.
+    await _everyone_away_but(session, room_id, UUID(leaver["user_id"]), seconds_ago=GRACE_PERIOD_SECONDS + 30)
+
+    # Act
+    await RoomController(session).leave_room(room_id, UUID(leaver["user_id"]))
+
+    # Assert
+    room = await _fresh(session, Room, room_id)
+    game = await _fresh(session, Game, game_id)
+    assert room.type == RoomType.INACTIVE
+    assert room.active_game_id is None
+    assert game.game_status == GameStatus.CANCELLED
+    assert game.end_time is not None
+    cancelled_at = game.end_time
+
+    # Act — the grace sweep removes everyone else later on
+    links = (await session.exec(select(RoomUserLink).where(RoomUserLink.room_id == room_id))).all()
+    for link in links:
+        link.disconnected_at = datetime.now() - timedelta(seconds=LOBBY_GRACE_PERIOD_SECONDS + 100)
+        session.add(link)
+    await session.commit()
+    await _remove_expired_users(session)
+
+    # Assert — still cancelled, once
+    assert not (await session.exec(select(RoomUserLink).where(RoomUserLink.room_id == room_id))).all()
+    game = await _fresh(session, Game, game_id)
+    assert game.game_status == GameStatus.CANCELLED
+    assert game.end_time == cancelled_at
+
+
+@pytest.mark.asyncio
+async def test_a_prayer_pause_outlasted_by_every_phone_cancels_the_game(session, setup_undercover_game):
+    """The host pauses for the prayer, every phone sleeps 46 min: CANCELLED, not left running and paused."""
+    # Prepare
+    setup, game_id = await _start_undercover(session, setup_undercover_game, 4)
+    room_id = setup["room"].id
+    await UndercoverGameController(session).pause_game(game_id, setup["users"][0].id)
+    await _everyone_away_but(session, room_id, None, seconds_ago=PAUSED_GAME_GRACE_PERIOD_SECONDS + 60)
+
+    # Act
+    await _remove_expired_users(session)
+
+    # Assert
+    game = await _fresh(session, Game, game_id)
+    room = await _fresh(session, Room, room_id)
+    assert game.game_status == GameStatus.CANCELLED
+    assert game.end_time is not None
+    assert PAUSE_STATE_KEY not in game.live_state
+    assert room.type == RoomType.INACTIVE
+    assert room.active_game_id is None
+    assert not (await session.exec(select(RoomUserLink).where(RoomUserLink.room_id == room_id))).all()
+
+
+async def _assert_cancelled_for_everyone(session, game_id, room_id, leaver_id: str) -> None:
+    """CANCELLED with no winner, the leaver marked, the room let go, and no player credited."""
+    game = await _fresh(session, Game, game_id)
+    room = await _fresh(session, Room, room_id)
+    assert game.game_status == GameStatus.CANCELLED
+    assert game.end_time is not None
+    assert game.live_state.get("winner") is None
+    assert leaver_id in game.live_state[LEFT_PLAYER_IDS_KEY]
+    assert room.type == RoomType.INACTIVE
+    assert room.active_game_id is None
+    for player in game.live_state["players"]:
+        stats = (await session.exec(select(UserStats).where(UserStats.user_id == UUID(player["user_id"])))).first()
+        assert stats is None or stats.total_games_played == 0, player["username"]
+
+
+@pytest.mark.asyncio
+async def test_a_departure_that_leaves_nobody_connected_cancels_the_game_instead_of_deciding_it(
+    session, setup_undercover_game
+):
+    """The undercover is the last phone still connected and leaves: CANCELLED, not a civilians' win.
+
+    The departure used to be played into the game first: it decided it, and the three
+    civilians — every one of them away — were credited a win for a game none of them
+    saw end. Only then was the room found empty and deactivated.
+    """
+    # Prepare
+    setup, game_id = await _start_undercover(session, setup_undercover_game, 4)
+    room_id = setup["room"].id
+    game = await _fresh(session, Game, game_id)
+    undercover = next(p for p in game.live_state["players"] if p["role"] == UndercoverRole.UNDERCOVER.value)
+    await _everyone_away_but(session, room_id, UUID(undercover["user_id"]), seconds_ago=GRACE_PERIOD_SECONDS + 30)
+
+    # Act
+    await RoomController(session).leave_room(room_id, UUID(undercover["user_id"]))
+
+    # Assert
+    await _assert_cancelled_for_everyone(session, game_id, room_id, undercover["user_id"])
+
+
+@pytest.mark.asyncio
+async def test_a_paused_game_whose_undercover_is_swept_first_is_cancelled(session, setup_undercover_game):
+    """Every phone asleep through the prayer; the undercover's grace runs out first: CANCELLED.
+
+    Which link the sweep removed first decided the result: the undercover's made it a
+    civilians' win credited to sleeping phones, anyone else's a cancellation.
+    """
+    # Prepare — every phone past the paused grace, the undercover's the longest
+    setup, game_id = await _start_undercover(session, setup_undercover_game, 4)
+    room_id = setup["room"].id
+    await UndercoverGameController(session).pause_game(game_id, setup["users"][0].id)
+    game = await _fresh(session, Game, game_id)
+    undercover = next(p for p in game.live_state["players"] if p["role"] == UndercoverRole.UNDERCOVER.value)
+    await _everyone_away_but(session, room_id, None, seconds_ago=PAUSED_GAME_GRACE_PERIOD_SECONDS + 30)
+    link = (
+        await session.exec(
+            select(RoomUserLink)
+            .where(RoomUserLink.room_id == room_id)
+            .where(RoomUserLink.user_id == UUID(undercover["user_id"]))
+        )
+    ).one()
+    link.disconnected_at = datetime.now() - timedelta(seconds=PAUSED_GAME_GRACE_PERIOD_SECONDS + 60)
+    session.add(link)
+    await session.commit()
+
+    # Act — the sweep's own removal of the undercover's seat, first: the sweep's row order
+    # is the database's (PostgreSQL gives no order), so the test names the first removal
+    await _remove_member(session, link, only_if_expired=True)
+    await _remove_expired_users(session)
+
+    # Assert
+    await _assert_cancelled_for_everyone(session, game_id, room_id, undercover["user_id"])
+    assert PAUSE_STATE_KEY not in (await _fresh(session, Game, game_id)).live_state
+    assert not await _seats(session, room_id)
+
+
+async def _seats(session, room_id) -> list[RoomUserLink]:
+    return list(
+        (
+            await session.exec(
+                select(RoomUserLink).where(RoomUserLink.room_id == room_id).execution_options(populate_existing=True)
+            )
+        ).all()
+    )
+
+
+async def _age_link(session, room_id, user_id: str, seconds_ago: float) -> None:
+    link = (
+        await session.exec(
+            select(RoomUserLink).where(RoomUserLink.room_id == room_id).where(RoomUserLink.user_id == UUID(user_id))
+        )
+    ).one()
+    link.connected = False
+    link.disconnected_at = datetime.now() - timedelta(seconds=seconds_ago)
+    session.add(link)
+    await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_a_sweep_while_the_others_are_only_briefly_away_plays_the_departure(session, setup_undercover_game):
+    """One phone past its grace, the four others locked for 25 s: the departure is played, the game goes on.
+
+    A room used to count as empty when nobody was CONNECTED, so a sweep during the
+    in-person discussion (phones lock, heartbeats go stale after 20 s) cancelled the
+    game for four players still seated and inside their 180 s grace.
+    """
+    # Prepare
+    setup, game_id = await _start_undercover(session, setup_undercover_game, 5)
+    room_id = setup["room"].id
+    game = await _fresh(session, Game, game_id)
+    gone = next(p for p in game.live_state["players"] if p["role"] == UndercoverRole.CIVILIAN.value)
+    await _everyone_away_but(session, room_id, None, seconds_ago=25)
+    await _age_link(session, room_id, gone["user_id"], GRACE_PERIOD_SECONDS + 10)
+
+    # Act
+    await _remove_expired_users(session)
+
+    # Assert
+    game = await _fresh(session, Game, game_id)
+    room = await _fresh(session, Room, room_id)
+    assert len(await _seats(session, room_id)) == 4
+    assert room.type == RoomType.ACTIVE
+    assert room.active_game_id == game_id
+    assert game.game_status == GameStatus.IN_PROGRESS
+    assert gone["user_id"] in game.live_state[LEFT_PLAYER_IDS_KEY]
+    leaver = next(p for p in game.live_state["players"] if p["user_id"] == gone["user_id"])
+    assert leaver["is_alive"] is False
+
+
+@pytest.mark.asyncio
+async def test_a_paused_game_outlasted_by_one_phone_only_plays_that_departure(session, setup_undercover_game):
+    """During the prayer one phone outlasts the 45 min, the others are 10 min in: nobody else's game is cancelled."""
+    # Prepare
+    setup, game_id = await _start_undercover(session, setup_undercover_game, 5)
+    room_id = setup["room"].id
+    await UndercoverGameController(session).pause_game(game_id, setup["users"][0].id)
+    game = await _fresh(session, Game, game_id)
+    gone = next(
+        p
+        for p in game.live_state["players"]
+        if p["role"] == UndercoverRole.CIVILIAN.value and p["user_id"] != str(setup["users"][0].id)
+    )
+    await _everyone_away_but(session, room_id, None, seconds_ago=600)
+    await _age_link(session, room_id, gone["user_id"], PAUSED_GAME_GRACE_PERIOD_SECONDS + 60)
+
+    # Act
+    await _remove_expired_users(session)
+
+    # Assert
+    game = await _fresh(session, Game, game_id)
+    room = await _fresh(session, Room, room_id)
+    assert len(await _seats(session, room_id)) == 4
+    assert room.type == RoomType.ACTIVE
+    assert game.game_status == GameStatus.IN_PROGRESS
+    assert PAUSE_STATE_KEY in game.live_state
+    assert gone["user_id"] in game.live_state[LEFT_PLAYER_IDS_KEY]
+
+
+@pytest.mark.asyncio
+async def test_the_last_connected_member_leaving_while_the_others_are_within_grace_keeps_the_room(
+    session, setup_undercover_game
+):
+    """A voluntary leave by the only phone awake: the room stays live for the seats still inside their grace."""
+    # Prepare
+    setup, game_id = await _start_undercover(session, setup_undercover_game, 5)
+    room_id = setup["room"].id
+    game = await _fresh(session, Game, game_id)
+    leaver = next(p for p in game.live_state["players"] if p["role"] == UndercoverRole.CIVILIAN.value)
+    await _everyone_away_but(session, room_id, UUID(leaver["user_id"]), seconds_ago=30)
+
+    # Act
+    await RoomController(session).leave_room(room_id, UUID(leaver["user_id"]))
+
+    # Assert
+    room = await _fresh(session, Room, room_id)
+    game = await _fresh(session, Game, game_id)
+    assert room.type == RoomType.ACTIVE
+    assert room.active_game_id == game_id
+    assert game.game_status == GameStatus.IN_PROGRESS
+    assert leaver["user_id"] in game.live_state[LEFT_PLAYER_IDS_KEY]
+
+
+@pytest.mark.asyncio
+async def test_the_host_leaving_hands_the_room_to_a_player_within_grace_before_a_spectator(session):
+    """Host transfer: a connected player, else a player inside their grace, and only then a spectator."""
+    # Prepare
+    host = await _create_user(session, "h", "h@test.com")
+    away_player = await _create_user(session, "ap", "ap@test.com")
+    watcher = await _create_user(session, "sp", "sp@test.com")
+    room = await _create_room(session, host)
+    host_link = await _create_link(session, room.id, host.id)
+    await _create_link(session, room.id, away_player.id, connected=False)
+    spectator_link = await _create_link(session, room.id, watcher.id)
+    spectator_link.is_spectator = True
+    session.add(spectator_link)
+    await _age_link(session, room.id, str(away_player.id), 30)
+
+    # Act
+    await _handle_permanent_disconnect(session, host_link)
+
+    # Assert
+    room = await _fresh(session, Room, room.id)
+    assert room.type == RoomType.ACTIVE
+    assert room.owner_id == away_player.id
+
+
+@pytest.mark.asyncio
+async def test_a_lobby_whose_others_are_past_their_grace_is_deactivated(session):
+    """The away seats that will be swept next do not keep a lobby alive."""
+    # Prepare
+    host = await _create_user(session, "h2", "h2@test.com")
+    gone = await _create_user(session, "g2", "g2@test.com")
+    room = await _create_room(session, host)
+    host_link = await _create_link(session, room.id, host.id)
+    await _create_link(session, room.id, gone.id, connected=False)
+    await _age_link(session, room.id, str(gone.id), LOBBY_GRACE_PERIOD_SECONDS + 30)
+
+    # Act
+    await _handle_permanent_disconnect(session, host_link)
+
+    # Assert
+    room = await _fresh(session, Room, room.id)
+    assert room.type == RoomType.INACTIVE
+
+
+@pytest.mark.asyncio
+async def test_the_last_quiz_player_leaving_a_paused_game_cancels_it_unpaused(session):
+    """Cancelled through game_cancel: a cancelled game is not paused, and nobody can resume it."""
+    # Prepare
+    user = await _create_user(session)
+    room = await _create_room(session, user)
+    link = await _create_link(session, room.id, user.id)
+    game = await _create_wordquiz_game(session, room, [{"user_id": str(user.id), "username": "u", "score": 0}])
+    game.live_state[PAUSE_STATE_KEY] = {
+        "by": str(user.id),
+        "by_username": "u",
+        "at": datetime.now(UTC).isoformat(),
+        "reason": "salah",
+    }
+    flag_modified(game, "live_state")
+    session.add(game)
+    await session.commit()
+
+    # Act
+    await _handle_permanent_disconnect(session, link)
+
+    # Assert
+    game = await _fresh(session, Game, game.id)
+    assert game.game_status == GameStatus.CANCELLED
+    assert PAUSE_STATE_KEY not in game.live_state
+
+
+@pytest.mark.asyncio
+async def test_finishing_an_old_game_by_a_departure_keeps_the_rooms_new_game(session):
+    """A finish path detaches the room only from ITS game (BR-06): an old game ending must not unlink the new one."""
+    # Prepare — the room runs a new game; an old one of the same room is still IN_PROGRESS
+    users = [await _create_user(session, f"og{i}", f"og{i}@test.com") for i in range(3)]
+    room = await _create_room(session, users[0])
+    roles = [UndercoverRole.CIVILIAN.value, UndercoverRole.UNDERCOVER.value, UndercoverRole.CIVILIAN.value]
+    old_game = await _create_undercover_game(session, room, _uc_players(users, roles))
+    new_game = await _create_undercover_game(session, room, _uc_players(users, roles))
+    assert room.active_game_id == new_game.id
+
+    # Act — the old game's undercover leaves it: the civilians win the OLD game
+    await _handle_undercover_disconnect(session, old_game, str(users[1].id), room)
+
+    # Assert
+    old_game = await _fresh(session, Game, old_game.id)
+    room = await _fresh(session, Room, room.id)
+    assert old_game.game_status == GameStatus.FINISHED
+    assert room.active_game_id == new_game.id
+
+
+async def _run_one_tick(engine, **callbacks):
+    """One tick of the checker loop: its sleep raises CancelledError, which ends it."""
+    with (
+        patch("majlisna.api.controllers.disconnect.asyncio.sleep", new=AsyncMock(side_effect=asyncio.CancelledError)),
+        pytest.raises(asyncio.CancelledError),
+    ):
+        await disconnect_checker_loop(engine, **callbacks)
+
+
+@pytest.mark.asyncio
+async def test_the_sweep_cancels_games_already_orphaned(session, engine):
+    """IN_PROGRESS games whose room is INACTIVE, or points at another game, are cancelled by the sweep.
+
+    The orphans written before the fix are in the database already; nothing else
+    reaches them, because every departure path starts from `room.active_game_id`.
+    """
+    # Prepare — an orphan of a deactivated room, an orphan replaced by a newer game, a healthy game
+    users = [await _create_user(session, f"or{i}", f"or{i}@test.com") for i in range(3)]
+    players = _uc_players(users, [UndercoverRole.CIVILIAN.value] * 3)
+    dead_room = Room(public_id="DEADR", owner_id=None, status="online", password="1", type=RoomType.INACTIVE)
+    busy_room = Room(public_id="BUSYR", owner_id=users[1].id, status="online", password="1", type=RoomType.ACTIVE)
+    session.add_all([dead_room, busy_room])
+    await session.commit()
+    deactivated_orphan = await _create_undercover_game(session, dead_room, players)
+    dead_room.active_game_id = None
+    session.add(dead_room)
+    await session.commit()
+    replaced_orphan = await _create_undercover_game(session, busy_room, players)
+    current = await _create_undercover_game(session, busy_room, players)
+    game_updates: list[str] = []
+
+    # Act
+    await _run_one_tick(engine, on_game_changed=game_updates.append)
+
+    # Assert
+    for orphan in (deactivated_orphan, replaced_orphan):
+        stored = await _fresh(session, Game, orphan.id)
+        assert stored.game_status == GameStatus.CANCELLED
+        assert stored.end_time is not None
+        assert str(orphan.id) in game_updates
+    assert (await _fresh(session, Game, current.id)).game_status == GameStatus.IN_PROGRESS
+    assert (await _fresh(session, Room, busy_room.id)).active_game_id == current.id
+
+
+# ========== WP-04 / BR-09: a departed operative's card vote ==========
+#
+# `current_turn.card_votes` kept the leaver's ballot: it filled the team's quorum
+# before every remaining operative had voted, and could be the card turned. The
+# departure now releases it (`codenames_helpers.release_departed_operative`), and
+# when the leaver was the last operative the team was waiting on, the votes in hand
+# settle the guess at once — nobody left could vote again to trigger it.
+
+
+async def _codenames_seven_with_a_clue(session, card_votes_by_index: dict[int, int], *, card_type: str = "neutral"):
+    """Red: spymaster + operatives 1, 2, 3; blue: spymaster + 2 operatives. Red has a clue."""
+    users = [await _create_user(session, f"cv{i}", f"cv{i}@test.com") for i in range(7)]
+    room = await _create_room(session, users[0])
+    links = [await _create_link(session, room.id, u.id) for u in users]
+    seats = [("red", CodenamesRole.SPYMASTER)] + [("red", CodenamesRole.OPERATIVE)] * 3
+    seats += [("blue", CodenamesRole.SPYMASTER)] + [("blue", CodenamesRole.OPERATIVE)] * 2
+    players = [
+        {"user_id": str(u.id), "username": u.username, "team": team, "role": role.value}
+        for u, (team, role) in zip(users, seats, strict=True)
+    ]
+    game = await _create_codenames_game(session, room, players)
+    state = dict(game.live_state)
+    state["board"][10]["card_type"] = card_type
+    state["current_turn"] = {
+        **state["current_turn"],
+        "clue_word": "Sabr",
+        "clue_number": 2,
+        "max_guesses": 3,
+        "card_votes": {str(users[i].id): card for i, card in card_votes_by_index.items()},
+    }
+    game.live_state = state
+    flag_modified(game, "live_state")
+    session.add(game)
+    await session.commit()
+    return users, room, links, game
+
+
+@pytest.mark.asyncio
+async def test_a_departed_operatives_card_vote_never_counts(session):
+    """Operative 1 votes card 2 and leaves; operative 2 voted 10; operative 3 has not voted: nothing turns."""
+    # Prepare
+    users, _room, links, game = await _codenames_seven_with_a_clue(session, {1: 2, 2: 10})
+
+    # Act
+    await _handle_permanent_disconnect(session, links[1])
+
+    # Assert — the leaver's ballot is gone, and the quorum (2 and 3) is not complete
+    game = await _fresh(session, Game, game.id)
+    assert game.live_state["current_turn"]["card_votes"] == {str(users[2].id): 10}
+    assert not any(card["revealed"] for card in game.live_state["board"])
+    assert not game.live_state.get("reveal_log")
+    assert game.game_status == GameStatus.IN_PROGRESS
+
+
+@pytest.mark.asyncio
+async def test_the_departure_of_the_last_missing_voter_settles_the_guess(session):
+    """Operatives 2 and 3 voted card 10; operative 1, the one the team waited on, leaves: card 10 turns."""
+    # Prepare
+    users, _room, links, game = await _codenames_seven_with_a_clue(session, {2: 10, 3: 10})
+
+    # Act
+    await _handle_permanent_disconnect(session, links[1])
+
+    # Assert
+    game = await _fresh(session, Game, game.id)
+    assert game.live_state["board"][10]["revealed"] is True
+    entry = game.live_state["reveal_log"][-1]
+    assert entry["card_index"] == 10
+    assert entry["team"] == "red"
+    assert sorted(entry["voter_ids"]) == sorted([str(users[2].id), str(users[3].id)])
+    assert game.live_state["current_team"] == "blue", "a neutral card passes the turn"
+    assert game.game_status == GameStatus.IN_PROGRESS
+
+
+@pytest.mark.asyncio
+async def test_a_departure_that_turns_the_assassin_finishes_the_game(session):
+    """The settled guess is the assassin: the game ends like the guess path ends it."""
+    # Prepare
+    users, room, links, game = await _codenames_seven_with_a_clue(session, {2: 10, 3: 10}, card_type="assassin")
+
+    # Act
+    await _handle_permanent_disconnect(session, links[1])
+
+    # Assert — FINISHED, blue wins, the room let go of the game, the stats are written
+    game = await _fresh(session, Game, game.id)
+    room = await _fresh(session, Room, room.id)
+    assert game.game_status == GameStatus.FINISHED
+    assert game.end_time is not None
+    assert game.live_state["winner"] == "blue"
+    assert room.active_game_id is None
+    blue_spymaster = (await session.exec(select(UserStats).where(UserStats.user_id == users[4].id))).one()
+    assert blue_spymaster.total_games_won == 1
+    assert (await session.exec(select(UserStats).where(UserStats.user_id == users[1].id))).first() is None

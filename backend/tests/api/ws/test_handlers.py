@@ -2,20 +2,37 @@
 
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import UUID
 
 import pytest
 
+from majlisna.api.controllers.disconnect import HeartbeatResult
+from majlisna.api.controllers.token_auth import AuthenticatedCaller
+from majlisna.api.models.relationship import RoomUserLink
+from majlisna.api.models.room_ban import RoomBan
 from majlisna.api.schemas.error import InvalidTokenError
-from majlisna.api.ws.handlers import _user_sids, auto_join_game_room, connect, disconnect, heartbeat, join_game
+from majlisna.api.ws.handlers import (
+    _socket_sessions,
+    _user_sids,
+    audit_local_socket_memberships,
+    auto_join_game_room,
+    connect,
+    disconnect,
+    heartbeat,
+    join_game,
+    remove_user_from_room_socket,
+)
 from majlisna.api.ws.server import sio as real_sio
 
 
 @pytest.fixture(autouse=True)
 def _clean_user_sids():
-    """Clear _user_sids before/after each test."""
+    """Clear _user_sids (and the sockets' sessions) before/after each test."""
     _user_sids.clear()
+    _socket_sessions.clear()
     yield
     _user_sids.clear()
+    _socket_sessions.clear()
 
 
 @pytest.fixture
@@ -27,6 +44,8 @@ def mock_sio():
         mock.disconnect = AsyncMock()
         mock.save_session = AsyncMock()
         mock.get_session = AsyncMock(return_value={"user_id": "u1", "room_id": "room1"})
+        mock.leave_room = AsyncMock()
+        mock.rooms = MagicMock(return_value=[])
         yield mock
 
 
@@ -37,9 +56,10 @@ def mock_connect_dependencies(mock_sio):  # noqa: ARG001
     mock_user.id = "00000000-0000-0000-0000-000000000123"
     mock_user.email = "test@test.com"
 
-    mock_auth_controller = MagicMock()
-    mock_auth_controller.decode_token.return_value = MagicMock(email="test@test.com")
-    mock_auth_controller.get_user_by_email = AsyncMock(return_value=mock_user)
+    # The token itself is checked by controllers/token_auth.authenticate_caller,
+    # tested with real JWTs in test_wp00_socket_auth.py; here it answers the user
+    # (on a legacy token: no session to track).
+    mock_authenticate = AsyncMock(return_value=AuthenticatedCaller(user=mock_user, session_id=None))
 
     mock_session = AsyncMock()
     mock_engine = MagicMock()
@@ -47,7 +67,7 @@ def mock_connect_dependencies(mock_sio):  # noqa: ARG001
     patches = {
         "engine": patch("majlisna.api.ws.handlers.get_engine", new_callable=AsyncMock, return_value=mock_engine),
         "session": patch("majlisna.api.ws.handlers.AsyncSession", return_value=mock_session),
-        "auth": patch("majlisna.api.ws.handlers.AuthController", return_value=mock_auth_controller),
+        "auth": patch("majlisna.api.ws.handlers.authenticate_caller", new=mock_authenticate),
         "heartbeat": patch("majlisna.api.ws.handlers.update_heartbeat", new_callable=AsyncMock),
         "fetch_room": patch("majlisna.api.ws.handlers.fetch_room_state", new_callable=AsyncMock, return_value={}),
     }
@@ -60,11 +80,14 @@ def mock_connect_dependencies(mock_sio):  # noqa: ARG001
     mock_session.__aenter__ = AsyncMock(return_value=mock_session)
     mock_session.__aexit__ = AsyncMock(return_value=False)
 
-    # Mock session.exec to return a result with .first() returning a mock link
+    # Mock session.exec: the seat check answers this user's seat in TEST_ROOM_ID, no ban
     mock_link = MagicMock()
-    mock_session.exec = AsyncMock(return_value=MagicMock(first=MagicMock(return_value=mock_link)))
+    seat = (mock_user.id, UUID(TEST_ROOM_ID))
+    mock_session.exec = AsyncMock(
+        return_value=MagicMock(first=MagicMock(return_value=mock_link), all=MagicMock(return_value=[seat]))
+    )
 
-    yield {"user": mock_user, "auth_controller": mock_auth_controller, **started}
+    yield {"user": mock_user, "authenticate": mock_authenticate, **started}
 
     for p in patches.values():
         p.stop()
@@ -121,11 +144,12 @@ TEST_USER_ID = "00000000-0000-0000-0000-000000000123"
 
 
 async def test_connect_awaits_enter_room(mock_sio, mock_connect_dependencies):  # noqa: ARG001
-    """connect must await both enter_room calls."""
+    """connect must await every enter_room call: the room, the member's own channel, the personal room."""
     await connect("sid1", {}, {"token": "valid", "room_id": TEST_ROOM_ID})
 
-    assert mock_sio.enter_room.await_count == 2
+    assert mock_sio.enter_room.await_count == 3
     mock_sio.enter_room.assert_any_await("sid1", f"room:{TEST_ROOM_ID}")
+    mock_sio.enter_room.assert_any_await("sid1", f"member:{TEST_ROOM_ID}:{TEST_USER_ID}")
     mock_sio.enter_room.assert_any_await("sid1", f"user:{TEST_USER_ID}")
 
 
@@ -182,6 +206,40 @@ async def test_join_game_awaits_enter_room(mock_sio):
 
     assert mock_sio.enter_room.await_count == 1
     mock_sio.enter_room.assert_awaited_with("sid1", f"game:{game_id}")
+
+
+async def test_join_game_for_a_socket_gone_mid_join_stops_quietly(mock_sio):
+    """A socket that disconnects while join_game reads the database has no session to save.
+
+    python-engineio answers ``KeyError('Session not found')`` from ``save_session`` then;
+    it escaped the handler as "Task exception was never retrieved" (an ERROR, a tracked
+    issue in production) on every page that navigated away mid-join, seen in the E2E
+    backend's log. The join stops there: no room to enter for a sid that is gone (it
+    would sit in the manager's room set), no heartbeat, no state to send.
+    """
+    # Prepare — a seated player whose socket goes away during the validation
+    room_id = "00000000-0000-0000-0000-000000000001"
+    user_id = "00000000-0000-0000-0000-000000000002"
+    game_id = "00000000-0000-0000-0000-000000000003"
+    mock_sio.get_session.return_value = {"user_id": user_id, "room_id": room_id}
+    mock_sio.save_session.side_effect = KeyError("Session not found")
+    heartbeat_update = AsyncMock()
+    fetch_state = AsyncMock(return_value={})
+
+    # Act
+    with (
+        patch("majlisna.api.ws.handlers.get_engine", new_callable=AsyncMock),
+        patch("majlisna.api.ws.handlers.AsyncSession", return_value=_join_game_session(room_id)),
+        patch("majlisna.api.ws.handlers.update_heartbeat", heartbeat_update),
+        patch("majlisna.api.ws.handlers.fetch_game_state", fetch_state),
+    ):
+        await join_game("sid1", {"game_id": game_id})
+
+    # Assert
+    mock_sio.enter_room.assert_not_awaited()
+    heartbeat_update.assert_not_awaited()
+    fetch_state.assert_not_awaited()
+    mock_sio.emit.assert_not_awaited()
 
 
 def _join_game_session(game_room_id: str) -> AsyncMock:
@@ -417,8 +475,6 @@ async def test_connect_without_room_is_the_personal_channel(mock_sio, mock_conne
 
 async def test_connect_personal_channel_refuses_a_bad_token(mock_sio):
     """The personal channel authenticates like a room connection."""
-    mock_auth_controller = MagicMock()
-    mock_auth_controller.decode_token.side_effect = InvalidTokenError()
     mock_session = AsyncMock()
     mock_session.__aenter__ = AsyncMock(return_value=mock_session)
     mock_session.__aexit__ = AsyncMock(return_value=False)
@@ -426,7 +482,7 @@ async def test_connect_personal_channel_refuses_a_bad_token(mock_sio):
     with (
         patch("majlisna.api.ws.handlers.get_engine", new_callable=AsyncMock),
         patch("majlisna.api.ws.handlers.AsyncSession", return_value=mock_session),
-        patch("majlisna.api.ws.handlers.AuthController", return_value=mock_auth_controller),
+        patch("majlisna.api.ws.handlers.authenticate_caller", new=AsyncMock(side_effect=InvalidTokenError())),
         pytest.raises(ConnectionRefusedError, match="Invalid or expired token"),
     ):
         await connect("sid1", {}, {"token": "expired"})
@@ -443,9 +499,6 @@ async def test_join_game_ignored_on_the_personal_channel(mock_sio):
 
 async def test_connect_invalid_token_rejected(mock_sio):  # noqa: ARG001
     """connect with expired/invalid token raises ConnectionRefusedError."""
-    mock_auth_controller = MagicMock()
-    mock_auth_controller.decode_token.side_effect = InvalidTokenError()
-
     mock_session = AsyncMock()
     mock_session.__aenter__ = AsyncMock(return_value=mock_session)
     mock_session.__aexit__ = AsyncMock(return_value=False)
@@ -453,7 +506,7 @@ async def test_connect_invalid_token_rejected(mock_sio):  # noqa: ARG001
     with (
         patch("majlisna.api.ws.handlers.get_engine", new_callable=AsyncMock),
         patch("majlisna.api.ws.handlers.AsyncSession", return_value=mock_session),
-        patch("majlisna.api.ws.handlers.AuthController", return_value=mock_auth_controller),
+        patch("majlisna.api.ws.handlers.authenticate_caller", new=AsyncMock(side_effect=InvalidTokenError())),
         pytest.raises(ConnectionRefusedError, match="Invalid or expired token"),
     ):
         await connect("sid1", {}, {"token": "expired", "room_id": TEST_ROOM_ID})
@@ -586,3 +639,228 @@ async def test_join_game_invalid_game_returns_early(mock_sio):
 
     # Should NOT have joined the game room
     mock_sio.enter_room.assert_not_awaited()
+
+
+# ========== BDP-04: a player who comes back is announced to the room ==========
+
+
+def _db_session() -> AsyncMock:
+    session = AsyncMock()
+    session.__aenter__ = AsyncMock(return_value=session)
+    session.__aexit__ = AsyncMock(return_value=False)
+    return session
+
+
+async def test_connect_announces_a_player_who_came_back(mock_sio, mock_connect_dependencies):
+    """The reconnect flipped the link back to connected: the whole room hears it, not only this socket."""
+    # Prepare
+    mock_connect_dependencies["heartbeat"].return_value = HeartbeatResult.RESTORED
+
+    # Act
+    with patch("majlisna.api.ws.handlers.fire_notify_room_changed") as fire:
+        await connect("sid1", {}, {"token": "valid", "room_id": TEST_ROOM_ID})
+
+    # Assert — the broadcast reaches this socket too: it has entered room:{id} already
+    fire.assert_called_once_with(TEST_ROOM_ID)
+    mock_sio.enter_room.assert_any_await("sid1", f"room:{TEST_ROOM_ID}")
+
+
+async def test_connect_of_a_present_player_answers_its_own_socket_only(mock_sio, mock_connect_dependencies):
+    """Nothing changed for the others: the initial state goes to this socket, no broadcast."""
+    # Prepare
+    mock_connect_dependencies["heartbeat"].return_value = HeartbeatResult.REFRESHED
+
+    # Act
+    with patch("majlisna.api.ws.handlers.fire_notify_room_changed") as fire:
+        await connect("sid1", {}, {"token": "valid", "room_id": TEST_ROOM_ID})
+
+    # Assert
+    fire.assert_not_called()
+    mock_sio.emit.assert_awaited_once_with("room_state", {}, to="sid1")
+
+
+async def test_heartbeat_announces_a_player_who_came_back(mock_sio):
+    """A silent player the sweep marked away heartbeats again: the room hears it."""
+    # Prepare
+    mock_sio.get_session.return_value = {"user_id": "u1", "room_id": "room1"}
+
+    # Act
+    with (
+        patch("majlisna.api.ws.handlers.get_engine", new_callable=AsyncMock),
+        patch("majlisna.api.ws.handlers.AsyncSession", return_value=_db_session()),
+        patch("majlisna.api.ws.handlers.update_heartbeat", new=AsyncMock(return_value=HeartbeatResult.RESTORED)),
+        patch("majlisna.api.ws.handlers.fire_notify_room_changed") as fire,
+    ):
+        await heartbeat("sid1")
+
+    # Assert
+    fire.assert_called_once_with("room1")
+    mock_sio.disconnect.assert_not_awaited()
+
+
+async def test_heartbeat_of_a_present_player_announces_nothing(mock_sio):
+    """The every-10-seconds heartbeat of a player who never left broadcasts nothing."""
+    # Prepare
+    mock_sio.get_session.return_value = {"user_id": "u1", "room_id": "room1"}
+
+    # Act
+    with (
+        patch("majlisna.api.ws.handlers.get_engine", new_callable=AsyncMock),
+        patch("majlisna.api.ws.handlers.AsyncSession", return_value=_db_session()),
+        patch("majlisna.api.ws.handlers.update_heartbeat", new=AsyncMock(return_value=HeartbeatResult.REFRESHED)),
+        patch("majlisna.api.ws.handlers.fire_notify_room_changed") as fire,
+    ):
+        await heartbeat("sid1")
+
+    # Assert
+    fire.assert_not_called()
+
+
+async def test_join_game_announces_a_player_who_came_back(mock_sio):
+    """join_game refreshes the heartbeat too, and says so when it restored the player."""
+    # Prepare
+    room_id = "00000000-0000-0000-0000-000000000001"
+    user_id = "00000000-0000-0000-0000-000000000002"
+    game_id = "00000000-0000-0000-0000-000000000003"
+    mock_sio.get_session.return_value = {"user_id": user_id, "room_id": room_id}
+
+    # Act
+    with (
+        patch("majlisna.api.ws.handlers.get_engine", new_callable=AsyncMock),
+        patch("majlisna.api.ws.handlers.AsyncSession", return_value=_join_game_session(room_id)),
+        patch("majlisna.api.ws.handlers.update_heartbeat", new=AsyncMock(return_value=HeartbeatResult.RESTORED)),
+        patch("majlisna.api.ws.handlers.fetch_game_state", new_callable=AsyncMock, return_value={}),
+        patch("majlisna.api.ws.handlers.fire_notify_room_changed") as fire,
+    ):
+        await join_game("sid1", {"game_id": game_id})
+
+    # Assert
+    fire.assert_called_once_with(room_id)
+
+
+async def test_disconnect_of_an_already_away_link_broadcasts_nothing(mock_sio):
+    """Only a disconnect that flipped the link is news: an already-away or removed seat is not."""
+    # Prepare
+    _user_sids["u1:room1"] = "sid1"
+    mock_sio.get_session.return_value = {"user_id": "u1", "room_id": "room1"}
+
+    # Act
+    with (
+        patch("majlisna.api.ws.handlers.get_engine", new_callable=AsyncMock),
+        patch("majlisna.api.ws.handlers.AsyncSession", return_value=_db_session()),
+        patch("majlisna.api.ws.handlers.mark_user_disconnected", new=AsyncMock(return_value=False)),
+        patch("majlisna.api.ws.handlers.fire_notify_room_changed") as fire,
+    ):
+        await disconnect("sid1")
+
+    # Assert
+    fire.assert_not_called()
+
+
+# ========== SEC F04: a removed member's socket is cut, on every worker ==========
+
+
+async def test_heartbeat_without_a_seat_detaches_and_disconnects_the_socket(mock_sio):
+    """The seat is gone (a kick served by another worker): the socket leaves the room and the game, then is cut."""
+    # Prepare
+    mock_sio.get_session.return_value = {"user_id": "u1", "room_id": "room1"}
+    mock_sio.rooms.return_value = ["sid1", "room:room1", "user:u1", "game:g1"]
+
+    # Act
+    with (
+        patch("majlisna.api.ws.handlers.get_engine", new_callable=AsyncMock),
+        patch("majlisna.api.ws.handlers.AsyncSession", return_value=_db_session()),
+        patch("majlisna.api.ws.handlers.update_heartbeat", new=AsyncMock(return_value=HeartbeatResult.NOT_A_MEMBER)),
+        patch("majlisna.api.ws.handlers.fire_notify_room_changed") as fire,
+    ):
+        await heartbeat("sid1")
+
+    # Assert
+    mock_sio.leave_room.assert_any_await("sid1", "room:room1")
+    mock_sio.leave_room.assert_any_await("sid1", "game:g1")
+    mock_sio.disconnect.assert_awaited_once_with("sid1")
+    fire.assert_not_called()
+
+
+async def test_join_game_without_a_seat_is_refused_and_disconnected(mock_sio):
+    """A kicked player's page asking for the game is refused, and its socket cut."""
+    # Prepare
+    room_id = "00000000-0000-0000-0000-000000000001"
+    user_id = "00000000-0000-0000-0000-000000000002"
+    mock_sio.get_session.return_value = {"user_id": user_id, "room_id": room_id}
+    no_link = MagicMock()
+    no_link.first.return_value = None
+    session = _db_session()
+    session.exec = AsyncMock(return_value=no_link)
+
+    # Act
+    with (
+        patch("majlisna.api.ws.handlers.get_engine", new_callable=AsyncMock),
+        patch("majlisna.api.ws.handlers.AsyncSession", return_value=session),
+        patch("majlisna.api.ws.handlers.fetch_game_state", new_callable=AsyncMock, return_value={}) as fetch,
+    ):
+        await join_game("sid1", {"game_id": "00000000-0000-0000-0000-000000000003"})
+
+    # Assert
+    mock_sio.enter_room.assert_not_awaited()
+    fetch.assert_not_awaited()
+    mock_sio.disconnect.assert_awaited_once_with("sid1")
+
+
+async def test_remove_user_from_room_socket_leaves_the_game_channel_and_disconnects(mock_sio):
+    """The immediate detach of a kick or a leave: room:{id} AND game:{id}, then the socket itself."""
+    # Prepare
+    _user_sids["u1:room1"] = "sid1"
+    mock_sio.rooms.return_value = ["sid1", "room:room1", "user:u1", "game:g1"]
+
+    # Act
+    await remove_user_from_room_socket("u1", "room1")
+
+    # Assert
+    left = {call.args for call in mock_sio.leave_room.await_args_list}
+    assert left == {("sid1", "room:room1"), ("sid1", "game:g1")}
+    mock_sio.disconnect.assert_awaited_once_with("sid1")
+    assert "u1:room1" not in _user_sids
+
+
+async def test_the_socket_audit_cuts_every_local_socket_whose_seat_is_gone_or_banned(
+    mock_sio, session, create_user, create_room, count_statements
+):
+    """Each tick, every worker checks ITS sockets in one query: a seat deleted on another
+    worker (a kick) or a ban cuts the socket within one tick; a member stays."""
+    # Prepare — A is seated; B's seat was deleted by a kick elsewhere; C is seated but banned
+    host = await create_user(username="audit_host", email="audit_host@test.com")
+    room = await create_room(owner=host)
+    kicked = await create_user(username="audit_kicked", email="audit_kicked@test.com")
+    banned = await create_user(username="audit_banned", email="audit_banned@test.com")
+    session.add(RoomUserLink(room_id=room.id, user_id=banned.id, connected=True))
+    session.add(RoomBan(room_id=room.id, user_id=banned.id, banned_by=host.id))
+    await session.commit()
+    _user_sids[f"{host.id}:{room.id}"] = "sid-host"
+    _user_sids[f"{kicked.id}:{room.id}"] = "sid-kicked"
+    _user_sids[f"{banned.id}:{room.id}"] = "sid-banned"
+    queries = count_statements("roomuserlink")
+
+    # Act
+    detached = await audit_local_socket_memberships(session)
+
+    # Assert
+    assert detached == 2
+    assert queries.count == 1
+    cut = {call.args[0] for call in mock_sio.disconnect.await_args_list}
+    assert cut == {"sid-kicked", "sid-banned"}
+    assert _user_sids == {f"{host.id}:{room.id}": "sid-host"}
+
+
+async def test_the_socket_audit_of_a_worker_without_sockets_reads_nothing(mock_sio, session, count_statements):
+    """Most ticks of most workers: no local socket, no query."""
+    # Prepare
+    queries = count_statements("roomuserlink")
+
+    # Act
+    detached = await audit_local_socket_memberships(session)
+
+    # Assert
+    assert detached == 0
+    assert queries.count == 0
+    mock_sio.disconnect.assert_not_awaited()

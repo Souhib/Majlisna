@@ -4,11 +4,14 @@ from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
 from fastapi import FastAPI
+from starlette.requests import Request
 from starlette.testclient import TestClient
 
+from majlisna.api.constants import FRIEND_REQUEST_RATE_LIMIT
 from majlisna.api.controllers.friend import FriendController
 from majlisna.api.models.friendship import Friendship, FriendshipStatus
 from majlisna.api.models.table import User
+from majlisna.api.rate_limit import limiter
 from majlisna.api.schemas.friend import FriendEntry, FriendshipStatusEnum, FriendshipStatusResponse
 from majlisna.dependencies import get_current_user, get_friend_controller
 
@@ -269,4 +272,65 @@ def test_remove_friend_success(test_app: FastAPI, client: TestClient) -> None:
         assert response.status_code == 204
         mock_controller.remove_friend.assert_awaited_once_with(friendship_id, user.id)
     finally:
+        test_app.dependency_overrides.clear()
+
+
+# ========== WP-27, SEC F15: friend requests are limited per user ==========
+
+
+class _HeaderAuthenticator:
+    """get_current_user's stand-in: the user the header names, recorded on the request
+    as the real dependency records it (the rate-limit key reads it)."""
+
+    def __init__(self, users: dict[str, User]):
+        self.users = users
+
+    def __call__(self, request: Request) -> User:
+        user = self.users[request.headers["X-Test-User"]]
+        request.state.user_id = str(user.id)
+        return user
+
+
+def test_the_request_past_the_friend_request_limit_is_a_translated_429_for_that_user_only(
+    test_app: FastAPI, client: TestClient
+) -> None:
+    """The 21st request in a minute by one user is refused; another user on the same
+    connection is not (a majlis is several phones behind one address)."""
+    # Prepare
+    users = {name: User(id=uuid4(), username=name, email_address=f"{name}@test.com") for name in ("first", "second")}
+    mock_controller = Mock(spec=FriendController)
+    mock_controller.send_request = AsyncMock(
+        side_effect=lambda requester_id, addressee_id: Friendship(
+            id=uuid4(), requester_id=requester_id, addressee_id=addressee_id, status=FriendshipStatus.PENDING
+        )
+    )
+    test_app.dependency_overrides[get_current_user] = _HeaderAuthenticator(users)
+    test_app.dependency_overrides[get_friend_controller] = lambda: mock_controller
+    allowed_count = int(FRIEND_REQUEST_RATE_LIMIT.split("/", maxsplit=1)[0])
+    limiter.reset()
+
+    try:
+        allowed = [
+            client.post(
+                f"{BASE_URL}/request", json={"addressee_id": str(uuid4())}, headers={"X-Test-User": "first"}
+            ).status_code
+            for _ in range(allowed_count)
+        ]
+
+        # Act
+        limited = client.post(
+            f"{BASE_URL}/request", json={"addressee_id": str(uuid4())}, headers={"X-Test-User": "first"}
+        )
+        other = client.post(
+            f"{BASE_URL}/request", json={"addressee_id": str(uuid4())}, headers={"X-Test-User": "second"}
+        )
+
+        # Assert
+        assert allowed == [201] * allowed_count
+        assert limited.status_code == 429
+        assert limited.json()["error_key"] == "errors.api.rateLimitExceeded"
+        assert other.status_code == 201
+        assert mock_controller.send_request.await_count == allowed_count + 1
+    finally:
+        limiter.reset()
         test_app.dependency_overrides.clear()

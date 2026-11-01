@@ -1,14 +1,20 @@
 """Route-level tests for undercover game action endpoints (/api/v1/undercover/games)."""
 
+from collections.abc import AsyncGenerator
 from unittest.mock import AsyncMock, Mock
-from uuid import uuid4
+from uuid import UUID, uuid4
 
+import httpx
+import pytest
+import pytest_asyncio
 from fastapi import FastAPI
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
 from starlette.testclient import TestClient
 
 from majlisna.api.controllers.undercover_game import UndercoverGameController
 from majlisna.api.models.error import GameNotFoundError
-from majlisna.api.models.table import User
+from majlisna.api.models.table import Game, User
 from majlisna.api.schemas.common import GameStartResponse, HintRecordResponse
 from majlisna.api.schemas.undercover import (
     DescriptionOrderEntry,
@@ -420,10 +426,12 @@ def test_next_round_success(test_app: FastAPI, client: TestClient) -> None:
     mock_controller.start_next_round = AsyncMock(
         return_value=StartNextRoundResponse(
             game_id=str(game_id),
+            advanced=True,
             turn_number=2,
             description_order=[
                 DescriptionOrderEntry(user_id=str(uuid4()), username="player1"),
             ],
+            ready_quorum=4,
         )
     )
     test_app.dependency_overrides[get_current_user] = lambda: user
@@ -439,9 +447,44 @@ def test_next_round_success(test_app: FastAPI, client: TestClient) -> None:
         # Assert
         assert response.status_code == 200
         data = response.json()
+        assert data["advanced"] is True
         assert data["turn_number"] == 2
         assert len(data["description_order"]) == 1
         mock_controller.start_next_round.assert_awaited_once_with(game_id, room_id, user.id)
+    finally:
+        test_app.dependency_overrides.clear()
+
+
+def test_next_round_ready_mark_answers_the_count(test_app: FastAPI, client: TestClient) -> None:
+    """A non-host's call that only marks ready answers 200 with advanced=False and the count."""
+    # Arrange
+    game_id = uuid4()
+    room_id = uuid4()
+    user = _mock_user()
+    mock_controller = Mock(spec=UndercoverGameController)
+    mock_controller.start_next_round = AsyncMock(
+        return_value=StartNextRoundResponse(
+            game_id=str(game_id),
+            advanced=False,
+            ready_players=[str(user.id)],
+            ready_count=1,
+            ready_quorum=4,
+        )
+    )
+    test_app.dependency_overrides[get_current_user] = lambda: user
+    test_app.dependency_overrides[get_undercover_game_controller] = lambda: mock_controller
+
+    try:
+        # Act
+        response = client.post(f"{BASE_URL}/games/{game_id}/next-round", json={"room_id": str(room_id)})
+
+        # Assert
+        assert response.status_code == 200
+        data = response.json()
+        assert data["advanced"] is False
+        assert data["turn_number"] is None
+        assert data["description_order"] == []
+        assert (data["ready_players"], data["ready_count"], data["ready_quorum"]) == ([str(user.id)], 1, 4)
     finally:
         test_app.dependency_overrides.clear()
 
@@ -680,3 +723,76 @@ def test_state_defaults_lang_to_en(test_app: FastAPI, client: TestClient) -> Non
         mock_controller.get_state.assert_awaited_once_with(game_id, user.id, lang="en", sid=None)
     finally:
         test_app.dependency_overrides.clear()
+
+
+# ========== Through the real controller and database ==========
+
+
+@pytest_asyncio.fixture(name="real_stack")
+async def get_real_stack(test_app: FastAPI, session: AsyncSession) -> AsyncGenerator[tuple[FastAPI, httpx.AsyncClient]]:
+    """The real route and controller on the test database; the caller is set per test."""
+    test_app.dependency_overrides[get_undercover_game_controller] = lambda: UndercoverGameController(session)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=test_app), base_url="http://test") as client:
+        yield test_app, client
+    test_app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_describe_with_the_own_word_answers_the_translated_400(
+    real_stack, setup_undercover_game, session, create_term_scripts
+):
+    """BR-16: the describer's own word, Latin or Arabic, is a 400 errors.api.descriptionRevealsWord."""
+    # Prepare
+    app, client = real_stack
+    await create_term_scripts({"mosque": ("مسجد", None), "church": ("كنيسة", None)})
+    setup = await setup_undercover_game(3)
+    started = await UndercoverGameController(session).create_and_start(setup["room"].id, setup["users"][0].id)
+    game = (await session.exec(select(Game).where(Game.id == UUID(started.game_id)))).one()
+    first = next(u for u in setup["users"] if str(u.id) == game.live_state["turns"][0]["description_order"][0])
+    role = next(p["role"] for p in game.live_state["players"] if p["user_id"] == str(first.id))
+    own = game.live_state["undercover_word"] if role == "undercover" else game.live_state["civilian_word"]
+    app.dependency_overrides[get_current_user] = lambda: first
+
+    for word in (own, {"mosque": "مسجد", "church": "كنيسة"}[own]):
+        # Act
+        response = await client.post(f"{BASE_URL}/games/{started.game_id}/describe", json={"word": word})
+
+        # Assert
+        assert response.status_code == 400, response.text
+        body = response.json()
+        assert body["error_key"] == "errors.api.descriptionRevealsWord"
+        assert own not in response.text
+    game = (
+        await session.exec(
+            select(Game).where(Game.id == UUID(started.game_id)).execution_options(populate_existing=True)
+        )
+    ).one()
+    assert game.live_state["turns"][0]["words"] == {}
+
+
+@pytest.mark.asyncio
+async def test_hint_viewed_by_a_non_member_answers_403(real_stack, setup_undercover_game, session, create_user):
+    """SEC F07: a signed-in stranger who knows the game id cannot grow its live_state."""
+    # Prepare
+    app, client = real_stack
+    setup = await setup_undercover_game(3)
+    started = await UndercoverGameController(session).create_and_start(setup["room"].id, setup["users"][0].id)
+    stranger = await create_user(username="outsider", email="outsider@test.com")
+    app.dependency_overrides[get_current_user] = lambda: stranger
+
+    # Act
+    codes = [
+        (
+            await client.post(f"{BASE_URL}/games/{started.game_id}/hint-viewed", json={"word": f"{i:06d}" + "x" * 94})
+        ).status_code
+        for i in range(20)
+    ]
+
+    # Assert
+    assert codes == [403] * 20
+    game = (
+        await session.exec(
+            select(Game).where(Game.id == UUID(started.game_id)).execution_options(populate_existing=True)
+        )
+    ).one()
+    assert game.live_state["hint_usage"] == {}

@@ -14,8 +14,12 @@ from majlisna.settings import Settings
 class SocialAuthService:
     """Service for verifying Google OAuth2 access tokens."""
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, transport: httpx.AsyncBaseTransport | None = None) -> None:
+        """``transport`` replaces the network (tests pass an ``httpx.MockTransport``): the
+        verification itself always runs, so the audience, ``email_verified`` and ``sub``
+        checks are exercised rather than mocked away (TQ-02)."""
         self.settings = settings
+        self.transport = transport
 
     async def verify_google_access_token(self, access_token: str) -> SocialTokenPayload:
         """Verify a Google OAuth2 access token and return the user's info.
@@ -36,7 +40,7 @@ class SocialAuthService:
             raise InvalidCredentialsError()
 
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=10.0, transport=self.transport) as client:
                 # 1. Audience check — confirm the token was issued for this app.
                 token_info_resp = await client.get(
                     "https://oauth2.googleapis.com/tokeninfo",

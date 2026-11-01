@@ -9,7 +9,8 @@ from starlette.testclient import TestClient
 from majlisna.api.controllers.challenge import ChallengeController
 from majlisna.api.models.table import User
 from majlisna.api.schemas.challenge import ActiveChallenge
-from majlisna.dependencies import get_challenge_controller, get_current_user
+from majlisna.dependencies import get_challenge_controller, get_current_user, get_settings
+from majlisna.settings import Settings
 
 BASE_URL = "/api/v1/challenges"
 
@@ -111,13 +112,19 @@ def test_get_active_challenges_unauthenticated(test_app: FastAPI, client: TestCl
 # ========== POST /challenges/seed ==========
 
 
+def _settings_with_admin(address: str) -> Settings:
+    return Settings(database_url="sqlite+aiosqlite:///:memory:", admin_emails=address)
+
+
 def test_seed_challenges_success(test_app: FastAPI, client: TestClient) -> None:
-    """POST /challenges/seed returns 204."""
+    """POST /challenges/seed by a verified administrator returns 204."""
     # Arrange
-    user = _mock_user()
+    admin = _mock_user()
+    admin.email_verified = True
     mock_controller = Mock(spec=ChallengeController)
     mock_controller.seed_challenges = AsyncMock(return_value=None)
-    test_app.dependency_overrides[get_current_user] = lambda: user
+    test_app.dependency_overrides[get_current_user] = lambda: admin
+    test_app.dependency_overrides[get_settings] = lambda: _settings_with_admin(admin.email_address)
     test_app.dependency_overrides[get_challenge_controller] = lambda: mock_controller
 
     try:
@@ -127,6 +134,29 @@ def test_seed_challenges_success(test_app: FastAPI, client: TestClient) -> None:
         # Assert
         assert response.status_code == 204
         mock_controller.seed_challenges.assert_awaited_once()
+    finally:
+        test_app.dependency_overrides.clear()
+
+
+def test_seed_challenges_by_a_player_is_forbidden(test_app: FastAPI, client: TestClient) -> None:
+    """SEC F15: any signed-in player could run the seed; it is an admin operation."""
+    # Arrange
+    player = _mock_user()
+    player.email_verified = True
+    mock_controller = Mock(spec=ChallengeController)
+    mock_controller.seed_challenges = AsyncMock(return_value=None)
+    test_app.dependency_overrides[get_current_user] = lambda: player
+    test_app.dependency_overrides[get_settings] = lambda: _settings_with_admin("someone-else@test.com")
+    test_app.dependency_overrides[get_challenge_controller] = lambda: mock_controller
+
+    try:
+        # Act
+        response = client.post(f"{BASE_URL}/seed")
+
+        # Assert
+        assert response.status_code == 403
+        assert response.json()["error_key"] == "errors.api.forbidden"
+        mock_controller.seed_challenges.assert_not_awaited()
     finally:
         test_app.dependency_overrides.clear()
 

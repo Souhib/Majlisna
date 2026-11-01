@@ -17,6 +17,7 @@ from majlisna.api.constants import (
     PRAYER_PAUSE_MAX_SECONDS,
 )
 from majlisna.api.controllers.achievement import AchievementController
+from majlisna.api.controllers.disconnect import announce_presence_restored, refresh_presence
 from majlisna.api.controllers.game import GameController
 from majlisna.api.controllers.game_end_stats import scorable_players
 from majlisna.api.controllers.game_lock import get_game_lock
@@ -38,6 +39,7 @@ from majlisna.api.schemas.error import (
     GameAlreadyPausedError,
     GameNotPausedError,
     GamePausedError,
+    NotAGameParticipantError,
     NotRoomHostError,
     OnlyHostCanPauseError,
     RoomHasActiveGameError,
@@ -242,8 +244,14 @@ class BaseGameController:
         if game.game_status != GameStatus.IN_PROGRESS:
             raise GameAlreadyOverError(f"Game {game.id} is not in progress (status={game.game_status})")
 
-    async def _update_heartbeat_throttled(self, room_id: UUID | None, user_id: UUID) -> None:
+    async def _update_heartbeat_throttled(self, room_id: UUID | None, user_id: UUID) -> bool:
         """Update heartbeat only if last_seen_at is stale (>HEARTBEAT_THROTTLE_SECONDS).
+
+        Returns True when it brought an away member back (connected False, or a grace
+        clock running), and then announces it (``disconnect.announce_presence_restored``):
+        a game page polls REST while its socket is down, so this is often what restores
+        the player first — the socket's reconnect then finds nothing to restore, and the
+        rest of the table kept showing the player away (BDP-04).
 
         Accepts None for the same reason as _check_is_host: no room means no link to
         refresh, which is already this method's no-op path."""
@@ -253,20 +261,21 @@ class BaseGameController:
             )
         ).first()
         if not link:
-            return
+            return False
         needs_update = (
             link.disconnected_at is not None
             or not link.connected
             or not link.last_seen_at
             or (datetime.now() - link.last_seen_at).total_seconds() > HEARTBEAT_THROTTLE_SECONDS
         )
-        if needs_update:
-            link.last_seen_at = datetime.now()
-            link.connected = True
-            if link.disconnected_at is not None:
-                link.disconnected_at = None
-            self.session.add(link)
-            await self.session.commit()
+        if not needs_update:
+            return False
+        restored = refresh_presence(link)
+        self.session.add(link)
+        await self.session.commit()
+        if restored:
+            announce_presence_restored(room_id)
+        return restored
 
     async def _check_spectator(self, game: Game, user_id: UUID, player: dict | None) -> bool:
         """Check if user is a spectator. Raises PlayerRemovedFromGameError if not player and not spectator."""
@@ -283,6 +292,37 @@ class BaseGameController:
         if not link:
             raise PlayerRemovedFromGameError(user_id=str(user_id), game_id=str(game.id))
         return True
+
+    async def _require_participant(
+        self, game: Game, state: dict, user_id: UUID, *, allow_spectator: bool = True
+    ) -> dict | None:
+        """Refuse (``NotAGameParticipantError``, 403) anyone who is not in this game.
+
+        Passes a player of ``state["players"]`` — an eliminated Undercover player
+        included, they still take part — and returns their entry. When
+        ``allow_spectator``, also passes a spectator ``RoomUserLink`` of ``game.room_id``
+        and returns None (a spectator has no player entry). Nobody else: not a stranger
+        who knows the game id, not a room member who joined after the deal.
+
+        hint-viewed and timer-expired took any signed-in caller: anyone with a game id
+        could grow its ``live_state["hint_usage"]`` without bound, farm the hint
+        achievements, and fire its timers (BR-13, SEC F07, SEC F08).
+        """
+        player = next((p for p in state.get("players", []) if p["user_id"] == str(user_id)), None)
+        if player is not None:
+            return player
+        if allow_spectator and game.room_id is not None:
+            link = (
+                await self.session.exec(
+                    select(RoomUserLink.id)
+                    .where(RoomUserLink.room_id == game.room_id)
+                    .where(RoomUserLink.user_id == user_id)
+                    .where(RoomUserLink.is_spectator == True)  # noqa: E712
+                )
+            ).first()
+            if link is not None:
+                return None
+        raise NotAGameParticipantError(game_id=game.id, user_id=user_id)
 
     async def _scorable_players(self, state: dict) -> list[dict]:
         """The players from live_state whose User row still exists.
@@ -370,7 +410,7 @@ class BaseGameController:
             self._shift_time_anchors(game, state, paused_for, resumed_at)
             await self._shift_disconnect_grace(game.room_id, paused_for)
             state.pop(PAUSE_STATE_KEY, None)
-            self._settle_after_resume(state)
+            self._settle_after_resume(state, str(owner_id) if owner_id else None)
 
             game.live_state = state
             flag_modified(game, "live_state")
@@ -443,12 +483,14 @@ class BaseGameController:
         """
         return None
 
-    def _settle_after_resume(self, state: dict) -> None:  # noqa: ARG002 — overridden per game
+    def _settle_after_resume(self, state: dict, host_id: str | None) -> None:  # noqa: ARG002 — overridden per game
         """Apply, at the resume, what the pause held back. Runs after the pause is cleared.
 
-        The quizzes override it: a departure during the pause can leave a round where
-        every remaining player has answered, and the pause kept it open
-        (``quiz_rules.settle_round_if_everyone_answered``). The base holds nothing back.
+        ``host_id`` is the room's current owner (None for none). The quizzes override it:
+        a departure during the pause can leave a round where every remaining player has
+        answered, and the pause kept it open (``quiz_rules.settle_round_if_everyone_answered``).
+        Undercover too: a departure can complete the ready quorum of a resolved round
+        (``undercover_rules.open_next_round_if_ready``). The base holds nothing back.
         """
         return None
 
