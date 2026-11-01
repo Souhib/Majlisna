@@ -692,7 +692,7 @@ sqlmodel's `AutoString`): a frozen revision depends on nothing that can move.
 **Production is adopted by its first boot of this release**: 33 tables and no
 `alembic_version`, its schema the baseline's (proven before the merge against a restore of
 its schema dump: identical, `alembic check` clean afterwards), stamped `0001_baseline`.
-Nothing is run by hand. (Adopted on: write the deploy date here.)
+Nothing is run by hand. (Adopted on 2026-11-01 at 23:57 UTC, deploy of 87998e4: one boot log line "Schema: adopted a database created before migrations … stamped at 0001_baseline", `alembic_version` = `0001_baseline`, data untouched.)
 
 **What autogenerate compares** (`schema.include_object`, used by `env.py`): everything, but
 the `POSTGRES_ONLY_INDEXES` (no model declares them) and a model's UNIQUE that repeats its
