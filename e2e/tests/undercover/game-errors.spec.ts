@@ -78,8 +78,10 @@ test.describe("Undercover Game Errors", () => {
     const input = describer.page.locator("#description-input");
     await expect(input).toBeVisible({ timeout: 15_000 });
 
-    // Act — the describer types their own word, in capitals
-    await submitDescriptionViaUI(describer.page, own.my_word.toUpperCase());
+    // Act — the describer types their own word, in capitals, as ONE word: the page refuses
+    // a space before sending ("Use one word"), and a term such as "Eid al-Fitr" is drawn
+    // at random, so "EID-AL-FITR" (hyphens are spaces to the server's comparison)
+    await submitDescriptionViaUI(describer.page, own.my_word.toUpperCase().replace(/\s+/g, "-"));
 
     // Assert — said in the page, in the server's words; the turn is still theirs (BR-16:
     // "describing" the word by saying it handed it to the undercover)
