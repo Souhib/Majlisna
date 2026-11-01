@@ -183,3 +183,21 @@ export function dbDailyWordHints(day: string, lang: "en" | "fr" | "ar"): Record<
   if (!out) throw new Error(`no daily word for ${day}`);
   return JSON.parse(out);
 }
+
+// ─── Samar riddles ──────────────────────────────────────────
+
+export interface RiddleWordRow {
+  word_en: string;
+  category: string;
+  /** Rung 1 of the word's ladder in English: what the riddle asks. */
+  hint1_en: string;
+}
+
+/** The Kalimat word a samar riddle was drawn from (the riddle's id is the word's). */
+export function dbRiddleWord(quizWordId: string): RiddleWordRow {
+  const row = dbQueryJson<RiddleWordRow>(`
+    SELECT json_build_object('word_en', q.word_en, 'category', q.category, 'hint1_en', q.hints::json -> '1' ->> 'en')
+    FROM quiz_word q WHERE q.id = ${sqlUuid(quizWordId)}`);
+  if (!row) throw new Error(`no quiz_word ${quizWordId}`);
+  return row;
+}

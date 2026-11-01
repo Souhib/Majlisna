@@ -666,6 +666,8 @@ export async function apiUpdateRoomSettings(
     mcq_quiz_turn_duration?: number;
     mcq_quiz_rounds?: number;
     enable_mr_white?: boolean;
+    /** The host's game pick, which every member's lobby describes. */
+    game_type?: "undercover" | "codenames" | "word_quiz" | "mcq_quiz";
   },
   token: string,
 ): Promise<Record<string, unknown>> {

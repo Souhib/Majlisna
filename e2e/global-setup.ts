@@ -40,7 +40,32 @@ function restartBackend(): void {
   execSync(`docker restart -t 1 ${BACKEND_CONTAINER}`, { stdio: "inherit", timeout: 60_000 });
 }
 
+/** The stack's own addresses (docker-compose.e2e.yml publishes them on loopback). */
+const STACK_PORTS = { api: "5049", frontend: "3049" } as const;
+
+/**
+ * Refuse to reset the stack on behalf of a run aimed elsewhere. The steps below `docker
+ * exec` into the majlisna-e2e-* containers whatever API_URL and FRONTEND_URL say, so a run
+ * pointed at another backend used to drop and reseed the shared E2E database under any gate
+ * run in progress (four times in one afternoon, from runs against a private stack).
+ */
+function assertRunTargetsTheStack(): void {
+  for (const [what, url, port] of [
+    ["API_URL", API_URL, STACK_PORTS.api],
+    ["FRONTEND_URL", FRONTEND_URL, STACK_PORTS.frontend],
+  ] as const) {
+    const { hostname, port: actual } = new URL(url);
+    if (!["localhost", "127.0.0.1"].includes(hostname) || actual !== port) {
+      throw new Error(
+        `[E2E Setup] ${what}=${url} is not the E2E stack (localhost:${port}). This setup drops and reseeds the ` +
+          "majlisna-e2e-* containers' database, so it only runs against that stack.",
+      );
+    }
+  }
+}
+
 async function globalSetup(): Promise<void> {
+  assertRunTargetsTheStack();
   console.log("[E2E Setup] Waiting for backend and frontend...");
   await waitForBackend();
   await waitForFrontend(FRONTEND_URL);

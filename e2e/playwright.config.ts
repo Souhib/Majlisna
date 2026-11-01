@@ -60,6 +60,7 @@ export default defineConfig({
         "**/accessibility/**",
         "**/spectator/**",
         "**/i18n/**",
+        "**/theme/**",
       ],
     },
     {
