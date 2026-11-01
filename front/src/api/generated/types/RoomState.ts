@@ -39,4 +39,8 @@ export type RoomState = {
    */
   type: string;
   settings?: RoomSettings | null;
+  /**
+   * @type integer
+   */
+  as_of_ms: number;
 };

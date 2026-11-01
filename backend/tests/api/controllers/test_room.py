@@ -1,3 +1,4 @@
+import time
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
@@ -459,6 +460,27 @@ async def test_get_room_state_success(sample_owner: User, sample_room: Room, roo
     owner_player = next(p for p in state.players if p.user_id == str(sample_owner.id))
     assert owner_player.is_host is True
     assert owner_player.is_connected is True
+
+
+async def test_room_state_says_when_it_was_read(sample_owner: User, sample_room: Room, room_controller: RoomController):
+    """``as_of_ms``: the moment the state was read, before its first query.
+
+    Two reads can reach a client out of order: the socket's connect read its state just
+    before the host changed the game and sent it after the change's own push, which then
+    lost (CI, 2026-11-01). The client keeps the state read last; every change is pushed by
+    a read made after its commit, so the newest read is always the true one.
+    """
+    # Prepare
+    before = int(time.time() * 1000)
+
+    # Act
+    first = await room_controller.get_room_state(sample_room.id, sample_owner.id)
+    second = await room_controller.get_room_state(sample_room.id, sample_owner.id, update_heartbeat=False)
+    after = int(time.time() * 1000)
+
+    # Assert
+    assert before <= first.as_of_ms <= second.as_of_ms <= after
+    assert first.model_dump(mode="json")["as_of_ms"] == first.as_of_ms
 
 
 async def _mark_away(session, room_id, user_id, seconds_ago: float) -> None:

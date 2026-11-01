@@ -69,6 +69,11 @@ class RoomState(BaseModel):
     players: list[RoomPlayerState]
     type: str
     settings: RoomSettings | None = None
+    # When this state was read (epoch ms, taken before its first query). Two reads can
+    # reach a client out of order (a socket's connect read just before a change, sent
+    # after the change's own push): the client keeps the state read last. Every change is
+    # pushed by a read made after its commit, so the newest read is the true one.
+    as_of_ms: int
 
 
 class ActiveRoomResponse(BaseModel):

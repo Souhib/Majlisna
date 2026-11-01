@@ -168,6 +168,22 @@ describe("useSocket", () => {
     expect(result.current.connected).toBe(false)
   })
 
+  it("a room_state read before the one on screen never replaces it (pushes can cross)", () => {
+    // Prepare
+    renderHook(() => useSocket({ roomId: "room-1", enabled: true }))
+    const roomStateHandler = mockOn.mock.calls.find((c: unknown[]) => c[0] === "room_state")?.[1]
+    const onScreen = { id: "room-1", game_type: "word_quiz", players: [], as_of_ms: 2_000 }
+
+    // Act — the connect's read, made before the host's pick, arrives after the pick's push
+    roomStateHandler({ id: "room-1", game_type: "undercover", players: [], as_of_ms: 1_000 })
+
+    // Assert — written through an updater that keeps the newer read
+    const [key, write] = mockSetQueryData.mock.calls.at(-1) as [unknown, (old: unknown) => unknown]
+    expect(key).toEqual([{ url: "/api/v1/rooms/:room_id/state", params: { room_id: "room-1" } }])
+    expect(write(onScreen)).toBe(onScreen)
+    expect(write({ ...onScreen, as_of_ms: 500 })).toEqual(expect.objectContaining({ game_type: "undercover", as_of_ms: 1_000 }))
+  })
+
   it("room_state handler updates query cache", () => {
     renderHook(() => useSocket({ roomId: "room-1", enabled: true }))
     const roomStateHandler = mockOn.mock.calls.find((c: unknown[]) => c[0] === "room_state")?.[1]
@@ -183,8 +199,9 @@ describe("useSocket", () => {
       players: [{ user_id: "u1", username: "Alice", is_spectator: false }],
     })
 
-    expect(mockSetQueryData).toHaveBeenCalledWith(
-      [{ url: "/api/v1/rooms/:room_id/state", params: { room_id: "room-1" } }],
+    const [key, write] = mockSetQueryData.mock.calls.at(-1) as [unknown, (old: unknown) => unknown]
+    expect(key).toEqual([{ url: "/api/v1/rooms/:room_id/state", params: { room_id: "room-1" } }])
+    expect(write(undefined)).toEqual(
       expect.objectContaining({
         id: "room-1",
         players: [{ user_id: "u1", username: "Alice", is_spectator: false }],

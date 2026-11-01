@@ -567,6 +567,7 @@ def test_get_room_state_success(test_app: FastAPI, client: TestClient) -> None:
         ],
         "type": RoomType.ACTIVE.value,
         "settings": None,
+        "as_of_ms": 1_793_520_000_000,
     }
 
     mock_controller.get_room_state = AsyncMock(return_value=mock_state)

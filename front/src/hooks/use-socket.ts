@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next"
 import { io, type Socket } from "socket.io-client"
 import { queryKeys } from "@/api/queryKeys"
 import { getStoredToken, onTokenStored } from "@/lib/auth"
+import { newerRoomState } from "@/lib/room-state"
 
 interface ChatMessage {
   id: string
@@ -121,8 +122,9 @@ export function useSocket({ roomId, gameId, gameType, enabled = true, onKicked, 
 
     socketRef.current = socket
 
+    // never over a state read later (pushes can cross: lib/room-state.ts)
     socket.on("room_state", (state: Record<string, unknown>) => {
-      queryClient.setQueryData(queryKeys.room.state(roomId), state)
+      queryClient.setQueryData(queryKeys.room.state(roomId), (old: unknown) => newerRoomState(old, state))
     })
 
     // Server sends initial game_state on join_game (per-user, role-aware)

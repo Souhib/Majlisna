@@ -1,4 +1,4 @@
-import { useQueryClient } from "@tanstack/react-query"
+import { replaceEqualDeep, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
@@ -21,6 +21,7 @@ import { answerRoomRiddle } from "@/components/rooms/samar-riddle"
 import { useLeaveAfterKick } from "@/hooks/use-leave-after-kick"
 import { useSocket } from "@/hooks/use-socket"
 import { trackEvent } from "@/lib/analytics"
+import { newerRoomState } from "@/lib/room-state"
 import { storeRoomIdForGame } from "@/lib/room-session"
 import { useAuth } from "@/providers/AuthProvider"
 
@@ -177,6 +178,11 @@ export function useRoomLobby(roomId: string): RoomLobby {
           query.state.status === "error" && query.state.data === undefined ? false : socketConnectedRef.current ? false : LOBBY_POLL_INTERVAL_MS,
         enabled: !!user,
         retry: retryUnlessRefused,
+        // a read that started before the state on screen never replaces it (lib/room-state.ts)
+        structuralSharing: (old: unknown, next: unknown) => {
+          const kept = newerRoomState(old, next)
+          return kept === old ? old : replaceEqualDeep(old, next)
+        },
       },
     },
   )

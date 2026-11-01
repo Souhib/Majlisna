@@ -1,4 +1,5 @@
 import secrets
+import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -484,6 +485,8 @@ class RoomController:
         placeholder user, which skips the membership check — broadcasts are
         restricted to socket rooms that already enforce membership at connect.
         """
+        # Before the first read: whatever was committed earlier is in this state (RoomState.as_of_ms).
+        as_of_ms = time.time_ns() // 1_000_000
         room = await self.get_room_without_relations(room_id)
 
         # Update heartbeat for the requesting user
@@ -573,6 +576,7 @@ class RoomController:
             players=players,
             type=room.type.value,
             settings=room.settings,
+            as_of_ms=as_of_ms,
         )
 
     async def kick_player(self, room_id: UUID, host_id: UUID, target_id: UUID) -> KickPlayerResponse:
