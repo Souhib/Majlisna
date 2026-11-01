@@ -2,7 +2,7 @@
 
 ## Overview
 
-FastAPI backend for real-time multiplayer Islamic board games. Uses SQLModel/SQLAlchemy async for database operations. Game state stored as JSON in PostgreSQL (`Game.live_state` column). REST endpoints for mutations + Socket.IO for real-time state notifications. PgBouncer for connection pooling, Redis for Socket.IO cross-worker pub/sub only.
+FastAPI backend for real-time multiplayer Islamic board games. Uses SQLModel/SQLAlchemy async for database operations. Game state stored as JSON in PostgreSQL (`Game.live_state` column). REST endpoints for mutations + Socket.IO for real-time state notifications. PgBouncer for connection pooling, Redis for Socket.IO cross-worker pub/sub and the slowapi rate-limit counters only.
 
 ## Development Commands
 
@@ -21,7 +21,14 @@ uv run poe check                         # All checks (lint + format + type)
 uv run poe test                          # pytest with coverage
 uv run poe test-fast                     # Stop on first failure
 
-# Fake data
+# PostgreSQL run (what CI runs; required before calling backend tests green)
+uv run pytest --use-postgres
+
+# Game content only: upserts, safe on every database, production included
+PYTHONPATH=. uv run python scripts/generate_fake_data.py --seed
+
+# Fake data: dev and E2E databases ONLY (production refuses both, exit 2:
+# "There are no migrations" below)
 PYTHONPATH=. uv run python scripts/generate_fake_data.py --create-db
 PYTHONPATH=. uv run python scripts/generate_fake_data.py --delete
 ```
@@ -44,13 +51,15 @@ api/
 │   ├── mcqquiz.py     # McqQuestion model (trilingual questions, JSON choices/explanations)
 │   ├── undercover_game.py # Undercover game logic (extends BaseGameController)
 │   ├── codenames_game.py  # Codenames game logic (extends BaseGameController)
-│   ├── codenames_helpers.py # Board builder, player assigner
+│   ├── codenames_helpers.py # Board builder, player assigner, turn rules on live_state (votes, reveals + reveal log, departures)
 │   ├── wordquiz.py        # QuizWord CRUD (get_random_words, create, delete)
 │   ├── wordquiz_game.py   # Word Quiz game logic (extends BaseGameController)
 │   ├── mcqquiz.py         # McqQuestion CRUD (get_random_questions)
 │   ├── mcqquiz_game.py    # MCQ Quiz game logic (extends BaseGameController)
 │   ├── game_lock.py   # PostgreSQL advisory locks per game_id (asyncio.Lock fallback for SQLite)
 │   ├── disconnect.py  # Disconnect/kick handlers (used by kick_player, includes _handle_mcqquiz_disconnect)
+│   ├── game_cancel.py # cancel_running_game / detach_room_if_current (models only: no room/disconnect import)
+│   ├── token_auth.py  # authenticate_caller / authenticate_access_token: the ONE place an access token (and its session) becomes a User (HTTP + Socket.IO)
 │   ├── quiz_rules.py  # Quiz round rules shared with disconnect: everyone_has_answered, results transitions, settle
 │   ├── stats.py       # User statistics
 │   ├── term_script.py # Arabic forms of game terms: batched get_forms + seed upsert
@@ -66,6 +75,8 @@ api/
 │   ├── term_script.py # TermScript (Latin term → ar, ar_vocalized)
 │   ├── notebook.py    # NotebookEntry + NotebookGameType (the Kunnash)
 │   ├── daily_word.py  # DailyWord (one QuizWord per Makkah day) + DailyWordPlay (one per user per day)
+│   ├── room_ban.py    # RoomBan: a kicked player may not come back to that room (owner rule (c))
+│   ├── auth_session.py # AuthSession (the tokens' `sid`) + revoke_user_sessions (SEC F01)
 │   ├── stats.py       # UserStats, AchievementDefinition, UserAchievement
 │   ├── error.py       # Game-specific error classes
 │   └── shared.py      # DBModel (backward compat)
@@ -91,13 +102,13 @@ api/
 │   └── stats.py       # /api/v1/users/{id}/stats, achievements, leaderboard
 ├── ws/                # Socket.IO real-time notification layer
 │   ├── __init__.py    # Exports sio, socketio_app
-│   ├── server.py      # AsyncServer with Redis adapter
+│   ├── server.py      # AsyncServer with Redis adapter + the handshake's origin list (socket_allowed_origins)
 │   ├── handlers.py    # connect (JWT auth), join_game, disconnect, auto_join_game_room
 │   ├── state.py       # Thin wrappers: fetch_room_state, fetch_game_state (reuse controllers)
 │   └── notify.py      # notify_room_changed, notify_game_changed (best-effort broadcast)
-├── utils/             # Pure helpers (rng, text_match, multilingual, game_state, game_pause, cursor, daily_word, dialect)
+├── utils/             # Pure helpers (rng, draw, text_match, multilingual, game_state, game_pause, cursor, daily_word, dialect)
 ├── constants.py       # All magic values
-├── rate_limit.py      # slowapi limiter, per-user key (user_or_ip_key), 429 envelope handler
+├── rate_limit.py      # slowapi limiter, keys (client_ip_key behind Cloudflare, user_or_ip_key, refresh_sub_key), 429 envelope handler
 ├── middleware.py       # Security, RequestID, Logging
 └── services/          # External integrations (future)
 ```
@@ -114,22 +125,75 @@ Socket.IO is a **notification layer**, not a game engine. The flow is:
 **Key rules:**
 - **Route handlers MUST `await` notify functions** — never fire-and-forget. This eliminates the race condition where the client receives the REST response before the Socket.IO event is emitted. `fire_notify_*` variants exist ONLY for background tasks (disconnect checker loop, Socket.IO event handlers).
 - **Controllers MUST NOT import or call `sio` directly.** `ws.server` imports `ws.handlers` → controllers, so a controller emitting Socket.IO events needs an in-function `import sio` to avoid a circular import. Instead, add a `notify_*` coroutine in `ws/notify.py` and `await` it from the route after the controller validates (e.g. `notify_room_invite` for room invites). Keeps the emit in the notify layer and controllers pure.
+- **A socket can be gone by the time a handler's database read returns.** python-engineio's
+  `save_session` then raises `KeyError('Session not found')`; `join_game` saves through
+  `handlers._save_session_of_live_socket` and stops there (no room entered for a dead sid,
+  no heartbeat, no state). It escaped as "Task exception was never retrieved", an ERROR on
+  every page that navigated away mid-join (seen in the E2E gate's backend log;
+  `test_handlers.py::test_join_game_for_a_socket_gone_mid_join_stops_quietly`). Likewise
+  a player who leaves between `join_game`'s seat check and its state read is refused by
+  the game's own `get_state` (a 4xx, already logged at INFO by `BaseError`):
+  `ws/state.fetch_game_state` sends nothing and logs at ERROR only a failure of 500 or
+  above or a non-`BaseError` exception (`test_notify.py::test_fetch_game_state_for_a_player_no_longer_in_the_game_is_no_server_error`).
 - **Game start routes call `await auto_join_game_room(game_id, room_id)`** before emitting notifications. This auto-joins all connected room members into `game:{game_id}` Socket.IO room, eliminating the race where `game_updated` fires before clients call `join_game`.
 - **`sio.enter_room()` MUST be awaited.** It is an async coroutine in python-socketio. Calling without `await` creates a dangling coroutine that silently never executes — the SID never joins the room and misses all broadcasts. This applies to all `sio.enter_room()` calls in handlers.
-- PostgreSQL is the ONLY source of truth. Redis is ONLY for Socket.IO adapter cross-worker pub/sub.
+- PostgreSQL is the ONLY source of truth. Redis is ONLY for Socket.IO adapter cross-worker pub/sub (and, in db 1, slowapi's rate-limit counters, `RATE_LIMIT_STORAGE_URI`). With Redis down the limits fall back to each worker's memory (`rate_limit.build_limiter`, `in_memory_fallback_enabled`) and go back to Redis once it answers: slowapi's default raised, and every limited route — sign-in, joins, the game routes — answered 500 (review INT-02; `tests/api/test_rate_limit.py::test_a_rate_limit_storage_outage_keeps_the_route_working_and_limited`).
 - ZERO game state in Redis. No TTL watchers, no Redis OM.
 - Notify functions log errors but don't raise — if a broadcast fails, the REST response still succeeds.
 - `notify_game_changed` sends a lightweight `game_updated` signal. Each client invalidates its TanStack Query cache, triggering a REST re-fetch of its own role-aware state.
+- **A timer-expired call that changed nothing broadcasts nothing** (BDP-03, SEC F08). Every
+  page fires timer-expired from its own clock, so a table of N sends N calls per deadline;
+  the routes broadcast every one, and each client got N `game_updated` (N refetches) for one
+  change — storm.py measured 100 pushes for 10 clients. The four routes call
+  `notify_timer_outcome(game_id, result.action)`, which skips `NO_OP_TIMER_ACTIONS`
+  (`paused`, `timer_not_expired`, `not_playing`, `round_already_resolved`, `none`). Only a
+  true no-op may enter that set; a new `TimerExpiredAction` that changes the game must stay
+  out of it. Every other mutation still notifies (room state included), and so does
+  Undercover's next-round on both outcomes: a ready mark changes the count the table shows.
+  `_get_room_id_for_game` selects `Game.room_id` alone, never the row with its `live_state`.
+  Tests: `tests/api/routes/test_timer_expired_notify.py` (the real stack; 10 concurrent
+  calls → one `game_updated` per client), `tests/api/ws/test_notify.py`.
+- **The handshake checks the browser's Origin** (SEC F12): `cors_allowed_origins` is
+  `ws/server.socket_allowed_origins(settings)` — `CORS_ORIGINS` plus `FRONTEND_URL`,
+  reduced to `scheme://host[:port]`, de-duplicated; a `*` keeps allow-all (development).
+  It was `[]`, which in python-engineio switches the check OFF (not "same origin", as the
+  comment said): any page could open a socket. `FRONTEND_URL` is always added because the
+  page connects to its own origin and a same-origin deployment need not list it in
+  CORS_ORIGINS — **in production FRONTEND_URL must be the page's origin
+  (`https://majlisna.app`), or every socket is refused.** The list is logged once at
+  startup. A request without Origin (a native client) is not checked. The FastAPI
+  CORSMiddleware wraps the `/socket.io` mount as well, so a cross-origin POLLING client
+  would get `Access-Control-Allow-Origin` twice; no client does (every page connects to
+  its own origin). Tests: `tests/api/ws/test_wp11_socket_origin.py`.
 - Socket.IO handlers are thin wrappers, NOT new controllers. They reuse `RoomController.get_room_state()`, `UndercoverGameController.get_state()`, `CodenamesGameController.get_board()`.
 - Broadcasts go to Socket.IO rooms (`room:{room_id}`, `game:{game_id}`), NEVER to individual SIDs (except for per-user game state).
-- Socket.IO `disconnect` marks the user as disconnected in DB (starts grace period). A background `disconnect_checker_loop` runs every 5s to mark stale heartbeats and permanently remove users past the 60s grace period. Multi-tab connections are deduplicated via `_user_sids` dict; `connect` records the new SID BEFORE closing the old one, and a `disconnect` whose SID has been replaced does not mark the player away (a reload used to flash "away" until the next heartbeat). `join_game` validates user membership in the room and game ownership via DB queries. `you_were_kicked` event is emitted to `user:{user_id}` when the host kicks a player.
+- **The room state goes to each member's own channel, never to `room:{room_id}`** (review R2):
+  `notify_room_changed` emits once to `[member_channel(room_id, user_id) for each player and
+  spectator the state lists]` (`member:{room_id}:{user_id}`, entered by `connect`). It carries
+  the PIN, which a kick rotates so the kicked player cannot come back, and a kicked socket held
+  by ANOTHER worker stays in `room:{room_id}` until that worker's audit tick, up to 5 s after
+  the kick route's own push of the new PIN. A socket whose seat is gone is never listed, so
+  never addressed, whichever worker holds it. Chat and `game_updated` still go to
+  `room:{room_id}` (neither carries the PIN). Test:
+  `tests/api/ws/test_wp04_reconnect_and_detach.py::test_the_kick_routes_own_push_never_hands_the_new_pin_to_a_socket_held_elsewhere`.
+- **A socket lives no longer than its session** (review R5): every socket's `AuthSession` id
+  is kept per process (`handlers._socket_sessions`, personal and room sockets; a legacy token
+  has none), and every worker's tick (`audit_local_socket_memberships`) cuts, in ONE query,
+  each local socket whose session is revoked, past `expires_at` or gone — off every channel
+  first, then disconnected. The session was checked at connect only, so after a reset the
+  thief's open personal socket kept receiving the victim's invites (code and PIN). Test:
+  `test_wp17_sessions.py::test_a_socket_opened_before_its_session_ended_is_cut_by_the_next_tick`.
+- Socket.IO `disconnect` marks the user as disconnected in DB (starts grace period). A background `disconnect_checker_loop` runs every 5s (`DISCONNECT_CHECK_INTERVAL_SECONDS`) to mark stale heartbeats (`HEARTBEAT_STALE_SECONDS`, 20 s) and permanently remove users past their grace period (`GRACE_PERIOD_SECONDS`, 180 s, in a running game; `LOBBY_GRACE_PERIOD_SECONDS`, 600 s, in the lobby; 45 min while the game is paused). Multi-tab connections are deduplicated via `_user_sids` dict; `connect` records the new SID BEFORE closing the old one, and a `disconnect` whose SID has been replaced does not mark the player away (a reload used to flash "away" until the next heartbeat). `join_game` validates user membership in the room and game ownership via DB queries. `you_were_kicked` event is emitted to `user:{user_id}` when the host kicks a player.
+- **Presence, the sweep and the sockets (WP-04, 2026-10 audit).** See "Departures, the sweep and the sockets" below: a return is announced to the room, one worker sweeps per tick, and every worker cuts its own sockets whose seat is gone.
 
 ### Game State in PostgreSQL
 
 All game state stored in `Game.live_state` JSON column:
 - **Undercover**: `{players, turns, civilian_word, undercover_word, phase, ...}`
 - **Codenames**: `{board, players, current_team, current_turn, status, winner, ...}`
-- **Word Quiz**: `{players, current_round, total_rounds, round_phase, hints, answers, current_word, ...}`
+- **Word Quiz**: `{players, current_round, total_rounds, round_phase, hints, answers, attempts, current_word, ...}`
+- **MCQ Quiz**: `{players, current_round, total_rounds, round_phase, question_ids, answers, ...}`
+- **Every game** may also carry the shared keys of the 2026-10 audit (`left_player_ids`, `winner_ids`, `paused`, `hint_usage`, …; "Shared contracts" at the end of this file).
 
 All game mutations use `get_game_lock(game_id, session)` — PostgreSQL advisory locks in production, asyncio.Lock fallback for SQLite tests:
 ```python
@@ -161,6 +225,24 @@ async def submit_vote(self, game_id: UUID, ...):
 - Route: `POST /api/v1/undercover/games/{game_id}/mr-white-guess`
 - Schemas: `MrWhiteGuessRequest` (contains the guessed word), `MrWhiteGuessResponse` (contains result)
 - When Mr. White is eliminated by vote, the game enters a guessing phase. If the guess matches the civilian word, undercovers win. Otherwise, the game continues normally.
+- Every way the guess closes — a guess, its timeout, the guesser leaving (a wrong guess) —
+  goes through `undercover_rules.record_mr_white_guess`, which also writes
+  `live_state[MR_WHITE_GUESS_RESULT_KEY] = {"user_id", "correct"}` for the end-of-game stats.
+- **While the guess is owed, nobody reads a winner** (BR-01). `get_state` recomputed one
+  from alive counts — no impostor alive → civilians — and built `word_explanations` from
+  it, so Mr. White's own payload (REST and the `join_game` push) carried the word he was
+  about to guess, and every client showed the game as over and never rendered his guess
+  form. The winner is `state["winner"]`, see "The winner must be written" below.
+  **Rule: `get_state` reads the winner only from `state["winner"]`; never recompute
+  `winning_team()` while the game is IN_PROGRESS** — with the guess pending no impostor is
+  alive, so a recompute answers "civilians" and leaks both words. The client checks
+  `turn_phase` before `winner` (`front/src/lib/game-state.ts`, `deriveUndercoverPhase`).
+  Tests: `test_mr_white_owing_his_guess_reads_no_winner_and_neither_word`
+  (`test_undercover_game.py`: Mr. White, a civilian and a spectator),
+  `front/src/lib/game-state.test.ts`.
+- **Anyone else leaving during the guess decides nothing** (BR-08):
+  `repair_turn_after_dropout` returns True while a guesser is still owed, so the
+  departure path neither declares a winner nor cancels; the guess or its timeout decides.
 
 ### The personal Socket.IO channel, and departures that reach the game
 
@@ -189,11 +271,36 @@ async def submit_vote(self, game_id: UUID, ...):
 ### Kick Player
 
 - Host can kick players via `PATCH /api/v1/rooms/{room_id}/kick` with `{ user_id }`
-- Reuses `_handle_permanent_disconnect` from `disconnect.py` for game cleanup
+  (host only, never yourself: `NotRoomHostError`, `CannotKickYourselfError`)
+- **A kick is a ban for the room's lifetime, and it rotates the PIN** (owner rule (c);
+  BR-20, SEC F04 — the kicked player used to be back a second later with the same code
+  and PIN). `kick_player` inserts a `RoomBan` (`ON CONFLICT DO NOTHING` on the pair,
+  `banned_by` = the host), sets `room.password` to a new random PIN that differs from
+  the old one (`_new_room_pin`), then runs `_handle_permanent_disconnect`, whose first
+  commit carries all three. `join_room` and `join_room_as_spectator` answer
+  `RoomBannedError` (403) for a ban, checked BEFORE the PIN.
+- `GET /rooms/{id}/bans` → `list[RoomBanView {user_id, username, banned_at}]` and
+  `DELETE /rooms/{id}/bans/{user_id}` → `StatusResponse {status: "lifted"}`
+  (`RoomBanNotFoundError`, 404, when absent), host only through the controller. Lifting
+  neither re-seats the player nor restores the old PIN. The rows live as long as the
+  room (an INACTIVE room accepts no join anyway) and go with the user's account.
+- The kick route tells the player (`notify_user_kicked`), detaches the socket
+  (`remove_user_from_room_socket`), and only THEN pushes the room state carrying the new
+  PIN (`notify_member_removed`); the lift route pushes `notify_room_changed`. That push is
+  addressed to the members still listed (`notify.member_channel`), so a kicked socket held by
+  another worker never hears the new PIN (review R2).
+- A friend invite carries the PIN of the moment it was sent (invites are not stored): an
+  invite sent before a kick names the old PIN, and the join page says the PIN may have
+  changed and asks for a new invite (review F1).
+- Reuses `_handle_permanent_disconnect` from `disconnect.py` for game cleanup: the
+  kicked player of a running game is a leaver (owner rule (b))
 - No auto-disconnect — players are only removed by explicit kick or leaving
 - The kicked player's pages (the lobby AND the four game pages) go to /rooms on
   `you_were_kicked` (`useLeaveAfterKick` in the front): they are out of the room's socket
   rooms, so no `game_updated` reaches them any more.
+- Tests: `tests/api/controllers/test_wp07_room_bans.py` (ban, PIN rotation, join and spectate
+  refused, list and lift), `test_host_only_rules.py` (a non-host's kick is refused),
+  `tests/api/ws/test_wp04_reconnect_and_detach.py` (the kicked socket is cut on every worker).
 
 ### Leaderboard
 
@@ -236,6 +343,14 @@ class MyController:
         )).first()
         return result
 ```
+
+**Never sit idle inside a transaction.** Production's PostgreSQL (and the E2E stack's) runs
+with `idle_in_transaction_session_timeout=60s` (`docker-compose.dokploy.yml`, BDP-13): a
+session that has begun a transaction (any query autobegins one) and then awaits something
+else for a minute (an outside HTTP call, a sleep, a socket emit loop) is killed by the
+server, and its next statement fails. Commit or roll back before a long await. A statement
+that is running, such as a game-lock wait, is not idle. The same flags log every statement
+over 250 ms and preload `pg_stat_statements` (the extension itself is created by hand, once).
 
 ### Error Classes
 Errors auto-generate i18n keys and log on construction:
@@ -309,6 +424,8 @@ from majlisna.api.constants import MIN_PLAYERS_FOR_GAME, ROOM_PASSWORD_LENGTH
 | NotebookEntry | notebook_entry | The Kunnash: one row per (user, game type, term) a player kept from a finished game (`term` column; the API calls it `word`) |
 | DailyWord | daily_word | The word of the day: `day` (Makkah date, PK) → `quiz_word_id` |
 | DailyWordPlay | daily_word_play | One player's go at one day's word: one row per (`user_id`, `day`) |
+| RoomBan | room_ban | A player the host removed from a room: one row per (`room_id`, `user_id`), `banned_by` nullable |
+| AuthSession | auth_session | One signed-in device (`id` = the `sid` claim): refresh jti rotation, absolute `expires_at`, `revoked_at` |
 | QuizWord | quiz_word | Word Quiz words (multilingual hints, accepted answers) |
 | McqQuestion | mcq_question | MCQ Quiz questions (trilingual questions, JSON choices/explanations) |
 | UserStats | user_stats | Aggregated player statistics |
@@ -330,9 +447,58 @@ Settings use `MAJLISNA_ENV` selector:
 
 - Scalar UI: `http://localhost:5111/scalar`
 - OpenAPI JSON: `http://localhost:5111/openapi.json`
-- Health check: `http://localhost:5111/health`
+- Health check: `http://localhost:5111/health` → `{status, db, timestamp, version}`.
+  `version` is `settings.git_sha` (env `GIT_SHA`, baked by the Dockerfile's `ARG GIT_SHA`;
+  `"unknown"` without it), answered on a 503 too: CI's promote job waits for it to read the
+  promoted commit (`tests/api/test_health.py`).
+
+### The image (`backend/Dockerfile`)
+
+- `CMD ["sh", "-c", "exec uvicorn …"]`: `exec` makes uvicorn PID 1, so `docker stop`'s
+  SIGTERM drains it (`--timeout-graceful-shutdown 15`). Never go back to a shell-form CMD
+  or drop the `exec`: two shells used to swallow SIGTERM and every stop ended in SIGKILL
+  after 10 s, lifespan teardown skipped. Before uvicorn has installed its handlers (the
+  first seconds of boot) PID 1 ignores SIGTERM; compose's `init: true` covers that window.
+- `--forwarded-allow-ips "${FORWARDED_ALLOW_IPS:-<the ENV default>}"`, default loopback + the
+  private ranges (Docker networks), never `'*'` (see root CLAUDE.md, "uvicorn trusts proxy
+  headers from Docker-network peers only"; `tests/api/test_trusted_proxies.py` reads the
+  Dockerfile AND `docker-compose.dokploy.yml`). The `:-` fallback is load-bearing: an empty
+  value trusts no proxy and puts every anonymous visitor in Traefik's one rate-limit bucket,
+  and a bare `FORWARDED_ALLOW_IPS:` in compose unsets the variable, ENV default included
+  (review INT-01). Compose passes `${FORWARDED_ALLOW_IPS:-}`.
+- `appuser` exists before the copies (`COPY --chown`, no `chown -R` layer); uv is only in
+  the `dependencies` stage (`UV_PYTHON_DOWNLOADS=never`, so the venv uses the image's
+  Python); `python:3.12-slim` and the uv image are pinned by digest.
+- The image ships bytecode: `UV_COMPILE_BYTECODE=1` for the venv, `compileall` for the app.
+  `PYTHONDONTWRITEBYTECODE=1` stops the container from caching `.pyc`, so without them every
+  worker compiled every dependency from source at each boot (`import main` 1.5-2.5x slower),
+  inside each deploy's outage. The builder installs `gcc` + `libc6-dev` only: Debian's
+  `python3-dev` is Debian's Python 3.13, never this image's 3.12, which has its own headers.
+- Coverage: CI runs `pytest --use-postgres --cov=majlisna --cov-branch --cov-fail-under=88`.
+  `dependencies.py` (the auth dependencies) is measured; it used to sit in the omit list.
 
 ## Hard-Won Rules
+
+### The owner's product rules (2026-10, binding)
+
+Each rule is spelled out in its own section below; this is the index.
+
+- **(a) Quiz winners**: every top scorer above 0 shares the win; a 0-0 game has no winner; a
+  solo game is never a win, "solo" counted over the FINAL roster with leavers excluded
+  (`game_end_stats.top_score_winners`, `MIN_PLAYERS_FOR_A_WIN`) — and never a loss either:
+  played, no result, the win streak untouched, as `did_user_win` answers None for it (reviews
+  R4, INT-03; the player who stayed when everyone else left is charged nothing). → "Shared
+  contracts", "Kalimat".
+- **(b) Leavers get neither a win nor a loss, in all four games** (`mark_player_left` on every
+  departure, `scorable_players`, `did_user_win` → None). → "Shared contracts", "Departures".
+- **(c) A kick bans the player from that room for its lifetime**; the host lists and lifts bans;
+  the PIN rotates on every kick. → "Kick Player".
+- **(d) Undercover's ready quorum between rounds**: every alive player but the host (every alive
+  player without a host); the host can still force it. → "Undercover between rounds".
+- **(e) Kalimat: a wrong try costs one rung, at most 5 tries a round**
+  (`AnswerAttemptsExhaustedError`). → "Kalimat: a wrong try costs a rung".
+- **(f, g) The five special achievements are implemented, and challenges progress at every game
+  end.** → "The end-of-game flow" (each special's exact rule).
 
 ### `GET /games/{id}/summary` is participants-only AND finished-games-only
 
@@ -372,7 +538,7 @@ All four game controllers stage stat/achievement writes and let the calling
 mutation's single `commit()` persist them.
 
 - **No commit inside it.** It runs inside `get_game_lock`, which on PostgreSQL is
-  `pg_try_advisory_xact_lock` — a *transaction-scoped* lock. Committing there
+  `pg_advisory_xact_lock` — a *transaction-scoped* lock. Committing there
   releases the game lock in the middle of the end-of-game critical section.
 - **No `except SQLAlchemyError: continue`.** After a failed statement the session
   requires a rollback, so catching-and-continuing made every later query in the
@@ -391,7 +557,11 @@ More generally: **one commit per locked block.** Two commits inside a
 was always null — the history UI showed neither Won nor Lost. Recomputing from
 alive counts also can't express "Mr. White guessed the civilian word", where
 undercovers win while civilians are still alive and ahead. `_get_winner_label`
-prefers the persisted value and only falls back to the derived one for old rows.
+returns the persisted value; the derived one is only a fallback for old rows of a game
+that is no longer IN_PROGRESS and whose last turn is not on the Mr. White guess — the
+fallback used to run on running games too, which announced the civilians' win (and both
+words) while Mr. White still owed the guess that could reverse it. A finished row whose
+last turn still says `mr_white_guessing` reads `turn_phase: "game_over"`.
 The disconnect handler (`_handle_undercover_disconnect`) writes it too — ending
 by disconnect is a very common path.
 
@@ -406,18 +576,93 @@ which is why the whole test suite passed while production recorded no stats.
 **When changing a `datetime.now()` to `datetime.now(UTC)`, change the column with
 it, and verify with `pytest --use-postgres`.**
 
-### There are no migrations
+### There are no migrations — schema changes are additive and idempotent
 
-`create_all` only CREATEs missing tables — it never ALTERs an existing one. A
-change to a column or index on a table that already exists on a server is applied
-by dropping and reseeding:
+`create_all` only CREATEs missing tables — it never ALTERs an existing one. So the rule
+for every schema change is:
+
+1. **A `pg_dump` of production first** (`docs/operations/backups.md`: the nightly dump, or
+   a fresh run of it before the deploy).
+2. **Additive and idempotent only**: a new table (`create_all` makes it at the next boot),
+   `CREATE INDEX IF NOT EXISTS` in `database.POSTGRES_INDEXES`, a unique index guarded so
+   that a duplicate already stored skips it with a log instead of failing the boot (below);
+   never a new column on an existing table, never an ALTER by drop-and-reseed. The only
+   hand-written DDL in `database.py` is `POSTGRES_INDEXES` and `POSTGRES_DROPPED_INDEXES`
+   (`DROP INDEX IF EXISTS`).
+3. **Never `--delete` or `--create-db` on production**: the script refuses (below).
+4. **List each new table here.** The 2026-10 audit added two, both through `create_all`:
+   `room_ban` (`RoomBan`, a kick's ban; WP-07) and `auth_session` (`AuthSession`, the
+   revocable sessions; WP-17). `auth_session.legacy_refresh_digest` (unique, nullable;
+   review R3) is a column of that same new table, so it comes with the table — it is not a
+   column added to an existing one; a dev database that already had `auth_session` needs
+   `--delete` + `--create-db`. Before them: `notebook_entry`, `daily_word`,
+   `daily_word_play`, `term_script`. The audit's new indexes are listed under "The
+   PostgreSQL indexes" below. `test_database_ddl.py::test_the_tables_added_by_this_release_are_created`
+   pins the newest tables.
+
+A new value of a native PostgreSQL enum (`notebookgametype`) is the one exception that
+needs a statement by hand (`ALTER TYPE … ADD VALUE IF NOT EXISTS`, see the Kunnash below):
+additive too, after the dump. A migration tool is a later, separate step and is not set up.
+
+**The startup DDL runs one worker at a time** (`create_db_and_tables`, WP-21). Every
+uvicorn worker calls it from its lifespan; on a database missing a table or an enum the
+four raced on `CREATE TYPE` / `CREATE TABLE` and three crashed at boot (INFRA-13 — it
+happened on the deploy that added `notebook_entry`). It now runs in ONE transaction under
+the blocking, transaction-scoped `pg_advisory_xact_lock(SCHEMA_DDL_LOCK_KEY)`: the first
+worker creates, the next ones find everything there. `main.py` calls it through
+`create_schema(settings, engine)`, which uses `DIRECT_DATABASE_URL` (not PgBouncer) on a
+throwaway `NullPool` engine, and the app engine when no direct URL is set.
+
+**The PostgreSQL indexes are optional, by design.** Each one is created only when
+missing (so a normal boot takes no table lock), in its own savepoint, under
+`SCHEMA_DDL_LOCK_TIMEOUT`: one that cannot be built — a case-variant duplicate already
+stored, a table lock not granted in time — is logged (`Startup DDL: <name> skipped`,
+without the duplicated value) and the boot goes on; the next boot tries again. The set:
+unique `ix_user_username_lower` (`lower(username)`, the backstop behind
+`username_claim_lock`) and `ix_user_email_lower` (`lower(email_address)`, one account per
+mailbox whatever the case; SEC-F14), `ix_chatmessage_user_id` (account purge) and
+`ix_userstats_total_games_won_desc` (leaderboard). Dropped when present, as never read
+and paid for on every write: `ix_game_live_state_gin` (no query uses a JSONB operator)
+and `ix_roomuserlink_room_id` (a prefix of `uq_roomuserlink_room_user`; the model no
+longer declares it). SQLite (dev, the default test run) has none of these. Tests:
+`tests/api/test_database_ddl.py` (postgres-marked; each test gets a database of its
+own, so the unique `lower()` indexes never reach the shared test database), including a
+boot behind a transaction that holds `game` (it skips that one statement and finishes).
+**Anything that inserts users on PostgreSQL meets the unique indexes**: the dev/E2E seed
+draws its random users with `fake.unique` (Faker repeats a name in ~0.14 % of 15-user
+seeds, which would crash the reseed; `tests/scripts/test_wp21_seed_unique_users.py`).
+
+Dropping and reseeding is for dev and E2E databases only (the E2E gate does it itself, in
+`e2e/global-setup.ts`):
 
 ```bash
-docker exec -w /app majlisna-backend env PYTHONPATH=/app python scripts/generate_fake_data.py --delete
-docker exec -w /app majlisna-backend env PYTHONPATH=/app python scripts/generate_fake_data.py --create-db
+docker exec -w /app majlisna-e2e-backend env PYTHONPATH=/app python scripts/generate_fake_data.py --delete
+docker exec -w /app majlisna-e2e-backend env PYTHONPATH=/app python scripts/generate_fake_data.py --create-db
 ```
 
-Do not add Alembic-style migration DDL to `database.py`.
+**Production refuses both commands (exit 2) — only `--seed` runs there.** When
+`MAJLISNA_ENV` or `ENVIRONMENT` is `production`, `--delete` and `--create-db` stop before
+any engine exists unless BOTH `--i-know-this-is-production` and `--dump-taken <path>` are
+given; the path must be a `pg_dump -Fc` archive (starts with `PGDMP`) written less than an
+hour ago (`PRODUCTION_DUMP_MAX_AGE_SECONDS`), readable inside the container (`docker cp`
+it in). This sequence ran on production once: every real account was dropped and 31 fake
+ones, 16 with this repo's public passwords, took their place, with no backup (audit
+PD-02). Prefer additive schema changes (a new table through `create_all`) over a drop.
+Tests: `tests/scripts/test_generate_fake_data_guard.py`.
+
+**Seed residue on a server is removed by `scripts/purge_seed_data.py`**, a dry run unless
+`--apply --dump-taken <path>` (same dump check). It removes, through `_purge_user_references`,
+the accounts at @test.com / @example.* that are never Google-linked, not named by `--keep
+EMAIL` (repeatable), and either one of TEST_USERS (public passwords: they go whatever they
+did) or never really used (no finished game, no session) — the address alone is not enough,
+a real player may have registered a throwaway @test.com (review INT-04). Then the orphan
+games (no room, `live_state` null, nobody linked) and the seeded rooms (owned by a seeded
+user, no settings, no member, no game) with their bans and chat, in ONE transaction, then says
+to restart the backend (the leaderboard is cached per worker; waiting out its 30 s TTL does
+the same). The dry run lists every account and room it would delete, and the accounts at a
+seed domain it KEEPS. `--apply` is refused (exit 2) while a seeded account sits in a running
+game: purging that seat would leave a ghost player. The operator runs it in production after a verified dump; an agent never does.
+Tests: `tests/scripts/test_purge_seed_data.py` (SQLite and `--use-postgres`).
 
 Two things this script needs, both of which have already bitten once:
 
@@ -430,12 +675,14 @@ types in N attempts" — reproducible every single run. The script refuses to st
 if `DATABASE_URL` names pgbouncer and `DIRECT_DATABASE_URL` is unset.
 
 **`faker` is a MAIN dependency, not a dev extra — leave it there.** It looks like
-a test-only package, but this script is the project's migration mechanism and so
-has to run on the production image, which is built with `ARG INSTALL_DEV=false`.
-As a dev extra it was absent there: the command above worked in E2E (that image
-passes `INSTALL_DEV: "true"`) and failed on the server with a bare
-`ModuleNotFoundError` — *after* `--delete` had already dropped everything, leaving
-production with an empty schema and no way to refill it.
+a test-only package, but this script runs on the production image (built with
+`ARG INSTALL_DEV=false`), and `--create-db` needs it wherever it is allowed to run. The
+script used to be the schema-change procedure too (drop and reseed: that is what wiped
+production's accounts, PD-02, and production now refuses it). As a dev extra faker was
+absent from that image: the drop-and-reseed worked in E2E (that image passes
+`INSTALL_DEV: "true"`) and failed on the server with a bare `ModuleNotFoundError` —
+*after* `--delete` had already dropped everything, leaving production with an empty
+schema and no way to refill it.
 
 Belt and braces on top of that: `--create-db` verifies faker is importable BEFORE
 touching the database, and `--delete` warns when the follow-up cannot succeed.
@@ -459,22 +706,26 @@ beside their old, corrected-away versions and updated nothing else. Nothing hold
 foreign key to a question; a running game whose next question was retired draws another.
 `question_en` must therefore be unique (`test_every_mcq_question_text_is_unique`): two
 entries sharing it overwrote each other on every run (the Bayt al-Hikmah question was in
-the data twice). The questions are cached per worker for an hour
-(`CACHE_TTL_GAME_CONTENT_SECONDS`), so restart the backend after a production `--seed`.
+the data twice). Nothing caches the questions (or any game content): every draw reads the
+table, so a production `--seed` takes effect on the next game, with no restart.
 
 ### Expected 4xx log at INFO, not WARNING
 
 `BaseError` picks `INFO` for < 500 and `ERROR` for >= 500. `app.py` attaches a
-Sentry/GlitchTip sink at WARNING+, so logging routine 4xx as warnings turned every
+Sentry-compatible sink (Bugsink on the host, once `SENTRY_DSN` is set; it is empty in
+production today) at WARNING+, so logging routine 4xx as warnings turned every
 "You have already voted this round" and every wrong room PIN into a tracked issue,
 burying real errors and burning the error-tracker quota.
 
-### `get_room_by_id` is the expensive one
+### Never eager-load `Room.games`
 
-It eager-loads `Room.users` **and** `Room.games` — i.e. the full `live_state` JSON
-of every game ever played in that room. Only callers that serialize the Room
-through `RoomView` need it (a lazy relationship load on an async session raises
-`MissingGreenlet`). Everything that just reads scalar columns — `get_room_state`
+`RoomController._load_room_for_view` (behind `get_room_by_id` and every
+create/join/spectate/leave answer) eager-loads `Room.users` only — all `RoomView`
+serializes (a lazy relationship load on an async session raises `MissingGreenlet`).
+It used to add `selectinload(Room.games)`, i.e. the full `live_state` JSON of every
+game ever played in the room, on every join and leave, and `RoomView` threw it away:
+it has no games field on purpose (BDP-09; `test_room_reads_never_load_the_rooms_past_games`
+counts the statements). Everything that just reads scalar columns — `get_room_state`
 (every heartbeat and every Socket.IO broadcast), `kick_player`,
 `update_room_settings`, `rematch`, `get_share_link`, `_prepare_game_start` — uses
 `get_room_without_relations`.
@@ -487,9 +738,9 @@ same user (double-tap, client retry) both saw "no existing link" and both
 inserted — the player appeared twice in the lobby, the count was inflated, and
 `.one()` lookups raised `MultipleResultsFound` (a 500).
 
-Also: `join_room` filters on `Room.type == ACTIVE`. `public_id` is globally unique
-and rooms are only soft-deleted, so a stale code otherwise re-attached a user to a
-closed room.
+Also: `join_room` and `join_room_as_spectator` filter on `Room.type == ACTIVE`.
+`public_id` is globally unique and rooms are only soft-deleted, so a stale code
+otherwise re-attached a user to a closed room (the spectator door still did: BR-22).
 
 ### SQLite foreign keys are per-connection
 
@@ -499,6 +750,42 @@ table-creating connection does **not** carry over to the rest of the pool, which
 left dev running with foreign keys effectively off. `tests/conftest.py` installs
 the same listener on its test engine.
 
+### The test fixtures: cheap bcrypt, a database on request, one PostgreSQL schema (WP-19)
+
+`tests/conftest.py`, pinned by `tests/test_wp19_fixtures.py`:
+
+- **Test passwords hash at bcrypt cost 4.** The autouse `cheap_bcrypt` swaps
+  `controllers/shared.gensalt` for `bcrypt.gensalt(rounds=4)`; `get_password_hash` reads
+  that global at every call (the thread-pool variant too), so fixtures, registration,
+  password changes and resets all get it. Production's cost 12 is 0.24 s a hash and was
+  about two thirds of the suite's CPU (TQ-11). A test about the hash itself is marked
+  `@pytest.mark.real_bcrypt` (`test_shared.py` still asserts `$2b$12$`). The login's
+  `_DUMMY_PASSWORD_HASH` stays at 12; no test compares timings.
+- **A test gets a database only when it needs `engine`** (directly, or through `session`
+  and every factory fixture). The autouse `clear_database` used to DEPEND on `engine`, so
+  every test, pure functions included, built (SQLite) or re-checked (PostgreSQL) the
+  schema and truncated every table one by one (INFRA-16). It now calls
+  `request.getfixturevalue("engine")` only for a test that needs it — first, so the
+  tables are emptied after the test's own fixtures (live servers, socket clients, drained
+  notifications) have let go of their connections, as before. A `--use-postgres` run of
+  pure tests never starts the container.
+- **SQLite**: a fresh in-memory database per test (`create_all(checkfirst=False)`;
+  disposing the StaticPool engine frees it, nothing is dropped).
+- **PostgreSQL**: one container for the session (`fsync`, `synchronous_commit` and
+  `full_page_writes` off: tests need no durability; `trust` auth: no SCRAM exchange on
+  each of the many connects) and one schema (`postgres_schema`, a NullPool engine, so
+  every session end still closes its connection and nothing a test leaves on one reaches
+  the next; a commit therefore costs a reconnect, ~25-30 ms through Docker Desktop, which
+  is now most of a PostgreSQL test's time). After each test
+  that used it: ONE `TRUNCATE <every table> RESTART IDENTITY CASCADE`, under a
+  `lock_timeout` of 30 s. Every table the models declare is in it (`room_ban`,
+  `auth_session`, any new one); the enum types stay.
+- So a test may not rely on rows another test left (there are none) or on a sequence's
+  value (each test starts at 1, `roomuserlink.id` included), may not keep a transaction
+  open past its own fixtures (the cleanup then fails at that test's teardown, naming it,
+  instead of hanging the run), and may not DROP or ALTER the shared schema — it creates a
+  database of its own, as `test_database_ddl.py` does.
+
 ### Host-supplied settings are bounded
 
 `RoomSettingsRequest` bounds every numeric field (see `constants.py`:
@@ -506,6 +793,21 @@ the same listener on its test engine.
 These values are copied verbatim into `Room.settings` and then into a game's
 `live_state`, so `word_quiz_rounds=10_000_000` made game creation try to draw ten
 million questions, and a negative timer made the expiry check pass immediately.
+The quiz round durations (`word_quiz_turn_duration`, `mcq_quiz_turn_duration`) have
+their own floor, `MIN_QUIZ_TURN_SECONDS`: the quizzes have no "0 = untimed", and a
+round of 0-2 s expired the moment it opened (BR-17). Undercover and Codenames keep 0.
+Behind the schema, both quiz controllers read a stored duration of 0 or less as
+untimed — `_is_timer_actually_expired` answers False and `_phase_timer` None — so a
+value already in a `live_state` can no longer close every round at once.
+
+### Closing a room or a rematch cancels its running game
+
+`delete_room` and `rematch` hold the room lock (`room:{id}`, which a game start holds
+while it deals), re-read the room, then hold the active game's lock, and end that game
+through `game_cancel.cancel_running_game` (CANCELLED, `end_time`, pause cleared), in
+one commit. `delete_room` used to leave the game IN_PROGRESS and still playable in a
+deleted room (BR-05); a rematch flipped the status without the game lock (BR-06). A
+finished game stays finished.
 
 ### A player cannot become a spectator mid-game
 
@@ -521,7 +823,7 @@ the host, can flip it back.
 `"voting"` turn. Both halves are load-bearing:
 
 Once every alive player has voted, the turn *stays* in phase `"voting"` until the
-host calls `next-round`, and `timer_started_at` still points at the voting
+next round opens (see "Undercover between rounds: the ready quorum"), and `timer_started_at` still points at the voting
 deadline — so the timer reads as expired for that entire gap. Without the flag,
 every timer-expired call re-ran the tally over the SAME votes: another player died
 and `eliminated_players` grew a duplicate entry, which desynchronises both
@@ -595,7 +897,16 @@ Socket.IO, so the gap was permanent.
 `_handle_permanent_disconnect` picks the first non-spectator in `remaining` and only
 falls back to a spectator when nobody else is left. `remaining` includes spectators,
 and the host is who starts games, changes settings and kicks — while
-`_prepare_game_start` excludes spectators from the roster entirely.
+`_prepare_game_start` excludes spectators from the roster entirely. Within each kind a
+connected member comes first (`disconnect._next_owner`).
+
+`remaining` is every seat still CONNECTED or away INSIDE its grace (`disconnect._still_seated`,
+the sweep's own rule): a room is empty, deactivated and its running game cancelled only when
+nobody is coming back. It used to count the connected seats alone (review R1): a sweep during
+the in-person discussion — phones lock, heartbeats go stale after 20 s — cancelled the game for
+players still seated inside their 180 s grace, and the first phone to outlast a prayer pause's
+45 minutes cancelled it for everyone still inside theirs. Tests: `test_disconnect.py`,
+`test_a_sweep_while_the_others_are_only_briefly_away_plays_the_departure` and its neighbours.
 
 ### The end-of-game flow lives in `game_end_stats.py`, and the disconnect path uses it
 
@@ -618,6 +929,62 @@ catch-and-continue turned into `PendingRollbackError` for the whole write).
 
 The quizzes also went through this: they updated stats but never checked
 achievements, so a quiz-only player's counters rose while no badge ever unlocked.
+
+What `record_game_end` writes since the 2026-10 audit (WP-03), for the scorable players
+only (a leaver gets nothing at all, owner rule (b)):
+
+- **`live_state[WINNER_IDS_KEY]`**, for every game type: the winners who are scorable,
+  and `[]` when the final roster (players minus leavers) is below `MIN_PLAYERS_FOR_A_WIN`.
+- **One resolver reads it: `controllers/stats.did_user_win(game, user_id) -> bool | None`**,
+  used by the profile chart, head-to-head and `GET /games/user/{id}` (`user_won`). `None`
+  = no result, and every reader skips the game: not FINISHED, a leaver, anyone not in the
+  final `players` (a spectator has a `UserGameLink` too), a solo game, an old row with no
+  winner. Rows older than the key fall back to side / team / top score (rule (a)). It used
+  to know only Undercover and Codenames, so every quiz win read as a loss on the chart, a
+  draw head-to-head and "no result" in history, while `UserStats` counted it. It lives in
+  `stats.py` because `game_end_stats` imports `stats` (the reverse is a cycle).
+- **The counters nothing wrote**: `games_hosted` (the player named by
+  `HOST_USERNAME_STATE_KEY`), `mr_white_correct_guesses` (`MR_WHITE_GUESS_RESULT_KEY` —
+  it must be written BEFORE `_finish_game` runs), `codenames_perfect_rounds` (each clue
+  turn of the team in `clue_history` that turned exactly `clue_number` cards, all its
+  own; a clue of 0 never counts — the reveal log has no `clue_number`). Applied before the
+  achievement check, so a badge unlocks in the game that earned it.
+- **The five special achievements** (`stat_field: None`): `SPECIAL_ACHIEVEMENT_RULES`
+  (code → game type + predicate over the final state), unlocked through
+  `AchievementController.unlock_special(user_id, code, commit=False)`, idempotent, which
+  refuses a code that has a counter. `perfect_undercover` (an undercover who won, no vote
+  ever named them), `unanimous_vote` (a resolved round where every ballot but the target's own
+  names the target, ≥ `UNANIMOUS_VOTE_MIN_VOTES` such ballots, none drawn by the timer —
+  `_auto_fill_missing_votes` lists its draws in `turn["auto_voters"]`; this player cast
+  one of them, the target never earns it. "Every ballot" could never happen: the target
+  votes too, for someone else), `last_survivor` (alive, winning
+  side, its only living member), `sweep_victory` (the team won and every card it turned —
+  at least one — was its own, from `reveal_log`, else `clue_history`), `assassin_finder`
+  (an operative among the `voter_ids` of the assassin's reveal). `test_wp03_specials.py`
+  fails if a `stat_field: None` code has no rule, or if any achievement's stat field has no
+  writer in `controllers/`.
+- **The daily and weekly challenges** (owner rule (g)): `assign_missing_challenges` then
+  `check_progress`, both `commit=False`. `check_progress` had no caller at all, so every
+  challenge sat at 0/N; assignment happened only when /challenges was opened, so a
+  player's first games counted for nothing. Two conditions beyond play / win /
+  play_as_role (review R7): `win_as_role` (`weekly_win_undercover_role`, role
+  `undercover`: a civilian's win used to complete it) and `play_distinct_types`
+  (`weekly_play_both`: Undercover AND Codenames; `weekly_play_all_3`, "Play 3 different
+  games": any three of the four), whose `UserChallenge.progress` is a bitmask over the
+  code's types (`challenge.DISTINCT_TYPE_CHALLENGES`; no new column) shown as the number of
+  bits set — two quizzes used to complete "Play both Undercover and Codenames".
+  `seed_challenges` is an upsert by code (it inserted missing codes only, so a corrected
+  definition never reached production): `--seed` brings the stored rows to the data.
+- **One read per table for the whole table of players (BDP-07)**:
+  `StatsController.get_or_create_many`, `AchievementController.load_user_achievements`,
+  `ChallengeController.load_active`, handed to the per-player calls (`stats=`, `known=`,
+  `active=`). A 12-player game end went from ~113 statements to ~12 inside the lock
+  (`test_a_game_end_reads_each_table_once_for_twelve_players` pins one SELECT per table).
+
+`GET /stats/users/{id}/stats` is **read-only** (`StatsController.read_user_stats`): 404
+`UserNotFoundError` for an unknown user, an unsaved zero row for a user with none. It used
+to call `get_or_create_user_stats`, so an anonymous GET inserted rows and an unknown id was
+a foreign-key 500, on SQLite too. `POST /challenges/seed` takes `get_current_admin_user`.
 
 ### Game draws come from `api/utils/rng.py`, never `random.*`
 
@@ -646,6 +1013,45 @@ Same reason `AchievementController` memoises the definitions **on the instance**
 in this cache: they are session-bound ORM rows, and one controller already serves
 every player of a single game end (`check_achievements` runs once per player, and used
 to re-read the whole table each time, inside the game lock).
+
+Game content is not cached either (WP-24). The admin lists (`get_words`,
+`get_term_pairs`, `get_word_packs`) kept their ORM rows for an hour, and after an admin
+write three workers in four went on serving the old list; `get_all` on the MCQ and Word
+Quiz controllers cached rows nothing read and is gone. The draws never hydrate a table:
+`get_random_questions` / `get_random_words` (Word Quiz and Codenames) /
+`get_random_term_pair` select the ids (plus the difficulty, or the Codenames text for the
+distinct-word rule), draw with `rng`, then fetch only the drawn rows by id, and
+`utils/draw.in_draw_order` puts them back in drawn order — a `WHERE id IN` answers in the
+database's order, and the order is the MCQ rounds and the Codenames layout. They used to
+load every question (609 rows, 925 kB) on each MCQ start and every quiz word on each
+Kalimat round, inside the game lock.
+
+### The game lock waits in PostgreSQL's queue (WP-22)
+
+`get_game_lock` on PostgreSQL runs `SELECT set_config('lock_timeout', '<LOCK_TIMEOUT_SECONDS>s',
+true)` (that is `SET LOCAL`) then the BLOCKING `SELECT pg_advisory_xact_lock(:key)`. A waiter
+sleeps in the server's lock queue and is woken when the holder commits or rolls back, first
+come, first served; a wait that runs out is `lock_not_available`, raised as `TimeoutError`,
+and a deadlock is broken by the server (`deadlock_detected`, raised as is). It replaced a
+`pg_try_advisory_xact_lock` retried every 100 ms (BDP-06): no order, the lock idle between
+polls, 12 simultaneous moves waiting ~530 ms at the median. A waiter holds its connection (a
+PgBouncer server slot) in both designs.
+
+- **The timeout is transaction-local on purpose**: a session-level `SET` would stay on the
+  server connection for PgBouncer's next client. It is not put back once the lock is held
+  (one more round trip in the critical section, paid by every queued move in turn), so the
+  rest of the transaction runs under the same bound: a row lock that does not come within
+  `LOCK_TIMEOUT_SECONDS` fails the request instead of holding the slot for good.
+- **Pooled engines in the tests.** The shared `engine` fixture is `NullPool`: every session
+  end closes its connection, which releases session-level locks too, so a
+  `pg_advisory_lock` mutant passed 129 lock tests (TQ-06). **Rule: a lock-leak test uses a
+  pooled engine** — `test_game_lock.py`'s `pooled_pair` is two `AsyncAdaptedQueuePool`
+  engines of `pool_size=1`, so the connection given back stays open and a leaked lock is
+  still held on it (`test_pg_lock_is_released_when_the_pooled_connection_goes_back`). It
+  builds `AsyncAdaptedQueuePool` engines: a lock taken and committed must not stay on the
+  connection given back to its pool, the median wait of 12 contenders (lowest of 3 bursts)
+  stays under 150 ms, waiters are served in arrival order (read from `pg_locks`), the
+  timeout, its scope, and the deadlock.
 
 ### `_fallback_locks` is a `WeakValueDictionary`
 
@@ -681,6 +1087,59 @@ game nobody had played or tested.
 
 Neither had a client. `UserController.get_users` / `delete_user` remain as internal
 primitives — do not re-expose them.
+
+### The account lifecycle (WP-27)
+
+Tests: `tests/api/controllers/test_wp27_account_lifecycle.py`,
+`test_wp27_password_bytes.py`, `tests/api/models/test_user.py`,
+`tests/api/routes/test_user.py`, `tests/api/routes/test_friend.py`.
+
+- **Deleting an account is a departure first** (SEC F05). `delete_user_account` and
+  `delete_user` run `_leave_every_room`: `_handle_permanent_disconnect` for every
+  `RoomUserLink` of the user (elimination or turn repair, ownership transfer to a player
+  first, deactivation of an emptied room, `mark_player_left` — a deleted player is a
+  leaver: neither a win nor a loss). Each departure takes and releases its game lock
+  (one commit each); only then does `_purge_user_references` run and the user row go, in
+  one more commit, outside every lock. The purge used to delete the seats itself: the
+  ghost stayed alive at the describer's seat of an untimed round for ever, and a host's
+  deletion orphaned the room under a game still IN_PROGRESS. Both return
+  `list[DepartedRoom {room_id, game_id}]` (`game_id` read BEFORE the departure), and
+  `DELETE /users/me/account` calls `remove_user_from_room_socket` and
+  `notify_member_removed` for each, exactly like the leave route.
+- **The confirmation comes first, and is one of two** (SEC F14). `DeleteAccountRequest`
+  takes EXACTLY one of `password` / `google_access_token` (neither or both: 422). A
+  Google token is verified by `SocialAuthService.verify_google_access_token` — the
+  sign-in's audience check — and its `sub` must equal `user.google_sub`, else
+  `GoogleAccountMismatchError` (403; also for an account never linked to Google). A
+  Google-only account's password is a random sentinel its owner never saw, so deletion
+  used to need a password reset first (still accepted). A refused confirmation plays no
+  departure.
+- **Passwords are measured in bytes** (SEC F10). bcrypt 5 raises past 72 bytes of
+  UTF-8 (`BCRYPT_MAX_PASSWORD_BYTES`), and the schemas counted characters: a long login
+  was an unauthenticated 500, and 40 Arabic letters (80 bytes) passed registration and
+  then 500'd at hashing. `verify_password` answers False on bcrypt's `ValueError` (a
+  login is a 401); `get_password_hash` raises `PasswordTooLongError` (400), which covers
+  the reset; and `UserCreate.password`, `UserUpdatePassword.current_password` /
+  `new_password` and `DeleteAccountRequest.password` run
+  `models/user.refuse_password_over_bcrypt_limit` in `mode="before"`, so any password
+  over 72 bytes — over 72 characters or not — gets the translated 400.
+- **A password change signs out every OTHER session** (SEC F01):
+  `update_user_password(..., keep_session_id=request.state.session_id)` calls
+  `revoke_user_sessions(..., except_session_id=)` in the change's commit; a caller on a
+  legacy token (no `sid`) keeps none.
+- **`profile_picture_url` is Google's avatar CDN, bounded** (SEC F15):
+  `models/user.avatar_url_is_allowed` — https, no userinfo, no explicit port, no
+  backslash or whitespace, a plain-DNS host ending in `ALLOWED_AVATAR_HOST_SUFFIXES`, at
+  most `AVATAR_URL_MAX_LENGTH` — else `InvalidAvatarUrlError` (400). The UI never sets
+  it; Google sign-in stores Google's picture directly. Values stored before stay as they
+  are.
+- **`POST /friends/request` is limited per user** (`FRIEND_REQUEST_RATE_LIMIT`,
+  `user_or_ip_key`).
+- **A validator never raises `ValueError` for a request schema**: pydantic puts the
+  exception object in the error's `ctx`, and the app's `RequestValidationError` handler
+  cannot serialise it — the request answered a 500 (every unknown `country` did). Raise
+  `PydanticCustomError` (a 422) or a named `BaseError` (it propagates out of validation
+  to its own handler).
 
 ### A game-state schema must declare every field the client reads
 
@@ -817,7 +1276,7 @@ reported as an unused blanket directive). All of them were removed in the swap.
 3. **Narrow it to the rule code** (`# ty: ignore[unsupported-operator]`), never a bare
    `# ty: ignore` — a bare one also swallows the next, unrelated, real error there.
 4. **Prefer a real construct to a suppression when one exists.** Reading a value back
-   out of `TTLCache` (which stores `object`) is `cast(Sequence[Word], cached)`, not an
+   out of `TTLCache` (which stores `object`) is `cast(Sequence[LeaderboardEntry], cached)`, not an
    ignore: `cast` says "I assert this type" in a way that survives changing checker.
    Importing `resend.exceptions` explicitly beats suppressing the warning about it.
 
@@ -875,6 +1334,38 @@ The rules live in their own module for the same import reason as
 import a controller. `UndercoverGameController._eliminate_player_based_on_votes`
 and `_get_winning_team` are thin delegates to it.
 
+What the 2026-10 audit added (WP-02; tests in `test_undercover_rules.py`,
+`test_undercover_game.py` and `test_wp02_ready_quorum.py`):
+
+- **Describing: `advance_describer(state, turn)` runs after EVERY description and every
+  departure** (BR-02). The skip used to run only at the moment of a departure, from the
+  index as it stood then, so a player who left LATER in the order than the current
+  describer locked the round as soon as the turn reached their empty seat. **Rule: every
+  turn pointer moves through that one helper**, which skips seats no longer alive; after
+  any departure the turn must still offer a legal move or a server-side timeout; and a
+  departure test seats the leaver LATER in the order, not only at the current actor
+  (`test_a_later_describer_leaving_does_not_lock_the_round[leave|sweep]`,
+  `test_the_last_describer_leaving_opens_voting_after_the_others`).
+- **Voting: the ballots naming the departed player go back to their voters** (BR-07),
+  who may vote again. Otherwise the players who had not voted yet decided the round
+  alone — and when everyone had voted for the leaver, the tally completed by
+  subtraction with every count at 0 and the tie-break eliminated a random player. A
+  ballot counts only if it names a living player, and a complete tally where none does
+  is never resolved.
+- **Between rounds: the leaver's ready mark is dropped, and a departure that completes
+  the quorum opens the next round** (not when it decides the game, not while paused).
+  The disconnect handler passes `host_id=room.owner_id`; without it the quorum asks
+  every alive player, which can only open the round later, never early.
+
+**Rule for every game: a departure removes every reference the current turn holds to the
+leaver** — their own vote, the votes that name them (Undercover), their card vote (Codenames,
+`release_departed_operative`), their ready mark — **and every quorum counts only the players
+still in the game.** An all-zero tally is never resolved with `rng`: the round stays open.
+Tests: `test_votes_for_a_player_who_leaves_can_be_cast_again`,
+`test_nobody_is_eliminated_with_zero_votes_when_the_suspect_walks_out[0..5]`
+(`test_undercover_game.py`), `test_a_departed_operatives_card_vote_never_counts`
+(`test_disconnect.py`), `test_undercover_rules.py`.
+
 ### A Codenames team needs both roles, not just a body
 
 `_codenames_team_strength` scores a side 2 (spymaster **and** operative), 1 (one
@@ -885,11 +1376,64 @@ one — non-empty, and unable to take a turn.
 
 - No operative: the spymaster gives a clue and nobody can guess or end the turn.
 - No spymaster: nobody can give a clue, so `guess_card` answers `NoClueGivenError`
-  and the side can only ever pass.
+  and the side can only ever pass (and since BR-15 not even that: `end_turn` needs a
+  clue too).
 
 The Codenames timers also default to 0, so nothing switched the turn either. The
 score ordering (not a boolean) is what decides the winner when a side drops below
 2: an empty team must never beat a crippled one.
+
+### Codenames moves: the row's status, one-word clues, the votes that count, the reveal log
+
+The rules of a turn live in `codenames_helpers.py`, on `live_state` alone (the disconnect
+handler shares them and cannot import a controller). WP-09 of the 2026-10 audit:
+
+- **Every move checks the Game ROW first** (`_ensure_in_progress`, in `give_clue`,
+  `guess_card`, `end_turn`, `handle_timer_expired`): `game_status` AND
+  `live_state["status"]` must be IN_PROGRESS, else `GameNotInProgressError`. Checking
+  `live_state` alone kept a game a rematch had CANCELLED playable from a stale tab, and
+  finishing it rewrote it FINISHED, credited stats and unlinked the room's NEW game
+  (BR-06). The finish path (`_finish_game`) lets go of the room only through
+  `game_cancel.detach_room_if_current`.
+- **A clue is one word** (`_validated_clue`): stripped; blank or holding any whitespace →
+  `ClueMustBeOneWordError` ("the Sunnah" went through the UI with the Sunnah card on the
+  board); a card's own word → `ClueWordIsOnBoardError`, compared casefolded NFKD and
+  through `text_match.matches_any` (accents, the "al-" article) against the Latin words
+  AND their `term_script` Arabic forms (`clue_names_a_card`). The STRIPPED clue is stored
+  and answered.
+- **`end_turn` before the clue → `NoClueGivenError`** (BR-15): one operative passed the
+  team's whole turn.
+- **The quorum is the operatives on the team now, and only their votes count**
+  (`current_operative_ids`, `counted_operative_votes`, `tally_operative_votes` → the card,
+  or None until every one of them has voted; a tie is drawn with `rng` among the top cards).
+  A departed operative's ballot used to fill the quorum and could be the card turned
+  (BR-09). `guess_card` also drops such stale ballots from `card_votes`.
+- **A departure settles the vote it completes**: `release_departed_operative(state,
+  user_id)` (for `_handle_codenames_disconnect`, under the game lock; works whether or not
+  the leaver is still in `players`) pops the leaver's vote and, when the remaining votes
+  now make the quorum, turns the agreed card and returns the outcome (else None). A
+  finishing outcome leaves the Game row to the caller (FINISHED, `end_time`,
+  `detach_room_if_current`, `record_game_end`). It applies during a prayer pause too:
+  the votes were cast before, as with an Undercover vote a departure completes.
+- **Every card turned goes through `apply_card_reveal(state, idx, voter_ids)`**, which
+  returns a `CodenamesRevealOutcome` (its value is `GuessCardResponse.result`) and appends
+  `{card_index, team, card_type, voter_ids, clue_turn}` to
+  `live_state[CODENAMES_REVEAL_LOG_KEY]` — the guessing team, the operatives whose vote was
+  that card (the lone operative of a team of one), and the clue's turn. `clue_turn` is
+  `live_state[CODENAMES_CLUE_TURN_KEY]`, +1 per `give_clue` (0 at the deal; a game without
+  the key counts `len(clue_history)`), so it is the clue's 1-based position in
+  `clue_history`. `game_end_stats` reads the log for sweep_victory and assassin_finder
+  (owner rule (f)).
+- **hint-viewed and timer-expired call `_require_participant`** (a stranger: 403;
+  BR-13, SEC F07/F08). A hint view is recorded only for a board word whose meaning the
+  caller can open (`hint_is_visible`: every card for the spymaster, a turned card for an
+  operative), once, and at most `HINT_USAGE_MAX_WORDS_PER_USER` per user; anything else,
+  a spectator's included, answers `recorded=False` and writes nothing.
+
+Tests: `tests/api/controllers/test_codenames_helpers.py` (the pure rules),
+`test_codenames_game.py` (the WP-09 block: a cancelled game after a rematch, the departed
+ballot, the clue shapes, the reveal log re-read from the database, the hint rules),
+`tests/api/routes/test_codenames_game.py` (the translated errors through the real stack).
 
 ### A quiz round a departure completes goes to results at once
 
@@ -905,16 +1449,19 @@ removing the player, under the game lock and in the handler's single commit.
   remaining player has an entry in `answers`. MCQ writes every lock-in there; Word
   Quiz only the answer that found the word (a wrong try is an `attempt`, and the
   player may type again), so "done" is "answered" in one and "found it" in the
-  other. `submit_answer` uses the same function, and the controllers'
+  other — or, in Word Quiz, "has used all `WORDQUIZ_MAX_ATTEMPTS_PER_ROUND` tries"
+  (`wordquiz_out_of_tries`), since such a player can type nothing more. Both
+  `submit_answer` branches use the same function (the last allowed miss can close
+  the round), and the controllers'
   `_transition_to_results` are thin delegates to `quiz_rules` — a module of its own
   for the import reason of `undercover_rules` (`disconnect` cannot import a
   controller).
 - **Only an open round** (`round_phase == "playing"`), never an empty table (the
   handler cancels it), and **never while paused**: the departure is recorded (roster,
   answers, attempts, ready marks), the round stays as the prayer found it, and
-  `resume_game` settles it — `BaseGameController._settle_after_resume(state)`, a
-  no-op the two quiz controllers override, runs after the pause is cleared, in the
-  resume's commit.
+  `resume_game` settles it — `BaseGameController._settle_after_resume(state, host_id)`,
+  a no-op the two quiz controllers override (and Undercover, for its ready quorum),
+  runs after the pause is cleared, in the resume's commit.
 - Notifications need nothing new: kick and leave already `notify_member_removed`
   (→ `notify_game_changed`), and the sweep returns the game for `on_game_changed`.
 
@@ -952,6 +1499,54 @@ hint at t=0 and paid full marks, while honest players lost a point per rung. The
 client keeps animating locally and re-fetches when its clock crosses a rung it
 does not hold (there is no Socket.IO event for a hint: nothing mutates).
 
+### Undercover between rounds: the ready quorum
+
+Owner rule (d), BR-23, SEC F05. `POST /undercover/games/{id}/next-round` is the host's
+"next round" AND every other player's "I'm ready" — one endpoint, one hook
+(`useStartNextRound…`), answered by `StartNextRoundResponse.advanced`:
+
+- the host (`Room.owner_id`) opens the next round at once (`advanced: true`, with
+  `turn_number` and `description_order`), as before;
+- any other caller must be a player of the game (`NotAGamePlayerError`, 403) who is
+  alive (`NotAnAlivePlayerError`, 400); their call adds them, once, to
+  `turn[UNDERCOVER_READY_PLAYERS_KEY]` on the resolved round, and opens the next round
+  when every alive player but the host is ready (`undercover_rules.ready_required`).
+  Otherwise `advanced: false` with `ready_players` (ids, arrival order), `ready_count`
+  and `ready_quorum`. Same checks as before for everyone: in progress, the right room,
+  not paused (`GamePausedError`), round resolved and no guess owed
+  (`RoundNotResolvedError`);
+- with no host (`owner_id` NULL — the host deleted their account) nobody forces and
+  every alive player is asked. Every next-round answered 403 there, so such a game
+  could never finish.
+
+It used to be the host's call alone: a host whose tab stayed open but who had stopped
+playing held the table between rounds indefinitely (host transfer needs 180 s
+*disconnected*). The one place a round opens is `undercover_rules.open_next_round(state)`
+(new describing turn, its order, `timer_started_at`, the ready list cleared); the host
+path, the quorum path and the departure path all call it. `UndercoverGameState` carries
+`ready_players`, `ready_count`, `ready_quorum` and the caller's `is_ready` while the
+resolved round waits (empty otherwise). A ready mark is a visible change, so the route
+notifies on both outcomes. A departure during a prayer pause that completes the quorum
+opens nothing (nothing moves while paused); the resume opens it, in its commit
+(`UndercoverGameController._settle_after_resume` → `open_next_round_if_ready`, review R6:
+a ready player reads "You are ready" and cannot mark again, so with no owner nobody could
+open the round, for good).
+
+### Undercover rule enforcement, hint views and the clock (WP-02)
+
+- **A description may not be the describer's own word** (BR-16): `matches_any` against
+  the Latin term and its `term_script` forms (case, accents, diacritics, article
+  ignored) → `DescriptionRevealsWordError` (400, no details: the word is the secret).
+  Only the describer's OWN word — refusing the other side's would reveal it.
+- **hint-viewed** (BR-13, SEC F07): `_require_participant` (403 for a stranger), then
+  only the caller's own word in Latin or Arabic counts, stored as the game's term (one
+  word, one entry), capped at `HINT_USAGE_MAX_WORDS_PER_USER`. Anything else answers
+  `recorded: false` and writes nothing — a spectator and Mr. White have no word.
+- **timer-expired** (SEC F08) calls `_require_participant` first (players, eliminated
+  ones included, and spectators).
+- **No Turn / Event rows** (BDP-08): `create_and_start` and `start_next_round` no longer
+  call `GameController.create_turn` / `create_turn_event`; `live_state` is the record.
+
 ### The quiz ready quorum excludes the host
 
 `BaseGameController._ready_quorum(state, host_id)`. The host advances a round by
@@ -975,14 +1570,138 @@ it) let a token outlive its account: delete and re-register the same address, an
 whoever next owns that mailbox inherits every session still holding the old token.
 `/auth/refresh` had always made this check; the request path had not.
 
-### Only a live room blocks creating one
+**One helper for every door: `controllers/token_auth.authenticate_access_token(session,
+settings, token)`.** `get_current_user` and both Socket.IO connects (`_connect_personal`,
+`_authenticate_member`) call it; nothing else turns an access token into a `User`. The
+sockets had their own copy, which checked the type but resolved by `email` only — so an old
+token opened the re-registered account's personal channel and rooms (SEC F09). A new token
+rule (the session check) goes there and reaches HTTP and Socket.IO at once. Its tests run on
+real JWTs (`tests/api/routes/test_wp00_token_type.py`, `tests/api/ws/test_wp00_socket_auth.py`):
+every older test mocked `decode_token`, so removing `expected_type` passed the whole suite.
+The account is looked up by `sub` (primary key) and must carry the `email` claim's address.
 
-`create_room`'s "already in a room" guard joins `Room` and filters
-`type == ACTIVE`, matching `get_active_room_for_user`. Without the join a link to
-an INACTIVE room barred the player forever: a room is deactivated when its last
-*connected* member leaves, which leaves behind the links of anyone marked
-disconnected — and Socket.IO `connect` flips such a link back to connected on the
-next reconnect. The player then could not create a room, while
+### Sessions: a signed-out device is signed out for real (SEC F01)
+
+The JWTs were stateless: logout only cleared cookies, a reset touched no token state, and
+`/auth/refresh` minted a fresh 7-day pair from any signed refresh token — so a leaked token
+renewed itself forever. Now every token names a server-side session
+(`models/auth_session.AuthSession`, table `auth_session`):
+
+- **Claims.** Both tokens carry `sid` (the session id) and `iat`; the refresh token also its
+  single-use `jti`. Login, Google sign-in and the legacy upgrade open a session
+  (`AuthController._open_session`, `expires_at = now + SESSION_ABSOLUTE_LIFETIME_DAYS`).
+  `create_token_pair` is gone: nothing mints a pair without a session. `create_access_token`
+  / `create_refresh_token` without `session_id` mint the legacy shape, for tests only.
+- **Every door checks it.** `token_auth.authenticate_caller` loads the session and its user
+  in ONE primary-key read (it replaces the email lookup) and answers `SessionRevokedError`
+  (401, `errors.api.sessionRevoked`) when the session is missing, revoked or past
+  `expires_at` — on every request and at every Socket.IO connect. `get_current_user` sets
+  `request.state.session_id` (the caller's sid, None for a legacy token): a password change
+  revokes the OTHER sessions with `revoke_user_sessions(..., except_session_id=)`.
+- **Refresh is single use** (`AuthController.refresh_session`; no logic in the route). The
+  row is read `FOR UPDATE`. `jti == current_refresh_jti`: rotate (previous := current,
+  current := new, `rotated_at` := now). `jti == previous_refresh_jti` within
+  `REFRESH_REUSE_GRACE_SECONDS` of the rotation: two tabs raced, re-mint the CURRENT refresh
+  token (same jti, same exp: `_session_tokens` is a pure function of the row) and a fresh
+  access token. Any other jti: a replayed copy — revoke the session (committed), answer
+  `SessionRevokedError`. `expires_at` never moves; a refresh token's `exp` is capped at it.
+  Without the row lock, two simultaneous refreshes both rotated and the loser's next refresh
+  read as theft (`test_two_tabs_refreshing_one_token_at_once_both_stay_signed_in`).
+- **Who revokes.** Logout (the session named by the access token, else the refresh cookie;
+  an expired but signed token still names it), `reset_password` (every session of the user),
+  a password change (every OTHER session: "The account lifecycle" above), reuse detection,
+  and Google taking back an unverified account (below).
+- **One door.** Every access token becomes a `User` only through
+  `token_auth.authenticate_caller` (and its `authenticate_access_token` wrapper), over HTTP
+  (`get_current_user`) and Socket.IO (`_connect_personal`, `_authenticate_member`) alike: a
+  new token rule goes there and reaches both.
+- **Bounded table.** Every sign-in adds a row, so `_open_session` first deletes the
+  account's rows past `expires_at` (their tokens can never work again; a missing session is
+  refused exactly like an ended one). Revoked rows inside their lifetime stay, as the record
+  of who signed out when.
+- **Legacy tokens** (minted before this shipped: no `sid`/`jti`). An access token is
+  accepted until it expires (≤ `access_token_expire_minutes`): nobody is signed out at
+  deploy. A refresh token carries no `jti`, so its sha256 digest is what is tracked:
+  `/auth/refresh` upgrades it ONCE into a new session that records it
+  (`AuthSession.legacy_refresh_digest`, unique), which then rotates and revokes like any other.
+  Presented again within `REFRESH_REUSE_GRACE_SECONDS` of the upgrade (two tabs at the deploy)
+  it answers that session's current pair; later, it is a replayed copy: the session it opened
+  is revoked and the answer is `SessionRevokedError` (review R3 — it used to open a new session
+  on every use, so a stolen copy outlived a logout, a reset and reuse detection). Two first
+  presentations racing: the unique digest refuses the second insert, which takes the grace
+  path (`test_two_tabs_upgrading_one_legacy_token_at_once_get_one_session`, postgres). **Time-boxed: remove `_upgrade_legacy_refresh` and the `sid is None` branch of
+  `authenticate_caller` `refresh_token_expire_days` (7 in production) after the deploy** —
+  every legacy token has expired by then (removal due: the production deploy date of this
+  change + 7 days; write the date here when it ships). Until then one gap is left: a legacy
+  refresh token never presented before a reset can still be upgraded once after it (no
+  password-change instant is stored to compare with).
+- **No response body carries a refresh token** (review INT-06, SEC F13): login, refresh and
+  Google sign-in set it as the httpOnly cookie only (`LoginResponse`, `AccessTokenResponse`,
+  `SocialLoginResponse`; `TokenPairResponse` and `SocialLoginResult` stay inside the server).
+  A body still holding one is accepted by `/auth/refresh` (an old client's stored token).
+- Tests: `tests/api/controllers/test_wp17_sessions.py` (HTTP, sockets, both dialects; the
+  race is postgres-marked).
+
+### Google links only into a verified account (SEC F02)
+
+`social_login` found an existing account by email and linked `google_sub` without checking
+`email_verified` — and registration needs no verification. Someone who registered an address
+they do not own before its owner's first "Continue with Google" kept a working password into
+the owner's account. Now a VERIFIED account is linked as is; an unverified one is taken back
+for the mailbox's owner first (`_take_back_for_mailbox_owner`): password → social sentinel,
+`auth_provider` google, `email_verified` True, every session revoked, then linked. Google's
+verified email is the proof (`SocialAuthService` refuses `email_verified: false`). Tested
+without mocking Google itself: `SocialAuthService(settings, transport=httpx.MockTransport(...))`
+(`tests/api/services/test_social_auth_service.py`, TQ-02).
+
+### One account per mailbox: addresses are lowercased (SEC F14)
+
+`controllers/auth.normalize_email` (strip + `str.lower`, matching SQL `lower()`; not
+`casefold`, which folds `ß` and would disagree with the database) runs on register, login,
+forgot-password, resend-verification and the Google lookup; new rows are stored normalised.
+`get_user_by_email` compares `lower(email_address)`, so a mixed-case row from before is still
+found (exact spelling first if a mailbox still has two rows). `User.email_address`'s own
+constraint compares exactly; on PostgreSQL the startup DDL adds the unique
+`ix_user_email_lower` on `lower(email_address)` (WP-21, "There are no migrations"), a
+backstop that is skipped, with a log, while a case-variant duplicate is still stored.
+
+### Reset and verification tokens: hashed at rest, aware comparisons
+
+`PasswordResetToken.token` / `EmailVerificationToken.token` hold the sha256 hex digest
+(`token_digest`), never the token; redeemed by digest (PD-15, SEC F06). No schema change (the
+column kept its name); links issued before stopped working. Issuing a token purges every
+expired one of its kind. `expires_at` reads back naive on SQLite, so it is compared through
+`utc_instant` — the plain comparison raised `TypeError` and every dev reset/verify link
+answered 500 (TQ-03). Tests: `test_auth.py::test_the_reset_token_is_stored_as_its_sha256_digest`,
+`::test_the_stored_digest_itself_does_not_reset`, `::test_an_expired_reset_token_is_refused`.
+
+### Two read rules: SQLite's naive timestamps, and GETs that never write
+
+- **SQLite reads `TIMESTAMP WITH TIME ZONE` columns back as NAIVE datetimes.** Normalise
+  them (`auth.utc_instant`, `utils/game_state.as_utc`: `tzinfo=UTC` on a naive value)
+  before comparing with `datetime.now(UTC)`. Without it the password-reset and
+  email-verification flows crashed on the dev stack while PostgreSQL (aware) was fine. The
+  deliberate exception stays: `RoomUserLink`'s timestamps are naive on purpose and compared
+  naive (root CLAUDE.md).
+- **A GET never writes.** `GET /stats/users/{id}/stats` used to call
+  `get_or_create_user_stats`: an anonymous read inserted rows, and an unknown id answered a
+  foreign-key 500. It is `read_user_stats` now (404 for an unknown user, an unsaved zero row
+  otherwise). Tests: `tests/api/routes/test_stats.py::test_anonymous_stats_read_writes_nothing`,
+  `::test_anonymous_stats_read_for_an_unknown_user_is_a_404`.
+
+### One live room at a time, and only a live room blocks
+
+`RoomController._ensure_not_seated_elsewhere` is the one rule, called by `create_room`,
+`join_room` and `join_room_as_spectator`: a user CONNECTED in another ACTIVE room gets
+`UserAlreadyInRoomError` (409, `details.room_id` = that room, so the client can offer
+"leave it and join"). Only `create_room` used to check it, so a share link seated a
+player in room B while room A's host could still deal them into a game they never saw
+(BR-21, FR-2). An away (disconnected) seat does not block. The guard joins `Room` and
+filters `type == ACTIVE`, matching `get_active_room_for_user`. Without the join a link to
+an INACTIVE room barred the player forever: a room is deactivated when nobody is left
+connected or inside their grace ("Host transfer prefers a player", `_still_seated`), which
+can still leave behind the links of anyone marked disconnected past it — and Socket.IO
+`connect` flips such a link back to connected on the next reconnect. The player then could not create a room, while
 `get_active_room_for_user` reported none to leave, so the UI offered no way out.
 
 ### Arabic forms of game terms live in `term_script`, keyed by the Latin word
@@ -1009,7 +1728,7 @@ request, never per card (tests pin the statement count with `count_statements`):
   The vocalised form is there because the bare one is ambiguous on a card: أحد is
   Uhud or "one", ثور is Thawr or "a bull" — same lookup, no extra query.
   `give_clue` also rejects a clue that is a board word's Arabic form — it is
-  printed on the card.
+  printed on the card (`codenames_helpers.clue_names_a_card`, on the stripped clue).
 - Undercover `get_state`: `my_word_ar` / `my_word_ar_vocalized` for the caller's
   OWN word only; null for Mr. White and spectators; both words' forms in
   `word_explanations` only once there is a winner. Same visibility as the Latin.
@@ -1098,9 +1817,9 @@ creates the type with the table and never alters it. Adding `DAILY_WORD` was saf
 only because `notebook_entry` is new in the same release and not yet on production,
 so the type is created with all four values (a dev or E2E database created before it
 is fixed by `--delete` + `--create-db`, which drops the type with the table). **Once
-this ships, a new member needs `ALTER TYPE notebookgametype ADD VALUE '<NAME>'` run
-on the server before the code that writes it** — without it the insert answers
-"invalid input value for enum".
+this ships, a new member needs `ALTER TYPE notebookgametype ADD VALUE IF NOT EXISTS
+'<NAME>'` run on the server, after a `pg_dump`, before the code that writes it** —
+without it the insert answers "invalid input value for enum".
 
 Endpoints (`routes/notebook.py`; handler names are what the Kubb hooks are named
 after, so they all say "notebook"):
@@ -1293,7 +2012,26 @@ inside the endpoint wrapper — after FastAPI has resolved the dependencies — 
 is there by then, and a forged token has already been answered 401. Per IP was wrong
 for a game played by several phones on one home connection: the whole table shared
 one budget. Use it on any limited endpoint behind `get_current_user`; anonymous
-endpoints (login, register, join) stay per IP.
+endpoints (login, register) stay per IP. "Per IP" is `rate_limit.client_ip_key` (the
+limiter's default key and `user_or_ip_key`'s fallback): `CF-Connecting-IP` when the peer is
+inside `CLOUDFLARE_IP_RANGES`, else the peer itself — every request reaches production
+through a Cloudflare edge, and keying on the edge address made unrelated visitors share a
+budget while an attacker got one per edge (SEC F03, INFRA-07, PD-07). A direct caller's
+header is ignored, so it needs no origin lock, but it does need uvicorn's
+`--forwarded-allow-ips` narrowed to the proxy network (backend/Dockerfile). `/auth/refresh`
+is keyed per ACCOUNT its token names (`refresh_sub_key`; the account is recorded by the
+`get_presented_refresh_token` dependency, signature-checked, else per address): every page
+load spends a refresh, and a table of phones on one connection exhausted a per-IP budget
+(FR-3 d). Room join and spectate
+(`ROOM_JOIN_RATE_LIMIT`) and room invites (`ROOM_INVITE_RATE_LIMIT`) are per user (SEC
+F03, F15). So are the game routes any client can call at will, each a locked write and/or
+a broadcast (WP-11): Kalimat's `/answer` (`WORDQUIZ_ANSWER_RATE_LIMIT`, BR-10, SEC F15),
+the three hint-viewed routes (`HINT_VIEW_RATE_LIMIT`, SEC F07) and the four timer-expired
+routes (`TIMER_EXPIRED_RATE_LIMIT`, SEC F08: anyone could make the whole table refetch
+as often as they liked). A client fires timer-expired once per timer window and again
+after 15 s at most (`PhaseTimer`), and treats a failed call as best-effort, so the limits
+never bind on an honest page. Tests: `tests/api/routes/test_wp11_game_route_limits.py`. There is deliberately no per-room failed-PIN counter: rotating the PIN on
+failures would let anyone break a room's share link.
 
 ### The prayer pause (وقفة الصلاة): no move, no clock, nothing lost
 
@@ -1369,9 +2107,13 @@ mutations live on the per-game routers only. Hooks:
   expired-looking links for 45 min, and per-link lookups cost two queries per away
   player every 5 s — then re-reads each link it is about to remove
   (`_still_expired`): a reconnect or a resume committed since the sweep's read must
-  not drop a player at a timestamp that no longer exists. The re-check runs outside
-  the game lock, so a resume landing in the milliseconds between it and the removal
-  can still slip through. On resume, `_shift_disconnect_grace` moves each
+  not drop a player at a timestamp that no longer exists. The re-check runs UNDER
+  the game lock (`_remove_member(..., only_if_expired=True)`), which a resume holds
+  too, so a resume can no longer slip in between it and the removal. If every phone
+  outlasts even the paused grace, the first removal finds nobody connected or inside
+  their grace, deactivates the room and CANCELS the game (BR-05) instead of leaving it
+  running and paused for ever. One phone outlasting it while the others are still inside
+  theirs is only that player's departure (review R1: it used to cancel the game for all). On resume, `_shift_disconnect_grace` moves each
   still-disconnected link's `disconnected_at` by the same rule (naive, like every
   `RoomUserLink` timestamp), so the ordinary grace counts only running time. **No
   auto-resume on host departure**: the host leaving during the prayer is the normal
@@ -1392,9 +2134,12 @@ the pause, or the anchor reads as set during the pause and is capped),
 
 ### Usernames are unique — by a locked check, not by constraint
 
-`user.username` is indexed but carries **no unique constraint**, and there are no
-migrations to add one (nor a functional `lower(username)` index) to the existing
-table. So `controllers/user.username_is_taken(session, name, exclude_user_id=)` asks
+`user.username` carries **no unique constraint in the model**. On PostgreSQL the startup
+DDL adds the unique `ix_user_username_lower` on `lower(username)` (WP-21, "There are no
+migrations" above) — a backstop that turns a bypassed check into an `IntegrityError`, and
+what the `lower()` lookup reads — but it is optional (skipped, with a log, while a
+case-variant duplicate is stored) and SQLite has none, so the check below stays the
+rule. `controllers/user.username_is_taken(session, name, exclude_user_id=)` asks
 first, case-insensitively (`lower()` on both sides: ASCII on SQLite, full Unicode on
 PostgreSQL; Arabic has no case), always inside `username_claim_lock` (below), and
 three paths use it (four with the internal `UserController.create_user`):
@@ -1451,6 +2196,18 @@ REST response (`?lang=ar`) had them right. The handshake now accepts `auth.lang`
 `en`; `utils/multilingual.normalize_lang` keeps it to `SUPPORTED_LANGUAGES`).
 **The client must send it** — until it does, the push stays English.
 
+`normalize_lang` reads a BCP 47 tag by its language part, case-insensitively (`fr-FR` →
+`fr`, `ar-SA` → `ar`, `fr_CA` → `fr`; unknown, `arn` or a non-string → `en`), and
+`resolve_multilingual` runs its `lang` through it. It used to accept exact codes only, so
+the regional tag a browser sends (`?lang=ar-SA`, `fr-FR`) fell back to English for every
+hint, meaning and notebook entry. The REST `lang` parameters are still plain `str` (each
+route declares its own), so code that compares `lang` itself — `lang == "ar"` in the MCQ
+question text, the Word Quiz word display and the notebook's `word_display`, and the two
+`hint_data.get(lang)` in the Word Quiz hints and MCQ choices — should go through
+`normalize_lang` as well (the client sends bare codes since WP-05, so this is defence in
+depth). Tests: `tests/api/utils/test_multilingual.py`, `tests/api/routes/test_wp05_regional_lang.py`
+(the real stack: `GET /daily-word?lang=ar-SA` answers the Arabic hint).
+
 `GET /games/{id}/summary` takes `lang` too and now carries the meanings:
 `word_explanations.civilian_word_hint` / `undercover_word_hint` and each Codenames
 `clue_history[].guesses[].hint`, all through `resolve_multilingual`.
@@ -1487,6 +2244,48 @@ the question is open: `choice_tallies` (4 counts, indexed like `choices`),
   the results phase on** — a correct `typed_answer` IS the answer
   (`test_typed_answers_appear_only_once_the_round_resolves` checks the open payload
   never contains it). `answered_at_hint` was already there.
+
+### Kalimat: a wrong try costs a rung, five tries a round (owner rule (e))
+
+The multiplayer twin of the word of the day's rule (BR-10, SEC F15). A wrong try was
+free, so walking the theme's 17-53 words at hint 1 paid the full 6 points — a script,
+or a fast typist with a list, beat every honest player, and each try was a locked
+write plus a broadcast.
+
+- **The penalty.** Each wrong try of the round costs the player
+  `WORDQUIZ_WRONG_ANSWER_RUNG_PENALTY` (1) rung on the answer that finally finds the
+  word: `points = max_hints - min(max_hints, hint on screen + rungs lost) + 1`, so never
+  below 1. The ladder itself stays the table's, released by time
+  (`_calculate_hints_revealed`): unlike the word of the day, a miss reveals no hint —
+  the hints are shared by everyone at the table. `answered_at_hint` and the answer
+  response's `hint_number` stay the rung that was on screen; `points` carries the
+  penalty. The wrong tries are counted from `live_state["attempts"]` (every try, minus
+  the one that found it: `quiz_rules.wordquiz_wrong_tries`), no new key.
+- **The cap.** A round takes at most `WORDQUIZ_MAX_ATTEMPTS_PER_ROUND` (5) tries, the
+  one that finds the word included; the next is `AnswerAttemptsExhaustedError` (409,
+  `errors.api.answerAttemptsExhausted`, `{{max}}`), checked after `AlreadyAnsweredError`
+  and before the empty-answer check, and it records nothing. A player out of tries is
+  done with the round (`everyone_has_answered`), so the round goes to results once
+  everyone else is done too, not when the timer runs out.
+- **The state.** `WordQuizGameState.my_attempts_left` (null for a spectator, once the
+  caller found the word, and outside `playing`), `my_rungs_lost` (the caller's own,
+  0 for a spectator) and `max_attempts`. The per-user limit on the route
+  (`WORDQUIZ_ANSWER_RATE_LIMIT`) protects the server; the rule above is what keeps a walk
+  from paying.
+- **Also in the quiz controllers (WP-10):** `submit_answer` calls `_check_game_in_progress`
+  first (a CANCELLED quiz used to accept and score answers, BR-18); `handle_timer_expired`
+  calls `_require_participant` before the status check (a stranger fired the timers,
+  SEC F08); the finish writes `state["winner"]` through `quiz_rules.quiz_winner_label`
+  (the one winner's username, else null) from the same `top_score_winners` set it passes
+  to `record_game_end`, and both state schemas carry `winner_ids` at game over; the
+  finish detaches the room through `detach_room_if_current`. A host-less room
+  (`owner_id` null) counts every player in the ready quorum, and a test keeps it so
+  (SEC F05).
+
+Tests: `tests/api/controllers/test_wordquiz_game.py` and `test_mcqquiz_game.py` (the
+"WP-10" sections), `test_quiz_dropout.py` (a game everyone else left has no winner), and
+the real-stack route tests in `tests/api/routes/test_{wordquiz,mcqquiz}_game.py` (the 409
+envelope, a stranger's timer call, an answer on a cancelled game).
 
 ### The colophon: who hosted, and when
 
@@ -1528,3 +2327,124 @@ named classes in `schemas/error.py` ("Errors that used to be raised as a bare
 BaseError") that keep the old `message` (logs and tests match on it) and
 `frontend_message` (the client's fallback). A new error needs its class AND its three
 translations.
+
+### Departures, the sweep and the sockets (WP-04)
+
+`controllers/disconnect.py` and `ws/handlers.py`. Tests: `test_disconnect.py`,
+`test_disconnect_lock_postgres.py` (postgres), `test_heartbeat_timing.py`,
+`tests/api/ws/test_handlers.py`, `tests/api/ws/test_wp04_reconnect_and_detach.py` (real
+python-socketio clients against the real handlers on uvicorn).
+
+- **A departure takes the game lock BEFORE it reads the game** (BR-04).
+  `_handle_permanent_disconnect(session, link)` (signature fixed: kick, leave, account
+  deletion and the sweep call it) reads only `Room.active_game_id` (a column, autoflush
+  off), takes `get_game_lock`, then re-reads the room and the game with
+  `populate_existing`. It read the Game first and "re-read" it under the lock from the
+  session's identity map (`expire_on_commit=False`), so a kick waiting behind a vote
+  committed the state it had read before the vote: votes vanished (10 runs in 15 of a
+  7-vote burst), and a game decided meanwhile stayed FINISHED with no winner. **Any read
+  of a row another request may have changed while you waited for a lock goes through
+  `populate_existing`** (or a column select, which never fills the identity map —
+  `_paused_game_ids` does that).
+- **One commit for the whole departure.** The `_handle_*_disconnect` handlers no longer
+  lock or commit themselves when called from there (`commit=False`); room deactivation
+  and ownership transfer happen inside the same locked block. **Lock order: room lock,
+  then game lock**; a caller may hold the room lock, never a game lock (the SQLite
+  fallback is not reentrant). A caller's staged writes (the kick's ban and new PIN) are
+  flushed only after the game lock is held: flushed before, a room-row UPDATE would wait
+  on a move that finishes the game (it writes that row) while this waits on its lock.
+- **Every departure marks the leaver** (`mark_player_left`, owner rule (b)) in all four
+  handlers, as soon as the player is found, before any end-of-game write.
+- **Codenames: a departure releases the leaver's card vote**
+  (`codenames_helpers.release_departed_operative`, WP-09); when the leaver was the last
+  operative the team waited on, the votes in hand turn the card now (reveal log
+  included), and a card that ends the game is finished like `guess_card` finishes it.
+- **A room that lets go of its game cancels it** (BR-05): when the last connected member
+  leaves, `cancel_running_game` under the lock (a prayer pause every phone outlasts ends
+  CANCELLED, not running and paused for ever). Who is still connected is read BEFORE the
+  departure is played, and a departure that empties the room is NOT played into the game
+  (`_record_departure_from_cancelled_game` only marks the leaver and sets a quiz's
+  `game_over`): played first, the undercover leaving decided a civilians' win for players
+  who were all away, and with every phone asleep the sweep's row order picked the result. Every finish path uses
+  `detach_room_if_current`. The sweep also cancels games already orphaned — IN_PROGRESS
+  while their room is INACTIVE or points at another game — once every
+  `ORPHANED_GAME_SWEEP_EVERY_TICKS` (the lookup reads the game table).
+- **The seat delete is a statement** (`_delete_link`, rowcount): a second path removing
+  the same member gets 0 and stops, instead of the SAWarning "expected to delete 1
+  row(s); 0 were matched" and a second elimination.
+- **One sweeper per tick** (BDP-11, PD-12). `run_sweep_tick` runs only in the worker whose
+  dedicated transaction takes `pg_try_advisory_xact_lock(DISCONNECT_SWEEP_LOCK_KEY)` (the
+  sweep commits per removal, so the election cannot share its transaction); SQLite always
+  sweeps. The sweep's transaction ends with a COMMIT even when it only read (rollbacks
+  outnumbered commits ten to one in production).
+- **A return is announced** (BDP-04). `update_heartbeat` returns a `HeartbeatResult`
+  (`NOT_A_MEMBER` / `REFRESHED` / `RESTORED`); `connect`, `heartbeat` and `join_game`
+  `fire_notify_room_changed` on `RESTORED` (the connect's broadcast replaces its
+  sid-only initial state). The REST paths that restore a link
+  (`BaseGameController._update_heartbeat_throttled`, `RoomController.get_room_state`)
+  call `announce_presence_restored(room_id)`: a page polling REST while its socket is down
+  restores the link first, and the socket's reconnect then has nothing to announce.
+  Controllers cannot reach Socket.IO, so the listener is the checker loop's
+  `on_room_changed`, registered for as long as the loop runs (`presence_listener`); no
+  loop (tests, scripts), no announcement. `mark_user_disconnected` returns whether it
+  flipped the link, and only a flip is broadcast.
+- **A removed seat cuts the socket, on every worker** (SEC F04, owner rule (c)).
+  `remove_user_from_room_socket` leaves `room:{id}` and every `game:*` channel, then
+  disconnects the local SID. `_user_sids` is per process, so every worker also runs
+  `audit_local_socket_memberships` on every tick (`on_worker_tick`, outside the
+  election; wired in `main.py`): ONE query for all its (user, room) pairs, and each
+  socket whose seat is gone or whose `RoomBan` exists is detached and disconnected —
+  within `DISCONNECT_CHECK_INTERVAL_SECONDS`. `heartbeat` (seat gone) and `join_game`
+  re-check the seat and cut the socket at once; `connect` refuses a banned player even
+  while a seat row exists. `_user_sids` keys and `room:{id}` use the canonical UUID.
+
+### Shared contracts of the 2026-10 audit (WP-00)
+
+Declared once so every later change uses the same rule. Tests:
+`tests/api/controllers/test_wp00_contracts.py`, `test_game_cancel.py`.
+
+- **Leavers get neither a win nor a loss** (owner rule (b), all four games). Every departure
+  path — leave, kick, the grace sweep, account deletion — must record it with
+  `utils/game_state.mark_player_left(state, user_id)` (`live_state[LEFT_PLAYER_IDS_KEY]`, a
+  de-duplicated list of ids; the caller owes `flag_modified`); `left_player_ids(state)` reads
+  it. A departure path that does not mark is scoring its leaver.
+  `game_end_stats.scorable_players` drops those ids, so `record_game_end` writes nothing for a
+  leaver: no stats row change, no achievement, no challenge progress. An Undercover drop-out
+  stays in `state["players"]` (dead) and never shares the win.
+- **Quiz winners** (owner rule (a)): `top_score_winners(players, *, left_ids=())` returns every
+  player with the top `total_score`, only when that score is above 0 and the final roster
+  (minus `left_ids`) has at least `MIN_PLAYERS_FOR_A_WIN` (2) players. A tie is a shared win; a
+  0-0 game has no winner; a solo game is never a win (it fed the leaderboard and the streaks:
+  three solo one-question quizzes answered wrong made a 3-win streak).
+- **A running game the room lets go of is cancelled**: `controllers/game_cancel.py`.
+  `cancel_running_game(session, game, room=None) -> bool` (IN_PROGRESS → CANCELLED, `end_time`,
+  the pause record removed, room detached; False and nothing changed otherwise; the caller
+  holds `get_game_lock` and commits). `detach_room_if_current(room, game)` clears
+  `active_game_id` only when it is THIS game — the rule for every finish path (a finish of an
+  old game used to unlink the room's new one). The module imports models only (the
+  `base_game` → `room` → `disconnect` cycle).
+- **`BaseGameController._require_participant(game, state, user_id, *, allow_spectator=True)`**:
+  a player of `state["players"]` (an eliminated one included; returns the entry) or, when
+  allowed, a spectator link of `game.room_id` (returns None); anyone else
+  `NotAGameParticipantError` (403). For hint-viewed and timer-expired, which took any caller.
+  **Rule: every hint-viewed and timer-expired call checks it, and hint-viewed accepts only a
+  word the caller can see, at most `HINT_USAGE_MAX_WORDS_PER_USER` per user.** Today that holds
+  for all four timer-expired routes and for Undercover's and Codenames' hint-viewed
+  (`test_hint_viewed_by_a_stranger_is_refused`, `test_timer_expired_by_a_stranger_is_refused`,
+  `test_a_strangers_hint_view_and_timer_call_are_refused`, `test_a_stranger_cannot_fire_the_timer`
+  in both quizzes), and for Word Quiz's `record_hint_view` too since review INT-05 (a stranger:
+  403; a spectator: `recorded=False`, nothing written; `test_wordquiz_game.py`,
+  `test_a_stranger_cannot_record_a_hint_view`).
+- **Shared `live_state` keys** (constants.py, shape documented next to each):
+  `LEFT_PLAYER_IDS_KEY`, `WINNER_IDS_KEY` (list of ids, every game), `MR_WHITE_GUESS_RESULT_KEY`,
+  `CODENAMES_REVEAL_LOG_KEY`, `UNDERCOVER_READY_PLAYERS_KEY` (on the current turn).
+- **Two new tables** (additive, `create_all`; no migration tool yet): `room_ban`
+  (`RoomBan`, unique per room and user) and `auth_session` (`AuthSession`, plus
+  `revoke_user_sessions(session, user_id, *, except_session_id=None) -> int`, one UPDATE of the
+  live rows, no commit). `_purge_user_references` deletes the user's sessions and the bans OF the
+  user, and nulls `banned_by` on the bans BY the user.
+- **Error classes declared ahead of their packages**, each with its three translations:
+  `ClueMustBeOneWordError`, `DescriptionRevealsWordError`, `AnswerAttemptsExhaustedError` (409,
+  `{{max}}`), `RoomBannedError` (403), `RoomBanNotFoundError` (404), `PasswordTooLongError`,
+  `SessionRevokedError` (401), `NotAnAlivePlayerError`, `InvalidAvatarUrlError`,
+  `GoogleAccountMismatchError` (403). None carries a secret word.

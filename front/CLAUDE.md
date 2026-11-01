@@ -25,7 +25,7 @@ bun run typecheck           # TypeScript strict
 # Testing
 bun run test                # Vitest once
 bun run test:watch          # Watch mode
-bun run test:coverage       # With coverage
+bun run test:coverage       # With coverage: what CI runs; floors in vitest.config.ts
 bun run test:ui             # Vitest UI
 ```
 
@@ -36,10 +36,10 @@ bun run test:ui             # Vitest UI
 - **Routing**: TanStack Router (file-based)
 - **State**: TanStack Query (React Query) for server state
 - **Styling**: Tailwind CSS v4 + Samar primitives on Radix (`components/ui`), brand pieces (`components/brand`), self-hosted @fontsource fonts (`src/fonts.ts`). Read `DESIGN.md` before any UI work.
-- **Forms**: React Hook Form + Zod validation
+- **Forms**: controlled inputs with the shared field validation (`components/auth/validation.ts`, `use-field-errors.ts`) and the Samar `Field`; no form or schema library (`react-hook-form` is still listed in `package.json`, but nothing imports it)
 - **API**: Kubb-generated hooks from OpenAPI spec + ky HTTP client
 - **Real-time**: Socket.IO (socket.io-client) pushes state into TanStack Query cache via `useSocket` hook
-- **i18n**: i18next (English + Arabic with RTL support)
+- **i18n**: i18next (English, French, and Arabic with RTL support)
 - **Testing**: Vitest + Testing Library + MSW
 
 ## Project Structure
@@ -55,20 +55,22 @@ src/
 │   ├── layout/              # MainNav (+ menu sheet), Footer, LanguageSwitch, ThemeToggle
 │   ├── home/                # HomeHero (sky + name + join row), HalqaCard, DailyWordCard, GamesFihrist, SupportSection
 │   ├── daily/               # The word of the day (/today): DailyWordPage, DailyReveal, DailyCountdown, use-daily-word, daily.ts (pure)
-│   ├── ErrorBoundary.tsx
+│   ├── ErrorBoundary.tsx    # Resets on navigation; a failed chunk reloads once (see "Errors reach the tracker")
 │   └── NotFound.tsx
 ├── hooks/
 │   ├── use-socket.ts        # Socket.IO hook (real-time state into TanStack Query cache)
 │   ├── use-resolved-theme.ts # The light on screen ("dark"|"light"), read from <html data-theme>
+│   ├── use-{undercover,codenames,wordquiz,mcqquiz}-game.ts # Each game page's logic (state, moves, timers); the page draws it
 │   └── use-prayer-times.ts  # Prayer times hook
 ├── i18n/
 │   ├── index.ts             # i18next config
-│   └── locales/             # en.json, ar.json
+│   └── locales/             # en.json, fr.json, ar.json
 ├── lib/
 │   ├── utils.ts             # cn() utility
-│   ├── motion.ts            # Motion grammar presets (durations, easings, variants)
+│   ├── motion.ts            # Motion grammar tokens as numbers (ease, dur), inkDuration, REREAD
 │   ├── view-transition.ts   # View Transitions for phase changes (feature-detected)
-│   └── auth.ts              # Token storage helpers
+│   ├── report-error.ts      # The one door to the error tracker (Sentry-compatible): reportError, the lazy Sentry SDK and its queue
+│   └── auth.ts              # Access-token storage, session marker, notices, token-link scrub
 ├── providers/
 │   ├── AuthProvider.tsx     # JWT auth state + token refresh
 │   ├── QueryProvider.tsx    # React Query client
@@ -99,7 +101,7 @@ src/
 │       ├── login.tsx        # Login form
 │       └── register.tsx     # Register form
 ├── styles/                  # brand.css (component CSS), shell.css (nav/footer), home.css, sadu.css (generated bands), pages/*.css (codenames, quiz, rooms, undercover)
-├── fonts.ts                 # Self-hosted fonts (imported right after zod-jitless)
+├── fonts.ts                 # Self-hosted fonts (imported first in main.tsx)
 ├── index.css                # Tailwind v4 + Samar tokens, type roles, motion utilities
 └── main.tsx                 # App entry point
 ```
@@ -109,27 +111,37 @@ src/
 ### API Integration (Kubb)
 Auto-generated React Query hooks from backend OpenAPI spec:
 ```typescript
-import { useGetUsersApiV1UsersGet } from "@/api/generated/hooks"
+import { useGetLeaderboardApiV1StatsLeaderboardGet } from "@/api/generated"
 
 function MyComponent() {
-  const { data, isLoading } = useGetUsersApiV1UsersGet()
+  const { data, isLoading, isError, refetch } = useGetLeaderboardApiV1StatsLeaderboardGet()
 }
 ```
 
 **Never edit files in `src/api/generated/`.** Regenerate with `bun run generate`.
 
+**A DELETE may carry a body, and `client()` sends it.** `client()` used to put `data` on
+POST, PUT and PATCH only, so `DELETE /users/me/account` left without its `{ password }` (or
+`{ google_access_token }`) and every deletion from the profile answered 422; the E2E
+account-deletion journey found it (WP-20). Test: `api/__tests__/wp20-delete-body.test.ts`.
+
 ### Real-time Updates (Socket.IO Primary, Conditional Polling Fallback)
 Socket.IO is the primary real-time transport. The room lobby stores `roomId` in SessionStorage before navigating to game pages (`storeRoomIdForGame`), so Socket.IO connects immediately on mount via a lazy `useState` initializer (`retrieveRoomIdForGame`). Fallback: if no stored roomId (e.g., page refresh), the first REST poll provides it.
 
-`useSocket` returns `{ connected }`. All pages (game pages and room lobby) use `refetchInterval: socketConnected ? false : 2_000` — **zero polling when Socket.IO is connected**, fast 2s polling as fallback when disconnected. `useSocket` also accepts an `onKicked` callback for handling `you_were_kicked` events from the server. All UI state is derived from the server response via `useMemo`, not accumulated from events.
+`useSocket` returns `{ connected }`. All pages (game pages and room lobby) use `refetchInterval: socketConnected ? false : 2_000` — **zero polling when Socket.IO is connected**, fast 2s polling as fallback when disconnected. `useSocket` also accepts an `onKicked` callback for handling `you_were_kicked` events from the server. After `you_were_kicked` (and after a leave), the server **cuts the room socket** (a server-initiated disconnect, which socket.io-client does not retry; a worker that did not serve the kick cuts it within 5 s, backend WP-04): never rely on that socket staying up to learn anything else. A player coming back (reconnect, or a heartbeat after the sweep marked them away) is pushed to the whole room as a `room_state`, so another seat's "away" clears without polling. Only a **re**connect invalidates (`hasConnectedRef`; a failed first attempt counts as having been down): the room state, the room's chat history (`queryKeys.room.messages`, the query `ChatPanel` reads and merges by id) and the game. The first connect invalidates nothing: the page has just read its state, the server pushes `room_state` on connect and answers `join_game` with `game_state` (a refetch on top read the same state three times per load). All UI state is derived from the server response via `useMemo`, not accumulated from events.
 
 Phase transitions detected by comparing refs to previous state (`previousPhaseRef`, `previousRoundRef`).
 
 ### Room Lobby (REST Polling + Socket.IO)
-- Poll room state every 2s (`useQuery` with `refetchInterval: 2000`)
+- The page's client logic is `useRoomLobby(roomId)` (`hooks/use-room-lobby.ts`, tested with fake
+  timers in `use-room-lobby.test.ts`); `routes/_auth/rooms/$roomId.tsx` only draws it
+- Poll room state every 2s while the socket is down (never a refusal with nothing on screen)
 - Socket.IO pushes real-time updates for room state
 - Auto-navigate when `active_game_id` appears (stores `roomId` in SessionStorage for game page)
 - Leave room via REST `PATCH /api/v1/rooms/leave`
+- The host's kick (owner rule (c): a ban for the room's lifetime and a new PIN) re-reads the
+  room state, the bans list (`queryKeys.room.bans`) and the share link (`queryKeys.room.shareLink`);
+  a new PIN in `room_state` re-reads the last two as well (a kick from the host's other device)
 
 ### File-Based Routing
 - `__root.tsx` - Root layout (double underscore)
@@ -138,11 +150,18 @@ Phase transitions detected by comparing refs to previous state (`previousPhaseRe
 - `index.tsx` - Index route for directory
 
 ### Authentication
-- JWT stored in localStorage (`majlisna-token`, `majlisna-refresh-token`, `majlisna-token-expiry`)
-- Auto-refresh 1 minute before expiry
-- 401 responses clear auth state and redirect to login, except on the two session probes,
-  `/auth/me` and `/auth/refresh` (`redirectsToLoginOn401` in `api/client.ts`): AuthProvider
-  answers those by ending signed out on the page the visitor opened
+- The **access token** is in localStorage (`majlisna-token`, `majlisna-token-expiry`, the user in
+  `majlisna-user-data`, the non-secret marker `majlisna-session`). The **refresh token is never
+  stored by the client**: it lives in the httpOnly cookie the server sets (SEC F13). A legacy
+  `majlisna-refresh-token` is sent once in the body of a refresh, then deleted (`lib/auth.ts`).
+- Auto-refresh 1 minute before expiry (`REFRESH_BUFFER_MS`), through `refreshSession()` in
+  `api/client.ts`: cookie only, no body token, `credentials: "include"` (every `/api/v1/auth/*`
+  call is sent with credentials).
+- A 401 on an ordinary request triggers ONE shared refresh and replays the request once. The
+  session ends (tokens cleared, `sendToLogin()`) only when the refresh itself is refused, the
+  replay is refused too, or the 401 says `errors.api.sessionRevoked` (no refresh then). A 401
+  `errors.api.invalidCredentials` (a re-checked current password) never touches the session,
+  nor does any 401 from `/api/v1/auth/*` (`redirectsToLoginOn401`): AuthProvider owns those.
 
 ### Styling
 ```typescript
@@ -159,13 +178,53 @@ import { getApiErrorMessage } from "@/api/client"
 try {
   await apiClient({ ... })
 } catch (err) {
-  const message = getApiErrorMessage(err, "Fallback message")
+  const message = getApiErrorMessage(err, t("some.fallback"))
 }
 ```
 
+Only the server's JSON envelope is read. With no envelope (offline, a timeout, the proxy's
+HTML 502 during a deploy) it returns the caller's fallback, or `t("errors.network")` without
+one: never ky's or the browser's `error.message` ("Failed to fetch", "Request failed with status
+code 502: POST http://…", English, with an internal URL; FR-8). An envelope with nothing
+readable gives the fallback, or `t("common.error")`. `gotNoApiAnswer(err)` tells the two apart.
+A test that fakes a server refusal must fake the envelope (`{ response: { data: { message } } }`),
+not `new Error(message)`. **No English literal fallbacks in pages or hooks**: every fallback is
+a `t(...)` key (`game.errors.*`, `common.loadFailed`, …), so a refusal without an envelope
+still reads in the player's language. Tests: `api/client.test.ts` (`getApiErrorMessage`),
+the WP-13 game-page tests (`routes/_auth/game/-tests/wp13-*.test.tsx`, which fail on an English
+fallback), `hooks/use-codenames-game.test.ts`.
+
 ## i18n
 
-Supports English and French (LTR) and Arabic (RTL). The root layout auto-detects RTL languages and sets `dir="rtl"`.
+Supports English and French (LTR) and Arabic (RTL). The root layout sets `<html dir lang>` through
+`syncDocumentLanguage(i18n.language)` (`components/layout/language-switch.tsx`).
+
+- **`i18n.language` is always exactly `en`, `fr` or `ar`.** Phones send regional tags (ar-SA,
+  fr-FR): the raw tag used to become the language, so `=== "ar"` laid Arabic out left to
+  right, `?lang=ar-SA` brought English content back, and the tag was cached in localStorage for
+  good. `i18n/index.ts` sets `supportedLngs` and the detector's `convertDetectedLanguage` (the
+  language part, lower-cased), so the cached value is the bare code too and a stored "fr-FR"
+  is rewritten at boot. Do NOT add `load: "languageOnly"` or `nonExplicitSupportedLngs: true`:
+  with either, i18next counts "fr-FR" itself as supported and keeps it. Still compare through
+  `currentLanguage()`, and derive `dir` / `lang` with `syncDocumentLanguage`,
+  `currentLanguage()` or `i18n.dir()`, never with `=== "ar"` on the raw tag. The backend's
+  `normalize_lang` maps regional tags as well (defence in depth: `resolve_multilingual` and the
+  socket handshake use it; a few controllers still compare `lang` raw, see backend/CLAUDE.md).
+  Tests: `i18n/__tests__/detection.test.tsx` (an `ar-SA` first visit ends `dir="rtl"`, stored
+  `ar`), `components/layout/__tests__/language-switch.test.tsx`,
+  `e2e/tests/i18n/regional-locale.spec.ts`.
+- **Each language falls back only to itself** (`fallbackLng: { fr: [], ar: [], default: ["en"] }`),
+  so a French or Arabic page never downloads the English chunk. A key missing in fr or ar shows
+  as its raw key, which is why the whole-tree parity test (`components/stats/__tests__/locales.test.ts`)
+  must stay.
+- **The first-visit dialog downloads no other locale**: its three "Choose your language" lines
+  are `CHOOSE_LANGUAGE_PROMPTS` in `LanguageWelcomeModal.tsx`, each in its own language (the
+  `ui.chooseLanguage` of each locale; `i18n/__tests__/detection.test.tsx` keeps them in step).
+- **A locale chunk gone after a deploy reloads the page once** (`loadLocale`: a sessionStorage
+  guard, re-armed by any successful load), instead of the switch storing the new language and
+  showing nothing.
+- `i18n` is its own instance (`i18next.createInstance()`); `detection.test.tsx` boots the real
+  module per test (`vi.resetModules`) with a stubbed `navigator.languages`.
 
 ```typescript
 import { useTranslation } from "react-i18next"
@@ -189,7 +248,8 @@ Translation files in `src/i18n/locales/` (`en.json`, `fr.json`, `ar.json`, alway
   word "team" themselves ("the {{team}} team", « l’équipe {{team}} », «الفريق {{team}}»). The stats pages use it too;
   there is no "Red Team" key any more.
 - **No game-event toasts, so no `toast.*` keys for them.** The `toast` namespace holds only the
-  results of the player's own actions (`gameStarting`, `youLeftRoom`, `roomCreated`).
+  results of the player's own actions (`youLeftRoom`, `roomCreated`). Starting a game has no
+  toast (the game page is the answer; it sat over the game's header), so `gameStarting` is gone.
 - **Before pruning a key**, remember the dynamic ones: `t(\`${base}.sample\`)` (home fihrist),
   `errors.api.*` (the backend's `error_key`), `achievements.items.*` / `challenges.items.*` (codes
   from the API). The audit of 2026-10-28 removed 122 dead keys (legacy room, toast, quiz,
@@ -230,35 +290,62 @@ reloaded tab ran on whatever access token happened to be in localStorage, and on
 that expired (15 min in production) the next request 401'd and `client.ts`'s
 `afterResponse` hard-redirected the player to `/auth/login` **mid-game**.
 
-The cookie branch now calls `refreshAccessToken()` immediately and schedules from
-the returned `expires_in`. Two consequences to preserve:
+Every signed-in load now ends with a refresh **scheduled** (`keepFresh`), never with
+nothing scheduled. What to preserve:
 
+- **A token with time left is not refreshed at load, only scheduled** (FP-11): the page
+  used to wait for `/me` AND a refresh before its first data request. `setIsLoading(false)`
+  comes right after `/me`. Only a token with no recorded expiry (or none at all, a cookie
+  session) is refreshed at once, in the background.
+- **A refresh with no verdict is retried, the session kept** (FR-3): 429, 5xx, offline or a
+  timeout (`RefreshOutcome.status === "unavailable"`) schedules a retry with backoff (5 s
+  doubling to 5 min, plus up to 1 s of jitter), never sooner than the server's `Retry-After`,
+  which `refreshSession` also honours for every tab (`majlisna-refresh-blocked-until`). Only a
+  refusal (a 4xx but 408/429) ends the session. The old code fell to the `"cookie-auth"`
+  sentinel with nothing scheduled after a 429, and 15 minutes later the next request wiped a
+  still-good refresh token and bounced the player out mid-game. The sentinel survives only for a
+  session whose access token is in the cookie alone, always with a refresh scheduled.
 - **`useSocket` authenticates the Socket.IO handshake with the localStorage
   token** (`getStoredToken()`), and the backend `connect` handler rejects an
   expired one. A stale token there doesn't just break auth — it silently drops
   real-time and leaves every player on the 2s REST polling fallback.
-- `refreshAccessToken` retries **cookie-only** when the body token is rejected.
-  The backend prefers `refresh_token` from the JSON body over the httpOnly cookie,
-  so a stale localStorage value otherwise shadows a perfectly good refresh cookie.
+- A legacy body refresh token that is refused (not revoked) is followed by **one cookie-only**
+  try: the backend reads the body before the cookie, so a stale copy shadows a good cookie.
+- A revoked session (`errors.api.sessionRevoked`) goes to `/auth/login?redirect=…` with the
+  notice `auth.sessionRevoked` (`noteSessionRevoked` → sessionStorage → a toast when the next
+  page's AuthProvider mounts), and is never refreshed again.
 
 There is also a `visibilitychange` refresh: `setTimeout` is throttled or frozen in
 a backgrounded tab, which is where a party game spends most of its time on mobile.
+Tabs follow each other through the `storage` event: a token another tab stored is adopted
+and rescheduled (`onTokenStored`), a session another tab ended ends here too
+(`onSessionEndedElsewhere`).
 
-### localStorage and httpOnly cookies are both live — on purpose, for now
+### The refresh token is in the httpOnly cookie only; the access token stays readable
 
-Tokens are written to localStorage *and* set as httpOnly cookies. The cookies are
-the real mechanism in production (same-origin via `majlisna.app/api`); localStorage
-exists because `ky` defaults to `credentials: "same-origin"`, so a cross-origin
-`VITE_API_URL` (local dev on `:5111`, or `api.majlisna.app`) never sends cookies —
-and because `useSocket` needs a readable token. Dropping localStorage means setting
-`credentials: "include"` on the ky instance and passing the token to Socket.IO some
-other way. Until then, do not "clean up" one half of this.
+`storeAuthData(accessToken, expiresIn, user?)` stores no refresh token, and
+`login(accessToken, expiresIn, user?)` takes none (SEC F13): since review INT-06 no response
+body carries one — login, refresh and Google sign-in set it as the httpOnly cookie only
+(`LoginResponse`, `AccessTokenResponse`, `SocialLoginResponse`). A script, an injected one
+included, can read the 15-minute access token but never the 7-day refresh token, not even by
+calling `/auth/refresh` itself. The access token stays in localStorage
+because the sockets authenticate with it (`getStoredToken()`); a short-lived socket ticket
+would remove that too, and is not built yet.
+
+The cookies need `credentials: "include"`, which `client()` sets for every `/api/v1/auth/*`
+call (login, Google sign-in, refresh, logout, `/me`) and only those: `ky` defaults to
+`"same-origin"`, so a cross-origin `VITE_API_URL` (the E2E stack's `:5049` beside `:3049`,
+or `api.majlisna.app`) never stored or sent them. A credentialed cross-origin call needs
+an explicit `CORS_ORIGINS` (Starlette answers `*` to a request without a cookie, which the
+browser refuses), as the E2E and compose stacks have. Production is same-origin
+(`majlisna.app/api`); dev goes through Vite's proxy. Do not depend on the refresh cookie's
+`Path`: the server may narrow it.
 
 ### `PhaseTimer` fires `onExpired` once per timer window, not per render
 
 The effect keys on `timerStartedAt` + `durationSeconds` and refuses to fire twice
-for the same pair (with a 15s re-arm as a liveness valve, since only the host
-triggers expiry and a failed call would otherwise stall the round).
+for the same pair (with a 15s re-arm as a liveness valve: a failed call would otherwise
+stall the round; any player may report, see `useTimerReport` below).
 
 It used to depend on `[remaining, onExpired]`. `onExpired` is a `useCallback` whose
 deps include the React Query mutation object — a **fresh object on every render** —
@@ -271,6 +358,23 @@ the host starting the next one, and each call used to eliminate another player.
 The server-side guard (`round_already_resolved`) is the real safety net — see
 backend/CLAUDE.md, "An Undercover round resolves exactly ONCE". Both halves stay.
 
+### Who reports an expired timer: `useTimerReport`
+
+Every game page's `onExpired` is `useTimerReport` (`hooks/use-timer-report.ts`, BDP-03). Any
+player may still report (gating on the host stalled the game whenever the host's phone
+locked), but every clock reaches zero at once, and a 12-player table sent 12 POSTs for one
+change, each followed by a refetch.
+
+- **The host reports at once; everyone else waits 1–2 s** (`TIMER_REPORT_JITTER_MIN_MS` /
+  `MAX_MS`, a uniform draw) and reports only if the page's `phaseKey` (phase + round + the
+  clock's server start) has not moved: the host's report lands, its `game_updated` brings the
+  next state, and the waiting reports are dropped. If the host is away, the first wait to end
+  reports. A state change that does not end the phase (someone's answer) keeps the wait.
+- **No refetch after a no-op answer** (`isTimerNoOpAction`: `paused`, `timer_not_expired`,
+  `not_playing`, `round_already_resolved`, `none`); a stop answer (`isTimerStopAction`) still
+  silences the window until the next one.
+- E2E: a guest's report is 1–2 s late. Poll the server state, never sleep a fixed time.
+
 ### A stale access token is refreshed BEFORE `/me`
 
 After an hour away the access token has expired (and the access cookie with it: its
@@ -280,25 +384,70 @@ returning visitor. `initAuth` used to ask `/me` first with the stale bearer; the
 `/today` and the home card included, and the refresh never ran. Now:
 
 - `initAuth` refreshes first when the stored token is past (or within `REFRESH_BUFFER_MS` of)
-  its expiry (`accessTokenIsStale`), then asks `/me` with the fresh token and schedules from
-  it; a refresh that fails clears the session and ends signed out, with no redirect.
-- `client.ts` never redirects on a 401 from `/auth/me` or `/auth/refresh`
-  (`redirectsToLoginOn401`): they are the provider's own probes, and the cookie-only retry of
-  a refused body refresh token must get its turn. It still clears the stored tokens. A
-  protected page then redirects through `_auth.tsx`, with the page in `redirect`.
+  its expiry, or missing (`accessTokenIsStale`), then asks `/me` with the fresh token and
+  schedules from it; a refused refresh clears the session and ends signed out, with no
+  redirect; an unanswered one keeps the stored session and retries. A `/me` 401 on a token
+  that looked fresh earns one refresh and one more `/me`.
+- `client.ts` leaves every 401 from `/api/v1/auth/*` alone (`redirectsToLoginOn401`): no
+  refresh, no clearing, no redirect. They are the provider's own probes (and `/auth/login`'s
+  wrong password). A protected page then redirects through `_auth.tsx`, with the page in
+  `redirect`.
 
 Tests: `AuthProvider.test.tsx` ("refreshes an expired access token before asking /me", "ends
 signed out … when an expired session cannot be refreshed"), `api/client.test.ts`
 (`redirectsToLoginOn401`), and `e2e/tests/auth/token-management.spec.ts` ("an expired access
 token with a valid refresh token stays signed in").
 
-### AuthProvider shares the in-flight refresh promise
+### One refresh at a time, per tab and per browser
 
-`refreshAccessToken` returns the pending promise to a concurrent caller. It used to
-return `false`, which `scheduleTokenRefresh` reads as *failure* and answers by
-clearing auth and logging the player out — while the other refresh was about to
-succeed. Overlapping callers are the normal case on mobile: the throttled
-`setTimeout` fires at the same moment `visibilitychange` does.
+`refreshSession()` (`api/client.ts`) returns the pending promise to a concurrent caller:
+AuthProvider's timer, `visibilitychange`, and the 401 replay all share it. A concurrent caller
+used to get `false`, which read as *failure* and logged the player out while the other
+refresh was about to succeed. Overlapping callers are the normal case on mobile: the
+throttled `setTimeout` fires at the same moment `visibilitychange` does.
+
+Across tabs it takes a Web Lock (`navigator.locks`, `majlisna-auth-refresh`): every refresh
+rotates the cookie (SEC F01, single-use refresh tokens), and tabs scheduled from the same
+shared expiry fire together. The second tab waits, finds the first tab's token (stored token
+differs from its `staleToken` and is fresh) and asks nothing. A frozen tab holding the lock is
+waited for 15 s at most. A browser without Web Locks relies on the server's reuse grace
+(`REFRESH_REUSE_GRACE_SECONDS`). A late timer also checks `accessTokenIsFresh()` first and only
+reschedules. Tests: `api/client.test.ts` ("two tabs", two module copies over a fake
+`navigator.locks`) and `AuthProvider.test.tsx` (two providers, one refresh).
+
+### Token links leave the address bar at once
+
+`/auth/reset-password` and `/auth/verify-email` read `?token=` once (a `useState`
+initializer), keep it in memory and call `scrubTokenFromUrl()` (`lib/auth.ts`, a
+`history.replaceState` that keeps the router's history state) on mount, so the history, an
+analytics page view or a screenshot never holds a working token (SEC F06). Links already
+sent keep working. TanStack Router hears the replace (it wraps `replaceState`) and re-renders
+with `token: ""`: never read the token from `useSearch` after the first render. A reload can no
+longer resend the token, so verify-email offers "Retry" when its request got no answer.
+Test: `routes/auth/-tests/wp06-token-links.test.tsx`.
+
+### The client's security rules, in one place (2026-10 audit)
+
+Each is detailed in its own section; each names its test.
+
+- **The refresh token lives only in the httpOnly cookie**, never in localStorage or
+  `document.cookie` (`lib/auth.test.ts`, `AuthProvider.test.tsx`, `api/client.test.ts`;
+  `e2e/tests/auth/login.spec.ts` reads the real cookie jar).
+- **Token and PIN links are scrubbed with `history.replaceState` as soon as they are read**:
+  reset and verification tokens (`wp06-token-links.test.tsx`), a share link's code and PIN
+  (`/rooms/join`, "`/rooms/join` uses `mutateAsync`" below).
+- **Umami runs with `data-exclude-search`**, so no page view carries a query string
+  (`src/__tests__/index-html.test.ts`).
+- **`script-src` has no `'unsafe-inline'`**; inline scripts pass by build-time hashes ("The CSP
+  is enforced").
+- **A third-party script loads only on the routes that use it**: Google's GSI only on
+  `/auth/login` and `/auth/register` (and inside the open deletion dialog of a Google account),
+  never from the root layout ("Google sign-in" below; `i18n/__tests__/detection.test.tsx`,
+  `components/auth/__tests__/auth.test.tsx`, `e2e/tests/i18n/regional-locale.spec.ts`). **A
+  component that calls a provider's hook must still render when the feature is unconfigured
+  and its provider absent** (`WithGoogleOAuth` renders nothing without `VITE_GOOGLE_CLIENT_ID`).
+- **A revoked session ends here too** (`errors.api.sessionRevoked` → login with a notice, never
+  a refresh; "AuthProvider must schedule a token refresh").
 
 ### `UserData` carries only what the API returns
 
@@ -310,12 +459,46 @@ authorization is decided server-side by `get_current_admin_user`.
 
 ### The lobby warns about stale state instead of blanking
 
-`queryError && !roomData && failureCount > 2` still gates the full-page error, but
-`!roomData` is never true again after the first successful load — so a room that
-stopped refreshing (kicked, room closed, backend down) left the player on a frozen
-lobby with no signal. A banner (`room.staleState`) now says so when there is already a
-roster on screen. Deliberately a banner and not a redirect: replacing a live lobby
-over one bad poll would be worse than showing stale data.
+The full-page error (`LobbyRefusal`) shows when the room state is in error with no room on
+screen; once there is a roster, a failing refetch (`isError` with data) gets a banner
+(`room.staleState`) instead — a room that stopped refreshing (kicked, room closed, backend
+down) used to leave the player on a frozen lobby with no signal. Deliberately a banner and not
+a redirect: replacing a live lobby over one bad poll would be worse than showing stale data.
+
+A refusal with nothing on screen is final (FR-5). TanStack v5 puts a query with no data back
+to `pending` at every fetch, so a 404 polled every 2 s and retried twice drew the skeleton
+between two error pages forever. Now:
+
+- `retry: retryUnlessRefused` (`components/rooms/errors.ts`): never a 4xx, twice otherwise;
+- `refetchInterval` returns `false` while the query is in error with no data (the socket's
+  state reaches it through `socketConnectedRef`, read after each render; all of it lives in
+  `useRoomLobby`, `hooks/use-room-lobby.ts`);
+- the refusal is held in a ref while it is asked again (a refocus), so no skeleton in between;
+- for `errors.api.userNotInRoom` the page offers "Join this room" (code and PIN, through
+  `useJoinRoom`), and keeps its socket closed until then: the server refuses a non-member's
+  socket, and socket.io-client never retries a refused one.
+
+Tests: `routes/_auth/rooms/-tests/lobby.test.tsx` (fake timers: 10 s with one request and no
+skeleton). Route tests sit in a `-tests` folder: the router plugin ignores names starting with `-`.
+
+### A failed read is not an empty state
+
+Every data page branches on `isError` before its empty state (FR-7): during an incident
+`/stats` said "No games played", `/achievements` "No achievements yet", `/leaderboard` "No
+players yet", `/friends` "My friends 0", the profile kept its skeleton forever and a player page
+answered a 500 with "We could not find this player". Now they show `LoadFailed`
+(`components/stats/LoadFailed.tsx`: an error `Alert` with `getApiErrorMessage(err,
+t("common.loadFailed"))` and a `common.retry` button calling `refetch()`), as the notebook and
+the word of the day do.
+
+- `/stats` fails as a whole when either of its two reads fails (a missing game list would read
+  as "no recent games"); `/friends` per list, and a tab's count shows only once it is known.
+- The player page says "not found" only for a 404 or a 422 (an id that is not one); anything
+  else is `LoadFailed`.
+- The leaderboard's E2E hooks: `data-testid="leaderboard"` on the table (loading, empty or
+  filled; never on a failure), `leaderboard-row` on each player's row, `leaderboard-error` on the failure.
+- When you add a page that reads, give it the same branch. Test: `routes/-tests/error-states.test.tsx`
+  (every read answers 500: the alert and Retry, never the empty copy).
 
 ### Text on a 10% tint uses the `-on-tint` tokens
 
@@ -327,15 +510,17 @@ pairing only, so buttons, icons and headings keep the brand colours. They are
 backgrounds.
 
 This is also a lesson about the accessibility suite. The axe scan runs right after
-`domcontentloaded`, while the cards are still animating in, and axe skips a node that
-is momentarily `opacity: 0` — so whether the chips got measured at all depended on
-machine speed. Three clean local gate runs missed it; CI caught it. The deterministic
-guard is `e2e/tests/accessibility/contrast.spec.ts`, which waits for the animation to
-settle and composites the translucent tint the way a browser does. When adding a
+`domcontentloaded`, and axe skips a node that is momentarily `opacity: 0`: when this was
+found the cards still faded in on load, so whether the chips got measured at all depended
+on machine speed. Three clean local gate runs missed it; CI caught it. (The pages no longer
+animate anything at load — the 2026-10 audit counted 0 app animations on 18 routes, the
+word of the day's hint ink aside — but a fade added later would bring the trap back.) The
+deterministic guard is `e2e/tests/accessibility/contrast.spec.ts`, which waits for any
+animation to settle and composites the translucent tint the way a browser does. When adding a
 chip-style label, keep it above 4.5:1 or make the text large enough to qualify for
 the 3:1 large-text threshold.
 
-### The CSP is enforced, and `Zod` must stay jitless for it to be
+### The CSP is enforced
 
 `security-headers.conf` ships `Content-Security-Policy`, not `-Report-Only`. Two things
 made that possible:
@@ -349,15 +534,25 @@ reaches a response header. An unset arg substitutes to nothing, which is valid.
 The API origin is **not** redundant with `'self'`: `'self'` is scheme + host + *port*,
 so `api.majlisna.app` (documented as supported) or the E2E stack's `:5049` next to the
 frontend's `:3049` is a different origin. Without it an enforced policy blocks every
-API call. The E2E suite is what found that.
+API call. The E2E suite is what found that. Its WebSocket twin (`wss://` for https,
+`ws://` for http, same host and port) is substituted next to it, for the invitation
+socket in `_auth.tsx`; there is no blanket `ws: wss:` (SEC F13). The room socket
+connects to the page's own origin, which `'self'` covers.
 
-**`src/lib/zod-jitless.ts` must stay imported first in `main.tsx`.** Zod 4 decides
-whether to JIT-compile validators by *probing* `new Function("")` in a try/catch. Under
-the policy that probe is blocked; Zod catches it and uses the interpreted path, so
-nothing breaks — but every page load records a `script-src`/`eval` violation. Setting
-`jitless` short-circuits the probe (`fastEnabled = jit && allowsEval.value`), giving the
-same code path with no violation. It took a while to find because minification aliases
-`Function` to a local, so it does not appear in the bundle as `new Function`.
+**`script-src` has no `'unsafe-inline'`: the inline scripts are allowed by hash.** The
+Dockerfile's build stage runs `scripts/csp-inline-hashes.mjs` on the BUILT
+`dist/index.html` (Vite rewrites the Umami bootstrap from the build args, so only the
+built bytes hash right) and the production stage substitutes one `'sha256-…'` per inline
+`<script>`. So editing or adding an inline script in `index.html` needs no CSP edit, but
+an inline event handler (`onload="…"`) or a `javascript:` URL **fails the build**: no
+hash can allow them, so attach listeners from a script. `style-src` keeps
+`'unsafe-inline'` (React inline styles). The Dockerfile also refuses a policy with a
+leftover placeholder, an `'unsafe-inline'` in `script-src`, or a bare `ws:`/`wss:`.
+
+**A new inline script is allowed only by a rebuilt image.** The hashes come from the built
+`dist/index.html` at image build, so never hand-edit a hash into the policy; rebuild, and keep
+`e2e/tests/smoke/csp.spec.ts` clean. `scripts/csp-inline-hashes.test.mjs` pins the hashing
+(and the refusal of inline handlers and `javascript:` URLs).
 
 `e2e/tests/smoke/csp.spec.ts` fails on any enforced violation and reports
 `sourceFile`/`line`, so the next one names itself. It collects violations over
@@ -383,6 +578,29 @@ Three consequences for this page:
 - **Crossing a rung we don't hold triggers an `invalidateQueries`.** There is no
   Socket.IO event for a hint — nothing mutates — and polling is off while the
   socket is connected, so this effect is the only thing that pulls the next one in.
+- **The ladder's clock is one timeout set for its next change, never polled** (WP-26,
+  `hooks/use-wordquiz-game.ts`): `hintClockAt(elapsedMs, rules)` is the server's rule
+  (`_calculate_hints_revealed`; an interval of 0 releases the whole ladder) and
+  `msUntilHintClockChanges` says when it next answers something else (the next second of
+  "next hint in", else the next rung), in integer milliseconds on `serverNow()`. A 500 ms
+  `setInterval` used to re-render the whole page twice a second and land a rung up to
+  half a second late; a rung now lands at `round_started_at + N × interval`. The thread
+  clock itself is `PhaseTimer` → `ThreadClock` (`startedAt` + `durationMs`, WP-18).
+  Tests: `hooks/use-wordquiz-game.test.ts`, `routes/_auth/game/-tests/wp26-wordquiz-page.test.tsx`.
+- **The field counts the round's tries** (owner rule (e)): `AnswerInput` takes
+  `attemptsLeft` (`my_attempts_left`; null shows nothing) and `maxAttempts`, says
+  `game.wordQuiz.triesLeft` under the field (read with it), and closes at 0; the last miss
+  then reads `errors.api.answerAttemptsExhausted`, not "try again", and focus moves to the
+  count instead of falling to `<body>`. A 409 `answerAttemptsExhausted` comes back from
+  `handleSubmitAnswer` as `{ refused: <translated> }`, which the field says in its alert
+  (no toast), and the state is re-read. "Worth N points now" is `kalimatWorth(max, rung,
+  my_rungs_lost)`, the server's price, shown only while the player can still earn it: not once
+  they found the word, nor at 0 tries left (review F5). Tests:
+  `components/games/wordquiz/wp26-tries-left.test.tsx`, `routes/_auth/game/-tests/wp26-wordquiz-page.test.tsx`.
+- **A password-only form says a wrong password as one** (`components/profile/password-error`):
+  the delete-account dialog and the password change map the login's
+  `errors.api.invalidCredentials` ("check your email and password") to `profile.wrongPassword`
+  (review F6).
 
 ### Vote targets are not in the payload while a round is open
 
@@ -399,6 +617,19 @@ visitor IP goes to Google. The per-script `unicode-range` subsets mean a page on
 scripts it renders. A `Samar Figures` face (Readex digits only) sits first in the display stack
 because Marcellus's 1 reads as an I. Do not add `<link>`s to a font host: the policy blocks them.
 
+Three things keep a page to the files it needs (FP-13). `src/fonts.css`, imported by `fonts.ts`
+AFTER the @fontsource CSS, declares two small faces over theirs (a later face of the family is
+tried first for the characters of its `unicode-range`): Readex's transliteration letters (ā ī ū ḥ
+ṣ ḍ ṭ ẓ ʾ ʿ…, 5 kB, instead of the 28 kB latin-ext file one "salām" pulled), and Amiri's space and
+no-break space (inlined, instead of the 20 kB Latin file every Arabic phrase with a space pulled).
+Latin text IS set in Amiri (MCQ explanations, meanings, Latin answers): never give Amiri's Arabic
+face the space, or a Latin paragraph would pull the 100 kB Arabic file. And a Vite plugin
+(`preloadUiFont`, `vite.config.ts`) preloads Readex's Latin file, which every page needs, from the
+built `index.html`. The subset files are in `src/assets/fonts/` (how they were cut:
+`SOURCES.txt`); a subset with no outline at all is rejected by Chrome's sanitizer and fails
+silently, which `src/fonts-subsets.test.ts` guards with the copy's letters. The Arabic UI still
+fetches Amiri's Latin file for the full stop that ends its titles.
+
 ### The display figures are pinned to the weight of the letters around them
 
 `Samar Figures` used to declare Readex's whole 160–700 range, so a Marcellus title (400) drew its
@@ -414,10 +645,14 @@ fakes a bold for a 700 request on a face lighter than 600, everything in the dis
 ### The home sky: the `<picture>` and the preload in `index.html` are one contract
 
 `HomeHero.tsx` draws one sky per light from `public/sky/` (≤ 760 px: 800/1000 w, 761–1100 px:
-the 2:1 tab crop, above: 1600/2400 w, `sizes="100vw"`). The inline script in `index.html`
+the 2:1 tab crop at 800/1200/1600 w, above: 1600/2400 w, `sizes="100vw"` except the tablet
+range: `TABLET_SKY_SIZES`, because in portrait the cover box is drawn wider than the viewport,
+so a 768 × 1024 iPad at DPR 1 takes tab1200, 95 kB, not the 215 kB tab1600 it used to, nor a
+stretched tab800). The inline script in `index.html`
 preloads the same file for the stored light on `/`, with the same `imagesrcset`, `imagesizes`
 and media queries, so the browser downloads exactly one sky. Change one, change the other
-(and check the network panel: one `/sky/` request per load). The sky files' bottom edge is the
+(and check the network panel: one `/sky/` request per load);
+`components/home/__tests__/home-sky.test.tsx` runs the inline script and compares. The sky files' bottom edge is the
 horizon and the CSS ground starts on their last row: never crop or re-export them without the
 ground colours in `public/sky/SOURCES.txt`.
 
@@ -429,16 +664,91 @@ a second time with `redirect=/auth/login?...`, which `safeRedirect` drops: every
 lost (a shared `/rooms/join?code=…&pin=…` link, or the home join row, then landed on `/`). The
 effect now skips paths under `/auth/`.
 
-Note: `vite.config.ts` drops `console.*` in dev too (`esbuild.drop`), so a `console.log`
-added while debugging prints nothing; expose a value on `window` instead.
+Note: `vite.config.ts` no longer drops every `console.*` (`esbuild.drop` used to, in dev
+too, so a debugging `console.log` printed nothing and every `console.warn`/`console.error`
+vanished in production). Now `esbuild.pure: ['console.log', 'console.debug']`: the minifier
+removes those two from the production bundle, they still print in dev, and `console.warn` /
+`console.error` ship (the "No retries" rule's visible warnings need them).
+
+### Errors reach the tracker (`lib/report-error.ts`)
+
+- **One door**: `reportError(error, { source, extra })` says the error in the console and
+  sends it through the Sentry SDK to the self-hosted, Sentry-compatible tracker (Bugsink on
+  the host; production builds have no `VITE_SENTRY_DSN` yet, so today nothing is sent). Callers: `ErrorBoundary`, and
+  `QueryProvider`'s `QueryCache`/`MutationCache` `onError`, which skip a 4xx
+  (`isReportableRequestError`: the server's verdict, said on the page). A network failure
+  or a 5xx is reported.
+- **The SDK is lazy**: `startErrorReporting({ dsn })` (main.tsx) imports `@sentry/react`
+  after `load`, when the page is idle (`requestIdleCallback`, a 1.5 s timer without it), and
+  only when the build has `VITE_SENTRY_DSN`. Until then reports, `window` errors and
+  unhandled rejections wait in a queue (`MAX_QUEUED_REPORTS`); then the SDK's own handlers
+  take over. Without a DSN nothing is downloaded. Never import `@sentry/react` statically:
+  `check:bundle` fails if the SDK lands in the entry.
+- **`ErrorBoundary` resets when the page changes** (FR-10). The exported component reads the
+  router's *resolved* location (`useRouterState`), not `useLocation`: the address changes
+  before the new page's matches render, so a reset on it drew the crashed page again and
+  stayed on the error. A test that mocks `@tanstack/react-router` and renders a page with a
+  boundary must give the mock `useRouterState`. A chunk that failed to load
+  (`isChunkLoadError`) makes "Try again" reload the tab once per error message
+  (sessionStorage `majlisna-chunk-reload`): a rejected lazy import is never retried in place.
+  The technical message sits under a "Technical details" toggle (`ui.errorDetails`).
+  Tests: `components/__tests__/ErrorBoundary.test.tsx` (a real memory router),
+  `providers/QueryProvider.test.tsx`, `lib/report-error.test.ts`.
+
+### The bundle diet (`bun run check:bundle`)
+
+After `bun run build`, `scripts/check-bundle.mjs` fails when the entry chunk holds zod (or
+`jitless`) or the Sentry SDK, or weighs 60 kB gzip or more (22 kB when it was set, from
+77.7 kB). The frontend CI job runs it after the build (`pipeline.yml`, wired by WP-15).
+
+- **No Kubb zod schemas** (FP-02): the barrel re-exported ~250 of them into the entry of every
+  page and nothing used them. `kubb.config.ts` has no `pluginZod`.
+- **`manualChunks`** (`vite.config.ts`): `react-vendor` is exactly react, react-dom and
+  scheduler (a bare `'/react-dom/'` also caught `@floating-ui/react-dom`); there is **no
+  Radix rule** (it preloaded Select, Tabs, Progress and Switch on every page; each now goes
+  with its route); whatever else the shell imports statically from the entry (the nav's
+  Radix pieces, sonner, ky, tailwind-merge…) goes to `vendor`, which stays cached across a
+  deploy that only changes app code. Stylesheets are never chunked by hand.
+- **No chart library**: `/stats`'s `WinLossChart` is plain elements on the Samar tokens
+  (a few kB; chart.js was 52 kB gzip). Bars carry `data-day`, segments `data-part`.
+- Radix is deduplicated (one release line, no nested copies in `bun.lock`).
 
 ### `PhaseTimer` renders the thread clock, never red
 
 `PhaseTimer` keeps its props and its once-per-window `onExpired` logic; it renders
-`components/brand/ThreadClock` (a contracting woven thread, five brass lozenges for the last five
-seconds, a knot at zero). Urgency is a change of rhythm, not colour: no red, no pulse. Its
+`components/brand/ThreadClock` (a woven thread drawn back through the loom, five brass lozenges for
+the last five seconds, a knot at zero). Urgency is a change of rhythm, not colour: no red, no pulse. Its
 `aria-label` names the clock and gives its text ("Time left: 0:20", `ui.clock.label`); a polite
 live region speaks only at 30, 10 and 5 s.
+
+**The thread never animates `width`** (WP-18). It used to: a 500 ms width transition on a
+one-second tick, so it moved half of each second and stood still the other half, and laid the
+page out every frame it moved (308 layouts in 5 s on a phone, against 5 now). The thread is
+full length inside an `overflow: hidden` track; `PhaseTimer` passes `startedAt` +
+`durationMs` and `ThreadClock` runs ONE `Element.animate` on `transform: translateX` per timer
+window (positive in RTL), from where the thread stands now to five seconds left, linear, on the
+compositor. The 500 ms tick changes only the figures. Under reduced motion (or with only
+`remaining`/`total`, as in the pause veil) the CSS places the thread from `--left`, once a
+second. Tests: `components/brand/__tests__/ThreadClock.test.tsx` (a recording fake of
+`Element.animate`: happy-dom has no Web Animations).
+
+### Motion rules (DESIGN.md §7)
+
+- **A continuous animation moves `transform` and `opacity` only**, never `width`, `height`,
+  `left` or a `clip-path` in a loop (the `ink` mask on text is the one authored exception). The
+  thread clock is ONE Web Animation on `transform` per timer window. Tests:
+  `ThreadClock.test.tsx`, `e2e/tests/perf/thread-clock.spec.ts` (one `thread-clock` animation,
+  no width animation, under 20 layouts in a 5 s trace).
+- **After every phase swap and every game over, focus moves to the new phase's heading when
+  focus was free** (on `<body>`, or on a control of the game region that is not a field being
+  typed in): `usePhaseFocus` ("Game pages" below). Tests: `hooks/use-phase-focus.test.ts`,
+  `e2e/tests/accessibility/phase-focus.spec.ts`.
+- **Under reduced motion a phase change keeps a 120 ms crossfade, never a cut** (index.css:
+  `::view-transition-old/new(root)` at 120 ms, groups at 0 s); the other gestures become short
+  fades in the CSS twins, the clock steps once a second. Reduced motion is the CSS's job:
+  nothing animates through motion/react (the `motion` package is still in `package.json`, but
+  nothing imports it), and there is no `MotionConfig`. Tests: `lib/view-transition.test.ts`,
+  `components/brand/__tests__/Seal.test.tsx`, `lib/motion.test.ts`.
 
 ### Nothing clips the page sideways
 
@@ -464,10 +774,33 @@ Per-call `mutate(vars, { onSuccess })` callbacks belong to the mutation observer
 StrictMode's mount/unmount/mount replaces in development: the join succeeded on the server and
 the page sat on "Joining room…". The promise from `mutateAsync` always settles.
 
+- **The code and PIN leave the address bar at once.** The page reads them once (a `useState`
+  initializer), then `history.replaceState` drops them, keeping the router's history state,
+  before the join is sent: the PIN used to stay in the browser history and in every analytics
+  page view (SEC F06).
+- **One room at a time.** A player seated in another room gets a 409
+  (`errors.api.userAlreadyInRoom`): the page says `room.joinPage.alreadyInRoom` and offers
+  "Leave {{room}} and join" (`components/rooms/use-join-room.ts`, shared with the lobby's
+  "Join this room"). The button reads `/rooms/active` again when pressed, leaves that room
+  through the normal leave, then joins.
+- **A ban is said, and that is all.** A 403 `errors.api.roomBanned` shows its translated
+  message: no retry, no leave offer (leaving another room does not lift it), no repair line
+  and no "Type the code yourself" — only "Back to the majlis"; the /rooms form drops its
+  "Check the code and PIN with your host" for a ban and a seat elsewhere (review F2). One
+  rule picks the repair: `components/rooms/errors.joinRepairFor(errorKey)` (`useJoinRoom`
+  exposes `errorKey`).
+- **A refused PIN may be an old one.** Every kick rotates the PIN, and a link or a friend's
+  invite keeps the PIN it was made with: `errors.api.wrongRoomPassword` is followed by
+  `room.joinPage.pinChangedRepair` ("ask the host for a new link or invite", review F1).
+- **`useJoinRoom` tracks its own in-flight join** (`busy`), never `joinMutation.isPending`:
+  StrictMode's mount, unmount, mount detaches the mutation observer of the join sent at
+  mount, and the "Leave {{room}} and join" offer stayed busy for ever under `bun dev`
+  (review F8; `join.test.tsx` renders it in `<StrictMode>`).
+
 ### Credits
 
 `routes/credits.tsx` carries the attribution the CC BY-SA images need (the home skies and
-`og-image.png`, CC BY-SA 4.0; the Jabreen arch, CC BY-SA 2.0). It is linked from the footer on
+`og-image.jpg`, CC BY-SA 4.0; the Jabreen arch, CC BY-SA 2.0). It is linked from the footer on
 every page. A new third-party image ships only with its entry there.
 
 ### Privacy
@@ -483,14 +816,27 @@ The policy describes the code as it is (checked 2026-10-28), so **a change to an
 changes its text**, in the three languages, with a new "updated" date:
 
 - prayer times: computed on the device (adhan); the nav calls `https://ipapi.co/json/`
-  automatically while no city is stored; city search → Open-Meteo geocoding; a chosen city →
-  Open-Meteo for its time zone; "Use my location" (on request) → Nominatim + Open-Meteo; the city
+  automatically while no city is stored, at every width (one request per load, shared with a
+  mounted chip; a failure is remembered for 24 h in `majlisna-geo-failed-at`); city search →
+  Open-Meteo geocoding (with the interface language); a chosen city → Open-Meteo for its time
+  zone; "Use my location" (on request) → Nominatim (Accept-Language: the interface language) +
+  Open-Meteo; the city
   lives in localStorage only (`majlisna-city`, `majlisna-coordinates`);
-- browser storage: the tokens and `majlisna-user-data` in localStorage beside the httpOnly
-  cookies, theme, language, the welcome flag, per-tab sessionStorage during a game;
-- Google: sign-in only, but `GoogleOAuthProvider` in `__root.tsx` loads Google's script on every
-  page; profile pictures come from Google's servers;
-- Umami events carry no identifier; GlitchTip, Resend, Cloudflare, Oracle Cloud;
+- browser storage: the access token (never the refresh token, which stays in its cookie) and
+  `majlisna-user-data` in localStorage beside the httpOnly cookies, theme, language, the
+  welcome flag, per-tab sessionStorage during a game;
+- Google: sign-in only; Google's script loads on the sign-in and sign-up pages (the
+  provider is mounted by `GoogleLoginButton`, see "Google sign-in" below) and in the open
+  deletion dialog of a Google account, where it confirms the deletion, and profile pictures
+  come from Google's servers (`privacy.sections[6].body[0]`); deletion is confirmed with the
+  password or with Google (`privacy.sections[8].body[0]`), so Google accounts no longer write in
+  to delete;
+- Umami events carry no identifier, and page views no query string (`data-exclude-search` in
+  index.html's bootstrap: the URLs carry reset and verification tokens and a room's code and
+  PIN, SEC F06); error reports go only to the self-hosted error tracker,
+  once one is configured (`VITE_SENTRY_DSN`, for the Bugsink on the host; there is no
+  GlitchTip, corrected 2026-10-30);
+  Resend, Cloudflare, Oracle Cloud;
 - what other players see (public stats, achievements and leaderboard; the profile for signed-in
   players), the notebook, the word of the day, chat, and what account deletion removes (and that
   past games keep the name a player played under).
@@ -518,6 +864,12 @@ any reload `user.email` was `undefined` and the profile showed no address. It go
   that render the page would otherwise draw the OLD phase with the NEW state: "The answer was"
   with no answer. `useHeldForPhase(state, phase)` (`games/shared/quiz-utils.tsx`) keeps the state
   that belongs to the phase on screen, so the frame the crossfade fades out is true.
+- **A test's `document.startViewTransition` stub runs the update asynchronously**, as the
+  browser does (after the old state is captured): `vi.fn((update) => ({ finished:
+  Promise.resolve().then(update) }))`, then `await act(async () => {})`. A stub that called it
+  synchronously ran the hook's `flushSync` inside React's own effect ("flushSync was called from
+  inside a lifecycle method", on every run) and could not show the old phase being held
+  (`src/lib/view-transition.test.ts`).
 - **Quiz scores are held back while a question is open, by the server.** The Quiz's state shows
   every total as it stood before the round (`current_round_points` and `my_points` are 0) until
   the reveal, so `PlayerScoreboard` shows the totals as sent. It used to subtract
@@ -560,6 +912,39 @@ any reload `user.email` was `undefined` and the profile showed no address. It go
   (`aria-current="step"` in the list named "Hints, from the vaguest…"). The old `sr-only
   aria-hidden` "Round 1/…", "Question n/m" and "#1" spans were removed; do not add test-only
   text to a page.
+- **Focus follows the phase** (`hooks/use-phase-focus.ts`, F2). A phase swap unmounted the
+  button just pressed, focus fell to `<body>` and the next Tab restarted at the skip link.
+  `usePhaseFocus(phaseKey, gameRef, { targets })` focuses the new phase's title after the
+  swap (tabindex -1, `preventScroll`), only when focus is free: on `<body>`, or on a control
+  inside the game region that is not a field being typed in (`focusIsFree`). Never on the
+  first render or the first state (a change from null: a page load). Targets: Undercover,
+  each phase's h2; The Quiz, the question (h2), the locked-in note, the reveal's first h3;
+  Kalimat, the rung in play, the "You found it" status, "The answer was"; every game's end,
+  the colophon title (`data-colophon-title`, which `Colophon` puts on its title). The quiz
+  pages wrap their game-over branch in the same `gameRef`.
+- **Codenames' end** (F3, `useCodenamesGame`): the veil comes 640 ms after the game ends
+  (the decisive card's weave, `--dur-authored`), holds 1280 ms (`--dur-ceremony` + 180), or
+  comes at once and holds 600 ms under reduced motion, then lifts through
+  `withViewTransition`; `colophonHeld` keeps the colophon back for all of it. A page opened
+  on a finished game has no veil and takes no focus.
+- **The quiz colophon reads owner rule (a) from its leaderboard** (`QuizGameOver`): several
+  top scorers above 0 → `game.quiz.sharedWin` naming them all; nobody scored →
+  `game.quiz.noWinner`; one player → `game.quiz.soloScore`, never "wins". The server's
+  `winner` is null for the first two; the analytics "game-over" event keys on `game_over`.
+- **A clue is one word, said before it is sent** (`CluePanel`, `isOneWordClue`, BR-14): any
+  whitespace inside the trimmed clue shows `errors.api.clueMustBeOneWord` under the field and
+  sends nothing (the server's `ClueMustBeOneWordError` stays the rule).
+- **One request per move** (FR-4): a move handler sets a synchronous in-flight ref before
+  `mutateAsync` (TanStack's `isPending` reaches the button a tick later): The Quiz's lock-in
+  and next round, Kalimat's next round, Codenames' clue, guess and End Turn (busy while
+  sent), and every page's Leave. Refusals fall back to `game.errors.*`, never English.
+  The Quiz's lock-in also counts from the server's yes (`useMcqQuizGame().hasLockedIn`):
+  until the refetch said `my_answered`, the button was live again and a second tap sent a
+  second answer, refused with a toast, the pick on screen cleared.
+- **The quiz pages draw, their hooks decide** (TQ-12): `useWordQuizGame` and
+  `useMcqQuizGame` (`hooks/`) hold the state read, the moves, the timer report, the gone-game
+  redirect and Kalimat's ladder clock, like `useUndercoverGame`; the pages keep the phase
+  on screen, focus and the pause veil. Tested on fake timers (`hooks/use-*-game.test.ts`).
 
 ### The prayer pause (وقفة الصلاة)
 
@@ -574,7 +959,9 @@ any reload `user.email` was `undefined` and the profile showed no address. It go
   only live Resume. It takes focus only if focus was in the game, and gives it back on resume.
 - **Clocks freeze from the server's figure.** `PhaseTimer` takes `paused` and `frozenRemaining`
   (the server's `remaining_seconds`); on resume the server moves `timerStartedAt` forward, so the
-  clock just continues. A `timer-expired` answering `paused` or `round_already_resolved`
+  clock just continues. The thread's own animation is paused (`Animation.pause()`), never
+  re-created while paused, so it stands still to the pixel; the moved start re-creates it from
+  the server's figure on resume. A `timer-expired` answering `paused` or `round_already_resolved`
   (`isTimerStopAction`) stops firing for that window; a move refused with
   `errors.api.gamePaused` (`isGamePausedError`) refetches the state that shows the veil.
 - **"Anyone may resume"** is timed on the server's clock (`msUntilAnyoneCanResume`), never the
@@ -610,7 +997,8 @@ any reload `user.email` was `undefined` and the profile showed no address. It go
 - **One read for the page and the home card**: `useDailyWordQuery` (`use-daily-word.ts`). It is
   enabled only once `AuthProvider` has settled (`isLoading` false): the endpoint is public but
   answers 401 to a token that IS sent and invalid, and `api/client.ts` answers any 401 with a
-  stored token by sending the visitor to the login page. The key is `dailyWordKey(lang, viewer)`,
+  stored token by a refresh and, if that is refused, by sending the visitor to the login page.
+  The key is `dailyWordKey(lang, viewer)`,
   the generated key plus `{ viewer }` (the user id, or null): a signed-out and a signed-in read of
   the same URL differ, so a login or a logout never shows the other's cached state.
   `DAILY_WORD_URL_KEY` (`[{ url }]`) matches every variant for an invalidation.
@@ -672,6 +1060,17 @@ any reload `user.email` was `undefined` and the profile showed no address. It go
   failed). Being removed is an inline notice on /rooms.
 - **The roster is in the DOM.** The halqa is a picture; `PlayerRoster` is the real list ("Players
   (N)", one row per seat, the host's Remove), and the E2E specs read its exact shape.
+- **Remove asks first, because it is a ban** (owner rule (c)). The row's Remove (still its last
+  button) opens an `AlertDialog` ("Remove {{name}}?", the player "cannot come back to it", the
+  host can lift it in the list of removed players); nothing is sent before its "Remove". E2E
+  clicks the row's button, then the dialog's "Remove".
+- **The removed players, for the host only** (`components/rooms/RoomBans.tsx`, under the
+  roster): `GET /rooms/{id}/bans`, each row with "Let {{name}} come back" (`DELETE`, one request
+  per tap, a 404 read as already lifted). No panel while nobody was removed; once shown it stays,
+  so lifting the last ban leaves `room.lobbyPage.bans.empty` with focus on its title. A failed
+  read is `LoadFailed`, never the empty line. A guest renders nothing and asks nothing.
+- **The PIN on screen is the room state's.** The code tiles and the Share link read
+  `room_state.password`, which the kick rotates: a link copied before a kick no longer works.
 - **An away seat counts down from the server's figure.** `RoomPlayerState.away_seconds_left` is
   the server's own grace rule; `awayCountdown(members, dataUpdatedAt, now)` (`rooms/lobby.ts`)
   counts it down from the moment that state arrived (the query's `dataUpdatedAt`, which a socket
@@ -690,6 +1089,14 @@ any reload `user.email` was `undefined` and the profile showed no address. It go
   candidates (`button.uc-seat`, `aria-pressed`, named "Vote for X", text = the name, so
   `button:has-text(<name>)` still finds them). `UndercoverPlayerList` shows only where
   there is no list (the first reading, Mr. White's guess, the colophon).
+- **Between rounds, the ready quorum** (owner rule (d), `RoundOverPanel`): the host keeps
+  "Next round" (forces it; the E2E helper clicks exactly that name), every other alive player
+  gets "I’m ready", then "You are ready…" (focus moves to that line when it replaces the
+  button), and everyone, the eliminated and spectators included, reads the polite
+  `role="status"` count "2 of 3 ready" (`readyCount`, from the state's `ready_count` /
+  `ready_quorum`; plural keys, passed `count` — "1 sur 2 prêt", "2 من 3 جاهزان", review F4). `useUndercoverGame.handleStartNextRound` sends the one next-round call for
+  both, behind a synchronous in-flight ref; `advanced: false` is a ready mark, shown at once
+  (`isReady`) until the pushed state says so. Nothing on this screen may say "Waiting for".
 - **The first reading and the read count survive a reload** (`lib/undercover-session`,
   sessionStorage per game); a table where someone has described is past it anyway.
 - **Every colophon ends with `ColophonActions`** (`games/shared/ColophonActions.tsx`):
@@ -726,6 +1133,35 @@ any reload `user.email` was `undefined` and the profile showed no address. It go
   cannot carry U+00A0: write `\u00a0` in the JSON, or an exact-string replacement. Writing
   `\u00a0` in the Edit's old string also matches an existing no-break space, so French lines
   that hold one can be anchored.
+
+### Google sign-in: the provider lives with the button
+
+`GoogleOAuthProvider` injects Google's script (accounts.google.com/gsi/client, ~100 kB) on
+mount, and it used to wrap the whole app in `__root.tsx`: every page and every game screen
+downloaded it for a button that exists on two pages. Now `GoogleLoginButton` is an outer
+`WithGoogleOAuth` (exported from `components/auth/GoogleLoginButton.tsx`) around an inner
+component that calls `useGoogleLogin`, so the script loads on /auth/login and /auth/register
+only, and is removed when they unmount.
+
+- **No client id, no Google**: `WithGoogleOAuth` renders nothing when `VITE_GOOGLE_CLIENT_ID`
+  is empty (read at render, `googleClientId()`). The hook used to run before that check and
+  threw "must be used within GoogleOAuthProvider", which took both pages down in any build
+  without the variable (a fresh clone, a preview).
+- **Any other Google control** wraps itself in `WithGoogleOAuth` the same way; never put the
+  provider back in the root layout. Account deletion does (`components/profile/DeleteAccount.tsx`,
+  SEC F14): the dialog reads `/auth/me` once it opens, and for `auth_provider` "google" (with a
+  client id in the build) its "Confirm with Google" asks `useGoogleLogin` for a fresh token
+  (`hint` = the address, `prompt: "select_account"`) and sends `{ google_access_token }`; the
+  provider sits inside the open dialog, so the script loads when it opens and goes when it
+  closes. Every other account (and a build without a client id) types its password.
+  `errors.api.googleAccountMismatch` is said in the dialog; Google's own refusal (or a script
+  that failed to load: `WithGoogleOAuth`'s `onScriptLoadError`) says
+  `profile.deleteAccountGoogleFailed`; a closed popup says nothing. `GoogleIcon` is exported for
+  such buttons. Test: `components/profile/__tests__/DeleteAccount.test.tsx` (the real
+  `@react-oauth/google` over a stand-in `window.google`).
+- Tests: `components/auth/__tests__/auth.test.tsx` renders the real pages with and without an
+  id (no button mock), and `i18n/__tests__/detection.test.tsx` checks the shell on /, /about
+  and a game page loads no Google script.
 
 ### The login form: "Forgot password?" comes after the password in the tab order
 

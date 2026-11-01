@@ -151,8 +151,8 @@ same role (`html[dir=rtl]` scales rem by 110 %).
 | `SaduBand` | `variant` madd·teeth·ayn·goat·plain·khayt, `height` | One thick band per screen. `madd` follows the light. `khayt` is reserved for the clock. Never under text. |
 | `Lozenge` | `state` host·ready·brass·ink·away·spectator·open·you·madder·undyed·seal, `size`, `label` | The only geometry: bullets, seats, nodes, legends. |
 | `TeamGlyph` | `team` madder (▲ tooth) · indigo (◆ eye) · bystander · assassin, `size`, `label` | Always next to a team colour. |
-| `Seal` | `size pressed progress ground title caption` | Pressed once (330 ms) then still. `progress` draws the lawh's hold ring. |
-| `ThreadClock` | `remaining total label hideTime` | Pure display. Thread contracts; 5 brass lozenges stamped in the last 5 s; knot at 0. NEVER red. Live region speaks at 30/10/5 s only. |
+| `Seal` | `size pressed index progress ground title caption` | Pressed once (330 ms) then still. `index` (its place in a set: the colophon passes it) waits for the phase crossfade and staggers the press. `progress` draws the lawh's hold ring. |
+| `ThreadClock` | `remaining total label hideTime`, plus `startedAt durationMs paused` (the loom) | Pure display. The thread is drawn back through the loom at the reading start: full length in a clipped track, placed by a `transform` (never its width), ONE Web Animation per phase segment from `startedAt` + `durationMs` (re-created only when they change), paused and played for the prayer pause. Without them, or under reduced motion, it steps once a second from `--left`. 14 px stub and 5 brass lozenges stamped in the last 5 s; knot pressed at 0. NEVER red. Live region speaks at 30/10/5 s only. |
 | `PhaseTimer` (`components/games/shared/PhaseTimer`) | props `timerStartedAt durationSeconds onExpired className`, plus `paused` and `frozenRemaining` (the prayer pause) | Ticks + fires `onExpired` once per window (see front/CLAUDE.md), renders ThreadClock. |
 | `Halqa` | `seats[{id,name,sub,state,me}] capacity quorum center{code,label}|{count,label}|{node} openLabel dir label fontSize radius padX padY` | Host at the ṣadr; fills clockwise LTR, anticlockwise RTL; ring closes at quorum. Keep the real player list in the DOM; the ring is a picture. `padX`/`padY` tighten the label room so the ring fills its box (the home card uses the sketch's 340 × 300: `fontSize 17, padX 66, padY 46`; 72/68 when seats carry a second line). |
 | `CodeTiles` | `value label length kind="code|pin" size="sm|md|lg"` | Display (lobby). Always LTR. |
@@ -177,7 +177,7 @@ same role (`html[dir=rtl]` scales rem by 110 %).
   Not rendered on `/game/*`.
 - **Credits** (`routes/credits.tsx`): the visible attribution the CC BY-SA images require
   (title, author, source, licence, what we changed, where it appears) for the skies
-  (`public/sky/`, also `og-image.png`) and the Jabreen arch, then the typefaces (OFL) and Lucide
+  (`public/sky/`, also `og-image.jpg`) and the Jabreen arch, then the typefaces (OFL) and Lucide
   (ISC). Any new third-party image must be added there before it ships.
 - **Privacy** (`routes/privacy.tsx`): a Read page on the About rails: title, date and lede, the
   brass rule, then one hairline-separated section per `privacy.sections` entry (title on the
@@ -192,7 +192,7 @@ same role (`html[dir=rtl]` scales rem by 110 %).
   never travels sideways (in Arabic a card waiting at `x: -20` sits past the start edge and the
   whole page scrolls). The home hero clips its own sky (`.home-hero { overflow: hidden }`).
 - **Home** (`routes/index.tsx` → `components/home/*`): the hero is pulled up under the sticky
-  nav by one nav height; one `<picture>` per light (≤ 760 px 800/1000, 761–1100 px tab1600,
+  nav by one nav height; one `<picture>` per light (≤ 760 px 800/1000, 761–1100 px tab800/1200/1600,
   above 1600/2400), preloaded for the stored light by the inline script in `index.html` (keep
   the two in sync); the CSS ground starts on the image's last row. The title follows the light
   (`useResolvedTheme`). The join row hands code + PIN to `/rooms/join` (through the login when
@@ -210,7 +210,7 @@ same role (`html[dir=rtl]` scales rem by 110 %).
 
 | Component | Where | What it is |
 |---|---|---|
-| `PlayerRoster` | `components/rooms/PlayerRoster.tsx` | The real list behind the halqa (the ring is a picture): "Players (N)", one row per seat with its state lozenge, the full name, the host's Remove. An away seat says how long it is kept ("away · 9:58", on the ring and in the legend too), counted down from the server's `away_seconds_left`. Seats keep first-seen order (`stableOrder`, `rooms/lobby.ts`). Arrivals and departures are a status line, never toasts. E2E reads its exact row shape. |
+| `PlayerRoster` | `components/rooms/PlayerRoster.tsx` | The real list behind the halqa (the ring is a picture): "Players (N)", one row per seat with its state lozenge, the full name, the host's Remove (behind an `AlertDialog`: a removed player cannot come back to the room until the host lets them, danger action, never a red fill). The host's removed players are `RoomBans` under it (no panel while nobody was removed; "Let {{name}} come back" per row). An away seat says how long it is kept ("away · 9:58", on the ring and in the legend too), counted down from the server's `away_seconds_left`. Seats keep first-seen order (`stableOrder`, `rooms/lobby.ts`). Arrivals and departures are a status line, never toasts. E2E reads its exact row shape. |
 | `Lawh` | `components/games/undercover/Lawh.tsx` | The tablet that carries a word. At rest bare warp + a brass seal, the word NOT in the DOM; press and hold (pointer, Space/Enter) fills the seal's ring (240 ms) and writes the word in its reading direction; letting go fades it (a fade, never a sweep: some words are sacred names). "I can't hold: show until I hide it" pins it open. Same tablet for every role: Civilians and Undercovers are not told their side; Mr. White's says he has no word. Roles show on elimination (`Verdict`) and at game over. |
 | `ScoreBands` | `components/games/mcqquiz/ScoreBands.tsx` | The Quiz's rule as a picture: +3 first quarter of the clock, +2 middle half, +1 last quarter (`bandFor`, mirrors the server). Before answering, the current band is brass and says "now"; once locked, a thread runs to the moment you answered with a lozenge on it ("locked in at 0:09", the server's `my_answer_time_ms` once revealed). A sentence says the same for screen readers. At the reveal each choice says how many chose it (`choice_tallies`: "1 player", "you and 2 others", "+2 · you"). |
 | `LastRoundCard` | `components/games/wordquiz/LastRoundCard.tsx` | Kalimat, under the answer row: "Last round · Maryam wrote زكريّا · right at hint 5 · +5", from the results phase (`typed_answer`), kept in the tab for a reload. Arabic in Aref Ruqaa. The header names the theme ("Round 3 of 7 · a prophet", `category`). |
@@ -228,23 +228,45 @@ same role (`html[dir=rtl]` scales rem by 110 %).
 Grammar (from the motion playbook): one place (the circle), three gestures (write, erase, seal).
 
 - Durations: tap 90 ms · state 180 · move 320 · authored 640 · ceremony 1100 (once per game).
-  Exits = 0.66 × entry on `--ease-in`. Tokens: `--dur-*`, `--ease-out|in|ink|settle|press`;
-  `lib/motion.ts` exports `ease`, `dur`, `t`, `exit()`, `stagger()`, `inkDuration()`, and variants
-  `write` (custom = "ltr"|"rtl"), `erase`, `seal`, `stamp`, `seatArrive`, `arrive`, `fade`.
-- CSS: `ink` (mask-write in the reading direction, visible by default), `seal-press`,
-  `animate-fade-in`, `animate-loz-stamp`.
+  Exits = 0.66 × entry on `--ease-in`. Tokens: `--dur-*`, `--ease-out|in|ink|settle|press`,
+  `--stagger` (30 ms); `lib/motion.ts` exports only `ease`, `dur` (the tokens as numbers),
+  `inkDuration()` and `REREAD` (the motion/react variants were never used and were removed).
+- CSS: `ink` (mask-write in the reading direction, visible by default; text only), `seal-press`,
+  `animate-fade-in`, `animate-loz-stamp`. Seals pressed as a set (the colophon's, `Seal index`)
+  wait for the phase crossfade, then land one by one: `--dur-state + min(i × --stagger, 240 ms)`.
+- The gestures as built: the CIRCLE is the halqa's one thread circle (arrival 320 ms
+  `--ease-settle`, the quorum closing 640 ms `--ease-ink` with 1.6 → 2.6, departure 211 ms
+  `--ease-in`; a new seat's lozenge .25 → 1 once); the clock is the loom (`ThreadClock`);
+  woven bands (a turned Codenames card's selvedge, the end veil's band) slide in through a
+  clipping box from the reading start. Animate `transform`/`opacity`, never `width`, `height`,
+  `left`, a mask or a clip path (in a loop above all), except the `ink` mask on text; the thread
+  clock is ONE Web Animation on `transform` per timer window (`e2e/tests/perf/thread-clock.spec.ts`
+  counts the layouts).
+- Focus follows the phase: after every phase swap and every game over, focus moves to the new
+  phase's heading (or the colophon title) when it was free, on `<body>` or on a control of the
+  game region that is not a field being typed in (`usePhaseFocus`); never on a page load.
+  Tests: `front/src/hooks/use-phase-focus.test.ts`, `e2e/tests/accessibility/phase-focus.spec.ts`.
+- Overlays: dialogs, menus, popovers and selects arrive in `--dur-state` on `--ease-out` and leave
+  in 0.66 × that on `--ease-in`; a sheet lands in `--dur-move` on `--ease-settle`, leaves in
+  211 ms; toasts (sonner) are re-timed on the same tokens in styles/brand.css.
 - One authored moment per screen; ≤ 3 other moving things; no loop except the visible clock; no
   hover lift, float, glow, pulse, bounce, confetti, or shimmer. Nothing ever passes over a sacred
   name (strike the option letter, not the word).
 - Truth first: the final state is in the DOM on the first frame; motion only sequences reading.
 - Route changes do not animate (the old `AnimatePresence mode="wait"` blank was removed). For a
   phase change use `withViewTransition(() => setPhase(x))` or
-  `const phase = useViewTransitionValue(state.phase)` (feature-detected, no-op otherwise, 180 ms).
-  Never wrap a phase in `AnimatePresence mode="wait"`.
-- Reduced motion: `<MotionConfig reducedMotion="user">` is at the root (transforms dropped,
-  opacity kept); CSS twins switch to short fades; the clock steps per second. Holding the lawh to
+  `const phase = useViewTransitionValue(state.phase)` (feature-detected, no-op otherwise, 180 ms;
+  the first real value, a page load, is adopted with no transition). Never wrap a phase in
+  `AnimatePresence mode="wait"`.
+- Reduced motion is the CSS's job (plus `matchMedia` in the three scripts that time a
+  gesture: `ThreadClock`, the Lawh, Codenames' end veil): no component animates through
+  motion/react, so the root has no `MotionConfig` (removed 2026-10-31, it wrapped nothing; the
+  `motion` package is still listed in `front/package.json`, unused); CSS twins switch to
+  short fades; the clock steps per second; a phase change still crossfades, in 120 ms with no
+  group movement (never a hard cut); the halqa's thread jumps and a new seat fades in. Holding the lawh to
   read still works. Sheets, dialogs, popovers and menus (`[data-slot$="-content"]`) lose their
-  tw-animate slide and zoom and only fade (index.css).
+  tw-animate slide and zoom and only fade (index.css). Tests: `front/src/lib/view-transition.test.ts`
+  (the 120 ms crossfade), `components/brand/__tests__/Seal.test.tsx`, `ThreadClock.test.tsx`.
 
 ## 8. RTL
 

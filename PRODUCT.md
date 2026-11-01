@@ -104,11 +104,14 @@ commitment, not only the current state)*. Prayer times are built into the naviga
 |------|---------|-----------|----------------------------|
 | Undercover | 3–12 | Civilians share one Islamic term; Undercover players get a paired, different term; Mr. White gets none. Players describe their word in one word, discuss, then vote to eliminate. An eliminated Mr. White gets one guess at the civilian word; a correct guess wins it for the undercovers. One player is the Mayor, whose vote breaks ties. | Description and voting timers (default none, max 600 s); Mr. White toggle (needs 5+ players: at 4, one undercover plus one Mr. White already tie the civilians, and the impostors win at parity). Every deal starts with civilians strictly ahead. |
 | Codenames | 4–10 | Two teams (Red/Blue), each with one spymaster and operatives. 5×5 board of Islamic terms: 9 / 8 / 7 neutral / 1 assassin. The spymaster gives a one-word clue and a number; operatives vote on cards (ties are broken at random). A team that loses its spymaster or last operative loses. | Clue and guess timers (default none). Pack selection exists in the API (`word_pack_ids`) but not in the room settings UI. |
-| Word Quiz | 1+ | Guess an Islamic term from six progressive hints, vague to specific, released over time. Typed answers; Arabic diacritics, case and spacing are ignored, and each term accepts several spellings per language. Points: 6 at hint 1, down to 1 at hint 6. | 7 rounds, 60 s per turn, a hint every 10 s, difficulty (mixed / easy / medium / hard); 1–50 rounds, 3–120 s hint interval. |
+| Word Quiz | 1+ | Guess an Islamic term from six progressive hints, vague to specific, released over time. Typed answers; Arabic diacritics, case and spacing are ignored, and each term accepts several spellings per language. Points: 6 at hint 1, down to 1 at hint 6; each wrong try costs one rung (never below 1), and a round allows at most 5 tries. | 7 rounds, 60 s per turn, a hint every 10 s, difficulty (mixed / easy / medium / hard); 1–50 rounds, 3–120 s hint interval. |
 | MCQ Quiz | 1+ | Four-choice questions, one locked answer per round; 1 point plus up to 2 for speed; an explanation after each round. | 10 questions, 15 s each, difficulty. |
 
-Both quizzes have a ready system: the next round starts when every non-host player is ready or
-the host advances. A quiz round closes as soon as everyone still at the table has answered (MCQ)
+Both quizzes, and Undercover between rounds, have a ready system: the next round starts when
+every non-host player still in the game (alive, in Undercover) is ready, or when the host
+advances. In both quizzes every top scorer above 0 shares the win; a 0-0 game has no winner, and
+a game played alone (counted at the end, without those who left) is never a win. In every game,
+a player who leaves before the end gets neither a win nor a loss. A quiz round closes as soon as everyone still at the table has answered (MCQ)
 or found the word (Word Quiz), including when the last player still owing an answer leaves; during
 a prayer pause it waits for the resume.
 
@@ -119,20 +122,22 @@ next hint, so it costs what a hint costs: typing every word of the theme at hint
 streaks, a home-page card, a share line that never names the word, and
 the word kept in the Kunnash. Signed-out visitors see hint 1; playing needs an account.
 
-**Rooms and social:** lobby with roster, settings and chat (newest 50 messages); host kick and
-automatic host transfer (a player is preferred over a spectator); friend requests and in-room
+**Rooms and social:** lobby with roster, settings and chat (newest 50 messages); host kick (a
+ban from that room for its lifetime, which the host can lift; the PIN changes at every kick)
+and automatic host transfer (a player is preferred over a spectator); one room at a time; friend requests and in-room
 invites; share links; public player profiles with head-to-head records; a public leaderboard.
 
 **Progression:** stats (games, wins, win rate, streaks, role distribution, durations, per-game
 history with vote and clue history); 45 achievements across six tiers (Bronze, Silver, Gold,
-Emerald, Diamond, Mythic) with rarity; 32 challenges (16 daily, 16 weekly); toasts when a game
-ends with an achievement unlocked. Progression covers Undercover and Codenames in depth. Word Quiz
+Emerald, Diamond, Mythic) with rarity, earned ones shown as seals on the game-over colophon
+(never a toast); 32 challenges (16 daily, 16 weekly), which progress at every game end. Progression covers Undercover and Codenames in depth. Word Quiz
 appears in challenges only. MCQ Quiz has no dedicated stats, achievements or challenges, and
 `weekly_play_all_3` still says "all 3 game types".
 
-**Accounts:** email + password (8 to 72 characters) or Google sign-in; optional email
-verification (off by default); password reset; account deletion requires the password; light and
-dark mode.
+**Accounts:** email + password (8 characters to 72 bytes) or Google sign-in; optional email
+verification (off by default); password reset; signing out ends that session on the server, a
+reset ends every session and a password change every other one; account deletion is confirmed with the password, or with Google
+for a Google account; light and dark mode.
 
 **Fairness is a product constraint, enforced on the server.** A client never receives what its
 player should not see: other players' roles and words, Undercover vote targets before the round
@@ -222,10 +227,10 @@ Real content, all in `backend/scripts/seed_data/`, loaded by `scripts/generate_f
 - **Word Quiz** (`wordquiz_data.py`): 191 terms. Each has a name in all three languages, accepted
   answers per language (e.g. إبراهيم / ابراهيم, Ibrahim / Abraham), a full six-rung trilingual
   hint ladder and a trilingual explanation. 7 categories; 64 easy, 89 medium, 38 hard.
-- **MCQ Quiz** (`mcqquiz_data.py`): **610** questions (`CLAUDE.md` says "200+", which is stale).
+- **MCQ Quiz** (`mcqquiz_data.py`): **609** questions (2026-10-31).
   Each has a trilingual question, four trilingual choices and a trilingual explanation. 8
-  categories: prophets 119, Qur'an 98, seerah 80, practices 73, history and civilisation 71, ethics
-  60, pillars 59, companions 50. 224 easy, 282 medium, 104 hard. About 180 explanations name a
+  categories: prophets 119, Qur'an 98, seerah 80, practices 73, history and civilisation 70, ethics
+  60, pillars 59, companions 50. 224 easy, 281 medium, 104 hard. About 180 explanations name a
   surah, verse or hadith collection; citation is not systematic.
 - **Prayer:** one sourced hadith (Bukhari 1145) in three languages.
 - **Progression copy:** 45 achievement and 32 challenge definitions, translated in all three
@@ -239,7 +244,8 @@ Absences that future work must not fill with invented material:
   them, and do not present E2E test accounts (`e2e-…` usernames) or seed users as real players.
 - No photographs of real play sessions or real users, apart from the creator's portrait.
 - No terms page. A privacy policy exists (`/privacy`, linked from the footer and from Google's
-  consent screen): it names the emails, Google sign-in, Umami and GlitchTip, and the location
+  consent screen): it names the emails, Google sign-in, Umami and the self-hosted error tracker
+  (once one is configured), and the location
   services the browser calls (ipapi.co, Open-Meteo, Nominatim). It states only what the code
   does; it is not a legal review.
 - No new Qur'an verse, hadith or scholarly quotation may be added to the interface without a
@@ -269,8 +275,14 @@ Absences that future work must not fill with invented material:
 - **Bidirectional layout:** Arabic sets `dir="rtl"` at the root, and the E2E suite covers language
   switching. Arabic copy is complete. Latin terms inside Arabic sentences (game words, "Mr.
   White", "Majlisna") are a constant bidi case.
-- **Reduced motion:** honoured only in the footer and the language modal (`useReducedMotion`).
-  Elsewhere, page and card animations ignore the preference.
+- **Reduced motion:** honoured app-wide, by the CSS (and by the three scripts that time a
+  gesture: the thread clock, the Lawh, Codenames' end veil). The written-word ink and the seals
+  become short fades, a phase change keeps a 120 ms crossfade (never a hard cut), sheets and
+  dialogs only fade, the thread clock steps once a second, the halqa's thread jumps. Nothing
+  animates at page load (DESIGN.md §7).
+- **Focus follows the game:** after a phase change or a game over, focus moves to the new
+  phase's heading when it was free, so a keyboard or screen-reader player is not sent back to
+  the top of the page (`e2e/tests/accessibility/phase-focus.spec.ts`).
 - **Typing tolerance:** quiz answers ignore Arabic diacritics, case and extra spaces, and accept
   several spellings per language.
 - **Phones:** portrait-first PWA; zoom is allowed (`maximum-scale=5`). No hit-area standard has
