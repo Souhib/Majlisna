@@ -877,8 +877,12 @@ def dump_problem(path: Path | None) -> str | None:
             f"--dump-taken {path} is {int(age_seconds // 60)} minutes old; "
             f"it must be less than {PRODUCTION_DUMP_MAX_AGE_SECONDS // 60} minutes old"
         )
-    with path.open("rb") as dump:
-        magic = dump.read(len(PG_DUMP_CUSTOM_FORMAT_MAGIC))
+    try:
+        with path.open("rb") as dump:
+            magic = dump.read(len(PG_DUMP_CUSTOM_FORMAT_MAGIC))
+    except OSError:
+        # e.g. a dump `docker cp`'d in with the host's owner and mode 0600
+        return f"--dump-taken {path} is not a file this process can read"
     if magic != PG_DUMP_CUSTOM_FORMAT_MAGIC:
         return (
             f"--dump-taken {path} does not start with PGDMP: it is not a `pg_dump -Fc` "

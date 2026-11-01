@@ -31,12 +31,15 @@ an hour ago, readable by this process. The deletes run in ONE transaction: an er
 anywhere rolls all of them back. Run it with the release that has the ``room_ban`` and
 ``auth_session`` tables (the backend creates them at startup).
 
-Usage (production: the operator only, after a verified backup):
-    docker exec majlisna-db pg_dump -U majlisna -Fc majlisna > majlisna.dump
-    docker cp majlisna.dump majlisna-backend:/tmp/majlisna.dump
+Usage (production: the operator only, after a verified backup). The dump is streamed into
+the backend so the app user owns it (a `docker cp` keeps the host's owner and mode, which
+the app user cannot read), and removed afterwards: it is the database, unencrypted.
     docker exec -w /app majlisna-backend env PYTHONPATH=/app python scripts/purge_seed_data.py
+    docker exec majlisna-db pg_dump -U majlisna -Fc majlisna \\
+        | docker exec -i majlisna-backend sh -c 'umask 077; cat > /tmp/majlisna.dump'
     docker exec -w /app majlisna-backend env PYTHONPATH=/app python scripts/purge_seed_data.py \\
         --apply --dump-taken /tmp/majlisna.dump
+    docker exec majlisna-backend rm -f /tmp/majlisna.dump
 
 Then restart the backend: the leaderboard is cached per uvicorn worker.
 """

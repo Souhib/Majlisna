@@ -275,3 +275,23 @@ async def test_development_needs_no_override(database: MagicMock, destructive_fl
         database.create_db_and_tables.assert_awaited_once_with(database.engine, drop_all=True)
     else:
         assert database.generate_all_data.await_count == 1
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads a file whatever its mode")
+def test_a_dump_this_process_cannot_read_is_refused_by_name(tmp_path: Path):
+    """A dump `docker cp`'d into the backend keeps the host's owner and mode: the app user
+    could not open it and the guard crashed with a PermissionError (production,
+    2026-11-01) instead of saying what is wrong."""
+    # Prepare
+    dump = tmp_path / "majlisna.dump"
+    dump.write_bytes(PG_DUMP_CUSTOM_FORMAT_MAGIC + b"archive")
+    dump.chmod(0)
+
+    # Act
+    try:
+        problem = generate_fake_data.dump_problem(dump)
+    finally:
+        dump.chmod(0o600)
+
+    # Assert
+    assert problem == f"--dump-taken {dump} is not a file this process can read"
