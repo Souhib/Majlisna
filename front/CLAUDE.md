@@ -67,14 +67,16 @@ src/
 │   └── locales/             # en.json, fr.json, ar.json
 ├── lib/
 │   ├── utils.ts             # cn() utility
-│   ├── motion.ts            # Motion grammar tokens as numbers (ease, dur), inkDuration, REREAD
+│   ├── motion.ts            # Motion grammar tokens as numbers (ease, dur, stagger), bezier(), inkDuration, REREAD
 │   ├── view-transition.ts   # View Transitions for phase changes (feature-detected)
+│   ├── sky-light.ts         # Follow the sky: sunrise/Maghrib turns (adhan), the stored record index.html reads
+│   ├── sacred-names.ts      # holdsSacredName: what no gesture sweeps across (riddle, clue)
 │   ├── report-error.ts      # The one door to the error tracker (Sentry-compatible): reportError, the lazy Sentry SDK and its queue
 │   └── auth.ts              # Access-token storage, session marker, notices, token-link scrub
 ├── providers/
 │   ├── AuthProvider.tsx     # JWT auth state + token refresh
 │   ├── QueryProvider.tsx    # React Query client
-│   ├── ThemeProvider.tsx    # Light/dark mode
+│   ├── ThemeProvider.tsx    # The light: afternoon, night, Follow the sky (lib/sky-light.ts), the device's
 │   └── index.ts
 ├── routes/                  # TanStack Router file-based
 │   ├── __root.tsx           # Root layout (providers, nav, footer)
@@ -263,6 +265,39 @@ already use (`bg-background`, `text-muted-foreground`, `bg-primary`…) plus Sam
 (`bg-surface-2`, `border-line-brass`, `text-brass`, `bg-wool-madder`…). `ThemeProvider` sets both
 `class="dark|light"` (Tailwind `dark:` variant) and `data-theme` (the tokens) on `<html>`;
 `index.html` applies the stored choice before first paint. Full contract: root `DESIGN.md`.
+
+### Follow the sky (the third choice)
+
+`useTheme().theme` is `"light" | "dark" | "system" | "sky"`; read the light on screen with
+`useResolvedTheme()`, never from `theme`. "sky" is the afternoon from sunrise to Maghrib and the
+night from Maghrib to sunrise, from the stored prayer-times city (`lib/sky-light.ts`, adhan,
+Muslim World League). What to keep:
+
+- **It never asks for a place.** No city stored: the device's light, and the theme control
+  says so (`nav.skyNote.noCity`). It reads `majlisna-city` / `majlisna-coordinates` again every
+  30 s, on a `storage` event and when the tab is shown (the prayer chip stores a city without
+  an event in this tab).
+- **The pre-paint script cannot run adhan.** ThemeProvider stores the light and a week of turns
+  (`majlisna-sky-light`, `{light, turns: [[ms, light], …]}`, written only when it changes) and
+  `index.html` walks them; past the last turn it falls back to the device's light. Change the
+  record's shape on both sides: `lib/sky-light.test.ts` runs the inline script against
+  `lightAt`.
+- **The turn is the app's one ceremony** (`withViewTransition` + `:root[data-sky-turn]`, a
+  1100 ms root crossfade), only when the sky turned while the page was open: a load, a choice,
+  a new city or the device's light change it at once. Never with a game on the table (a
+  `/game/` route without `[data-colophon-title]`): it waits for the colophon or the lobby, then
+  1100 ms. **A view transition takes every press** (Chrome hit-tests them to `<html>`;
+  `pointer-events: none` on `::view-transition` does not help, measured): the turn waits for a
+  still page (`SKY_QUIET_MS`, no press, key, wheel or touch for 2 s), and a press ends it at once
+  (that press is spent: the player presses again; review RM-4, the ceremony's form is the
+  owner's call). Under reduced motion, in a hidden tab or without view transitions: at once.
+  Every change of light finishes the colour transitions it starts (`finishLightTransitions`).
+- `useResolvedTheme` re-renders its readers in the same task as the change
+  (`announceResolvedTheme`, called by ThemeProvider): inside the transition's `flushSync` the
+  title and the sky must already be the new ones when the browser captures them.
+- Tests: `providers/ThemeProvider.test.tsx` (fake timers over Makkah's real Maghrib),
+  `lib/sky-light.test.ts`, `components/layout/__tests__/theme-toggle.test.tsx`,
+  `hooks/use-resolved-theme.test.ts`.
 
 The temporary `styles/compat.css` (re-dyed Tailwind palette, neutralised `.glass`,
 `.gradient-text`, `.card-hover`, looping `animate-*`, flat gradients, neutral coloured shadows,
@@ -656,6 +691,12 @@ and media queries, so the browser downloads exactly one sky. Change one, change 
 horizon and the CSS ground starts on their last row: never crop or re-export them without the
 ground colours in `public/sky/SOURCES.txt`.
 
+For "Follow the sky" the script preloads the light the stored turns give (the device's when
+there are none). The other light's sky is fetched by `useSkyWarmUp` (HomeHero) 10 min before a
+turn, after `load`, at low priority, through `warmSky`: the picture's own range, candidates and
+sizes for this width (`skyRanges`, shared with `HomeSky`), so the turn requests nothing. Never at
+load: the load's one `/sky/` request stays the current light's.
+
 ### `_auth.tsx` must not re-navigate from the login page
 
 The auth gate navigates to `/auth/login?redirect=<where you were>`. The layout stays mounted
@@ -739,6 +780,47 @@ second. Tests: `components/brand/__tests__/ThreadClock.test.tsx` (a recording fa
   thread clock is ONE Web Animation on `transform` per timer window. Tests:
   `ThreadClock.test.tsx`, `e2e/tests/perf/thread-clock.spec.ts` (one `thread-clock` animation,
   no width animation, under 20 layouts in a 5 s trace).
+- **A word written on the compositor is a pen and its ink, translated against each other**
+  (the Codenames clue, `ClueBanner`, DESIGN.md §7): the `ink` utility animates a registered
+  custom property inside a mask, which Chrome reports as non-composited and repaints every
+  frame. The pen (`.cn-clue-pen`) carries a static soft-edged mask and the room for swashes and
+  harakat as negative margins its ink pads back, so the word lays out exactly as without them;
+  the two `Element.animate` calls share duration and easing. Any box the script moves keeps an
+  identity `transform` at rest (gaining or losing one re-lays its line out), and the banner
+  clips its inline axis so a travelling pen never makes the page scroll. Write only on a NEW
+  value, judged by a ref of the last one shown, never on mount. Tests:
+  `codenames/ClueBanner.motion.test.tsx` (a recording fake of `Element.animate`),
+  `codenames/__tests__/codenames-motion.test.ts`.
+- **A gesture triggered by a server change plays only when the change happens on screen.**
+  Compare with the state the component last drew (a `useState` of the previous phase, as
+  `ChoiceButtons` does for its reveal, or a ref of the last totals, as `PlayerScoreboard`
+  does): a page load, a reload, a refetch or a socket push of the same state replays nothing.
+  A WAAPI animation that waits (a stagger, a delay) takes `fill: "backwards"`, never
+  `forwards`: the CSS holds the end, and nothing lingers in `getAnimations()`. Do not animate
+  a thread with nothing to show (a share of 0): Chrome refuses to composite an animation with
+  no visible change.
+- **A gesture on a component that cannot see the previous phase asks who was on screen.** The
+  Undercover verdict turns its tablet over only when the vote resolved in front of the player:
+  `RoundOverPanel` reads `tableIsOnScreen()` (`games/undercover/table-witness.ts`) in a lazy
+  state initializer, i.e. whether a `DescriptionList` is still mounted while the verdict first
+  renders. The page swaps phases in one commit, so that list unmounts in the very commit the
+  verdict arrives; a page loaded on the verdict, a refetch and Mr. White's guess have none. The
+  rule is `verdictTurnNow()` (same file), read the same way by `MrWhiteGuessPanel`, whose
+  compact verdict turns when the vote finds Mr. White on screen.
+  The turn is CSS on `.uc-verdict[data-turn]` (pseudo-element layers: a warp cover clipped by
+  the role chip and the face, the role band's pattern clipped by the band), `data-word` when
+  the face shows a word (the cover then only fades: a word may be a sacred name). Tests:
+  `undercover/__tests__/verdict-turn.test.tsx`.
+- **ERASE is opacity, ending on the CSS's receded state** (`hooks/use-seat-erase.ts`): a list
+  renders an emptied seat receded itself (`data-out` / `data-away`: name at `--erase-ink` .72,
+  the muted token's contrast, lozenge at `--erase-mark` .45), and `useSeatErase(rootRef,
+  seats, quiet)` animates only a seat that changed since the last render (`[data-seat]`,
+  parts `[data-erase="ink|mark|note"]`), never on the first. An opacity cannot end on another
+  colour, so a receded name stays `--text` under the opacity; a muted colour inside it would
+  fall below 4.5:1. `quiet` records without playing (the vote's list once the vote is
+  complete: under the view transition the page draws it one more frame with the resolved
+  state, and the verdict tells that seat). Tests: `undercover/__tests__/erase.test.tsx`,
+  `rooms/__tests__/PlayerRoster.erase.test.tsx`.
 - **After every phase swap and every game over, focus moves to the new phase's heading when
   focus was free** (on `<body>`, or on a control of the game region that is not a field being
   typed in): `usePhaseFocus` ("Game pages" below). Tests: `hooks/use-phase-focus.test.ts`,
@@ -749,6 +831,31 @@ second. Tests: `components/brand/__tests__/ThreadClock.test.tsx` (a recording fa
   nothing animates through motion/react (the `motion` package is still in `package.json`, but
   nothing imports it), and there is no `MotionConfig`. Tests: `lib/view-transition.test.ts`,
   `components/brand/__tests__/Seal.test.tsx`, `lib/motion.test.ts`.
+- **The home's kashida is woven once per session** (`Wordmark weave`, HomeHero only): one Web
+  Animation on the `.k-band`'s `transform`, held at its first frame (the band out of its clip)
+  from the first commit and played once the wordmark's face is loaded (3 s at most). The
+  session flag (`majlisna-kashida-woven`) is taken at the first commit and kept in a ref across
+  StrictMode's effect re-run; a storage that cannot be read weaves nothing. Under reduced
+  motion nothing moves. Test: `components/brand/__tests__/Wordmark.test.tsx` (a recording fake
+  of `Element.animate` and of `document.fonts`).
+- **Nothing sweeps, strikes or wipes across a sacred name: it fades.** One list,
+  `holdsSacredName` (`lib/sacred-names.ts`): the samar riddle's line and the Codenames clue (free
+  text from the spymaster) fade instead of being written when they hold a name of Allah, the
+  Prophet ﷺ, a prophet, Jibril, the Qur'an or the Kaaba. A new gesture that passes over a text
+  asks it too. Tests: `lib/sacred-names.test.ts`, `codenames/ClueBanner.motion.test.tsx`.
+- **A CSS gesture's direction is a custom property, never a second `animation-name`.**
+  `[dir="rtl"]` sets the value (`--tally-from`, `--uc-to-reading-end`), one `@keyframes` reads
+  it: a swapped name is a new animation, so a language switch replayed the gesture (review RM-9).
+- **A moved box rests on an identity transform**, an animated opacity on a box of its own:
+  gaining or losing a transform (or an inline gaining a layer) lays the line out again at the
+  animation's end (the clue's pen, the scoreboard's rows and its gain, `inline-block`).
+- **A change of light finishes the transitions it starts** (`ThemeProvider`
+  `finishLightTransitions`, twice: in the task, then a microtask after React's re-render of the
+  light's readers): every `transition-colors` on the page would otherwise fade from the old
+  light, off the compositor. Test: `providers/ThemeProvider.test.tsx`.
+- **A long view transition must not take a press.** Chrome sends every pointer event to
+  `<html>` while one runs. The phase crossfades stay at 180 ms; the sky's 1100 ms ceremony
+  waits for a still page and ends on a press (ThemeProvider, "Follow the sky" above).
 
 ### Nothing clips the page sideways
 
@@ -824,7 +931,10 @@ changes its text**, in the three languages, with a new "updated" date:
   lives in localStorage only (`majlisna-city`, `majlisna-coordinates`);
 - browser storage: the access token (never the refresh token, which stays in its cookie) and
   `majlisna-user-data` in localStorage beside the httpOnly cookies, theme, language, the
-  welcome flag, per-tab sessionStorage during a game;
+  welcome flag, per-tab sessionStorage during a game; for "Follow the sky", the week of turns
+  computed on the device (`majlisna-sky-light`); per tab, whether the home's name has been
+  woven (`majlisna-kashida-woven`) and the samar riddle on screen in a room, in its lobby as in
+  a game (`majlisna-riddle:<room>:<scope>`, `privacy.sections[3].body[2]`);
 - Google: sign-in only; Google's script loads on the sign-in and sign-up pages (the
   provider is mounted by `GoogleLoginButton`, see "Google sign-in" below) and in the open
   deletion dialog of a Google account, where it confirms the deletion, and profile pictures
@@ -881,7 +991,19 @@ any reload `user.email` was `undefined` and the profile showed no address. It go
   `choice_index`. `choiceNotes` (`games/mcqquiz/reveal.ts`) turns them into the note on each
   choice ("1 player", "you and 2 others", "+2 · you", "0"); the lock-in mark ("locked in at
   0:09") comes from `my_answer_time_ms`. Only while the question is open, when the server says
-  nothing yet, does your own tap stand in for "you" and the mark.
+  nothing yet, does your own tap stand in for "you" and the mark. The page also hands
+  `ChoiceButtons` the `tallies` and the `players` count: each choice draws its share as a tally
+  thread (`tallyShares`), woven only when the reveal happens on screen (DESIGN.md §7).
+- **The scoreboard's threads are measured against the game's maximum** (`PlayerScoreboard`
+  `maxScore`: `QUIZ_ROUND_MAX` × rounds for The Quiz, `max_hints` × rounds for Kalimat), never
+  against the leader, so a thread only grows. Its FLIP (`useScoreWeave`) plays when the totals
+  change, never on the first state or the same totals sent again; it remembers each row's
+  INDEX, not its pixels, and reads the slots from the layout of the moment (a language switch
+  changes row heights). `current_round_points` shows as the gain ("+3"), so The Quiz shows it
+  from the reveal and Kalimat from the moment a player finds the word. The gain's slot is on
+  every row, gained or not (a first gain moved every total 44 px). The Quiz passes `weaveAfter`
+  (`tallyWeaveMs`, `games/mcqquiz/reveal.ts`) during its results: the scoreboard waits for the
+  tally threads, the reveal's one authored moment.
 - **Every colophon's meta line is `ColophonMeta`** (`games/shared/ColophonMeta.tsx`): "Undercover
   · Yusuf’s majlis · 3 rounds · 21:40", from the state's `host_username`, `started_at`, `ended_at`
   (`colophonOf(state)`); a part the state lacks is left out, and a game under a second has no
@@ -906,7 +1028,11 @@ any reload `user.email` was `undefined` and the profile showed no address. It go
 - **Codenames reads a clue out once.** The header's live line only says whose turn it is;
   `ClueAnnouncer` (exported from `games/codenames/CluePanel.tsx`) is a polite, always-mounted
   `role="status"` whose text changes only when a new clue lands ("Clue for the Red team: KNOWLEDGE, 2").
-  It must be mounted once on the page for every role, not inside the spymaster's composer.
+  It must be mounted once on the page for every role, not inside the spymaster's composer, and
+  BEFORE `ClueBanner` in the page's JSX: its layout effect notes the clue that just landed
+  (`clueJustLanded`, cleared on the next microtask), which the spymaster's banner, mounting in
+  the same commit as their clue, reads to write it in (`ClueBanner.motion.test.tsx` checks the
+  page's order).
 - **No hidden E2E hooks in the quiz pages.** The specs read what a player reads: the header's
   "Round 1 of 5" / "Question 1 of 10", and the hint ladder's rung in play
   (`aria-current="step"` in the list named "Hints, from the vaguest…"). The old `sr-only
@@ -1031,9 +1157,10 @@ any reload `user.email` was `undefined` and the profile showed no address. It go
 - **The reveal** (`DailyReveal`) is a colophon in the `ArchFrame`: the Arabic (vocalised when
   known, `answerForms`: the Arabic UI reads the Arabic alone), the word, its explanation, "found
   at hint 3 · 4 points" (sealed) or "given up", the streaks, "N players found it today",
-  `KeepAction`, "Share" (copies `shareLine`: number, hint, `majlisna.app/today`, never the
-  answer; a read-only field to copy by hand when the clipboard is refused), the countdown, the
-  madd band.
+  `KeepAction`, "Share" (the day's card through the share sheet, "The colophon card" below;
+  where an image cannot be shared it copies `shareLine`: number, hint, `majlisna.app/today`,
+  never the answer; a read-only field to copy by hand when the clipboard is refused), the
+  countdown, the madd band.
 - **Signed out**: the number, the date, the theme and hint 1; "Sign in to play"
   (`/auth/login?redirect=/today`) stands where the field would be.
 - **The home card** (`components/home/DailyWordCard.tsx`) sits between the hero and the fihrist:
@@ -1049,6 +1176,38 @@ any reload `user.email` was `undefined` and the profile showed no address. It go
   `components/home/__tests__/daily-card.test.tsx`. E2E: `e2e/tests/daily-word/today.spec.ts`
   (signed out → sign in and back; hint, wrong try, found; give up; keep → /notebook; the home
   card), desktop and phone, with the day's answer read from the database (`e2e/helpers/db.ts`).
+
+### The colophon card (Share)
+
+`components/brand/share-card/` (DESIGN.md §6, `ShareCardAction`): the evening as a 1080 × 1350
+PNG, from every game's colophon (`ColophonActions`) and the word of the day's reveal.
+
+- **The drawing model is pure** (`model.ts`: `layoutCard(input, measure)` → draw operations,
+  colours as night tokens only, `CARD_COLORS`); `render.ts` only applies it to a canvas.
+  happy-dom has no canvas: the model is tested with a fake `measure`, the renderer with a
+  recording 2D context (`__tests__/render.test.ts`). What the card says comes from
+  `game-card.ts` (the colophon's fields + the notebook's words) and `daily-card.ts`, kept apart
+  so a game's colophon never loads the day's code (and a suite that mocks `@/api/generated`
+  without `wordQuizCategoryEnum` keeps working).
+- **The word of the day's card never carries the word**, its forms, its explanation, a hint or
+  a guess: `__tests__/inputs.test.ts` checks the input AND every line drawn from it.
+- **`document.fonts.load` fetches every face of the list that covers the text, fallbacks
+  included**: the renderer asks only for the families it draws (`drawnStack`: Amiri; Samar
+  Figures + Marcellus; Readex) and for letters only (a space is in Amiri's Latin face too), then
+  awaits `document.fonts.ready`. The whole display stack used to download Amiri's Latin file
+  for "Word of the day".
+- **The work leaves the tap's task**: every await resolved at once (faces loaded), so the
+  probe, both layouts and the drawing ran inside the click (29 ms at 4x CPU). `renderCardFile`
+  yields to the browser first and between its pieces (`scheduler.yield`, else a 0 ms timeout);
+  Chrome then encodes the PNG in idle slices. Measured on a production build at 1x and 4x: no
+  frame or task over 20 ms (`render.test.ts`: nothing measured or drawn before the browser had
+  a turn).
+- **The share flow** (`ShareCardAction`): `canShareFiles()` asks `navigator.canShare` about an
+  empty PNG synchronously, inside the tap; no → the line is copied at once (today's behaviour,
+  no card drawn); yes → draw, then `navigator.share({ files, title, text: line })`. AbortError
+  (sheet closed) says nothing; NotAllowedError (the tap's activation ran out) keeps the file and
+  says `*.share.ready`, and the next tap shares that file at once; any other failure, or a card
+  that cannot be drawn (reported through `reportError`), copies the line.
 
 ### The lobby
 
@@ -1080,6 +1239,43 @@ any reload `user.email` was `undefined` and the profile showed no address. It go
   `dir="ltr"` on a Tabs root unless told otherwise: the game picker passes `dir={i18n.dir()}`, or
   arrow keys run backwards in Arabic. Do the same for any new Radix roving-focus widget.
 
+### The samar riddle (`components/rooms/SamarRiddle.tsx`, `samar-riddle.ts`)
+
+While the table waits, a riddle: rung 1 of a Kalimat word, from `GET /rooms/{id}/riddle?lang=`
+(`useGetRoomRiddleApiV1RoomsRoomIdRiddleGet`; members only, never today's word of the day nor an
+answer of the room's running quiz, 409 while another game is played: backend/CLAUDE.md).
+
+- **Where.** The lobby, under the activity line, while the table waits for its quorum
+  (everyone) or for the host (every guest and spectator): `tableWaits` in the page. Never for
+  the host of a ready table (or one too full): the next move is theirs. The Quiz's page, under
+  the results (after "Next question"), between two questions; after the last question it only
+  answers the riddle before (`ask={false}`). Never during a question, and never in Kalimat:
+  Kalimat draws its words round by round, so a riddle could be a later round's word.
+- **One riddle per wait, kept in the tab.** sessionStorage `majlisna-riddle:<room>:<scope>`
+  (`lobby`, or `game:<gameId>` whose waits are the question numbers) holds the riddle on
+  screen, when it was first shown and whether it was revealed: a remount or a reload shows the
+  same riddle and asks nothing. Not mounted, nothing is asked.
+- **"Revealed when the game starts" is read at the room's next wait.** The lobby follows the
+  table into the game at once (`useRoomLobby` calls `answerRoomRiddle` before it navigates)
+  and a question's results give way to the next question, so the riddle still unanswered is
+  shown at the next wait of that room as "The last riddle, “…”, was Ibrahim."
+  (`settleRiddleRecord`). Otherwise the answer is offered on a tap 30 s after the riddle was
+  first shown (`RIDDLE_REVEAL_AFTER_MS`); a lobby whose game is Kalimat offers no tap (the word
+  could come up in the game). "Another riddle" follows a revealed answer.
+- **A refusal shows nothing** (403, 409, 429, offline): it is a pastime, never an error, and
+  an "Another riddle" that fails keeps the riddle on screen.
+- **Motion** (DESIGN.md §7): the line is written in on the compositor only when it CHANGES,
+  never on the riddle a panel opens on; a line naming Allah, the Prophet ﷺ, a prophet, Jibril,
+  the Qur'an or the Kaaba fades instead (`holdsSacredName`, `lib/sacred-names.ts`), and so does a
+  line that wraps (its line boxes, read once: one window would wipe every line at once);
+  reduced motion fades. No heading
+  in it (the Quiz focuses the reveal's first `h3`), no live region.
+- Tests: `components/rooms/__tests__/SamarRiddle.test.tsx` (the recording fake of
+  `Element.animate`), `samar-riddle.test.ts`, `hooks/use-room-lobby.test.ts`,
+  `routes/_auth/rooms/-tests/lobby.test.tsx`, `routes/_auth/game/-tests/mcqquiz-riddle.test.tsx`.
+  A page test that mocks `@/api/generated` wholesale mocks `@/components/rooms/SamarRiddle` too
+  (`wp13-mcqquiz-page.test.tsx`).
+
 ### The fixes of the 2026-10-28 review (keep them)
 
 - **One table list per Undercover phase.** While describing and voting the seats are
@@ -1088,7 +1284,11 @@ any reload `user.email` was `undefined` and the profile showed no address. It go
   (`e2e` reads "Eliminated" there). For a player who may vote the other rows ARE the
   candidates (`button.uc-seat`, `aria-pressed`, named "Vote for X", text = the name, so
   `button:has-text(<name>)` still finds them). `UndercoverPlayerList` shows only where
-  there is no list (the first reading, Mr. White's guess, the colophon).
+  there is no list (the first reading, Mr. White's guess, the colophon). A seat that empties
+  mid-round (a departure) stays in its place in this round's speaking order, receded; only
+  the seats emptied in earlier rounds (not in the order) wait at the end. While a voter
+  chooses, every row has a candidate's height (`--uc-seat-h`), so a candidate who leaves
+  moves nothing under the finger.
 - **Between rounds, the ready quorum** (owner rule (d), `RoundOverPanel`): the host keeps
   "Next round" (forces it; the E2E helper clicks exactly that name), every other alive player
   gets "I’m ready", then "You are ready…" (focus moves to that line when it replaces the
@@ -1100,8 +1300,10 @@ any reload `user.email` was `undefined` and the profile showed no address. It go
 - **The first reading and the read count survive a reload** (`lib/undercover-session`,
   sessionStorage per game); a table where someone has described is past it anyway.
 - **Every colophon ends with `ColophonActions`** (`games/shared/ColophonActions.tsx`):
-  Keep the words → Back to the room → the host's Play again → Leave the room. Guests never
+  Keep the words → Back to the room → the host's Play again → Share → Leave the room. Guests never
   see Play again (the server answers 403). Keeping the words is said in place, no toast.
+  Share is a player's only: the call site passes `share` (`ColophonShare`: the game, host,
+  count, start, end) and leaves it out for a spectator, as Keep is off for them.
 - **Leaving is "Leave the room" everywhere** (`room.lobbyPage.leave`).
 - **The server's clock** (`lib/server-clock`): the ky client notes each response's `Date`
   header; `serverNow()` is never ahead of the server (the largest lower bound of the

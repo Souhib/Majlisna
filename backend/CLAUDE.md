@@ -65,6 +65,7 @@ api/
 │   ├── term_script.py # Arabic forms of game terms: batched get_forms + seed upsert
 │   ├── notebook.py    # The Kunnash: words kept from finished games (keep / list / delete)
 │   ├── daily_word.py  # The word of the day: lazy daily draw, the caller's play (hint / guess / give up / keep)
+│   ├── riddle.py      # Samar riddles: rung 1 of a random QuizWord for a waiting table (never a spoiler)
 │   └── achievement.py # Achievement tracking + seeding
 ├── models/            # SQLModel DB tables ONLY
 │   ├── table.py       # User, Room, Game, Event tables
@@ -99,6 +100,7 @@ api/
 │   │                  # all four game routers also carry /games/{id}/pause and /resume
 │   ├── notebook.py    # /api/v1/notebook/* (a game's words, keep them / one, list by cursor, delete)
 │   ├── daily_word.py  # /api/v1/daily-word (public GET; hint, guess, give-up, keep)
+│   ├── riddle.py      # /api/v1/rooms/{room_id}/riddle (members only, per-user limit)
 │   └── stats.py       # /api/v1/users/{id}/stats, achievements, leaderboard
 ├── ws/                # Socket.IO real-time notification layer
 │   ├── __init__.py    # Exports sio, socketio_app
@@ -1997,6 +1999,51 @@ explanation, kept, entry_id}` | null). Every field is always sent. Errors:
 Tests: `tests/api/utils/test_daily_word.py`, `tests/api/controllers/test_daily_word.py`
 (freezegun at noon in Makkah; the turn of the day; the window; races),
 `tests/api/routes/test_daily_word.py` (wiring, the 429, the leak test).
+
+### Samar riddles (السَّمَر): a riddle for a waiting table, never a spoiler
+
+`GET /api/v1/rooms/{room_id}/riddle?lang=` (`routes/riddle.py`, hook
+`useGetRoomRiddleApiV1RoomsRoomIdRiddleGet`) → `RoomRiddle {id, category, hint, answer:
+RoomRiddleAnswer {word_display, word_ar, word_ar_vocalized}}`: rung 1
+(`ROOM_RIDDLE_HINT_RUNG`) of a random `QuizWord` and its answer, for the lobby while it waits
+and for The Quiz between two questions (the client keeps the answer back). Existing content
+only: nothing is written for the riddle. `controllers/riddle.py` (`RiddleController`):
+
+- **Members only**, by the `RoomUserLink`'s existence (like the chat: a briefly disconnected
+  member and a spectator get one), asked first: `RoomMembersOnlyError` (403,
+  `errors.api.roomMembersOnly`) tells a stranger nothing about the room.
+- **Never today's word of the day**: the day's word is drawn first if nobody has asked for it
+  yet (`DailyWordController.get_today(None)`, the lazy draw /daily-word does), or the day's
+  draw could land on the riddle just shown. The words of the last `DAILY_WORD_NO_REPEAT_DAYS`
+  are left out too, unless nothing else is left (then only today's).
+- **Never a word of the room's running game.** The Quiz deals all its questions at the start
+  (`question_ids`, plus `current_question`): every right choice, in every language, is a key,
+  and a word whose spellings or accepted answers share one is left out (`_answer_keys`: case,
+  diacritics, accents, hyphens, Arabic letter variants, the article in either script, each side
+  of "Ibrahim / Abraham"; wider than Kalimat's match, since a wider net only skips a riddle).
+  **Any other game in progress answers `RiddleNotDuringGameError` (409)**: Kalimat draws its
+  words one round at a time (`used_word_ids` grows), so a riddle between its rounds could be a
+  later round's word; Undercover and Codenames are not a waiting table. A finished game left on
+  the room holds nothing back. The draw never falls back to the whole table (`pick_ids` does):
+  no word left is `NoQuizWordsAvailableError`.
+- **Resolved in `lang`** through `normalize_lang` first (the notebook's spelling compares the
+  code raw: "ar-SA" answered the Latin word) then `resolve_multilingual` and
+  `NotebookController.get_word_forms` (the word as Kalimat shows it, its Arabic, term_script's
+  vocalisation when it vocalises that same Arabic).
+- **Rate-limited per signed-in user** (`ROOM_RIDDLE_RATE_LIMIT`, 20/minute, and
+  `ROOM_RIDDLE_DAILY_LIMIT`, 30/day, both `user_or_ip_key`): a client asks once when its panel
+  shows (then keeps the riddle in the tab) and once per "Another riddle". The daily cap is the
+  real guard: a riddle's answer comes from the words the NEXT word of the day is drawn from, so
+  a script under the minute's limit must not collect the whole table in an afternoon (solo
+  Kalimat exposes the same words, more slowly). Pre-drawing the daily calendar and excluding
+  it would close it fully; not done. Reads: two narrow column selects at most (sqlmodel types four columns), then
+  the drawn row; never the content table's ladders.
+- Not fixed here (a later change to Kalimat's draw): a riddle shown in a lobby whose next game
+  is Kalimat may be one of that game's words (about 7 in 190 per riddle); the client offers no
+  tap reveal in a Kalimat lobby, and the start answers it only after the game.
+- Tests: `tests/api/controllers/test_riddle.py` (both dialects: the daily word, the recent
+  ones, the Quiz's answers in any script, the 409 per game type, languages, members),
+  `tests/api/routes/test_riddle.py` (wiring, envelopes, the per-user 429).
 
 ### Rate limits answer the standard envelope, keyed by the caller
 
