@@ -77,12 +77,18 @@ export function useSocket({ roomId, gameId, gameType, enabled = true, onKicked, 
     if (gameIdRef.current) {
       joinGame(socketRef.current, gameIdRef.current)
     }
-    // The first connect needs no catch-up: the page has just read its state over REST,
-    // the server pushes room_state on connect and answers join_game with game_state.
-    // Refetching on top of them read the same state three times per load (FP-10).
+    // The first connect re-reads the chat history only. The room and the game need no
+    // catch-up: the server pushes room_state on connect and answers join_game with
+    // game_state (refetching them too read the same state three times per load, FP-10).
+    // But a chat line sent between the page's history read and this socket joining the
+    // room was pushed to nobody, and stayed unseen until a reconnect (CI, 2026-11-01):
+    // read after the join, the history holds it, and every later line is pushed here.
     const isReconnect = hasConnectedRef.current
     hasConnectedRef.current = true
-    if (!isReconnect) return
+    if (!isReconnect) {
+      if (roomId) queryClient.invalidateQueries({ queryKey: queryKeys.room.messages(roomId) })
+      return
+    }
     // A reconnect: python-socketio replays nothing, so re-read what may have changed
     // while the socket was down, the chat included (nothing else re-reads it, FR-6).
     if (roomId) {

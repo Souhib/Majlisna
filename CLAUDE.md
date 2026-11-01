@@ -567,7 +567,7 @@ await session.commit()
 
 **Phase transitions detected by comparing refs to previous state.** `previousPhaseRef` and `previousRoundRef` track changes to trigger animations (e.g., voting transition overlay).
 
-**Socket.IO is a NOTIFICATION LAYER, not a game engine.** Mutations go through REST POST. Route handlers **await** Socket.IO notifications so events are guaranteed to be emitted before the HTTP response returns. Game start routes call `await auto_join_game_room()` to pre-join all room members into the game's Socket.IO room, eliminating the race condition where `game_updated` fires before clients call `join_game`. The client's `useSocket` hook invalidates queries on reconnect (never on the first connect) to catch up on any events missed during disconnection, the lobby chat's history included: python-socketio replays nothing.
+**Socket.IO is a NOTIFICATION LAYER, not a game engine.** Mutations go through REST POST. Route handlers **await** Socket.IO notifications so events are guaranteed to be emitted before the HTTP response returns. Game start routes call `await auto_join_game_room()` to pre-join all room members into the game's Socket.IO room, eliminating the race condition where `game_updated` fires before clients call `join_game`. The client's `useSocket` hook invalidates queries on reconnect to catch up on any events missed during disconnection, the lobby chat's history included: python-socketio replays nothing. The first connect re-reads the chat history only (a line sent before the socket joined the room was pushed to nobody); the room and the game come with the connect itself.
 
 **`sio.enter_room()` MUST be awaited.** It is an async coroutine in python-socketio. Calling without `await` silently fails — the SID never joins the room.
 

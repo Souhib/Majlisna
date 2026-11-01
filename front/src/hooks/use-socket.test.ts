@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest"
+import { queryKeys } from "@/api/queryKeys"
 
 // Mock socket.io-client
 const mockOn = vi.fn()
@@ -277,10 +278,12 @@ describe("useSocket", () => {
     expect(result.current.connected).toBe(false)
   })
 
-  it("the first connect invalidates nothing", () => {
-    // The page has just read its state over REST, the server pushes room_state on
-    // connect and join_game answers with game_state: a refetch on top of them was a
-    // third read of the same state on every load (FP-10).
+  it("the first connect re-reads the chat history only", () => {
+    // The page read its state over REST, the server pushes room_state on connect and
+    // join_game answers with game_state: refetching those was a third read of the same
+    // state on every load (FP-10). The chat is different: a line sent between the page's
+    // history read and the socket joining the room was pushed to nobody and never shown
+    // until a reconnect (CI, 2026-11-01). One read after the join closes that gap.
     // Prepare
     mockSocket.connected = true
     renderHook(() => useSocket({ roomId: "room-1", gameId: "game-1", gameType: "undercover", enabled: true }))
@@ -290,7 +293,8 @@ describe("useSocket", () => {
     act(() => connectHandler())
 
     // Assert
-    expect(mockInvalidateQueries).not.toHaveBeenCalled()
+    expect(mockInvalidateQueries).toHaveBeenCalledTimes(1)
+    expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: queryKeys.room.messages("room-1") })
     expect(mockEmit).toHaveBeenCalledWith("join_game", { game_id: "game-1", lang: "en" })
   })
 
@@ -330,7 +334,7 @@ describe("useSocket", () => {
     expect(invalidated).toContainEqual([{ url: "/api/v1/rooms/:room_id/messages", params: { room_id: "room-1" } }, {}])
   })
 
-  it("a socket for another room starts over: its first connect invalidates nothing", () => {
+  it("a socket for another room starts over: its first connect re-reads that room's chat only", () => {
     // Prepare
     const { rerender } = renderHook(({ roomId }) => useSocket({ roomId, enabled: true }), { initialProps: { roomId: "room-1" } })
     act(() => handlerFor("connect")())
@@ -344,7 +348,8 @@ describe("useSocket", () => {
 
     // Assert
     expect(mockIo).toHaveBeenCalledTimes(2)
-    expect(mockInvalidateQueries).not.toHaveBeenCalled()
+    expect(mockInvalidateQueries).toHaveBeenCalledTimes(1)
+    expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: queryKeys.room.messages("room-2") })
   })
 
   it("reconnect re-emits join_game", () => {
