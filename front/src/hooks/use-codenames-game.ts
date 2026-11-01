@@ -110,6 +110,7 @@ export function useCodenamesGame(gameId: string) {
   const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [ceremony, setCeremony] = useState<GameOverCeremony>("none")
   const ceremonyTimersRef = useRef<ReturnType<typeof setTimeout>[]>([])
+  const ceremonyFrameRef = useRef<number | null>(null)
   const previousStatusRef = useRef<string | null>(null)
   // One request per move at a time, set before the request is sent: a double tap lands
   // before `isPending` reaches the page (FR-4).
@@ -189,12 +190,19 @@ export function useCodenamesGame(gameId: string) {
         timers.push(setTimeout(lift, VEIL_HOLD_REDUCED_MS))
       } else {
         setCeremony("weaving")
-        timers.push(
-          setTimeout(() => {
-            setCeremony("veiled")
-            timers.push(setTimeout(lift, VEIL_HOLD_MS))
-          }, VEIL_DELAY_MS),
-        )
+        // The weave is counted from the frame that draws the turned card, not from this
+        // effect: it can run inside the very task that commits the board, and on a slow
+        // phone (CI's runner: ~340 ms) the rest of that task delayed the paint, so the veil
+        // came while the decisive card had barely been seen.
+        ceremonyFrameRef.current = requestAnimationFrame(() => {
+          ceremonyFrameRef.current = null
+          timers.push(
+            setTimeout(() => {
+              setCeremony("veiled")
+              timers.push(setTimeout(lift, VEIL_HOLD_MS))
+            }, VEIL_DELAY_MS),
+          )
+        })
       }
     }
     previousStatusRef.current = currentStatus
@@ -213,6 +221,7 @@ export function useCodenamesGame(gameId: string) {
     const ceremonyTimers = ceremonyTimersRef.current
     return () => {
       for (const timer of ceremonyTimers) clearTimeout(timer)
+      if (ceremonyFrameRef.current !== null) cancelAnimationFrame(ceremonyFrameRef.current)
       if (redirectTimerRef.current) clearTimeout(redirectTimerRef.current)
     }
   }, [])

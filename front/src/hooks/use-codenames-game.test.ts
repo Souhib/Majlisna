@@ -371,6 +371,32 @@ describe("useCodenamesGame: the end of the game (the veil)", () => {
     expect(hook.result.current.colophonHeld).toBe(false)
   })
 
+  it("counts the weave from the frame that draws the decisive card, not from the render", () => {
+    // Prepare: frames held back, as on a slow phone (CI's runner) where the commit that
+    // turns the card keeps the main thread busy long after the effect has run
+    const frames: FrameRequestCallback[] = []
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => frames.push(callback))
+    vi.stubGlobal("cancelAnimationFrame", () => {})
+    mockQueryData = { ...mockServerState, status: "in_progress", winner: null }
+    const { result, rerender } = renderHook(() => useCodenamesGame("game-1"), { wrapper: createWrapper() })
+    mockQueryData = { ...mockServerState, status: "finished", winner: "red" } as typeof mockQueryData
+    act(() => rerender())
+
+    // Act / Assert: no frame yet, so no veil however long the render takes
+    act(() => vi.advanceTimersByTime(900))
+    expect(result.current.showGameOverTransition).toBe(false)
+
+    // the card is drawn: the 640 ms weave starts now
+    act(() => {
+      for (const frame of frames.splice(0)) frame(performance.now())
+    })
+    act(() => vi.advanceTimersByTime(600))
+    expect(result.current.showGameOverTransition).toBe(false)
+    act(() => vi.advanceTimersByTime(60))
+    expect(result.current.showGameOverTransition).toBe(true)
+    vi.unstubAllGlobals()
+  })
+
   it("holds the colophon back while the decisive card is still being woven", () => {
     mockQueryData = { ...mockServerState, status: "in_progress", winner: null }
     const { result, rerender } = renderHook(() => useCodenamesGame("game-1"), { wrapper: createWrapper() })

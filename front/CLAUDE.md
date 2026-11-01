@@ -1061,7 +1061,10 @@ any reload `user.email` was `undefined` and the profile showed no address. It go
   (the decisive card's weave, `--dur-authored`), holds 1280 ms (`--dur-ceremony` + 180), or
   comes at once and holds 600 ms under reduced motion, then lifts through
   `withViewTransition`; `colophonHeld` keeps the colophon back for all of it. A page opened
-  on a finished game has no veil and takes no focus.
+  on a finished game has no veil and takes no focus. The 640 ms are counted from the
+  `requestAnimationFrame` after the end, never from the effect: the effect can run inside
+  the task that commits the board, and on a slow phone the rest of that task held the
+  paint back (~340 ms on CI's runner), so the veil came while the card had barely shown.
 - **The quiz colophon reads owner rule (a) from its leaderboard** (`QuizGameOver`): several
   top scorers above 0 → `game.quiz.sharedWin` naming them all; nobody scored →
   `game.quiz.noWinner`; one player → `game.quiz.soloScore`, never "wins". The server's
@@ -1220,6 +1223,13 @@ PNG, from every game's colophon (`ColophonActions`) and the word of the day's re
 
 ### The lobby
 
+- **The room state read last wins** (`lib/room-state.ts`, `newerRoomState`). Every
+  `RoomState` carries `as_of_ms`, when the server read it (before its first query). Two
+  reads can arrive out of order: a socket's connect read the room just before the host
+  picked Kalimat and sent it after the pick's own push, so a guest's lobby stayed on the
+  old game for good, with no polling while the socket is up (CI, 2026-11-01). The socket's
+  `room_state` handler writes through `newerRoomState`, and the lobby's query uses it as its
+  `structuralSharing`. Never write a room state into the cache without it.
 - **Seats keep their order.** The server lists a room's links by join time (it used to be heap
   order, which a heartbeat moved), and `stableOrder` (`components/rooms/lobby.ts`) keeps first-seen order and
   appends newcomers: the halqa never reshuffles under people's eyes.
