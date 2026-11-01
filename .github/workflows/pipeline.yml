@@ -331,11 +331,14 @@ jobs:
         working-directory: e2e
 
     steps:
-      - name: Start the clock
-        run: echo "E2E_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
-
       - name: Checkout
         uses: actions/checkout@v4
+
+      # After the checkout: `e2e/` (the job's working directory) does not exist before it
+      # on a fresh runner, and every run step failed there (the home runner's first job,
+      # 2026-11-02). The VPS kept its workspace from earlier jobs, which hid it.
+      - name: Start the clock
+        run: echo "E2E_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
