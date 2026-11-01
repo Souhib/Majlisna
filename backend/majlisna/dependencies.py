@@ -20,6 +20,7 @@ from majlisna.api.controllers.mcqquiz import McqQuizController
 from majlisna.api.controllers.mcqquiz_game import McqQuizGameController
 from majlisna.api.controllers.notebook import NotebookController
 from majlisna.api.controllers.profile import ProfileController
+from majlisna.api.controllers.riddle import RiddleController
 from majlisna.api.controllers.room import RoomController
 from majlisna.api.controllers.stats import StatsController
 from majlisna.api.controllers.token_auth import authenticate_caller
@@ -324,6 +325,13 @@ async def get_daily_word_controller(
 ) -> DailyWordController:
     """Get DailyWordController with injected session."""
     return DailyWordController(session)
+
+
+async def get_riddle_controller(
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> RiddleController:
+    """Get RiddleController (the samar riddles) with injected session."""
+    return RiddleController(session)
 
 
 def get_email_service(

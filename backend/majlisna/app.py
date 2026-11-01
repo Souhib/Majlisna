@@ -27,6 +27,7 @@ from majlisna.api.routes.game import router as game_router
 from majlisna.api.routes.mcqquiz import router as mcqquiz_router
 from majlisna.api.routes.notebook import router as notebook_router
 from majlisna.api.routes.profile import router as profile_router
+from majlisna.api.routes.riddle import router as riddle_router
 from majlisna.api.routes.room import router as room_router
 from majlisna.api.routes.stats import router as stats_router
 from majlisna.api.routes.undercover import router as undercover_router
@@ -119,6 +120,7 @@ _API_ROUTERS = (
     challenge_router,
     notebook_router,
     daily_word_router,
+    riddle_router,
 )
 
 

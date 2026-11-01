@@ -365,6 +365,17 @@ DAILY_WORD_ANSWER_MAX_LENGTH = 100
 # rule that a wrong try opens the next rung (DailyWordController.guess): it scores 1.
 DAILY_WORD_GUESS_RATE_LIMIT = "30/minute"
 
+# Samar riddles (GET /rooms/{id}/riddle): while a table waits, the vaguest rung of a
+# random Kalimat word and its answer. Per signed-in user (rate_limit.user_or_ip_key): a
+# lobby asks once when its panel shows and once per "another riddle", so this only
+# bounds a script.
+ROOM_RIDDLE_HINT_RUNG = 1
+ROOM_RIDDLE_RATE_LIMIT = "20/minute"
+# And per day: a riddle's answer comes from the words the NEXT word of the day is drawn
+# from, so a script under the minute's limit must still not collect the whole table
+# (about 190 words) in an afternoon. Several evenings of play stay well under it.
+ROOM_RIDDLE_DAILY_LIMIT = "30/day"
+
 # Rate limiting: the key of a request whose caller is signed in.
 RATE_LIMIT_USER_KEY_PREFIX = "user:"
 

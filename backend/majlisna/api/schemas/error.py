@@ -1343,6 +1343,34 @@ class GoogleAccountMismatchError(BaseError):
         )
 
 
+# ========== Samar riddles ==========
+
+
+class RoomMembersOnlyError(BaseError):
+    """A room read kept for the people seated (or watching) in it."""
+
+    def __init__(self, room_id: UUID | str, user_id: UUID | str) -> None:
+        super().__init__(
+            message=f"User {user_id} is not a member of room {room_id}",
+            frontend_message="Only the people in this room can see this.",
+            status_code=status.HTTP_403_FORBIDDEN,
+            details={"room_id": str(room_id), "user_id": str(user_id)},
+        )
+
+
+class RiddleNotDuringGameError(BaseError):
+    """No riddle while a game other than The Quiz is played in the room: Kalimat draws its
+    words one round at a time, so a riddle could be one of its later words."""
+
+    def __init__(self, room_id: UUID | str, game_type: str) -> None:
+        super().__init__(
+            message=f"No riddle while a {game_type} game is played in room {room_id}",
+            frontend_message="Riddles wait until this game is over.",
+            status_code=status.HTTP_409_CONFLICT,
+            details={"room_id": str(room_id), "game_type": str(game_type)},
+        )
+
+
 # Statuses whose body carries the error's `details` (validation-style errors the
 # client may act on); every other status answers an empty `details`.
 _DETAILED_STATUS_CODES = {400, 409, 422, 429}
