@@ -8,12 +8,37 @@ import { generateTestAccounts } from "../../helpers/test-setup";
  * - The home sky: a 768 × 1024 tablet at DPR 1 draws its 2:1 crop about 960 px wide (the
  *   cover box is wider than the viewport in portrait), so it takes tab1200 (≤ 110 kB),
  *   not the 215 kB tab1600 the preload and the <picture> used to ask for. One sky only:
- *   the preload in index.html and the <picture> agree.
+ *   the preload in index.html and the <picture> agree (one download; a cache hit of the
+ *   same file is not a second one, see watchSkies).
  * - The arch of a colophon (the Jabreen photograph): a 390 px phone at DPR 3 draws it
  *   1170 px wide, so it takes the 1200w file, not the 1600w one (there was no 1200w).
  */
 
 const SKY_MAX_BYTES = 110_000;
+
+interface SkyResponse {
+  path: string;
+  /** Read from the HTTP cache: no byte crossed the network. */
+  fromCache: boolean;
+}
+
+/**
+ * Every sky response, and whether it came from the HTTP cache (CDP `fromDiskCache`).
+ * Playwright reports a cache hit as a response too: on CI's loaded runner the bundle can
+ * run seconds after the preload, Chrome may let the unused preload go, and the <img> then
+ * reads the very same file from the disk cache — a second response, no second download.
+ * What a visitor pays for is the network, so that is what the sky test counts.
+ */
+async function watchSkies(page: Page): Promise<SkyResponse[]> {
+  const seen: SkyResponse[] = [];
+  const cdp = await page.context().newCDPSession(page);
+  cdp.on("Network.responseReceived", ({ response }) => {
+    const path = new URL(response.url).pathname;
+    if (path.startsWith("/sky/")) seen.push({ path, fromCache: !!(response.fromDiskCache || response.fromPrefetchCache) });
+  });
+  await cdp.send("Network.enable");
+  return seen;
+}
 
 /** The word of the day turns at midnight in Makkah (21:00 UTC); a give-up must not straddle it. */
 function msToMakkahMidnight(now = Date.now()): number {
@@ -45,13 +70,16 @@ test.describe("Perf — image sizes", () => {
       });
       const page = await context.newPage();
       const skies = collect(page, /^\/sky\//);
+      const fetched = await watchSkies(page);
+      const expected = `/sky/${colorScheme === "dark" ? "sky-maghrib" : "sky-asr"}.tab1200.webp`;
 
       await page.goto("/");
       await page.waitForLoadState("networkidle");
 
-      expect(skies.map((s) => new URL(s.url).pathname)).toEqual([
-        `/sky/${colorScheme === "dark" ? "sky-maghrib" : "sky-asr"}.tab1200.webp`,
-      ]);
+      // one file over the network, the right one; and nothing else, not even from the cache
+      // (the other light's sky, another size)
+      expect(fetched.filter((s) => !s.fromCache).map((s) => s.path)).toEqual([expected]);
+      expect([...new Set(fetched.map((s) => s.path))]).toEqual([expected]);
       expect(await skies[0].bytes).toBeLessThanOrEqual(SKY_MAX_BYTES);
       // ...and it is the one the <picture> draws
       const drawn = await page.locator(".home-hero picture img, picture img").first().evaluate((img) => (img as HTMLImageElement).currentSrc);
