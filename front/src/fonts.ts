@@ -16,6 +16,11 @@
  *   Marcellus  400                — Latin display titles and the lockup
  *   Amiri      400 / 700          — revealed words, Arabic names and titles, explanations
  *   Aref Ruqaa 700                — what players wrote (descriptions, clues, answers)
+ *
+ * fonts.css adds two small faces over these: Readex's transliteration letters (5 kB,
+ * instead of the 28 kB latin-ext file) and Amiri's space (inlined, instead of the 20 kB
+ * Latin file an Arabic phrase pulled for its spaces). Readex's Latin file, needed by
+ * every page in every language, is preloaded from index.html (vite.config.ts).
  */
 import "@fontsource-variable/readex-pro"
 import "@fontsource-variable/reem-kufi"
@@ -23,6 +28,8 @@ import "@fontsource/marcellus/400.css"
 import "@fontsource/amiri/400.css"
 import "@fontsource/amiri/700.css"
 import "@fontsource/aref-ruqaa/700.css"
+// After the imports above: its faces take a few characters over from theirs (fonts.css).
+import "./fonts.css"
 
 import readexLatinUrl from "@fontsource-variable/readex-pro/files/readex-pro-latin-wght-normal.woff2?url"
 

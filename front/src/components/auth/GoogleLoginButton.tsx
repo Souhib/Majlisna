@@ -1,24 +1,46 @@
-import { useGoogleLogin } from "@react-oauth/google"
+import { GoogleOAuthProvider, useGoogleLogin } from "@react-oauth/google"
 import { useNavigate } from "@tanstack/react-router"
-import { useState } from "react"
+import { type ReactNode, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import client, { getApiErrorMessage } from "@/api/client"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/providers/AuthProvider"
 
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || ""
+/** Read at render, not at import: a build without the variable must still render its pages. */
+export function googleClientId(): string {
+  return import.meta.env.VITE_GOOGLE_CLIENT_ID || ""
+}
+
+/**
+ * Google's provider, mounted only where a Google control is on screen. It injects Google's
+ * script (accounts.google.com/gsi/client, about 100 kB) on mount and removes it on unmount,
+ * so the script loads on the pages that show the button and nowhere else (the root layout
+ * used to wrap the whole app in it). Renders nothing in a build without a client id: the
+ * hooks under it would throw "must be used within GoogleOAuthProvider", which used to take
+ * the whole login and register pages down. Anything else that calls a Google hook (account
+ * deletion's "Confirm with Google") wraps itself the same way.
+ */
+export function WithGoogleOAuth({ children, onScriptLoadError }: { children: ReactNode; onScriptLoadError?: () => void }) {
+  const clientId = googleClientId()
+  if (!clientId) return null
+  return (
+    <GoogleOAuthProvider clientId={clientId} onScriptLoadError={onScriptLoadError}>
+      {children}
+    </GoogleOAuthProvider>
+  )
+}
 
 interface SocialLoginResponse {
   access_token: string
-  refresh_token: string
   token_type: string
   expires_in: number
   is_new_user: boolean
   user: { id: string; username: string; email: string }
 }
 
-function GoogleIcon() {
+/** Google's own "G" in its four colours, unaltered (its branding rules), for our Google buttons. */
+export function GoogleIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4" />
@@ -35,7 +57,16 @@ function GoogleIcon() {
   )
 }
 
+/** "Continue with Google" on the sign-in and sign-up pages; nothing without a client id. */
 export function GoogleLoginButton({ redirectTo }: { redirectTo?: string }) {
+  return (
+    <WithGoogleOAuth>
+      <GoogleLoginButtonInner redirectTo={redirectTo} />
+    </WithGoogleOAuth>
+  )
+}
+
+function GoogleLoginButtonInner({ redirectTo }: { redirectTo?: string }) {
   const { t } = useTranslation()
   const { login } = useAuth()
   const navigate = useNavigate()
@@ -56,7 +87,7 @@ export function GoogleLoginButton({ redirectTo }: { redirectTo?: string }) {
 
         const data = response.data
 
-        login(data.access_token, data.refresh_token, data.expires_in, {
+        login(data.access_token, data.expires_in, {
           id: data.user.id,
           username: data.user.username,
           email: data.user.email,
@@ -79,8 +110,6 @@ export function GoogleLoginButton({ redirectTo }: { redirectTo?: string }) {
       toast.error(t("auth.socialLoginFailed"))
     },
   })
-
-  if (!GOOGLE_CLIENT_ID) return null
 
   return (
     <div className="grid gap-5">

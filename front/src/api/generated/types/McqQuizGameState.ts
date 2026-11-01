@@ -80,6 +80,10 @@ export type McqQuizGameState = {
   my_answer_time_ms?: number | null;
   winner?: string | null;
   /**
+   * @type array | undefined
+   */
+  winner_ids?: string[];
+  /**
    * @type array
    */
   leaderboard: McqQuizPlayerState[];

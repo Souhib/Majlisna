@@ -19,6 +19,11 @@ import { Seal } from "./Seal"
  * a custom sentence ("The table found Bilal."). Achievements arrive here as `seals`,
  * never as toasts during the game.
  *
+ * The title is where focus lands when the game ends on screen (F2): it is focusable by
+ * script (tabindex -1, never a Tab stop) and marked `data-colophon-title`, the target the
+ * game pages give `usePhaseFocus` for their end. The colophon never takes focus itself:
+ * a page opened on a finished game leaves focus at the top.
+ *
  * <Colophon
  *   title={t("game.gameOver")}
  *   summary="Civilians win. Maryam read the room first."
@@ -148,7 +153,9 @@ export function Colophon({ title, titleAs: Title = "h2", summary, meta, words, s
       className={cn("relative z-[1] overflow-hidden rounded-sm border border-line-brass-strong bg-surface px-5 pt-[22px] text-foreground sm:px-6", className)}
       {...props}
     >
-      <Title className="type-title">{title}</Title>
+      <Title className="type-title" tabIndex={-1} data-colophon-title="">
+        {title}
+      </Title>
       {summary ? <p className="mt-1.5 text-sm leading-[1.45] text-muted-foreground">{summary}</p> : null}
       {meta ? <p className="mt-2 type-meta">{meta}</p> : null}
 
@@ -159,7 +166,7 @@ export function Colophon({ title, titleAs: Title = "h2", summary, meta, words, s
       {seals && seals.length > 0 ? (
         <div className="mt-4 flex flex-wrap gap-x-[22px] gap-y-2.5">
           {seals.map((s, i) => (
-            <Seal key={i} title={s.title} caption={s.caption} />
+            <Seal key={i} index={i} title={s.title} caption={s.caption} />
           ))}
         </div>
       ) : null}

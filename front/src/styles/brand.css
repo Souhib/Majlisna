@@ -237,22 +237,30 @@
     min-width: 24px;
     height: 8px;
     position: relative;
+    overflow: hidden;
     background: repeating-linear-gradient(90deg, var(--warp) 0 1px, transparent 1px 5px);
   }
+  /* The loom: the thread is always full length and what is spent is drawn back through the
+     loom at the reading start, by a transform (compositor only, never a layout). ThreadClock
+     runs it as one Web Animation per phase; without one (reduced motion, a static clock) this
+     rule places it from --left, which moves once a second. */
   .thread-clock .track > i {
     position: absolute;
-    inset-block: 0;
-    inset-inline-start: 0;
-    width: calc(var(--left, 1) * 100%);
+    inset: 0;
     background: var(--band-khayt) left center / auto 100% repeat-x;
-    transition: width 500ms linear;
+    transform: translateX(calc((var(--left, 1) - 1) * 100%));
+    will-change: transform;
   }
   [dir="rtl"] .thread-clock .track > i {
     background-position: right center;
+    transform: translateX(calc((1 - var(--left, 1)) * 100%));
   }
+  /* the last five seconds: a 14 px stub at the reading start */
   .thread-clock[data-phase="last"] .track > i {
-    width: 14px;
-    transition: none;
+    transform: translateX(calc(14px - 100%));
+  }
+  [dir="rtl"] .thread-clock[data-phase="last"] .track > i {
+    transform: translateX(calc(100% - 14px));
   }
   .thread-clock[data-phase="done"] .track {
     opacity: 0.6;
@@ -286,11 +294,13 @@
     border-color: var(--brass);
     animation: loz-stamp 220ms var(--ease-press) both;
   }
+  /* zero: the thread is knotted, the knot pressed once */
   .thread-clock .knot {
     width: 14px;
     height: 14px;
     flex: none;
     color: var(--text);
+    animation: seal-press 330ms var(--ease-press) both;
   }
 
   /* --- the halqa ------------------------------------------------------------ */
@@ -329,15 +339,41 @@
     stroke-opacity: 0.45;
     stroke-dasharray: 2 5;
   }
+  /* ONE circle for the thread in every state (Halqa.tsx): its arc is a dash on a pathLength
+     of 1, so an arrival, the closing and a departure are transitions of the same element */
   .halqa .thread {
     fill: none;
     stroke: var(--brass);
     stroke-width: 1.6;
     stroke-linecap: round;
-    transition: stroke-width var(--dur-move) var(--ease-out);
+    stroke-dasharray: 1 1;
+    stroke-dashoffset: calc(1 - var(--arc, 0));
+    transition:
+      stroke-dashoffset var(--dur-move) var(--ease-settle),
+      stroke-width var(--dur-move) var(--ease-settle);
   }
-  .halqa .thread.closed {
+  /* the quorum: the ring closes, the one authored moment of the lobby */
+  .halqa .thread[data-closed="true"] {
     stroke-width: 2.6;
+    transition:
+      stroke-dashoffset var(--dur-authored) var(--ease-ink),
+      stroke-width var(--dur-authored) var(--ease-ink);
+  }
+  /* someone left: the thread retracts on the exit curve, 0.66 × the arrival */
+  .halqa .thread[data-leaving="true"] {
+    transition-duration: calc(var(--dur-move) * 0.66);
+    transition-timing-function: var(--ease-in);
+  }
+  /* a seat that arrives while the ring is on screen: its lozenge is pressed in, once */
+  .halqa .seat {
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+  .halqa .seat[data-fresh="true"] {
+    animation: seat-in var(--dur-move) var(--ease-out) both;
+  }
+  .halqa text[data-fresh="true"] {
+    animation: fade-in var(--dur-state) var(--ease-out) both;
   }
   .halqa .s-host {
     fill: var(--brass);
@@ -553,6 +589,24 @@ html [data-sonner-toast][data-styled="true"] {
   font-size: 14px;
   box-shadow: 0 14px 28px -18px oklch(0 0 0 / 0.45);
 }
+/* On the motion grammar instead of sonner's 400 ms with the browser's `ease`: a toast lands
+   (a move) on --ease-settle and fades in on --ease-out; it leaves on --ease-in in 0.66 × that.
+   A swipe ([data-swiping], more specific) still follows the finger with no transition, and
+   sonner's own reduced-motion rule (`transition: none !important`) still wins. */
+html [data-sonner-toast] {
+  transition:
+    transform var(--dur-move) var(--ease-settle),
+    opacity var(--dur-state) var(--ease-out),
+    height var(--dur-move) var(--ease-settle),
+    box-shadow var(--dur-state) var(--ease-out);
+}
+html [data-sonner-toast][data-removed="true"] {
+  transition-duration: calc(var(--dur-move) * 0.66), calc(var(--dur-state) * 0.66), calc(var(--dur-move) * 0.66), calc(var(--dur-state) * 0.66);
+  transition-timing-function: var(--ease-in);
+}
+html [data-sonner-toast] > * {
+  transition: opacity var(--dur-state) var(--ease-out);
+}
 html [data-sonner-toast][data-styled="true"] [data-title] {
   font-weight: 500;
   line-height: 1.35;
@@ -572,13 +626,22 @@ html [data-sonner-toast][data-type="warning"] [data-icon] {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .thread-clock .track > i {
-    transition: none;
-  }
-  .thread-clock .lozenges > i[data-on="true"] {
+  .thread-clock .lozenges > i[data-on="true"],
+  .thread-clock .knot {
     animation: fade-in 140ms linear both;
   }
   .halqa .thread {
     transition: none;
+  }
+  .halqa .seat[data-fresh="true"] {
+    animation: fade-in 140ms linear both;
+  }
+}
+
+/* A seat arriving on the halqa: from a quarter of its size, fading in (no overshoot). */
+@keyframes seat-in {
+  from {
+    scale: 0.25;
+    opacity: 0;
   }
 }

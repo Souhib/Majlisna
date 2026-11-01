@@ -23,7 +23,7 @@ export type LogoutApiV1AuthLogoutPostMutationKey = ReturnType<
 >;
 
 /**
- * @description Logout by clearing auth cookies.
+ * @description Sign this session out on the server (its tokens stop working), then clear the cookies.
  * @summary Logout
  * {@link /api/v1/auth/logout}
  */
@@ -58,7 +58,7 @@ export function logoutApiV1AuthLogoutPostMutationOptions<TContext = unknown>(
 }
 
 /**
- * @description Logout by clearing auth cookies.
+ * @description Sign this session out on the server (its tokens stop working), then clear the cookies.
  * @summary Logout
  * {@link /api/v1/auth/logout}
  */

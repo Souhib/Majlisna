@@ -39,7 +39,7 @@ function LoginPage() {
       onSuccess: (d) => {
         trackEvent("login")
         // the server says how long the access token lives; the refresh is scheduled from it
-        login(d.access_token, d.refresh_token, d.expires_in, {
+        login(d.access_token, d.expires_in, {
           id: d.user.id,
           username: d.user.username,
           email: d.user.email,

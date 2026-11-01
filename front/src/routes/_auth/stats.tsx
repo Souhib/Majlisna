@@ -8,6 +8,7 @@ import { Lozenge } from "@/components/brand"
 import { DurationStats } from "@/components/stats/DurationStats"
 import { gameName, latnLocale, percentOf, roleLozenge, roleName } from "@/components/stats/format"
 import { GameDetailModal } from "@/components/stats/GameDetailModal"
+import { LoadFailed } from "@/components/stats/LoadFailed"
 import { Figures, PageHeader, ResultChip } from "@/components/stats/PlayerSpace"
 import { RoleDistributionChart } from "@/components/stats/RoleDistributionChart"
 import { Button } from "@/components/ui/button"
@@ -28,14 +29,12 @@ function StatsPage() {
   const { user } = useAuth()
   const [selected, setSelected] = useState<{ id: string; type: string } | null>(null)
 
-  const { data: stats, isLoading: statsLoading } = useGetUserStatsApiV1StatsUsersUserIdStatsGet(
-    { user_id: user?.id ?? "" },
-    { query: { enabled: !!user?.id } },
-  ) as { data: UserStats | undefined; isLoading: boolean }
-
-  const { data: games = [], isLoading: gamesLoading } = useGetGamesByUserApiV1GamesUserUserIdGet({ user_id: user?.id ?? "" }, undefined, {
+  const statsQuery = useGetUserStatsApiV1StatsUsersUserIdStatsGet({ user_id: user?.id ?? "" }, { query: { enabled: !!user?.id } })
+  const gamesQuery = useGetGamesByUserApiV1GamesUserUserIdGet({ user_id: user?.id ?? "" }, undefined, {
     query: { enabled: !!user?.id },
-  }) as { data: GameHistoryEntry[] | undefined; isLoading: boolean }
+  })
+  const stats: UserStats | undefined = statsQuery.data
+  const games: GameHistoryEntry[] = gamesQuery.data ?? []
 
   const header = (
     <PageHeader
@@ -48,7 +47,7 @@ function StatsPage() {
     />
   )
 
-  if (statsLoading || gamesLoading) {
+  if (statsQuery.isLoading || gamesQuery.isLoading) {
     return (
       <div className="page-wrap py-[clamp(32px,5vw,72px)]" aria-busy="true">
         {header}
@@ -57,6 +56,19 @@ function StatsPage() {
           <Skeleton className="h-72 w-full" />
           <Skeleton className="h-72 w-full" />
         </div>
+      </div>
+    )
+  }
+
+  // A failed read is not an empty record: "No games played" told a player with hundreds
+  // of games their history was gone (FR-7). Either half failing fails the page, or the
+  // recent games would read as none.
+  if (statsQuery.isError || gamesQuery.isError) {
+    const failed = [statsQuery, gamesQuery].filter((q) => q.isError)
+    return (
+      <div className="page-wrap py-[clamp(32px,5vw,72px)]">
+        {header}
+        <LoadFailed error={failed[0]?.error} retrying={failed.some((q) => q.isRefetching)} onRetry={() => failed.forEach((q) => void q.refetch())} />
       </div>
     )
   }

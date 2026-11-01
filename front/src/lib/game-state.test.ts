@@ -62,7 +62,24 @@ describe("deriveUndercoverPhase", () => {
     expect(deriveUndercoverPhase({ ...base, my_role: "spectator" })).toBe("describing")
   })
 
-  it("game_over takes priority over everything", () => {
+  // BR-01: while an eliminated Mr. White owes his guess the game is not over, whatever
+  // `winner` says. An older server recomputed a winner here (no impostor alive →
+  // civilians), and every client then showed "Civilians won" and hid the guess form.
+  it.each(["mr_white", "civilian", "undercover", "spectator"])("a guess still owed wins over a winner, for the %s", (my_role) => {
+    expect(
+      deriveUndercoverPhase({
+        ...base,
+        winner: "civilians",
+        turn_phase: "mr_white_guessing",
+        turn_number: 2,
+        my_role,
+        roleRevealed: true,
+        round_resolved: true,
+      }),
+    ).toBe("mr_white_guessing")
+  })
+
+  it("game_over takes priority over every other phase", () => {
     expect(
       deriveUndercoverPhase({
         winner: "undercover",

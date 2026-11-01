@@ -19,8 +19,11 @@ export interface DerivePhaseInput {
  * Derives the current UI phase from server state.
  *
  * Rules:
+ * - If an eliminated Mr. White owes his guess → mr_white_guessing, before the winner:
+ *   the guess can still hand the undercovers the game, so it is never over while it
+ *   is owed (an older server reported a recomputed winner there, and the guess form
+ *   never rendered)
  * - If there's a winner → game_over
- * - If an eliminated Mr. White owes his guess → mr_white_guessing
  * - If turn_phase is "describing" → show "describing" (unless turn 1 + not revealed + not spectator → role_reveal)
  * - If the round is resolved → round_over (the turn stays in phase "voting" on the
  *   server until the host starts the next round, so without this the page kept
@@ -32,9 +35,9 @@ export function deriveUndercoverPhase(input: DerivePhaseInput): UndercoverPhase 
   const { winner, turn_phase, turn_number, my_role, roleRevealed, round_resolved } = input
   const isSpectator = my_role === "spectator"
 
-  if (winner) return "game_over"
-
   if (turn_phase === "mr_white_guessing") return "mr_white_guessing"
+
+  if (winner) return "game_over"
 
   if (turn_phase === "describing") {
     return roleRevealed || isSpectator || turn_number > 1 ? "describing" : "role_reveal"

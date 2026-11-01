@@ -2,6 +2,17 @@ import { UserMinus } from "lucide-react"
 import { useEffect, useId, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { formatClock, Lozenge } from "@/components/brand"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Panel } from "@/components/ui/panel"
 import { cn } from "@/lib/utils"
@@ -28,6 +39,10 @@ interface PlayerRosterProps {
  * E2E reads this list: the heading text "Players (N)", and each row as a
  * `div.flex.items-center.justify-between` holding a `span` whose text is exactly the
  * username, with Remove as the row's last button. Keep that shape.
+ *
+ * Remove asks first (an AlertDialog): a removed player is banned from the room for its
+ * lifetime (owner rule (c)), so the dialog says they cannot come back, and that the host
+ * can lift it in the list of removed players (RoomBans). Nothing is sent until "Remove".
  *
  * Removing a player takes their row, and the focused Remove button with it: focus then
  * goes to the next row's Remove (or the previous one, or the heading when none is
@@ -102,21 +117,15 @@ export function PlayerRoster({ players, myId, canKick, kickingId, onKick, awayLe
                     {note ? <span className={cn("type-meta shrink-0", player.isHost && "text-brass")}>{note}</span> : null}
                   </div>
                   {canKick && !me ? (
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      loading={kickingId === player.id}
+                    <RemoveSeatButton
+                      player={player}
+                      kicking={kickingId === player.id}
                       disabled={kickingId != null && kickingId !== player.id}
-                      data-remove=""
-                      onClick={() => {
+                      onConfirm={() => {
                         removingRef.current = { id: player.id, index: removable.findIndex((p) => p.id === player.id) }
                         onKick(player)
                       }}
-                      aria-label={t("room.lobbyPage.kick", { name: player.username })}
-                      className="shrink-0 text-muted-foreground hover:bg-[color-mix(in_oklch,var(--ember)_10%,transparent)] hover:text-ember aria-busy:[&>svg]:hidden"
-                    >
-                      <UserMinus aria-hidden="true" />
-                    </Button>
+                    />
                   ) : null}
                 </div>
               </li>
@@ -125,5 +134,45 @@ export function PlayerRoster({ players, myId, canKick, kickingId, onKick, awayLe
         </ul>
       )}
     </Panel>
+  )
+}
+
+/**
+ * The host's Remove on one row: an icon button that opens the confirmation. It stays the
+ * row's last (and only) button, the dialog being portalled out of the row (E2E clicks it,
+ * then the dialog's "Remove"). On close Radix gives focus back to it, and when the row
+ * goes the roster moves focus on (see above).
+ */
+function RemoveSeatButton({ player, kicking, disabled, onConfirm }: { player: LobbyMember; kicking: boolean; disabled: boolean; onConfirm: () => void }) {
+  const { t } = useTranslation()
+  const name = player.username
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          loading={kicking}
+          disabled={disabled}
+          data-remove=""
+          aria-label={t("room.lobbyPage.kick", { name })}
+          className="shrink-0 text-muted-foreground hover:bg-[color-mix(in_oklch,var(--ember)_10%,transparent)] hover:text-ember aria-busy:[&>svg]:hidden"
+        >
+          <UserMinus aria-hidden="true" />
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{t("room.lobbyPage.kickConfirmTitle", { name })}</AlertDialogTitle>
+          <AlertDialogDescription>{t("room.lobbyPage.kickConfirmBody", { name })}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+          <AlertDialogAction variant="danger" onClick={onConfirm}>
+            {t("room.lobbyPage.kickConfirmAction")}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   )
 }

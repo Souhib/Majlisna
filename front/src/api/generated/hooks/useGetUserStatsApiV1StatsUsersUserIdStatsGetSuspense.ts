@@ -34,7 +34,9 @@ export type GetUserStatsApiV1StatsUsersUserIdStatsGetSuspenseQueryKey =
   ReturnType<typeof getUserStatsApiV1StatsUsersUserIdStatsGetSuspenseQueryKey>;
 
 /**
- * @description Get aggregated statistics for a user.
+ * @description Get aggregated statistics for a user (read-only: zeros for a user with no games yet).
+ * 404 for an unknown user. This used to create the row, so an anonymous GET wrote to
+ * the database and an unknown id answered a 500.
  * @summary Get User Stats
  * {@link /api/v1/stats/users/:user_id/stats}
  */
@@ -96,7 +98,9 @@ export function getUserStatsApiV1StatsUsersUserIdStatsGetSuspenseQueryOptions(
 }
 
 /**
- * @description Get aggregated statistics for a user.
+ * @description Get aggregated statistics for a user (read-only: zeros for a user with no games yet).
+ * 404 for an unknown user. This used to create the row, so an anonymous GET wrote to
+ * the database and an unknown id answered a 500.
  * @summary Get User Stats
  * {@link /api/v1/stats/users/:user_id/stats}
  */

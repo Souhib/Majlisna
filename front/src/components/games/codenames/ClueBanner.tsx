@@ -15,6 +15,10 @@ interface ClueBannerProps {
  * The clue on the table (sketch C): "Clue from Yusuf / KNOWLEDGE 2 / 1 guess made,
  * 1 left, plus a bonus". Before the clue: who is choosing it. A clue written in Arabic
  * is set in the hand (Aref Ruqaa); a Latin one in Marcellus capitals.
+ *
+ * On a phone the banner already holds the clue's height while it waits (`.cn-clue`'s
+ * min-height in codenames.css), so the board under the operatives' fingers does not move
+ * when the clue lands. Keep that reservation in step if a line is added here.
  */
 export const ClueBanner = memo(function ClueBanner({ turn, spymasterName, pointing }: ClueBannerProps) {
   const { t } = useTranslation()

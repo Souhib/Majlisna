@@ -1,4 +1,4 @@
-import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from "react"
+import { type KeyboardEvent, useCallback, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Lockup } from "@/components/brand"
 import { applyLanguage, currentLanguage, LANGUAGES, type LanguageCode } from "@/components/layout/language-switch"
@@ -7,6 +7,18 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { cn } from "@/lib/utils"
 
 const STORAGE_KEY = "majlisna-first-visit-complete"
+
+/**
+ * "Choose your language", each in its own language, written here rather than read from the
+ * locales: three short lines are not worth downloading the two other locale chunks (about
+ * 50 kB) on every first visit. They are `ui.chooseLanguage` of each locale, which a test
+ * keeps in step.
+ */
+export const CHOOSE_LANGUAGE_PROMPTS: Record<LanguageCode, string> = {
+  en: "Choose your language",
+  fr: "Choisissez votre langue",
+  ar: "اختر لغتك",
+}
 
 function readFirstVisit() {
   try {
@@ -40,16 +52,8 @@ export function LanguageWelcomeModal() {
   const { t, i18n } = useTranslation()
   const { isFirstVisit, markComplete } = useFirstVisit()
   const [selected, setSelected] = useState<LanguageCode | null>(null)
-  const [, setLoaded] = useState(0)
   const optionRefs = useRef<(HTMLButtonElement | null)[]>([])
   const current = currentLanguage(i18n.language)
-
-  // The prompt is shown in every language: make sure all three are loaded.
-  useEffect(() => {
-    if (!isFirstVisit) return
-    const loader = (i18n as { loadLanguages?: (lngs: string[]) => Promise<unknown> }).loadLanguages
-    loader?.call(i18n, ["en", "fr", "ar"]).then(() => setLoaded((n) => n + 1))
-  }, [isFirstVisit, i18n])
 
   const handleSelect = useCallback(
     (code: LanguageCode) => {
@@ -70,11 +74,6 @@ export function LanguageWelcomeModal() {
     optionRefs.current[next]?.focus()
   }
 
-  const fixed = (code: LanguageCode) => {
-    const getFixedT = (i18n as { getFixedT?: (lng: string) => (key: string) => string }).getFixedT
-    return getFixedT ? getFixedT.call(i18n, code)("ui.chooseLanguage") : t("ui.chooseLanguage")
-  }
-
   if (!isFirstVisit) return null
   const checked = selected ?? current
 
@@ -88,7 +87,7 @@ export function LanguageWelcomeModal() {
             <div className="grid gap-1 text-muted-foreground">
               {LANGUAGES.map((lang) => (
                 <span key={lang.code} lang={lang.code} dir={lang.dir} className={lang.code === "ar" ? "text-[18px]" : "text-[15px]"}>
-                  {fixed(lang.code)}
+                  {CHOOSE_LANGUAGE_PROMPTS[lang.code]}
                 </span>
               ))}
             </div>

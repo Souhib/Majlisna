@@ -1,8 +1,9 @@
 import { Link, useLocation } from "@tanstack/react-router"
 import { Book, ChevronDown, LogOut, Menu, User, Users } from "lucide-react"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, useSyncExternalStore } from "react"
 import { useTranslation } from "react-i18next"
 import { Lockup } from "@/components/brand"
+import { autoDetectLocationByIP, loadStoredCity } from "@/components/prayer-times/CitySelector"
 import { PrayerTimesNav } from "@/components/prayer-times/PrayerTimesNav"
 import { Avatar } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -48,16 +49,50 @@ function isCurrent(pathname: string, to: NavPath) {
   return pathname === to || pathname.startsWith(`${to}/`)
 }
 
-/** True once the page has scrolled off its very top (the nav then takes its ground). */
+/**
+ * True once the page has scrolled off its very top (the nav then takes its ground). The
+ * first value is read before the DOM exists; reading scrollY again in the mount effect
+ * forced the first full layout inside React's commit (FP-20), and any later change comes
+ * with a scroll event.
+ */
 function useScrolled() {
   const [scrolled, setScrolled] = useState(() => typeof window !== "undefined" && window.scrollY > 4)
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 4)
-    onScroll()
     window.addEventListener("scroll", onScroll, { passive: true })
     return () => window.removeEventListener("scroll", onScroll)
   }, [])
   return scrolled
+}
+
+/** Where the nav row shows everything: the complement of the `max-[1180px]:` classes
+ *  that hide it (Tailwind compiles them to `not all and (min-width: 1180px)`). */
+const WIDE_NAV = "(min-width: 1180px)"
+
+/** Whether a media query matches, following it as the viewport changes. */
+function useMediaQuery(query: string) {
+  return useSyncExternalStore(
+    (onChange) => {
+      const list = window.matchMedia(query)
+      list.addEventListener("change", onChange)
+      return () => list.removeEventListener("change", onChange)
+    },
+    () => window.matchMedia(query).matches,
+    () => false,
+  )
+}
+
+/**
+ * The city of the prayer times, guessed from the IP once per page load while none is
+ * stored, whatever the width: on a phone no chip is mounted until the menu opens, but a
+ * running game's adhan suggestion reads the stored city (use-adhan-suggestion.ts). A
+ * mounted chip shares the same request, and a failed one is not repeated for 24 h
+ * (CitySelector.tsx).
+ */
+function useCityDetection() {
+  useEffect(() => {
+    if (!loadStoredCity()) void autoDetectLocationByIP()
+  }, [])
 }
 
 function UserMenu() {
@@ -230,6 +265,11 @@ export function MainNav() {
   const resolved = useResolvedTheme()
   const scrolled = useScrolled()
   const overSky = pathname === "/" && !scrolled
+  // One prayer chip per viewport (FR-11): the row's from 1180 px, the menu sheet's below.
+  // The row's used to stay mounted (only CSS-hidden) on phones, a second copy of its state
+  // and of its requests next to the sheet's.
+  const wide = useMediaQuery(WIDE_NAV)
+  useCityDetection()
 
   // The browser's bar takes the nav's ground in the light on screen (index.html sets
   // the first value before paint; this follows a toggle).
@@ -260,7 +300,7 @@ export function MainNav() {
         </nav>
 
         <div className="nav-end">
-          <PrayerTimesNav className="max-[1180px]:hidden" />
+          {wide ? <PrayerTimesNav /> : null}
           <LanguageSwitch className="max-[1180px]:hidden" />
           <ThemeToggle className="max-[1180px]:hidden" />
           {isAuthenticated ? (

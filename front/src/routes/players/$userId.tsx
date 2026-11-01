@@ -3,7 +3,7 @@ import { createFileRoute, Link } from "@tanstack/react-router"
 import { Check, UserPlus } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
-import { getApiErrorMessage } from "@/api/client"
+import { getApiErrorMessage, type ResponseErrorConfig } from "@/api/client"
 import {
   useAcceptFriendRequestApiV1FriendsFriendshipIdAcceptPost,
   useGetFriendshipStatusApiV1FriendsStatusUserIdGet,
@@ -20,6 +20,7 @@ import { RemoveFriendButton } from "@/components/friends/RemoveFriendButton"
 import { currentLanguage } from "@/components/layout/language-switch"
 import { countryName } from "@/components/profile/countries"
 import { gameName } from "@/components/stats/format"
+import { LoadFailed } from "@/components/stats/LoadFailed"
 import { PlayLinks } from "@/components/stats/PlayLinks"
 import { Figures } from "@/components/stats/PlayerSpace"
 import { Avatar } from "@/components/ui/avatar"
@@ -37,6 +38,15 @@ export const Route = createFileRoute("/players/$userId")({
 })
 
 /**
+ * The read says there is no such player: a 404, or a 422 for an id that is not one (a
+ * mistyped link). Asking again will not make them exist, so these get "not found", not Retry.
+ */
+function isNoSuchPlayer(error: unknown): boolean {
+  const status = (error as ResponseErrorConfig | null)?.response?.status
+  return status === 404 || status === 422
+}
+
+/**
  * A player's public page: who they are, what they play, and, for a signed-in visitor,
  * the record between the two of you and the friendship action.
  */
@@ -49,15 +59,8 @@ function PlayerProfilePage() {
   const isOwnProfile = user?.id === userId
   const signedIn = Boolean(user?.id)
 
-  const {
-    data: profile,
-    isLoading,
-    error: queryError,
-  } = useGetPublicProfileApiV1ProfilesUsersUserIdGet({ user_id: userId }) as {
-    data: PublicProfile | undefined
-    isLoading: boolean
-    error: Error | null
-  }
+  const profileQuery = useGetPublicProfileApiV1ProfilesUsersUserIdGet({ user_id: userId })
+  const profile: PublicProfile | undefined = profileQuery.data
   // country and photo live on the user record, which only a signed-in visitor may read
   const { data: details } = useGetUserByIdApiV1UsersUserIdGet({ user_id: userId }, { query: { enabled: signedIn } })
   const { data: friendshipStatus } = useGetFriendshipStatusApiV1FriendsStatusUserIdGet({ user_id: userId }, { query: { enabled: signedIn && !isOwnProfile } })
@@ -113,7 +116,7 @@ function PlayerProfilePage() {
     }
   }
 
-  if (isLoading) {
+  if (profileQuery.isLoading) {
     return (
       <div className="page-wrap py-[clamp(32px,5vw,72px)]" aria-busy="true">
         <div className="mx-auto grid max-w-[60rem] gap-6">
@@ -127,14 +130,25 @@ function PlayerProfilePage() {
     )
   }
 
-  if (queryError || !profile) {
+  // Only a "no such player" is "not found": a 500 used to say the player did not exist
+  // (FR-7). Any other failure is said as one, with Retry.
+  if (profileQuery.isError && !isNoSuchPlayer(profileQuery.error)) {
+    return (
+      <div className="page-wrap py-[clamp(32px,5vw,72px)]">
+        <div className="mx-auto max-w-[40rem]">
+          <LoadFailed error={profileQuery.error} retrying={profileQuery.isRefetching} onRetry={() => void profileQuery.refetch()} />
+        </div>
+      </div>
+    )
+  }
+
+  if (!profile) {
     return (
       <div className="page-wrap py-[clamp(32px,5vw,72px)]">
         <Panel className="mx-auto max-w-[40rem]">
           <EmptyState
             titleAs="h1"
             title={t("profile.playerNotFound")}
-            description={queryError ? getApiErrorMessage(queryError, t("common.error")) : undefined}
             action={
               <Button asChild variant="secondary">
                 <Link to="/leaderboard">{t("leaderboard.title")}</Link>

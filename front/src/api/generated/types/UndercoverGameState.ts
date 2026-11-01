@@ -89,6 +89,25 @@ export type UndercoverGameState = {
    */
   round_resolved?: boolean;
   /**
+   * @type array | undefined
+   */
+  ready_players?: string[];
+  /**
+   * @default 0
+   * @type integer | undefined
+   */
+  ready_count?: number;
+  /**
+   * @default 0
+   * @type integer | undefined
+   */
+  ready_quorum?: number;
+  /**
+   * @default false
+   * @type boolean | undefined
+   */
+  is_ready?: boolean;
+  /**
    * @type array
    */
   description_order: DescriptionOrderEntry[];

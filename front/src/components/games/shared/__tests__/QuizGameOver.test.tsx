@@ -23,6 +23,13 @@ vi.mock("@tanstack/react-router", () => ({
   ),
 }))
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }))
+// Keys as text, with the names a sentence carries (a shared win names everyone in it).
+vi.mock("react-i18next", () => ({
+  useTranslation: () => ({
+    t: (key: string, opts?: { names?: string }) => (opts?.names ? `${key}(${opts.names})` : key),
+    i18n: { language: "en" },
+  }),
+}))
 
 function render(ui: ReactElement) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -58,14 +65,59 @@ describe("QuizGameOver (the colophon)", () => {
     expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent(/^game\.gameOver$/)
   })
 
-  it("calls a tie a tie, whatever winner the server named", () => {
+  it("calls a tie at the top a shared win, whatever winner the server named", () => {
     render(<QuizGameOver {...defaultProps} leaderboard={[...leaderboard, { user_id: "u4", username: "Dina", total_score: 20 }]} />)
-    expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("game.quiz.tie")
+    expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("game.quiz.sharedWin(Bob and Dina)")
+  })
+
+  it("names every top scorer above 0 as sharing the win, for the server's null winner (owner rule (a))", () => {
+    // Prepare: a 6-6 game, the server names no single winner
+    const tied = [
+      { user_id: "u1", username: "Alice", total_score: 6 },
+      { user_id: "u2", username: "Bob", total_score: 6 },
+      { user_id: "u3", username: "Charlie", total_score: 2 },
+    ]
+
+    // Act
+    render(<QuizGameOver {...defaultProps} winner={null} leaderboard={tied} />)
+
+    // Assert
+    const title = screen.getByRole("heading", { level: 2 })
+    expect(title).toHaveTextContent("game.gameOver")
+    expect(title).toHaveTextContent("game.quiz.sharedWin(Alice and Bob)")
+    expect(title).not.toHaveTextContent("game.winner")
+    expect(screen.getByText("game.quiz.tieSummary")).toBeInTheDocument()
+  })
+
+  it("says a 0-0 game has no winner, and marks no one first", () => {
+    // Prepare
+    const nobody = [
+      { user_id: "u1", username: "Alice", total_score: 0 },
+      { user_id: "u2", username: "Bob", total_score: 0 },
+    ]
+
+    // Act
+    render(<QuizGameOver {...defaultProps} winner={null} leaderboard={nobody} />)
+
+    // Assert
+    const title = screen.getByRole("heading", { level: 2 })
+    expect(title).toHaveTextContent("game.quiz.noWinner")
+    expect(title).not.toHaveTextContent("game.quiz.sharedWin")
+    expect(screen.queryByText("game.quiz.tieSummary")).not.toBeInTheDocument()
+    expect(screen.getByTestId("quiz-final-scores").querySelectorAll(".loz")).toHaveLength(0)
   })
 
   it("speaks to a solo player about their score", () => {
     render(<QuizGameOver {...defaultProps} leaderboard={[leaderboard[0]]} winner="Alice" />)
     expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("game.quiz.soloScore")
+  })
+
+  it("never says a solo game is won, even at 0 with no winner named", () => {
+    render(<QuizGameOver {...defaultProps} leaderboard={[{ user_id: "u1", username: "Alice", total_score: 0 }]} winner={null} />)
+    const title = screen.getByRole("heading", { level: 2 })
+    expect(title).toHaveTextContent("game.quiz.soloScore")
+    expect(title).not.toHaveTextContent("game.quiz.noWinner")
+    expect(title).not.toHaveTextContent("winner")
   })
 
   it("renders final scores heading with default i18n key", () => {

@@ -9,8 +9,10 @@ import { cn } from "@/lib/utils"
  * focus or an interruption (confirm a kick, invite a friend); otherwise stay inline.
  *
  * The overlay is a flat dim (no blur); the content is a --surface panel with a brass
- * hairline, entering with a 180 ms fade (motion grammar: state). <Sheet> is the same
- * primitive anchored to the bottom on phones (side="bottom") or to the inline start/end.
+ * hairline, entering with a 180 ms fade on --ease-out (motion grammar: state) and leaving
+ * in 0.66 × that on --ease-in. <Sheet> is the same primitive anchored to the bottom on
+ * phones (side="bottom") or to the inline start/end: it lands in 320 ms on --ease-settle
+ * (a move) and leaves in 211 ms on --ease-in.
  *
  * <Dialog open={open} onOpenChange={setOpen}>
  *   <DialogContent>
@@ -32,7 +34,7 @@ export function DialogOverlay({ className, ...props }: ComponentProps<typeof Dia
       className={cn(
         "fixed inset-0 z-50 bg-[oklch(0.1_0.01_50/0.62)]",
         "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0",
-        "duration-(--dur-state)",
+        "duration-(--dur-state) ease-(--ease-out) data-[state=closed]:ease-(--ease-in) data-[state=closed]:duration-[calc(var(--dur-state)*0.66)]",
         className,
       )}
       {...props}
@@ -67,7 +69,7 @@ export function DialogContent({ className, children, hideClose, ...props }: Dial
           "fixed left-1/2 top-1/2 z-50 grid max-h-[calc(100dvh-32px)] w-[calc(100vw-32px)] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto",
           "rounded-lg border border-line-brass bg-popover p-5 text-popover-foreground shadow-[0_24px_48px_-24px_oklch(0_0_0/0.45)] sm:p-6",
           "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0",
-          "duration-(--dur-state)",
+          "duration-(--dur-state) ease-(--ease-out) data-[state=closed]:ease-(--ease-in) data-[state=closed]:duration-[calc(var(--dur-state)*0.66)]",
           className,
         )}
         {...props}
@@ -124,7 +126,7 @@ export function SheetContent({ side = "bottom", className, children, hideClose, 
           "fixed z-50 flex flex-col gap-4 overflow-y-auto border-line-brass bg-popover p-5 text-popover-foreground",
           "pb-[max(20px,env(safe-area-inset-bottom))]",
           "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0",
-          "duration-(--dur-move) ease-(--ease-settle)",
+          "duration-(--dur-move) ease-(--ease-settle) data-[state=closed]:ease-(--ease-in) data-[state=closed]:duration-[calc(var(--dur-move)*0.66)]",
           sheetSide[side],
           className,
         )}

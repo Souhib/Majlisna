@@ -24,6 +24,9 @@ export type HealthCheckHealthGetQueryKey = ReturnType<
 
 /**
  * @description Health check endpoint with DB connectivity verification.
+ * `version` is the commit the image was built from (settings.git_sha). It is
+ * answered on a 503 too, so a deploy check can tell a new build with its database
+ * down from the old build still running.
  * @summary Health Check
  * {@link /health}
  */
@@ -60,6 +63,9 @@ export function healthCheckHealthGetQueryOptions(
 
 /**
  * @description Health check endpoint with DB connectivity verification.
+ * `version` is the commit the image was built from (settings.git_sha). It is
+ * answered on a 503 too, so a deploy check can tell a new build with its database
+ * down from the old build still running.
  * @summary Health Check
  * {@link /health}
  */

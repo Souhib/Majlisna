@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useSearch } from "@tanstack/react-router"
 import { ArrowLeft, ArrowRight } from "lucide-react"
-import { type FormEvent, useState } from "react"
+import { type FormEvent, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { getApiErrorMessage } from "@/api/client"
 import { useResetPasswordApiV1AuthResetPasswordPost } from "@/api/generated"
@@ -20,6 +20,7 @@ import {
 import { Alert } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Field } from "@/components/ui/field"
+import { scrubTokenFromUrl } from "@/lib/auth"
 
 export const Route = createFileRoute("/auth/reset-password")({
   component: ResetPasswordPage,
@@ -42,7 +43,14 @@ function BackToLogin() {
 
 function ResetPasswordPage() {
   const { t } = useTranslation()
-  const { token } = useSearch({ from: "/auth/reset-password" })
+  const { token: tokenFromLink } = useSearch({ from: "/auth/reset-password" })
+  // The link's token, read once and kept in memory: the address drops it right away, so
+  // the history, an analytics page view or a screenshot never holds a token that can
+  // still reset the password (SEC F06). Links already sent keep working.
+  const [token] = useState(tokenFromLink)
+  useEffect(() => {
+    scrubTokenFromUrl()
+  }, [])
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
   const [error, setError] = useState("")
@@ -52,8 +60,9 @@ function ResetPasswordPage() {
   const resetMutation = useResetPasswordApiV1AuthResetPasswordPost({
     mutation: {
       onSuccess: () => setSuccess(true),
-      // a refused link is said in the page's language (the server's key has no translation)
-      onError: (err) => setError(apiErrorKey(err) === TOKEN_REJECTED_KEY ? t("auth.invalidOrExpiredToken") : getApiErrorMessage(err, t("common.error"))),
+      // a refused link is said in the page's language (the server's key has no translation);
+      // no answer at all says "connection lost", and the token is still here for another try
+      onError: (err) => setError(apiErrorKey(err) === TOKEN_REJECTED_KEY ? t("auth.invalidOrExpiredToken") : getApiErrorMessage(err)),
     },
   })
 

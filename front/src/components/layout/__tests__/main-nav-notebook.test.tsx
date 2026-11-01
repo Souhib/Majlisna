@@ -17,6 +17,8 @@ vi.mock("@/providers/AuthProvider", () => ({
 
 vi.mock("@/providers/ThemeProvider", () => ({ useTheme: () => ({ setTheme: vi.fn() }) }))
 vi.mock("@/components/prayer-times/PrayerTimesNav", () => ({ PrayerTimesNav: () => null }))
+// the nav asks for a city itself (main-nav.tsx, useCityDetection): no request from a test
+vi.mock("@/components/prayer-times/CitySelector", () => ({ autoDetectLocationByIP: vi.fn(async () => null), loadStoredCity: () => null }))
 vi.mock("@/lib/analytics", () => ({ trackEvent: vi.fn() }))
 
 import { MainNav } from "../main-nav"

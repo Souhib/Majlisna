@@ -9,6 +9,7 @@ import type { DescriptionOrderEntry } from "./DescriptionOrderEntry.ts";
 
 /**
  * StartNextRoundResponse
+ * @description The host\'s \"next round\", or a player\'s \"I\'m ready\" (owner rule (d)).\n\n``advanced`` says which: True when the next round opened (the host forced it, or\nthis mark completed the quorum) — then ``turn_number`` and ``description_order``\ndescribe it; False when the call only marked the caller ready — then the ready\nfields describe the resolved round still waiting.
  */
 export type StartNextRoundResponse = {
   /**
@@ -16,11 +17,26 @@ export type StartNextRoundResponse = {
    */
   game_id: string;
   /**
-   * @type integer
+   * @type boolean
    */
-  turn_number: number;
+  advanced: boolean;
+  turn_number?: number | null;
   /**
-   * @type array
+   * @type array | undefined
    */
-  description_order: DescriptionOrderEntry[];
+  description_order?: DescriptionOrderEntry[];
+  /**
+   * @type array | undefined
+   */
+  ready_players?: string[];
+  /**
+   * @default 0
+   * @type integer | undefined
+   */
+  ready_count?: number;
+  /**
+   * @default 0
+   * @type integer | undefined
+   */
+  ready_quorum?: number;
 };

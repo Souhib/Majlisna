@@ -1,4 +1,4 @@
-import { type CSSProperties, type ReactNode, useId } from "react"
+import { type CSSProperties, type ReactNode, useId, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 
@@ -11,6 +11,14 @@ import { cn } from "@/lib/utils"
  * the seated count reaches `quorum` the thread closes the whole ring (thicker): the
  * closed circle IS the "ready to start" signal. The centre holds the room code or the
  * player count, over the one warmth in the product (a static ember glow).
+ *
+ * The halqa fills (the CIRCLE gesture): the thread is ONE circle in every state, its arc a
+ * dash on a pathLength of 1 (`--arc`), so the CSS transitions every change of the same
+ * element. An arrival runs the thread to the new seat (320 ms, --ease-settle); the quorum
+ * closes the ring (640 ms, --ease-ink, 1.6 → 2.6); a departure retracts it (211 ms,
+ * --ease-in). A seat that arrives while the ring is on screen is pressed in once (its
+ * lozenge .25 → 1, its label fades); the first drawing presses nothing. Reduced motion: no
+ * transition, the new seat fades in.
  *
  * Seats are given in seating order starting with the host. Pass `capacity` to draw open
  * seats after them (dashed). Labels can carry a second line (`sub`: "ready",
@@ -119,15 +127,30 @@ export function Halqa({ seats, capacity, quorum, center, openLabel, dir, label, 
     return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a), c: Math.cos(a), s: Math.sin(a) }
   }
 
-  let thread: ReactNode = null
-  if (closed) {
-    thread = <circle className="thread closed" cx={cx} cy={cy} r={R} />
-  } else if (seated > 1) {
-    const end = pt(seated - 1)
-    const large = step * (seated - 1) > 180 ? 1 : 0
-    const sweep = rtl ? 0 : 1
-    thread = <path className="thread" d={`M${cx} ${cy - R} A${R} ${R} 0 ${large} ${sweep} ${end.x.toFixed(1)} ${end.y.toFixed(1)}`} />
+  // What changed since the roster last moved: who sat down (pressed in), and whether the
+  // thread retracts. Derived state, updated in render when the roster changes, so a seat
+  // keeps its mark across re-renders that seat nobody (its press is never cut short).
+  const ids = seats.slice(0, n).map((s) => s.id)
+  const roster = `${seated}|${ids.join("\u0000")}`
+  const [moved, setMoved] = useState<{ roster: string; ids: string[]; seated: number; fresh: ReadonlySet<string>; leaving: boolean }>(() => ({
+    roster,
+    ids,
+    seated,
+    fresh: new Set(),
+    leaving: false,
+  }))
+  if (moved.roster !== roster) {
+    const before = new Set(moved.ids)
+    setMoved({ roster, ids, seated, fresh: new Set(ids.filter((id) => !before.has(id))), leaving: seated < moved.seated })
   }
+
+  // the arc from the ṣadr to the last seated player, or the whole ring once closed
+  const arc = closed ? 1 : seated > 1 ? (seated - 1) / n : 0
+  // a circle's path starts at three o'clock and runs clockwise: turn it to the ṣadr, and
+  // mirror it in Arabic so it runs anticlockwise
+  const orient = rtl
+    ? `translate(${(2 * cx).toFixed(1)} 0) scale(-1 1) rotate(-90 ${cx.toFixed(1)} ${cy.toFixed(1)})`
+    : `rotate(-90 ${cx.toFixed(1)} ${cy.toFixed(1)})`
 
   const a11y = label ? { role: "img" as const, "aria-label": label } : { "aria-hidden": true as const }
 
@@ -148,7 +171,17 @@ export function Halqa({ seats, capacity, quorum, center, openLabel, dir, label, 
       <circle cx={cx} cy={cy} r={R * 0.56} fill={`url(#fire-${uid})`} />
       <circle className="ring" cx={cx} cy={cy} r={R} />
       <circle className="ring-in" cx={cx} cy={cy} r={R * 0.77} />
-      {thread}
+      <circle
+        className="thread"
+        cx={cx}
+        cy={cy}
+        r={R}
+        pathLength={1}
+        transform={orient}
+        data-closed={closed}
+        data-leaving={moved.leaving}
+        style={{ "--arc": arc } as CSSProperties}
+      />
       {drawn.map((d, k) => {
         const p = pt(k)
         const size = d.state === "host" ? 20 : 14
@@ -161,17 +194,22 @@ export function Halqa({ seats, capacity, quorum, center, openLabel, dir, label, 
         else if (Math.abs(p.c) < 0.2) ly = cy + R + 28
         else ly = lp.y + 4 - ((d.lines.length - 1) * lineGap) / 2
         const cls = d.state === "you" ? "you" : d.cls
+        const fresh = moved.fresh.has(d.key) ? "true" : undefined
         return (
           <g key={d.key}>
-            <rect
-              className={`s-${d.state}`}
-              x={(p.x - size / 2).toFixed(1)}
-              y={(p.y - size / 2).toFixed(1)}
-              width={size}
-              height={size}
-              transform={`rotate(45 ${p.x.toFixed(1)} ${p.y.toFixed(1)})`}
-            />
-            <text className={cls || undefined} x={lp.x.toFixed(1)} y={ly.toFixed(1)} textAnchor={anchor}>
+            {/* the lozenge's own group: it is scaled about its centre on arrival, which a
+                transform-origin on the rotated rect itself would throw off */}
+            <g className="seat" data-fresh={fresh}>
+              <rect
+                className={`s-${d.state}`}
+                x={(p.x - size / 2).toFixed(1)}
+                y={(p.y - size / 2).toFixed(1)}
+                width={size}
+                height={size}
+                transform={`rotate(45 ${p.x.toFixed(1)} ${p.y.toFixed(1)})`}
+              />
+            </g>
+            <text className={cls || undefined} x={lp.x.toFixed(1)} y={ly.toFixed(1)} textAnchor={anchor} data-fresh={fresh}>
               {d.lines.map((line, i) => (
                 <tspan key={i} x={lp.x.toFixed(1)} dy={i === 0 ? 0 : lineGap} className={i ? "st" : undefined}>
                   {line}

@@ -72,6 +72,50 @@ describe("CluePanel", () => {
     expect(onSubmit).not.toHaveBeenCalled()
   })
 
+  it("refuses a clue of several words before sending, inline, as the server would (BR-14)", () => {
+    // Prepare: the board holds "Sunnah"; "the Sunnah" would carry it
+    const onSubmit = vi.fn()
+    renderCluePanel({ clueWord: "the Sunnah", onSubmit })
+
+    // Act
+    fireEvent.click(giveButton())
+
+    // Assert: the field says why (the server's ClueMustBeOneWordError copy), nothing is sent
+    expect(onSubmit).not.toHaveBeenCalled()
+    const input = screen.getByPlaceholderText("game.codenames.cluePlaceholder")
+    expect(screen.getByRole("alert")).toHaveTextContent("errors.api.clueMustBeOneWord")
+    expect(input).toHaveAttribute("aria-invalid", "true")
+    expect(input).toHaveAccessibleDescription("errors.api.clueMustBeOneWord")
+  })
+
+  it("refuses any whitespace inside the clue, a tab or a no-break space too", () => {
+    const onSubmit = vi.fn()
+    for (const clue of ["ilm\tnur", "ilm\u00a0nur"]) {
+      const { unmount } = renderCluePanel({ clueWord: clue, onSubmit })
+      fireEvent.submit(screen.getByRole("form"))
+      expect(screen.getByRole("alert")).toBeInTheDocument()
+      unmount()
+    }
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+
+  it("sends one word with spaces around it (they are trimmed), and clears the message once the clue is edited", () => {
+    // Prepare: a refused clue first
+    const onSubmit = vi.fn()
+    const { rerender } = renderCluePanel({ clueWord: "two words", onSubmit })
+    fireEvent.submit(screen.getByRole("form"))
+    expect(screen.getByRole("alert")).toBeInTheDocument()
+
+    // Act: the spymaster edits it down to one word
+    fireEvent.change(screen.getByPlaceholderText("game.codenames.cluePlaceholder"), { target: { value: " ilm " } })
+    rerender(<CluePanel {...defaultProps} clueWord=" ilm " onSubmit={onSubmit} />)
+
+    // Assert
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+    fireEvent.submit(screen.getByRole("form"))
+    expect(onSubmit).toHaveBeenCalledOnce()
+  })
+
   it("is busy while sending and ignores another submit", () => {
     const onSubmit = vi.fn()
     renderCluePanel({ isSubmitting: true, onSubmit })

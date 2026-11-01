@@ -2,7 +2,7 @@ import { ChevronDown, MessageCircle, Send } from "lucide-react"
 import { type FormEvent, useCallback, useEffect, useId, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
-import { getMessagesApiV1RoomsRoomIdMessagesGet, sendMessageApiV1RoomsRoomIdMessagesPost } from "@/api/generated"
+import { sendMessageApiV1RoomsRoomIdMessagesPost, useGetMessagesApiV1RoomsRoomIdMessagesGet } from "@/api/generated"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/chip"
 import { Input } from "@/components/ui/field"
@@ -19,6 +19,32 @@ export interface ChatMessage {
   created_at: string
 }
 
+/** Lines of history read when the panel opens and after each reconnect (the server's default). */
+const CHAT_HISTORY_LIMIT = 50
+
+/** When a line was said, for ordering; one whose date does not parse goes last. */
+function saidAt(message: ChatMessage): number {
+  const time = Date.parse(message.created_at)
+  return Number.isFinite(time) ? time : Number.MAX_SAFE_INTEGER
+}
+
+/**
+ * The lines on screen and the ones just read or pushed, each once (by id), in the order
+ * they were said. The history is the newest 50, so a line older than its window stays,
+ * and a line pushed while the history was in flight is not lost.
+ */
+export function mergeMessages(current: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {
+  const known = new Set(current.map((m) => m.id))
+  const added = incoming.filter((m) => !known.has(m.id))
+  if (added.length === 0) return current
+  const merged = [...current, ...added]
+  // lines said at the same moment keep the order they came in
+  return merged
+    .map((message, index) => ({ message, index, time: saidAt(message) }))
+    .sort((a, b) => a.time - b.time || a.index - b.index)
+    .map(({ message }) => message)
+}
+
 interface ChatPanelProps {
   roomId: string
   currentUserId: string
@@ -28,10 +54,12 @@ interface ChatPanelProps {
 
 /**
  * The lobby's chat: a hairline panel whose header opens and closes it (open by default).
- * The history loads once over REST; new lines arrive from Socket.IO through
- * `incomingMessage`. Your own lines sit at the inline end on a brass tint (what is
- * yours), everyone else's at the start under their name. Messages keep their own
- * direction (`dir="auto"`), so Arabic reads right to left in an English room.
+ * The history is a query keyed by room (`queryKeys.room.messages`), which useSocket
+ * invalidates on a reconnect: python-socketio replays nothing, so a line said while the
+ * socket was down comes back through it. New lines arrive from Socket.IO through
+ * `incomingMessage`; both are merged by id. Your own lines sit at the inline end on a
+ * brass tint (what is yours), everyone else's at the start under their name. Messages
+ * keep their own direction (`dir="auto"`), so Arabic reads right to left in an English room.
  */
 export function ChatPanel({ roomId, currentUserId, incomingMessage, className }: ChatPanelProps) {
   const { t } = useTranslation()
@@ -44,9 +72,19 @@ export function ChatPanel({ roomId, currentUserId, incomingMessage, className }:
   const [unreadCount, setUnreadCount] = useState(0)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const isOpenRef = useRef(isOpen)
-  const loadedRef = useRef(false)
+  // every line the panel has taken in, for the unread count; and whether the history has
+  // been read once (the lines of the first read are not "new")
+  const knownIdsRef = useRef(new Set<string>())
+  const historyReadRef = useRef(false)
 
   isOpenRef.current = isOpen
+
+  // The history is a courtesy: the live chat works without it, so a failed read says nothing.
+  const { data: history } = useGetMessagesApiV1RoomsRoomIdMessagesGet(
+    { room_id: roomId },
+    { limit: CHAT_HISTORY_LIMIT },
+    { query: { refetchOnWindowFocus: false, retry: false } },
+  )
 
   const scrollToBottom = useCallback(() => {
     const container = messagesContainerRef.current
@@ -55,35 +93,31 @@ export function ChatPanel({ roomId, currentUserId, incomingMessage, className }:
     }
   }, [])
 
-  // Load initial messages once
-  useEffect(() => {
-    if (loadedRef.current) return
-    loadedRef.current = true
-    const loadMessages = async () => {
-      try {
-        const initialMessages = (await getMessagesApiV1RoomsRoomIdMessagesGet({ room_id: roomId }, { limit: 50 })) as ChatMessage[]
-        // a line pushed over the socket while the history loaded must not be lost
-        setMessages((live) => [...initialMessages, ...live.filter((m) => !initialMessages.some((h) => h.id === m.id))])
-        setTimeout(scrollToBottom, 50)
-      } catch {
-        // The history is a courtesy: the live chat works without it.
-      }
-    }
-    loadMessages()
-  }, [roomId, scrollToBottom])
+  /** Take lines in (from the history or the socket): merged by id, counted unread while closed. */
+  const takeIn = useCallback(
+    (lines: ChatMessage[], countUnread: boolean) => {
+      const fresh = lines.filter((m) => !knownIdsRef.current.has(m.id))
+      if (fresh.length === 0) return
+      fresh.forEach((m) => knownIdsRef.current.add(m.id))
+      setMessages((current) => mergeMessages(current, fresh))
+      if (countUnread && !isOpenRef.current) setUnreadCount((prev) => prev + fresh.length)
+      setTimeout(scrollToBottom, 50)
+    },
+    [scrollToBottom],
+  )
 
-  // Handle incoming Socket.IO messages
+  // The history, at mount and after each reconnect (a line said during the blip)
   useEffect(() => {
-    if (!incomingMessage) return
-    setMessages((prev) => {
-      if (prev.some((m) => m.id === incomingMessage.id)) return prev
-      return [...prev, incomingMessage]
-    })
-    if (!isOpenRef.current) {
-      setUnreadCount((prev) => prev + 1)
-    }
-    setTimeout(scrollToBottom, 50)
-  }, [incomingMessage, scrollToBottom])
+    if (!history) return
+    takeIn(history as ChatMessage[], historyReadRef.current)
+    historyReadRef.current = true
+  }, [history, takeIn])
+
+  // Handle incoming Socket.IO messages (the last one of another room's lobby stays out)
+  useEffect(() => {
+    if (!incomingMessage || incomingMessage.room_id !== roomId) return
+    takeIn([incomingMessage], true)
+  }, [incomingMessage, roomId, takeIn])
 
   useEffect(() => {
     if (isOpen) {

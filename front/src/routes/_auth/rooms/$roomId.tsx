@@ -1,31 +1,17 @@
-import { useQueryClient } from "@tanstack/react-query"
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
+import { createFileRoute, Link } from "@tanstack/react-router"
 import { ArrowRight, Check, ChevronLeft, Eye, Share2, UserPlus } from "lucide-react"
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react"
 import { Trans, useTranslation } from "react-i18next"
-import { toast } from "sonner"
-import {
-  useGetRoomStateApiV1RoomsRoomIdStateGet,
-  useKickPlayerApiV1RoomsRoomIdKickPatch,
-  useLeaveRoomApiV1RoomsLeavePatch,
-  useStartCodenamesGameApiV1CodenamesGamesRoomIdStartPost,
-  useStartMcqquizGameApiV1McqquizGamesRoomIdStartPost,
-  useStartUndercoverGameApiV1UndercoverGamesRoomIdStartPost,
-  useStartWordquizGameApiV1WordquizGamesRoomIdStartPost,
-  useUpdateRoomSettingsApiV1RoomsRoomIdSettingsPatch,
-} from "@/api/generated"
-import { queryKeys } from "@/api/queryKeys"
-import { CodeTiles, Halqa, Lozenge, type LozengeState } from "@/components/brand"
+import { CodeTiles, CodeTilesInput, Halqa, Lozenge, type LozengeState } from "@/components/brand"
 import { ConnectionStatus } from "@/components/ConnectionStatus"
-import { ChatPanel, type ChatMessage } from "@/components/rooms/ChatPanel"
-import { roomErrorMessage } from "@/components/rooms/errors"
+import { ChatPanel } from "@/components/rooms/ChatPanel"
+import { ROOM_ERROR_KEYS, roomErrorKey, roomErrorMessage } from "@/components/rooms/errors"
 import { InviteFriendModal } from "@/components/rooms/InviteFriendModal"
 import {
   awayCountdown,
   awayLabel,
   GAME_NAME_KEY,
   GAME_TYPES,
-  type GameType,
   isGameType,
   type LobbyEvent,
   type LobbyMember,
@@ -33,20 +19,18 @@ import {
   seatLobby,
   stableOrder,
   tableState,
-  toMembers,
 } from "@/components/rooms/lobby"
 import { PlayerRoster } from "@/components/rooms/PlayerRoster"
+import { RoomBans } from "@/components/rooms/RoomBans"
 import { RoomSettings } from "@/components/rooms/RoomSettings"
+import { useJoinRoom } from "@/components/rooms/use-join-room"
 import { Alert } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useNow } from "@/components/games/shared/quiz-utils"
 import { useDocumentTitle } from "@/hooks/use-document-title"
-import { useSocket } from "@/hooks/use-socket"
-import { trackEvent } from "@/lib/analytics"
-import { noteRoomNotice } from "@/lib/room-notice"
-import { storeRoomIdForGame } from "@/lib/room-session"
+import { useRoomLobby } from "@/hooks/use-room-lobby"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/providers/AuthProvider"
 
@@ -54,12 +38,9 @@ export const Route = createFileRoute("/_auth/rooms/$roomId")({
   component: RoomLobbyPage,
 })
 
-const GAME_ROUTE = {
-  undercover: "/game/undercover/$gameId",
-  codenames: "/game/codenames/$gameId",
-  word_quiz: "/game/wordquiz/$gameId",
-  mcq_quiz: "/game/mcqquiz/$gameId",
-} as const
+/** A room's code and PIN (the join form's tiles; the server's own lengths). */
+const CODE_LENGTH = 5
+const PIN_LENGTH = 4
 
 const ACTIVITY_KEY: Record<LobbyEvent["kind"], string> = {
   joined: "room.lobbyPage.activityJoined",
@@ -68,24 +49,6 @@ const ACTIVITY_KEY: Record<LobbyEvent["kind"], string> = {
   away: "room.lobbyPage.activityAway",
   back: "room.lobbyPage.activityBack",
   host: "room.lobbyPage.activityHost",
-}
-
-/** Copy text, falling back to a hidden textarea where the async clipboard is refused. */
-async function copyText(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text)
-    return true
-  } catch {
-    const textarea = document.createElement("textarea")
-    textarea.value = text
-    textarea.style.position = "fixed"
-    textarea.style.opacity = "0"
-    document.body.appendChild(textarea)
-    textarea.select()
-    const ok = document.execCommand("copy")
-    document.body.removeChild(textarea)
-    return ok
-  }
 }
 
 /**
@@ -99,107 +62,34 @@ async function copyText(text: string): Promise<boolean> {
  * wide screens and under it on phones, with the host's Remove buttons, then the settings
  * and the chat.
  *
- * Real time: Socket.IO pushes room_state into the query cache; polling (2 s) only runs
- * while the socket is down. When a game starts, every member is sent to it, with the
- * room id stored for the game page (storeRoomIdForGame).
+ * The client logic (reading the room and its socket, polling while the socket is down,
+ * following the table into a game, start, pick, kick, leave, share) is `useRoomLobby`
+ * (hooks/use-room-lobby.ts); this page draws it. The host also gets the removed players
+ * under the roster (`RoomBans`, owner rule (c)); removing asks first (PlayerRoster).
+ *
+ * A refused room state with nothing on screen (no such room, or no seat in it) is final:
+ * not retried, not polled, and said once (`LobbyRefusal`), with "Join this room" (code
+ * and PIN) for a player who has no seat here (FR-5).
  */
 function RoomLobbyPage() {
   const { roomId } = Route.useParams()
   const { t, i18n } = useTranslation()
   const { user } = useAuth()
-  const navigate = useNavigate()
-  const queryClient = useQueryClient()
-  // The host's pick while it is on its way to the server (see `gameType` below).
-  const [pendingPick, setPendingPick] = useState<GameType | null>(null)
-  const navigatingToGameRef = useRef(false)
-  const isLeavingRef = useRef(false)
-  const kickedRef = useRef(false)
+  const lobby = useRoomLobby(roomId)
+  const { room, members, isHost, isSpectator, hostName, gameType, refusal, socketConnected } = lobby
   const [showInvite, setShowInvite] = useState(false)
-  const [shareCopied, setShareCopied] = useState(false)
-  const [kickingId, setKickingId] = useState<string | null>(null)
   const [activity, setActivity] = useState<LobbyEvent | null>(null)
   const previousMembersRef = useRef<LobbyMember[]>([])
 
-  // Chat messages from Socket.IO
-  const [lastChatMessage, setLastChatMessage] = useState<ChatMessage | null>(null)
-
-  const leaveAfterKick = useCallback(() => {
-    if (kickedRef.current) return
-    kickedRef.current = true
-    // said on /rooms as a line on the page, not a toast: the player did not cause it
-    noteRoomNotice("kicked")
-    navigate({ to: "/rooms" })
-  }, [navigate])
-
-  const handleChatMessage = useCallback((msg: ChatMessage) => {
-    setLastChatMessage(msg)
-  }, [])
-
-  const { connected: socketConnected } = useSocket({
-    roomId,
-    enabled: !!user,
-    onKicked: leaveAfterKick,
-    onChatMessage: handleChatMessage,
-  })
-
-  // Poll room state as fallback when Socket.IO is disconnected
-  const {
-    data: rawRoomData,
-    dataUpdatedAt,
-    isLoading,
-    error: queryError,
-    failureCount,
-  } = useGetRoomStateApiV1RoomsRoomIdStateGet(
-    { room_id: roomId },
-    {
-      query: {
-        refetchOnWindowFocus: true,
-        refetchInterval: socketConnected ? false : 2_000,
-        enabled: !!user,
-        retry: 2,
-      },
-    },
-  )
-
-  // Socket.IO payloads land in the same cache: guard against a malformed one.
-  const room = useMemo(() => {
-    if (!rawRoomData) return undefined
-    const raw = rawRoomData as unknown as Record<string, unknown>
-    if (!raw.id || !raw.public_id || !raw.owner_id) return undefined
-    return {
-      id: raw.id as string,
-      publicId: raw.public_id as string,
-      ownerId: raw.owner_id as string,
-      password: (raw.password as string) ?? "",
-      activeGameId: (raw.active_game_id as string | null | undefined) ?? null,
-      gameType: (raw.game_type as string | null | undefined) ?? null,
-      settings: (raw.settings as Record<string, unknown> | null | undefined) ?? null,
-      members: toMembers(raw.players, raw.owner_id as string),
-    }
-  }, [rawRoomData])
-
-  const members = useMemo(() => room?.members ?? [], [room])
-  const me = members.find((m) => m.id === user?.id)
-  const isHost = !!room && room.ownerId === user?.id
-  const isSpectator = !!me?.isSpectator
-  const hostName = members.find((m) => m.isHost)?.username
-
-  // The game on the table is the room's, for everyone: the host's pick is stored in the
-  // room's settings and comes back in every member's room state. It used to live in the
-  // host's own state only, so a guest's status line, ring and legend described the game
-  // the room was opened for. While the host's pick is in flight, theirs is shown.
   // the tab names the room as its heading does: "Yusuf’s majlis · Majlisna"
   useDocumentTitle(hostName ? t("room.lobbyPage.title", { name: hostName }) : null)
-
-  const roomGameType: GameType = isGameType(room?.gameType) ? room.gameType : "undercover"
-  const gameType: GameType = (isHost && pendingPick) || roomGameType
 
   // How long each away seat is still kept: the server's `away_seconds_left` (its own grace
   // rule) counted down here from the moment that state arrived, a tick a second while
   // someone is away. The next state (push or poll) resets it to the server's figure.
   const someoneAway = members.some((m) => m.isAway && m.awaySecondsLeft != null)
   const now = useNow(someoneAway, 1000)
-  const awayLeft = useMemo(() => awayCountdown(members, dataUpdatedAt, now), [members, dataUpdatedAt, now])
+  const awayLeft = useMemo(() => awayCountdown(members, lobby.dataUpdatedAt, now), [members, lobby.dataUpdatedAt, now])
 
   // Seats keep the order players were first seen in (stableOrder): idempotent, so
   // updating the ref while rendering is safe under StrictMode's double render.
@@ -232,145 +122,16 @@ function RoomLobbyPage() {
     previousMembersRef.current = members
   }, [room, members, user?.id])
 
-  // Reset navigating ref when game ends (active_game_id disappears)
-  useEffect(() => {
-    if (!room?.activeGameId) navigatingToGameRef.current = false
-  }, [room?.activeGameId])
-
-  // Follow the table into the game when it starts (non-hosts learn it from the room state)
-  useEffect(() => {
-    if (!room?.activeGameId || navigatingToGameRef.current) return
-    navigatingToGameRef.current = true
-    storeRoomIdForGame(room.activeGameId, room.id)
-    const gt = isGameType(room.gameType) ? room.gameType : gameType
-    navigate({ to: GAME_ROUTE[gt], params: { gameId: room.activeGameId } })
-  }, [room?.activeGameId, room?.gameType, room?.id, gameType, navigate])
-
-  const startOptions = (gt: GameType) => ({
-    mutation: {
-      onSuccess: (data: unknown) => {
-        const d = data as { game_id: string; room_id: string }
-        navigatingToGameRef.current = true
-        storeRoomIdForGame(d.game_id, d.room_id)
-        toast.success(t("toast.gameStarting"))
-        navigate({ to: GAME_ROUTE[gt], params: { gameId: d.game_id } })
-      },
-      onError: (err: unknown) => toast.error(roomErrorMessage(err, t("room.lobbyPage.startFailed"))),
-    },
-  })
-  const startUndercover = useStartUndercoverGameApiV1UndercoverGamesRoomIdStartPost(startOptions("undercover"))
-  const startCodenames = useStartCodenamesGameApiV1CodenamesGamesRoomIdStartPost(startOptions("codenames"))
-  const startWordQuiz = useStartWordquizGameApiV1WordquizGamesRoomIdStartPost(startOptions("word_quiz"))
-  const startMcqQuiz = useStartMcqquizGameApiV1McqquizGamesRoomIdStartPost(startOptions("mcq_quiz"))
-  const isStartingGame = startUndercover.isPending || startCodenames.isPending || startWordQuiz.isPending || startMcqQuiz.isPending
-
   const handleStartGame = () => {
-    if (!room || isStartingGame || table.kind !== "ready") return
-    trackEvent("game-start", { game: gameType, players: players.length })
-    const vars = { room_id: room.id }
-    if (gameType === "codenames") startCodenames.mutate(vars)
-    else if (gameType === "word_quiz") startWordQuiz.mutate(vars)
-    else if (gameType === "mcq_quiz") startMcqQuiz.mutate(vars)
-    else startUndercover.mutate(vars)
+    if (table.kind !== "ready") return
+    lobby.startGame(players.length)
   }
 
-  const leaveMutation = useLeaveRoomApiV1RoomsLeavePatch()
-
-  const handleLeaveRoom = async () => {
-    isLeavingRef.current = true
-    if (!user || !room) {
-      navigate({ to: "/rooms" })
-      return
-    }
-    try {
-      await leaveMutation.mutateAsync({ data: { room_id: room.id } })
-    } catch {
-      // Leaving is best effort: the grace period frees the seat anyway.
-    }
-    toast.info(t("toast.youLeftRoom"))
-    navigate({ to: "/rooms" })
-  }
-
-  // Detect being kicked: the current user was in the list and disappeared, without
-  // having left voluntarily. This tracks membership in its OWN ref (the activity effect
-  // above rewrites its own), so it still works on the 2 s polling fallback, where the
-  // `you_were_kicked` socket event never arrives.
-  const wasRoomMemberRef = useRef(false)
-  useEffect(() => {
-    if (!user || !room || isLeavingRef.current) return
-    const isInRoom = members.some((u) => u.id === user.id)
-    if (wasRoomMemberRef.current && !isInRoom) {
-      wasRoomMemberRef.current = false
-      leaveAfterKick()
-      return
-    }
-    wasRoomMemberRef.current = isInRoom
-  }, [members, user, room, leaveAfterKick])
-
-  const kickMutation = useKickPlayerApiV1RoomsRoomIdKickPatch()
-  const pickMutation = useUpdateRoomSettingsApiV1RoomsRoomIdSettingsPatch()
-
-  const handlePickGame = async (next: GameType) => {
-    if (!room || next === gameType) return
-    setPendingPick(next)
-    try {
-      await pickMutation.mutateAsync({ room_id: room.id, data: { game_type: next } })
-      // the push (or the next poll) brings it back for everyone; write it now so the
-      // host's own screen does not step back to the old game in between
-      queryClient.setQueryData(queryKeys.room.state(roomId), (old: unknown) =>
-        old && typeof old === "object" ? { ...old, game_type: next, settings: { ...(old as { settings?: object }).settings, game_type: next } } : old,
-      )
-    } catch (err) {
-      toast.error(roomErrorMessage(err, t("room.lobbyPage.pickFailed")))
-    } finally {
-      setPendingPick(null)
-    }
-  }
-
-  const handleKickPlayer = async (member: LobbyMember) => {
-    if (!room) return
-    setKickingId(member.id)
-    try {
-      await kickMutation.mutateAsync({ room_id: room.id, data: { user_id: member.id } })
-      queryClient.invalidateQueries({ queryKey: queryKeys.room.state(roomId) })
-    } catch (err) {
-      toast.error(roomErrorMessage(err, t("room.lobbyPage.kickFailed")))
-    } finally {
-      setKickingId(null)
-    }
-  }
-
-  const handleShare = async () => {
-    if (!room) return
-    const shareUrl = `${window.location.origin}/rooms/join?code=${room.publicId}&pin=${room.password}`
-    if (await copyText(shareUrl)) {
-      setShareCopied(true)
-      toast.success(t("room.lobbyPage.shareToast"))
-      setTimeout(() => setShareCopied(false), 1500)
-    }
-  }
-
-  if (isLoading && !room) {
-    return <LobbySkeleton />
-  }
-
-  // Full-page error only when there is nothing to show. When we already have a roster
-  // on screen, a failing refetch gets the banner further down instead: replacing a live
-  // lobby over one bad poll would be worse than the stale data.
-  if (!room && queryError && failureCount > 2) {
-    return (
-      <div className="page-wrap py-[clamp(48px,8vw,112px)]">
-        <div className="mx-auto grid max-w-[34rem] justify-items-start gap-4">
-          <h1 className="type-title">{t("room.lobbyPage.errorTitle")}</h1>
-          <p className="type-body text-muted-foreground">{t("room.lobbyPage.errorBody")}</p>
-          {roomErrorMessage(queryError, "") ? <p className="text-[14px] text-muted-foreground">{roomErrorMessage(queryError, "")}</p> : null}
-          <Button asChild className="mt-2" iconStart={<ChevronLeft className="rtl-flip" aria-hidden="true" />}>
-            <Link to="/rooms">{t("room.lobbyPage.backToRooms")}</Link>
-          </Button>
-        </div>
-      </div>
-    )
-  }
+  // Full-page error only when there is nothing to show (the query is in error, with its
+  // retries spent, and no room). When we already have a roster on screen, a failing
+  // refetch gets the banner further down instead: replacing a live lobby over one bad
+  // poll would be worse than the stale data.
+  if (!room && refusal) return <LobbyRefusal error={refusal} onJoined={lobby.onJoinedFromRefusal} />
 
   if (!room) return <LobbySkeleton />
 
@@ -409,7 +170,7 @@ function RoomLobbyPage() {
   const awayNote =
     awayPlayers.length === 1 ? t("room.lobbyPage.awayOne", { name: awayPlayers[0].username }) : awayPlayers.length > 1 ? t("room.lobbyPage.awayMany") : null
 
-  const startLabel = isStartingGame
+  const startLabel = lobby.isStartingGame
     ? t("room.lobbyPage.starting")
     : table.kind === "short"
       ? t("room.lobbyPage.waitingMore", { count: table.missing })
@@ -476,7 +237,7 @@ function RoomLobbyPage() {
               block
               onClick={handleStartGame}
               disabled={table.kind !== "ready"}
-              loading={isStartingGame}
+              loading={lobby.isStartingGame}
               aria-label={startLabel}
               iconEnd={table.kind === "ready" ? <ArrowRight className="rtl-flip" aria-hidden="true" /> : undefined}
             >
@@ -517,14 +278,14 @@ function RoomLobbyPage() {
       <div className="mx-auto grid max-w-[1180px] gap-x-[clamp(32px,4.5vw,80px)] gap-y-6 lg:grid-cols-[minmax(0,1fr)_minmax(340px,400px)] lg:gap-y-10 min-[2200px]:max-w-[1360px] min-[2200px]:grid-cols-[minmax(0,1fr)_minmax(400px,460px)]">
         {/* The roster below is stale: the room state stopped refreshing. Say so rather
             than let the player act on data that no longer matches the server. */}
-        {queryError && failureCount > 2 ? <Alert className="lg:col-span-2">{roomErrorMessage(queryError, t("room.staleState"))}</Alert> : null}
+        {lobby.isError ? <Alert className="lg:col-span-2">{roomErrorMessage(lobby.error, t("room.staleState"))}</Alert> : null}
 
         <header className="lobby-head lg:col-span-2">
           <Button
             variant="ghost"
             size="sm"
-            onClick={handleLeaveRoom}
-            loading={leaveMutation.isPending}
+            onClick={() => void lobby.leaveRoom()}
+            loading={lobby.isLeaving}
             className="lh-back -ms-2 px-2 max-sm:w-11 max-sm:px-0 lg:mt-2"
             iconStart={<ChevronLeft className="rtl-flip" aria-hidden="true" />}
           >
@@ -545,11 +306,11 @@ function RoomLobbyPage() {
           <Button
             variant="secondary"
             size="sm"
-            onClick={handleShare}
+            onClick={() => void lobby.shareRoom()}
             className="lh-share max-sm:size-11 max-sm:px-0 lg:h-[52px]"
-            iconStart={shareCopied ? <Check aria-hidden="true" /> : <Share2 aria-hidden="true" />}
+            iconStart={lobby.shareCopied ? <Check aria-hidden="true" /> : <Share2 aria-hidden="true" />}
           >
-            <span className="max-sm:sr-only">{shareCopied ? t("room.lobbyPage.shareCopied") : t("room.lobbyPage.share")}</span>
+            <span className="max-sm:sr-only">{lobby.shareCopied ? t("room.lobbyPage.shareCopied") : t("room.lobbyPage.share")}</span>
           </Button>
         </header>
 
@@ -557,7 +318,7 @@ function RoomLobbyPage() {
           {isHost && !isSpectator ? (
             // Radix stamps dir="ltr" on the root unless told otherwise (no DirectionProvider):
             // that turned the whole Arabic stage left to right and reversed the arrow keys.
-            <Tabs dir={i18n.dir()} value={gameType} onValueChange={(v) => isGameType(v) && void handlePickGame(v)}>
+            <Tabs dir={i18n.dir()} value={gameType} onValueChange={(v) => isGameType(v) && void lobby.pickGame(v)}>
               <TabsList aria-label={t("room.lobbyPage.gamePicker")} className="mx-auto w-full max-w-[560px]">
                 {GAME_TYPES.map((g) => (
                   <TabsTrigger
@@ -581,14 +342,118 @@ function RoomLobbyPage() {
         </section>
 
         <aside className="grid min-w-0 content-start gap-4" aria-label={t("room.players")}>
-          <PlayerRoster players={players} myId={user?.id} canKick={isHost} kickingId={kickingId} onKick={handleKickPlayer} awayLeft={awayLeft} />
+          <PlayerRoster
+            players={players}
+            myId={user?.id}
+            canKick={isHost}
+            kickingId={lobby.kickingId}
+            onKick={(member) => void lobby.kickPlayer(member)}
+            awayLeft={awayLeft}
+          />
+          {/* keyed by room, as the chat: another room's lobby starts its own list. Each key
+              names its own panel: two siblings sharing one is unsupported in React (F3) */}
+          <RoomBans key={`bans:${room.id}`} roomId={room.id} isHost={isHost} />
           {isHost && !isSpectator ? <RoomSettings roomId={room.id} settings={room.settings} gameType={gameType} playerCount={players.length} /> : null}
-          {user ? <ChatPanel roomId={roomId} currentUserId={user.id} incomingMessage={lastChatMessage} /> : null}
+          {/* keyed by room: another room's lobby starts its own chat */}
+          {user ? <ChatPanel key={`chat:${roomId}`} roomId={roomId} currentUserId={user.id} incomingMessage={lobby.lastChatMessage} /> : null}
         </aside>
       </div>
 
       <InviteFriendModal roomId={room.id} open={showInvite} onOpenChange={setShowInvite} />
     </div>
+  )
+}
+
+/**
+ * The lobby that did not open: the server refused its state. A player with no seat in
+ * this room (`userNotInRoom`: they opened the lobby's address instead of the share link,
+ * or the grace sweep freed their seat) can sit down from here with the code and PIN.
+ */
+function LobbyRefusal({ error, onJoined }: { error: unknown; onJoined: (roomId: string) => void }) {
+  const { t } = useTranslation()
+  const notSeated = roomErrorKey(error) === ROOM_ERROR_KEYS.notInRoom
+  const detail = roomErrorMessage(error, "")
+  return (
+    <div className="page-wrap py-[clamp(48px,8vw,112px)]">
+      <div className="mx-auto grid max-w-[34rem] justify-items-start gap-4">
+        <h1 className="type-title">{t("room.lobbyPage.errorTitle")}</h1>
+        <p className="type-body text-muted-foreground">{t("room.lobbyPage.errorBody")}</p>
+        {detail ? <p className="text-[14px] text-muted-foreground">{detail}</p> : null}
+        {notSeated ? <LobbyJoinEntry onJoined={onJoined} /> : null}
+        <Button asChild variant={notSeated ? "secondary" : undefined} className="mt-2" iconStart={<ChevronLeft className="rtl-flip" aria-hidden="true" />}>
+          <Link to="/rooms">{t("room.lobbyPage.backToRooms")}</Link>
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * "Join this room": the code and PIN as on /rooms (code then PIN, left to right in every
+ * language), through the same join flow as the share link, so a player seated elsewhere
+ * is offered to leave that room first.
+ */
+function LobbyJoinEntry({ onJoined }: { onJoined: (roomId: string) => void }) {
+  const { t } = useTranslation()
+  const [code, setCode] = useState("")
+  const [pin, setPin] = useState("")
+  const flow = useJoinRoom(onJoined)
+  const complete = code.length === CODE_LENGTH && pin.length === PIN_LENGTH
+  const describedBy = flow.error ? "lobby-join-error" : undefined
+
+  const handleSubmit = (e: FormEvent) => {
+    e.preventDefault()
+    if (!complete || flow.busy) return
+    void flow.join(code, pin)
+  }
+
+  return (
+    <form onSubmit={handleSubmit} noValidate className="mt-2 grid w-full gap-4 border-t border-line pt-5">
+      <div dir="ltr" className="flex flex-wrap items-end gap-x-6 gap-y-4">
+        <CodeTilesInput
+          id="lobby-join-code"
+          label={t("room.codeLabel")}
+          length={CODE_LENGTH}
+          value={code}
+          onChange={setCode}
+          charset="alnum"
+          invalid={!!flow.error}
+          describedBy={describedBy}
+        />
+        <CodeTilesInput
+          id="lobby-join-pin"
+          kind="pin"
+          label={t("room.pinLabel")}
+          length={PIN_LENGTH}
+          value={pin}
+          onChange={setPin}
+          charset="digits"
+          invalid={!!flow.error}
+          describedBy={describedBy}
+        />
+      </div>
+      {flow.error ? (
+        <p id="lobby-join-error" role="alert" className="text-[14px] leading-[1.45] text-ember">
+          {flow.error}
+        </p>
+      ) : null}
+      <div className="flex flex-wrap gap-2.5">
+        {flow.seatElsewhere ? (
+          <Button onClick={() => void flow.leaveAndJoin()} loading={flow.busy || !flow.seatElsewhere.code}>
+            {t("room.joinPage.leaveAndJoin", { room: flow.seatElsewhere.code ?? "…" })}
+          </Button>
+        ) : null}
+        <Button
+          type="submit"
+          variant={flow.seatElsewhere ? "secondary" : undefined}
+          disabled={!complete}
+          loading={flow.busy && !flow.seatElsewhere}
+          iconEnd={<ArrowRight className="rtl-flip" aria-hidden="true" />}
+        >
+          {t("room.lobbyPage.joinThisRoom")}
+        </Button>
+      </div>
+    </form>
   )
 }
 

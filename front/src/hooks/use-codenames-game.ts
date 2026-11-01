@@ -16,10 +16,12 @@ import {
 } from "@/api/generated"
 import { queryKeys } from "@/api/queryKeys"
 import { isGameGoneError } from "@/components/games/shared/game-errors"
-import { isGamePausedError, isTimerStopAction } from "@/components/games/shared/prayer-pause/pause-utils"
+import { isGamePausedError } from "@/components/games/shared/prayer-pause/pause-utils"
 import { useLeaveAfterKick } from "@/hooks/use-leave-after-kick"
 import { useSocket } from "@/hooks/use-socket"
+import { useTimerReport } from "@/hooks/use-timer-report"
 import { trackEvent } from "@/lib/analytics"
+import { withViewTransition } from "@/lib/view-transition"
 import { useAuth } from "@/providers/AuthProvider"
 import { retrieveRoomIdForGame } from "@/lib/room-session"
 
@@ -67,6 +69,24 @@ export interface CodenamesServerState {
   ended_at?: string | null
 }
 
+/**
+ * The end of a game (F3). The decisive card is woven first: its colour and selvedge take
+ * `--dur-authored` (640 ms), and the veil used to cover it 80 ms after the click, so the
+ * most dramatic reveal (the assassin turning black) was never seen.
+ */
+const VEIL_DELAY_MS = 640
+/** The veil's ceremony (`--dur-ceremony`, 1100 ms: the band is woven) plus a beat to read it. */
+const VEIL_HOLD_MS = 1100 + 180
+/** Under reduced motion nothing is woven: the veil says who won, briefly, and lifts. */
+const VEIL_HOLD_REDUCED_MS = 600
+
+/** The game's end, as the page shows it: nothing yet, the last card weaving, the veil. */
+type GameOverCeremony = "none" | "weaving" | "veiled"
+
+function prefersReducedMotion() {
+  return typeof window !== "undefined" && !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+}
+
 export function useCodenamesGame(gameId: string) {
   const { t, i18n } = useTranslation()
   const { user } = useAuth()
@@ -85,11 +105,18 @@ export function useCodenamesGame(gameId: string) {
   const [clueWord, setClueWord] = useState("")
   const [clueNumber, setClueNumber] = useState(1)
   const [isSubmittingClue, setIsSubmittingClue] = useState(false)
+  const [isEndingTurn, setIsEndingTurn] = useState(false)
   const [cancelMessage, setCancelMessage] = useState<string | null>(null)
   const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [showGameOverTransition, setShowGameOverTransition] = useState(false)
-  const gameOverTransitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [ceremony, setCeremony] = useState<GameOverCeremony>("none")
+  const ceremonyTimersRef = useRef<ReturnType<typeof setTimeout>[]>([])
   const previousStatusRef = useRef<string | null>(null)
+  // One request per move at a time, set before the request is sent: a double tap lands
+  // before `isPending` reaches the page (FR-4).
+  const clueInFlightRef = useRef(false)
+  const guessInFlightRef = useRef(false)
+  const endTurnInFlightRef = useRef(false)
+  const leavingRef = useRef(false)
 
   // Poll game state via REST only when Socket.IO is disconnected (safety net)
   const {
@@ -146,16 +173,29 @@ export function useCodenamesGame(gameId: string) {
     }
   }, [serverState?.room_id, socketRoomId])
 
+  // The game ends on screen (not a page opened on a finished game): the decisive card is
+  // woven, then the veil holds the ceremony, then lifts through a view transition so the
+  // colophon crossfades in. The colophon waits for all of it (`colophonHeld`): its own
+  // "Game Over" must never sit beside the veil's.
   useEffect(() => {
     if (!serverState) return
     const currentStatus = serverState.status
-    if (currentStatus === "finished" && previousStatusRef.current && previousStatusRef.current !== "finished" && !showGameOverTransition) {
+    if (currentStatus === "finished" && previousStatusRef.current && previousStatusRef.current !== "finished") {
       trackEvent("game-over", { game: "codenames", winner: serverState.winner || "" })
-      setShowGameOverTransition(true)
-      gameOverTransitionTimerRef.current = setTimeout(() => {
-        setShowGameOverTransition(false)
-        gameOverTransitionTimerRef.current = null
-      }, 3000)
+      const timers = ceremonyTimersRef.current
+      const lift = () => void withViewTransition(() => setCeremony("none"))
+      if (prefersReducedMotion()) {
+        setCeremony("veiled")
+        timers.push(setTimeout(lift, VEIL_HOLD_REDUCED_MS))
+      } else {
+        setCeremony("weaving")
+        timers.push(
+          setTimeout(() => {
+            setCeremony("veiled")
+            timers.push(setTimeout(lift, VEIL_HOLD_MS))
+          }, VEIL_DELAY_MS),
+        )
+      }
     }
     previousStatusRef.current = currentStatus
   }, [serverState])
@@ -170,8 +210,9 @@ export function useCodenamesGame(gameId: string) {
   }, [queryError, navigate, t])
 
   useEffect(() => {
+    const ceremonyTimers = ceremonyTimersRef.current
     return () => {
-      if (gameOverTransitionTimerRef.current) clearTimeout(gameOverTransitionTimerRef.current)
+      for (const timer of ceremonyTimers) clearTimeout(timer)
       if (redirectTimerRef.current) clearTimeout(redirectTimerRef.current)
     }
   }, [])
@@ -207,7 +248,8 @@ export function useCodenamesGame(gameId: string) {
   )
 
   const handleGiveClue = useCallback(async () => {
-    if (!clueWord.trim() || isSubmittingClue || pausedRef.current) return
+    if (!clueWord.trim() || clueInFlightRef.current || pausedRef.current) return
+    clueInFlightRef.current = true
     setIsSubmittingClue(true)
     try {
       await clueMutation.mutateAsync({ game_id: gameId, data: { clue_word: clueWord.trim(), clue_number: clueNumber } })
@@ -215,15 +257,17 @@ export function useCodenamesGame(gameId: string) {
       setClueNumber(1)
       invalidateBoard()
     } catch (err) {
-      moveFailed(err, "Failed to give clue")
+      moveFailed(err, t("game.errors.moveFailed"))
     } finally {
+      clueInFlightRef.current = false
       setIsSubmittingClue(false)
     }
-  }, [gameId, clueWord, clueNumber, isSubmittingClue, clueMutation, invalidateBoard, moveFailed])
+  }, [gameId, clueWord, clueNumber, clueMutation, invalidateBoard, moveFailed, t])
 
   const handleGuessCard = useCallback(
     async (index: number) => {
-      if (pausedRef.current) return
+      if (pausedRef.current || guessInFlightRef.current) return
+      guessInFlightRef.current = true
       try {
         const data = (await guessMutation.mutateAsync({ game_id: gameId, data: { card_index: index } })) as {
           all_voted?: boolean
@@ -237,27 +281,36 @@ export function useCodenamesGame(gameId: string) {
         }
         invalidateBoard()
       } catch (err) {
-        moveFailed(err, "Failed to guess card")
+        moveFailed(err, t("game.errors.moveFailed"))
+      } finally {
+        guessInFlightRef.current = false
       }
     },
     [gameId, t, guessMutation, invalidateBoard, moveFailed],
   )
 
   const handleEndTurn = useCallback(async () => {
-    if (pausedRef.current) return
+    if (pausedRef.current || endTurnInFlightRef.current) return
+    endTurnInFlightRef.current = true
+    setIsEndingTurn(true)
     try {
       await endTurnMutation.mutateAsync({ game_id: gameId })
       invalidateBoard()
     } catch (err) {
-      moveFailed(err, "Failed to end turn")
+      moveFailed(err, t("game.errors.moveFailed"))
+    } finally {
+      endTurnInFlightRef.current = false
+      setIsEndingTurn(false)
     }
-  }, [gameId, endTurnMutation, invalidateBoard, moveFailed])
+  }, [gameId, endTurnMutation, invalidateBoard, moveFailed, t])
 
   const handleLeaveRoom = useCallback(async () => {
+    if (leavingRef.current) return
     if (!user || !roomIdRef.current) {
       navigate({ to: "/rooms" })
       return
     }
+    leavingRef.current = true
     try {
       await leaveMutation.mutateAsync({ data: { room_id: roomIdRef.current } })
     } catch {
@@ -276,31 +329,20 @@ export function useCodenamesGame(gameId: string) {
 
   // Achievements are pressed as seals in the colophon (GameOverScreen), not toasted.
 
-  const timerExpiredRef = useRef(false)
-  // The timer window (its server start) the server told us to stop reporting: the game
-  // was paused, or the turn was already resolved. A new window (the next turn, or the
-  // start the resume moved forward) re-arms it.
-  const timerWindowRef = useRef<string | null>(null)
-  timerWindowRef.current = serverState?.timer_started_at ?? null
-  const stoppedWindowRef = useRef<string | null>(null)
-  // Any player may report an expired timer — the server only acts once it has
-  // really elapsed. Gating this on the host stalled the game whenever the host's
-  // phone was locked or their tab backgrounded.
-  const handleTimerExpired = useCallback(async () => {
-    const timerKey = timerWindowRef.current
-    if (timerExpiredRef.current || pausedRef.current) return
-    if (timerKey !== null && stoppedWindowRef.current === timerKey) return
-    timerExpiredRef.current = true
-    try {
-      const result = await timerExpiredMutation.mutateAsync({ game_id: gameId })
-      if (isTimerStopAction(result?.action)) stoppedWindowRef.current = timerKey
-      invalidateBoard()
-    } catch {
-      // Ignore — another client may have already triggered it
-    } finally {
-      timerExpiredRef.current = false
-    }
-  }, [gameId, timerExpiredMutation, invalidateBoard])
+  // Any player may report an expired timer (the server acts only once it has really run
+  // out); the host at once, the others after a jittered wait that the turn's next state
+  // cancels (`useTimerReport`). The window is the turn's server start: a stop answer
+  // (`paused`, `round_already_resolved`) silences it until the next turn or the resume.
+  const timerWindow = serverState?.timer_started_at ?? null
+  const turn = serverState?.current_turn
+  const handleTimerExpired = useTimerReport({
+    isHost: !!serverState?.is_host,
+    paused: isPaused,
+    phaseKey: `${serverState?.status}:${serverState?.current_team}:${turn?.clue_word ?? ""}:${timerWindow}`,
+    windowKey: timerWindow,
+    send: () => timerExpiredMutation.mutateAsync({ game_id: gameId }),
+    onChanged: invalidateBoard,
+  })
 
   return {
     user,
@@ -310,13 +352,17 @@ export function useCodenamesGame(gameId: string) {
     socketConnected,
     cancelMessage,
     isPaused,
-    showGameOverTransition,
+    /** The veil is up (GameOverTransition). */
+    showGameOverTransition: ceremony === "veiled",
+    /** The colophon waits: the last card is still being woven, or the veil is up. */
+    colophonHeld: ceremony !== "none",
     roomIdRef,
     clueWord,
     setClueWord,
     clueNumber,
     setClueNumber,
     isSubmittingClue,
+    isEndingTurn,
     handleGiveClue,
     handleGuessCard,
     handleEndTurn,

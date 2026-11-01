@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from "react"
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { ThreadClock } from "@/components/brand/ThreadClock"
 import { serverNow } from "@/lib/server-clock"
@@ -26,8 +26,10 @@ interface PhaseTimerProps {
  * The phase clock of every game: ticks every 500 ms from the server's start time, read
  * on the server's clock as this device estimates it (lib/server-clock), fires
  * `onExpired` once per timer window (see below), and renders the Samar thread clock
- * (<ThreadClock>: a contracting woven thread, five brass lozenges for the last five
- * seconds, a knot at zero, never red).
+ * (<ThreadClock>: a woven thread drawn back through the loom, five brass lozenges for the
+ * last five seconds, a knot at zero, never red). The ticks only change the figures: the
+ * thread itself is one animation per timer window, which ThreadClock builds from the same
+ * start and duration and pauses for the prayer.
  */
 export const PhaseTimer = memo(function PhaseTimer({
   timerStartedAt,
@@ -41,7 +43,9 @@ export const PhaseTimer = memo(function PhaseTimer({
   // the server's clock (lib/server-clock): `timerStartedAt` is a server timestamp
   const [now, setNow] = useState(() => serverNow())
 
-  useEffect(() => {
+  // A layout effect: on resume the clock is read again before the frame is painted, so the
+  // figures never show the time the device spent paused (the start has already moved).
+  useLayoutEffect(() => {
     // a paused clock does not tick; on resume it reads the clock afresh
     if (paused) return
     setNow(serverNow())
@@ -53,9 +57,11 @@ export const PhaseTimer = memo(function PhaseTimer({
     if (!timerStartedAt) return durationSeconds
     const startMs = new Date(timerStartedAt).getTime()
     const elapsedSec = (now - startMs) / 1000
-    return Math.max(0, Math.ceil(durationSeconds - elapsedSec))
+    return Math.max(0, Math.min(durationSeconds, Math.ceil(durationSeconds - elapsedSec)))
   }, [timerStartedAt, durationSeconds, now])
-  const remaining = paused && frozenRemaining != null ? Math.max(0, Math.min(durationSeconds, Math.ceil(frozenRemaining))) : running
+  // the server's frozen countdown, exact (it places the thread) and in whole seconds
+  const frozen = paused && frozenRemaining != null ? Math.max(0, Math.min(durationSeconds, frozenRemaining)) : null
+  const remaining = frozen !== null ? Math.ceil(frozen) : running
 
   // Fire onExpired ONCE per timer window (identified by start + duration).
   //
@@ -86,5 +92,15 @@ export const PhaseTimer = memo(function PhaseTimer({
   }, [remaining, timerStartedAt, durationSeconds, now, paused])
 
   // the timer's name gives the figure its meaning: "Time left: 0:20"
-  return <ThreadClock remaining={remaining} total={durationSeconds} label={t("ui.clock.label")} className={className} />
+  return (
+    <ThreadClock
+      remaining={frozen ?? remaining}
+      total={durationSeconds}
+      startedAt={timerStartedAt}
+      durationMs={durationSeconds * 1000}
+      paused={paused}
+      label={t("ui.clock.label")}
+      className={className}
+    />
+  )
 })

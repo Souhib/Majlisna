@@ -5,15 +5,15 @@
  * Do not edit manually.
  */
 
+import type { AccessTokenResponse } from "./AccessTokenResponse.ts";
 import type { BodyRefreshTokenApiV1AuthRefreshPost } from "./BodyRefreshTokenApiV1AuthRefreshPost.ts";
 import type { HTTPValidationError } from "./HTTPValidationError.ts";
-import type { TokenPairResponse } from "./TokenPairResponse.ts";
 
 /**
- * TokenPairResponse
+ * AccessTokenResponse
  * @description Successful Response
  */
-export type RefreshTokenApiV1AuthRefreshPost200 = TokenPairResponse;
+export type RefreshTokenApiV1AuthRefreshPost200 = AccessTokenResponse;
 
 /**
  * HTTPValidationError

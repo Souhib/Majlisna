@@ -80,16 +80,18 @@ describe("Halqa", () => {
 
     expect(screen.getByRole("img", { name: "Three seated" })).toBeInTheDocument()
     expect(container.querySelectorAll("rect.s-open")).toHaveLength(5)
-    expect(container.querySelector("circle.thread.closed")).not.toBeNull()
+    expect(container.querySelector('circle.thread[data-closed="true"]')).not.toBeNull()
   })
 
   it("draws an open arc below quorum and hides itself without a label", () => {
     const { container } = render(<Halqa seats={seats.slice(0, 2)} capacity={8} quorum={3} dir="rtl" />)
 
     expect(container.querySelector("svg")).toHaveAttribute("aria-hidden", "true")
-    expect(container.querySelector("circle.thread.closed")).toBeNull()
-    // RTL fills anticlockwise: the arc sweeps with flag 0.
-    expect(container.querySelector("path.thread")?.getAttribute("d")).toMatch(/A104 104 0 0 0 /)
+    expect(container.querySelector('circle.thread[data-closed="true"]')).toBeNull()
+    // RTL fills anticlockwise: the thread's circle is mirrored (WP-18: one circle, an arc of one step).
+    const thread = container.querySelector("circle.thread")
+    expect(thread?.getAttribute("transform")).toMatch(/scale\(-1 1\)/)
+    expect((thread as SVGElement | null)?.style.getPropertyValue("--arc")).toBe(String(1 / 8))
   })
 })
 

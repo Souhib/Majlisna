@@ -16,6 +16,7 @@ import {
 import type { FriendEntry } from "@/api/generated"
 import { FriendRow } from "@/components/friends/FriendRow"
 import { RemoveFriendButton } from "@/components/friends/RemoveFriendButton"
+import { LoadFailed } from "@/components/stats/LoadFailed"
 import { PageHeader, Segmented } from "@/components/stats/PlayerSpace"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/chip"
@@ -42,15 +43,12 @@ function FriendsPage() {
   const [tab, setTab] = useState<Tab>("friends")
   const [searchQuery, setSearchQuery] = useState("")
 
-  const { data: friends = [], isLoading: friendsLoading } = useGetFriendsApiV1FriendsGet({ query: { enabled: !!user } }) as {
-    data: FriendEntry[] | undefined
-    isLoading: boolean
-  }
-  const { data: pending = [], isLoading: pendingLoading } = useGetPendingRequestsApiV1FriendsPendingGet({
-    query: { enabled: !!user },
-  }) as { data: FriendEntry[] | undefined; isLoading: boolean }
+  const friendsQuery = useGetFriendsApiV1FriendsGet({ query: { enabled: !!user } })
+  const pendingQuery = useGetPendingRequestsApiV1FriendsPendingGet({ query: { enabled: !!user } })
+  const friends: FriendEntry[] = friendsQuery.data ?? []
+  const pending: FriendEntry[] = pendingQuery.data ?? []
 
-  const isLoading = friendsLoading || pendingLoading
+  const isLoading = friendsQuery.isLoading || pendingQuery.isLoading
   const queryClient = useQueryClient()
 
   const invalidateFriendQueries = () => {
@@ -108,15 +106,16 @@ function FriendsPage() {
           onChange={setTab}
           className="mb-5 w-full sm:w-fit sm:min-w-[24rem]"
           options={[
+            // a count only once it is known: a failed read used to say "0" (FR-7)
             {
               value: "friends",
               label: t("friends.myFriends"),
-              badge: <Badge>{friends.length}</Badge>,
+              badge: friendsQuery.isSuccess ? <Badge>{friends.length}</Badge> : undefined,
             },
             {
               value: "pending",
               label: t("friends.pendingRequests"),
-              badge: <Badge tone={pending.length > 0 ? "brass" : "neutral"}>{pending.length}</Badge>,
+              badge: pendingQuery.isSuccess ? <Badge tone={pending.length > 0 ? "brass" : "neutral"}>{pending.length}</Badge> : undefined,
             },
           ]}
         />
@@ -140,6 +139,14 @@ function FriendsPage() {
             <Panel flush>
               {isLoading ? (
                 <ListSkeleton />
+              ) : friendsQuery.isError ? (
+                // a failed read is not "No friends yet" (FR-7)
+                <LoadFailed
+                  className="p-4 sm:p-[22px]"
+                  error={friendsQuery.error}
+                  retrying={friendsQuery.isRefetching}
+                  onRetry={() => void friendsQuery.refetch()}
+                />
               ) : friends.length === 0 ? (
                 <EmptyState titleAs="h2" title={t("friends.noFriends")} description={t("friends.noFriendsBody")} action={findPlayers} />
               ) : filteredFriends.length === 0 ? (
@@ -171,6 +178,13 @@ function FriendsPage() {
           <Panel flush>
             {isLoading ? (
               <ListSkeleton />
+            ) : pendingQuery.isError ? (
+              <LoadFailed
+                className="p-4 sm:p-[22px]"
+                error={pendingQuery.error}
+                retrying={pendingQuery.isRefetching}
+                onRetry={() => void pendingQuery.refetch()}
+              />
             ) : pending.length === 0 ? (
               <EmptyState titleAs="h2" title={t("friends.noPending")} description={t("friends.noPendingBody")} action={findPlayers} />
             ) : (

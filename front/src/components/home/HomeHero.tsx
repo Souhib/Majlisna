@@ -10,7 +10,8 @@ import { focusHeroJoin, HeroJoinForm } from "./HeroJoinForm"
 /**
  * The home's first screen (sketch A dark, E light, F/G Arabic): one horizon under two
  * lights. The sky is ONE pre-composed picture per light (public/sky/), art-directed for
- * phones (≤ 760 px), tablets (761–1100 px) and desktops, always `object-fit: cover`
+ * phones (≤ 760 px), tablets (761–1100 px: an 800, 1200 or 1600 wide 2:1 crop) and
+ * desktops, always `object-fit: cover`
  * with its bottom edge on the horizon, so the mesas run edge to edge at every width.
  * index.html preloads the file the current light and width will use.
  *
@@ -19,13 +20,30 @@ import { focusHeroJoin, HeroJoinForm } from "./HeroJoinForm"
  */
 const SKY = { dark: "sky-maghrib", light: "sky-asr" } as const
 
-function Sky({ name }: { name: string }) {
+/**
+ * How wide the tablet crop (2:1) is drawn. The sky box is the full width and 47 % of
+ * `--hh` = clamp(720px, 100svh, 1440px) high (home.css), and `object-fit: cover` fills
+ * it: by its width when the viewport is at least 0.94 as wide as it is high, otherwise
+ * by its height, 2 × 0.47 × 100vh wide (a 768 × 1024 iPad draws it 962 px wide, not
+ * 768). Telling the browser so picks tab1200 there at DPR 1, never a stretched tab800.
+ * index.html's preload repeats this value: change both (front/CLAUDE.md).
+ */
+const TABLET_SKY_SIZES = "(min-aspect-ratio: 47/50) 100vw, 94vh"
+
+/** The sky of one light (also rendered on its own by the sky's contract test). */
+export function HomeSky({ name }: { name: string }) {
   const base = `/sky/${name}`
   return (
     <div className="home-sky" aria-hidden="true">
       <picture>
         <source media="(max-width: 760px)" srcSet={`${base}.800.webp 800w, ${base}.1000.webp 1000w`} sizes="100vw" width={1000} height={800} />
-        <source media="(max-width: 1100px)" srcSet={`${base}.tab1600.webp`} width={1600} height={800} />
+        <source
+          media="(max-width: 1100px)"
+          srcSet={`${base}.tab800.webp 800w, ${base}.tab1200.webp 1200w, ${base}.tab1600.webp 1600w`}
+          sizes={TABLET_SKY_SIZES}
+          width={1600}
+          height={800}
+        />
         <img
           src={`${base}.1600.webp`}
           srcSet={`${base}.1600.webp 1600w, ${base}.2400.webp 2400w`}
@@ -49,7 +67,7 @@ export function HomeHero() {
   return (
     <section className="home-hero" aria-labelledby="home-title">
       {/* keyed by the light so the browser never shows the other sky while swapping */}
-      <Sky key={light} name={SKY[light]} />
+      <HomeSky key={light} name={SKY[light]} />
       <div className="home-ground" aria-hidden="true" />
 
       <div className="home-word home-wrap" aria-hidden="true">

@@ -5,6 +5,7 @@ import { useGetUserAchievementsApiV1StatsUsersUserIdAchievementsGet } from "@/ap
 import type { AchievementWithProgress } from "@/api/generated"
 import { Lozenge, Seal } from "@/components/brand"
 import { orderAchievements, percentOf } from "@/components/stats/format"
+import { LoadFailed } from "@/components/stats/LoadFailed"
 import { PageHeader } from "@/components/stats/PlayerSpace"
 import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/ui/empty-state"
@@ -27,10 +28,8 @@ function AchievementsPage() {
   const { t } = useTranslation()
   const { user } = useAuth()
 
-  const { data: achievements = [], isLoading } = useGetUserAchievementsApiV1StatsUsersUserIdAchievementsGet(
-    { user_id: user?.id ?? "" },
-    { query: { enabled: !!user?.id } },
-  ) as { data: AchievementWithProgress[] | undefined; isLoading: boolean }
+  const query = useGetUserAchievementsApiV1StatsUsersUserIdAchievementsGet({ user_id: user?.id ?? "" }, { query: { enabled: !!user?.id } })
+  const achievements: AchievementWithProgress[] = useMemo(() => query.data ?? [], [query.data])
 
   const groups = useMemo(() => {
     const known = new Set<string>(CATEGORIES)
@@ -42,7 +41,7 @@ function AchievementsPage() {
 
   const earned = achievements.filter((a) => a.unlocked).length
 
-  if (isLoading) {
+  if (query.isLoading) {
     return (
       <div className="page-wrap py-[clamp(32px,5vw,72px)]" aria-busy="true">
         <PageHeader title={t("achievements.title")} />
@@ -51,6 +50,16 @@ function AchievementsPage() {
             <Skeleton key={i} className="h-[132px] w-full" />
           ))}
         </div>
+      </div>
+    )
+  }
+
+  // a failed read is not "No achievements yet" (FR-7)
+  if (query.isError) {
+    return (
+      <div className="page-wrap py-[clamp(32px,5vw,72px)]">
+        <PageHeader title={t("achievements.title")} />
+        <LoadFailed error={query.error} retrying={query.isRefetching} onRetry={() => void query.refetch()} />
       </div>
     )
   }

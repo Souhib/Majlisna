@@ -10,6 +10,7 @@ const game = vi.hoisted(() => ({ state: null as unknown }))
 
 vi.mock("@tanstack/react-router", () => ({
   createFileRoute: () => (options: { component: ComponentType }) => ({ options, useParams: () => ({ gameId: "g1" }) }),
+  useRouterState: () => "/game/codenames/g1", // ErrorBoundary's page
 }))
 vi.mock("@/hooks/use-codenames-game", () => ({ useCodenamesGame: () => game.state }))
 vi.mock("@/components/games/shared/prayer-pause", () => ({

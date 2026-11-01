@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { createElement } from "react"
@@ -73,6 +73,7 @@ const mockServerState = {
 const mockVote = vi.fn()
 const mockDescribe = vi.fn()
 const mockTimerExpired = vi.fn()
+const mockNextRound = vi.fn()
 
 let mockQueryData: typeof mockServerState | undefined = undefined
 let mockIsLoading = true
@@ -88,7 +89,7 @@ vi.mock("@/api/generated", () => ({
   useSubmitDescriptionApiV1UndercoverGamesGameIdDescribePost: () => ({ mutateAsync: mockDescribe }),
   useRecordHintViewedApiV1UndercoverGamesGameIdHintViewedPost: () => ({ mutateAsync: vi.fn() }),
   useTimerExpiredApiV1UndercoverGamesGameIdTimerExpiredPost: () => ({ mutateAsync: mockTimerExpired }),
-  useStartNextRoundApiV1UndercoverGamesGameIdNextRoundPost: () => ({ mutateAsync: vi.fn() }),
+  useStartNextRoundApiV1UndercoverGamesGameIdNextRoundPost: () => ({ mutateAsync: mockNextRound }),
   useMrWhiteGuessApiV1UndercoverGamesGameIdMrWhiteGuessPost: () => ({ mutateAsync: vi.fn() }),
   useLeaveRoomApiV1RoomsLeavePatch: () => ({ mutateAsync: vi.fn() }),
   getUndercoverStateApiV1UndercoverGamesGameIdStateGetQueryKey: ({ game_id }: { game_id: string }) => [
@@ -398,5 +399,237 @@ describe("useUndercoverGame: leaving a game you can no longer play", () => {
     const { result } = renderHook(() => useUndercoverGame("game-1"), { wrapper: createWrapper() })
 
     expect(result.current.cancelMessage).toBeNull()
+  })
+})
+
+describe("useUndercoverGame: reporting the end of the clock (BDP-03)", () => {
+  const ranOut = { ...mockServerState, turn_phase: "voting", timer_started_at: "2026-10-28T14:59:00+00:00" }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.useFakeTimers()
+    mockIsLoading = false
+    mockQueryError = null
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  function renderWithClient() {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries")
+    const wrapper = ({ children }: { children: React.ReactNode }) => createElement(QueryClientProvider, { client: queryClient }, children)
+    return { ...renderHook(() => useUndercoverGame("game-1"), { wrapper }), invalidate }
+  }
+
+  it("a non-host does not POST timer-expired within 1 s, nor at all when a game_updated arrives", async () => {
+    // Prepare: a guest's voting clock ran out
+    mockTimerExpired.mockResolvedValue({ game_id: "game-1", action: "auto_vote" })
+    mockQueryData = { ...ranOut, is_host: false } as typeof mockQueryData
+    const { result, rerender } = renderWithClient()
+    await act(() => result.current.handleTimerExpired())
+    await act(() => vi.advanceTimersByTimeAsync(900))
+    expect(mockTimerExpired).not.toHaveBeenCalled()
+
+    // Act: the host's report resolved the round (game_updated → the resolved state)
+    mockQueryData = { ...ranOut, is_host: false, round_resolved: true } as typeof mockQueryData
+    rerender()
+    await act(() => vi.advanceTimersByTimeAsync(3000))
+
+    // Assert
+    expect(mockTimerExpired).not.toHaveBeenCalled()
+  })
+
+  it("a non-host reports after its wait when the host's never came", async () => {
+    mockTimerExpired.mockResolvedValue({ game_id: "game-1", action: "auto_vote" })
+    mockQueryData = { ...ranOut, is_host: false } as typeof mockQueryData
+    const { result } = renderWithClient()
+
+    await act(() => result.current.handleTimerExpired())
+    await act(() => vi.advanceTimersByTimeAsync(2001))
+
+    expect(mockTimerExpired).toHaveBeenCalledTimes(1)
+  })
+
+  it("refetches nothing after an answer that changed nothing", async () => {
+    // Prepare: the host's clock is a beat ahead of the server's
+    mockTimerExpired.mockResolvedValue({ game_id: "game-1", action: "timer_not_expired" })
+    mockQueryData = { ...ranOut, is_host: true } as typeof mockQueryData
+    const { result, invalidate } = renderWithClient()
+
+    // Act
+    await act(() => result.current.handleTimerExpired())
+
+    // Assert
+    expect(mockTimerExpired).toHaveBeenCalledTimes(1)
+    expect(invalidate).not.toHaveBeenCalled()
+  })
+
+  it("refetches after an answer that moved the game", async () => {
+    mockTimerExpired.mockResolvedValue({ game_id: "game-1", action: "auto_vote" })
+    mockQueryData = { ...ranOut, is_host: true } as typeof mockQueryData
+    const { result, invalidate } = renderWithClient()
+
+    await act(() => result.current.handleTimerExpired())
+
+    expect(invalidate).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("useUndercoverGame: the ready quorum between rounds (owner rule (d))", () => {
+  // Round 1 is resolved and nobody has won: the round-over screen, as a guest sees it.
+  const roundOver = {
+    ...mockServerState,
+    players: [
+      { user_id: "user-1", username: "TestUser", is_alive: true },
+      { user_id: "user-2", username: "Player2", is_alive: true },
+      { user_id: "user-3", username: "Player3", is_alive: true },
+    ],
+    is_host: false,
+    turn_phase: "voting",
+    round_resolved: true,
+    ready_players: [] as string[],
+    ready_count: 0,
+    ready_quorum: 2,
+    is_ready: false,
+  }
+  const readyMark = { game_id: "game-1", advanced: false, ready_players: ["user-1"], ready_count: 1, ready_quorum: 2 }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockIsLoading = false
+    mockQueryError = null
+  })
+
+  it("a player who is not the host posts next-round once, however fast they tap (in-flight guard)", async () => {
+    // Prepare: the request is still on its way when the second tap lands
+    let answer: (value: typeof readyMark) => void = () => {}
+    mockNextRound.mockReturnValue(new Promise((resolve) => (answer = resolve)))
+    mockQueryData = { ...roundOver } as typeof mockQueryData
+    const { result } = renderHook(() => useUndercoverGame("game-1"), { wrapper: createWrapper() })
+
+    // Act
+    let first: Promise<void> = Promise.resolve()
+    let second: Promise<void> = Promise.resolve()
+    act(() => {
+      first = result.current.handleStartNextRound()
+      second = result.current.handleStartNextRound()
+    })
+    await act(async () => {
+      answer(readyMark)
+      await Promise.all([first, second])
+    })
+
+    // Assert
+    expect(mockNextRound).toHaveBeenCalledTimes(1)
+    expect(mockNextRound).toHaveBeenCalledWith({ game_id: "game-1", data: { room_id: "room-123" } })
+  })
+
+  it("takes advanced=false as a ready mark: no error, and the player reads as ready at once", async () => {
+    // Prepare: the state that says so is a refetch away
+    mockNextRound.mockResolvedValue(readyMark)
+    mockQueryData = { ...roundOver } as typeof mockQueryData
+    const { result } = renderHook(() => useUndercoverGame("game-1"), { wrapper: createWrapper() })
+    expect(result.current.canMarkReady).toBe(true)
+    expect(result.current.isReady).toBe(false)
+
+    // Act
+    await act(() => result.current.handleStartNextRound())
+
+    // Assert
+    const { toast } = await import("sonner")
+    expect(toast.error).not.toHaveBeenCalled()
+    expect(result.current.isReady).toBe(true)
+    expect(result.current.readyCount).toBe(1)
+    expect(result.current.readyQuorum).toBe(2)
+  })
+
+  it("reads the ready count and the caller's mark from the state, and forgets a mark once the next round opens", async () => {
+    // Prepare: the push after another player's mark
+    mockNextRound.mockResolvedValue(readyMark)
+    mockQueryData = { ...roundOver, ready_players: ["user-2"], ready_count: 1 } as typeof mockQueryData
+    const { result, rerender } = renderHook(() => useUndercoverGame("game-1"), { wrapper: createWrapper() })
+
+    // Assert
+    expect(result.current.isReady).toBe(false)
+    expect(result.current.readyCount).toBe(1)
+    expect(result.current.readyQuorum).toBe(2)
+
+    // Act: this player marks, then the quorum opens round 2
+    await act(() => result.current.handleStartNextRound())
+    mockQueryData = { ...mockServerState, is_host: false, turn_number: 2, turn_phase: "describing" } as typeof mockQueryData
+    rerender()
+
+    // Assert
+    expect(result.current.gameState.phase).toBe("describing")
+    expect(result.current.isReady).toBe(false)
+    expect(result.current.readyCount).toBe(0)
+  })
+
+  it("lets the host force the round, whatever the count", async () => {
+    // Prepare
+    mockNextRound.mockResolvedValue({ game_id: "game-1", advanced: true, turn_number: 2, description_order: [], ready_quorum: 2 })
+    mockQueryData = { ...roundOver, is_host: true } as typeof mockQueryData
+    const { result } = renderHook(() => useUndercoverGame("game-1"), { wrapper: createWrapper() })
+    expect(result.current.canMarkReady).toBe(false)
+
+    // Act
+    await act(() => result.current.handleStartNextRound())
+
+    // Assert
+    expect(mockNextRound).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ["an eliminated player", { players: [{ user_id: "user-1", username: "TestUser", is_alive: false }, ...roundOver.players.slice(1)] }],
+    ["a spectator", { my_role: "spectator" }],
+  ])("sends nothing for %s", async (_who, over) => {
+    // Prepare
+    mockQueryData = { ...roundOver, ...over } as typeof mockQueryData
+    const { result } = renderHook(() => useUndercoverGame("game-1"), { wrapper: createWrapper() })
+
+    // Act
+    await act(() => result.current.handleStartNextRound())
+
+    // Assert
+    expect(result.current.canMarkReady).toBe(false)
+    expect(mockNextRound).not.toHaveBeenCalled()
+  })
+
+  it("sends no mark while the game is paused (the veil covers the screen; the button stays under it)", async () => {
+    // Prepare
+    const paused = { by_user_id: "user-2", by_username: "Player2", since: "2026-10-28T15:00:00+00:00", reason: "salah" }
+    mockQueryData = { ...roundOver, paused } as typeof mockQueryData
+    const { result } = renderHook(() => useUndercoverGame("game-1"), { wrapper: createWrapper() })
+
+    // Act
+    await act(() => result.current.handleStartNextRound())
+
+    // Assert
+    expect(result.current.canMarkReady).toBe(true)
+    expect(mockNextRound).not.toHaveBeenCalled()
+  })
+
+  it("says a refused mark, and lets the player try again", async () => {
+    // Prepare
+    mockNextRound.mockRejectedValueOnce(new Error("network")).mockResolvedValueOnce(readyMark)
+    mockQueryData = { ...roundOver } as typeof mockQueryData
+    const { result } = renderHook(() => useUndercoverGame("game-1"), { wrapper: createWrapper() })
+
+    // Act
+    await act(() => result.current.handleStartNextRound())
+
+    // Assert
+    const { toast } = await import("sonner")
+    expect(toast.error).toHaveBeenCalledWith("game.undercover.errors.nextRound")
+    expect(result.current.isReady).toBe(false)
+
+    // Act: the second tap goes through
+    await act(() => result.current.handleStartNextRound())
+
+    // Assert
+    expect(mockNextRound).toHaveBeenCalledTimes(2)
+    expect(result.current.isReady).toBe(true)
   })
 })

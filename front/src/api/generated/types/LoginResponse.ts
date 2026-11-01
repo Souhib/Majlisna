@@ -9,17 +9,13 @@ import type { LoginUserData } from "./LoginUserData.ts";
 
 /**
  * LoginResponse
- * @description Login response with tokens and user data.
+ * @description Login response: the access token and user data (the refresh token is the httpOnly cookie).
  */
 export type LoginResponse = {
   /**
    * @type string
    */
   access_token: string;
-  /**
-   * @type string
-   */
-  refresh_token: string;
   /**
    * @default "bearer"
    * @type string | undefined

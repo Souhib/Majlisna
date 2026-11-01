@@ -1,0 +1,50 @@
+/*
+ * Faces declared on top of the @fontsource ones (fonts.ts imports this file after them,
+ * which matters). When two faces of one family cover the same character, the one
+ * declared LATER is tried first, and a browser downloads only the faces it ends up
+ * using. So each face below takes over a few characters from a much larger file, and
+ * the larger face stays as the fallback for everything else (FP-13).
+ *
+ * The files are subsets of the @fontsource files, cut with fontTools' pyftsubset; how,
+ * and their licence (SIL OFL 1.1), in assets/fonts/SOURCES.txt.
+ */
+
+/* Readex Pro: the transliteration letters (ā ī ū ḥ ṣ ḍ ṭ ẓ ʾ ʿ, ṯ ḏ ḫ ġ š ǧ, and their
+   capitals), 5 kB. A single "salām" or "ʿUmra" in the copy used to pull fontsource's
+   28 kB latin-ext file. Any other latin-ext letter (a username's ł) still finds that
+   face, so no glyph is lost. Variable, like the faces it sits beside. */
+@font-face {
+  font-family: "Readex Pro Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 160 700;
+  src: url("./assets/fonts/readex-pro-translit-wght-normal.woff2") format("woff2-variations");
+  unicode-range:
+    U+0100-0101, U+0120-0121, U+012A-012B, U+0160-0161, U+016A-016B, U+01E6-01E7, U+02BE-02BF, U+1E0C-1E0F, U+1E24-1E25, U+1E2A-1E2B, U+1E62-1E63, U+1E6C-1E6F,
+    U+1E92-1E93;
+}
+
+/* Amiri: the space and the no-break space alone (about 0.5 kB, inlined by Vite, so no
+   request at all). Fontsource's latin face is Amiri's only face with U+0020, so an
+   Arabic phrase with a space in it ("كلمة اليوم") downloaded the 20 kB Latin file for
+   that space. Arabic runs now take the Arabic file alone. Latin text IS set in Amiri
+   (an MCQ explanation, a meaning, a Latin answer), which is why the space did not just
+   move into the Arabic face (a Latin paragraph would then pull the 100 kB Arabic file):
+   its letters still come from the latin face, and its spaces have the same advance
+   (292 units, in both weights and in every Amiri file). */
+@font-face {
+  font-family: "Amiri";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url("./assets/fonts/amiri-space-400-normal.woff2") format("woff2");
+  unicode-range: U+0020, U+00A0;
+}
+@font-face {
+  font-family: "Amiri";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700;
+  src: url("./assets/fonts/amiri-space-700-normal.woff2") format("woff2");
+  unicode-range: U+0020, U+00A0;
+}

@@ -5,7 +5,8 @@
 //   public/icons/icon-maskable-512.png             full bleed, ring inside the 80 % safe zone
 //   public/icons/apple-touch-icon.png (180)        full bleed (iOS rounds the corners)
 //   public/favicon.ico (16, 32, 48)                from public/favicon.svg (needs Pillow)
-//   public/og-image.png (1200 × 630)               og-card.html: the night sky + the frozen wordmark
+//   public/og-image.jpg (1200 × 630)               og-card.html: the night sky + the frozen wordmark
+//                                                  (JPEG q80, 4:4:4: ~110 kB; the PNG was 670 kB)
 //
 // Run from the repo root:  node front/scripts/brand/render-icons.mjs
 import { execFileSync } from "node:child_process"
@@ -55,9 +56,18 @@ for (const job of jobs) {
 await page.setViewportSize({ width: 1200, height: 630 })
 await page.goto(`file://${HERE}/og-card.html`, { waitUntil: "networkidle" })
 await page.evaluate(() => document.fonts.ready)
-await page.screenshot({ path: `${FRONT}/public/og-image.png`, clip: { x: 0, y: 0, width: 1200, height: 630 } })
-console.log("wrote public/og-image.png")
+await page.screenshot({ path: `${tmp}/og-image.png`, clip: { x: 0, y: 0, width: 1200, height: 630 } })
 await browser.close()
+
+// Link previews: a photo, so a JPEG; full-resolution chroma keeps the brass wordmark sharp
+execFileSync("python3", [
+  "-I",
+  "-c",
+  "import sys;from PIL import Image;Image.open(sys.argv[1]).convert('RGB').save(sys.argv[2],'JPEG',quality=80,optimize=True,progressive=True,subsampling=0)",
+  `${tmp}/og-image.png`,
+  `${FRONT}/public/og-image.jpg`,
+])
+console.log("wrote public/og-image.jpg")
 
 execFileSync("python3", [
   "-I",

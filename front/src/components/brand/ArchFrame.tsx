@@ -1,6 +1,7 @@
 import { type ReactNode } from "react"
 import { cn } from "@/lib/utils"
 import jabreen800 from "@/assets/brand/jabreen-niches.duo.800.webp"
+import jabreen1200 from "@/assets/brand/jabreen-niches.duo.1200.webp"
 import jabreen1600 from "@/assets/brand/jabreen-niches.duo.1600.webp"
 
 /**
@@ -14,6 +15,9 @@ import jabreen1600 from "@/assets/brand/jabreen-niches.duo.1600.webp"
  * the springers, at 48) below 1100 px; from 1100 px it rises into the arch's head, to
  * 34cqw, so the photograph is the niche's cap and the colophon opens above the fold
  * beside a game (`.arch-inner` in styles/brand.css).
+ *
+ * The photograph comes in 800, 1200 and 1600 widths: a 3x phone (1170 device px) takes the
+ * 1200 file (78 kB), not the 1600 one (207 kB) it used to.
  *
  * Photo: "Jabreen Castle, Oman - 2024 13" by dconvertini, CC BY-SA 2.0, modified;
  * see src/assets/brand/SOURCES.txt. The credit must appear on the about/credits page.
@@ -35,7 +39,7 @@ export function ArchFrame({ children, photo = true, className }: ArchFrameProps)
         {photo ? (
           <img
             src={jabreen1600}
-            srcSet={`${jabreen800} 800w, ${jabreen1600} 1600w`}
+            srcSet={`${jabreen800} 800w, ${jabreen1200} 1200w, ${jabreen1600} 1600w`}
             sizes="(max-width: 760px) 100vw, 560px"
             alt=""
             loading="lazy"

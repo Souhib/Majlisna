@@ -69,7 +69,7 @@ function RegisterPage() {
     // Logging in with the credentials just chosen is what actually opens the session.
     try {
       const session = await loginMutation.mutateAsync({ data: { email, password } })
-      login(session.access_token, session.refresh_token, session.expires_in, {
+      login(session.access_token, session.expires_in, {
         id: session.user.id,
         username: session.user.username,
         email: session.user.email,

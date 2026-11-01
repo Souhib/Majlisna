@@ -4,7 +4,10 @@
  * of the exit before the next phase could mount.
  *
  * - Feature-detected: without `document.startViewTransition` (Firefox < 144, older
- *   Safari) or under prefers-reduced-motion, the update simply runs. Nothing waits.
+ *   Safari) the update simply runs. Nothing waits.
+ * - Reduced motion keeps the crossfade: index.css shortens it to 120 ms and drops the
+ *   group movement, so the phase swap is an opacity change, never a hard cut (DESIGN §7,
+ *   "opacity kept").
  * - A view transition blocks input for its duration (clicks go to the pseudo-elements),
  *   so keep them short (the CSS in index.css runs the root crossfade at --dur-state,
  *   180 ms) and never start one in the middle of an interaction.
@@ -24,7 +27,6 @@ function getStarter(): StartViewTransition | null {
   if (typeof document === "undefined") return null
   const start = (document as Document & { startViewTransition?: StartViewTransition }).startViewTransition
   if (typeof start !== "function") return null
-  if (typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return null
   return start.bind(document)
 }
 
@@ -54,6 +56,9 @@ export function withViewTransition(update: () => void): Promise<void> {
  * returned value lags the input by one transition, so the browser can snapshot the
  * old phase before React renders the new one. Without support it follows immediately.
  *
+ * The first real value (the state arriving after a load, `null` → "playing") is adopted at
+ * once, with no transition: a page load is a route change, and route changes do not animate.
+ *
  *   const phase = useViewTransitionValue(serverState.phase)
  *   return phase === "voting" ? <VotingPhase /> : <DescriptionPhase />
  */
@@ -63,7 +68,12 @@ export function useViewTransitionValue<T>(value: T): T {
   latest.current = value
   useEffect(() => {
     if (Object.is(value, shown)) return
+    if (shown == null) {
+      setShown(value)
+      return
+    }
     void withViewTransition(() => setShown(latest.current))
   }, [value, shown])
-  return canViewTransition() ? shown : value
+  // nothing shown yet: the value itself, in this very render
+  return canViewTransition() && shown != null ? shown : value
 }

@@ -143,6 +143,16 @@
       padding: 12px 16px;
     }
   }
+  /* On a phone the banner holds the clue's own height before the clue arrives, so the board
+     under the operatives' fingers does not jump when it lands (FP-18: 21 px, CLS 0.06–0.1 a
+     clue). The tallest of: "Clue from …" + the word in the hand (Arabic, the taller face), or
+     the three lines of the count column (made, left, and the teammates pointing); plus the
+     padding (10 px) and the border. */
+  @media (max-width: 639px) {
+    .cn-clue {
+      min-height: calc(2px + 2 * 10px + max(13px * 1.25 + 4px + 20px * 1.35, 3 * 12.5px * 1.4));
+    }
+  }
   .cn-clue[data-waiting="true"] {
     grid-template-columns: auto minmax(0, 1fr);
   }
@@ -394,7 +404,12 @@
   .cn-card[dir="rtl"]:is([data-face="wool"], [data-face="key"])::after {
     background-position: right center;
   }
-  /* a card turned while you watch: its selvedge is woven once, from the reading start */
+  /* a card turned while you watch: its selvedge is woven once, from the reading start. The
+     band slides in through the card's own edge (a transform the compositor runs), so the
+     card clips it; nothing else in a turned card reaches its edge (no pointers on it). */
+  .cn-card[data-fresh="true"] {
+    overflow: hidden;
+  }
   .cn-card[data-fresh="true"]::after {
     animation: cn-weave var(--dur-authored) var(--ease-ink) both;
   }
@@ -543,11 +558,23 @@
   .cn-veil-tile[data-team="indigo"]::after {
     background: var(--band-ayn) left center / auto 100% repeat-x;
   }
-  .cn-veil-band {
+  /* the veil's madd band is woven in from the reading start: the band itself clips, and its
+     pattern is a layer translated through it (a transform, on the compositor) */
+  .cn-veil .cn-veil-band {
+    position: relative;
+    overflow: hidden;
     width: min(320px, 70vw);
+    background: none;
+  }
+  .cn-veil .cn-veil-band::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: var(--b, var(--band-madd)) left center / auto 100% repeat-x;
     animation: cn-weave var(--dur-ceremony) var(--ease-ink) both;
   }
-  [dir="rtl"] .cn-veil-band {
+  [dir="rtl"] .cn-veil .cn-veil-band::before {
+    background-position: right center;
     animation-name: cn-weave-rtl;
   }
 
@@ -586,20 +613,17 @@
   }
 }
 
+/* A band woven from the reading start: it slides in through its clipping box (a fresh card,
+   the veil's band). A transform, so the compositor runs it; a mask or a clip animation
+   repainted the band every frame. */
 @keyframes cn-weave {
   from {
-    clip-path: inset(0 100% 0 0);
-  }
-  to {
-    clip-path: inset(0 0 0 0);
+    transform: translateX(-100%);
   }
 }
 @keyframes cn-weave-rtl {
   from {
-    clip-path: inset(0 0 0 100%);
-  }
-  to {
-    clip-path: inset(0 0 0 0);
+    transform: translateX(100%);
   }
 }
 
@@ -611,7 +635,7 @@
       border-color var(--dur-state) linear;
   }
   .cn-card[data-fresh="true"]::after,
-  .cn-veil-band {
+  .cn-veil .cn-veil-band::before {
     animation: fade-in 140ms linear both;
   }
 }

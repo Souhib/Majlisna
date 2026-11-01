@@ -1,0 +1,159 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import { type ComponentType, type ReactNode } from "react"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+import { queryKeys } from "@/api/queryKeys"
+import { answer, requestsTo, resetFakeApi } from "@/components/notebook/__tests__/fake-api"
+
+/**
+ * The lobby after a kick (owner rule (c), WP-29): the host confirms, the player is
+ * banned and listed with a way back, and the PIN on screen and in the share link is the
+ * new one. The real page and generated hooks over the fake client, the socket down.
+ */
+const router = vi.hoisted(() => ({ navigate: vi.fn() }))
+const toasts = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }))
+
+vi.mock("react-i18next", () => ({
+  useTranslation: () => ({ t: (key: string) => key, i18n: { language: "en", dir: () => "ltr" } }),
+  Trans: ({ i18nKey }: { i18nKey: string }) => i18nKey,
+}))
+vi.mock("@tanstack/react-router", () => ({
+  createFileRoute: () => (options: { component: ComponentType }) => ({ options, useParams: () => ({ roomId: "room-1" }) }),
+  Link: ({ to, children, ...rest }: { to: string; children: ReactNode }) => (
+    <a href={to} {...rest}>
+      {children}
+    </a>
+  ),
+  useNavigate: () => router.navigate,
+}))
+vi.mock("@/api/client", async () => (await import("@/components/notebook/__tests__/fake-api")).clientModule)
+vi.mock("@/providers/AuthProvider", () => ({ useAuth: () => ({ user: { id: "u1" } }) }))
+vi.mock("@/hooks/use-socket", () => ({ useSocket: () => ({ connected: false }) }))
+vi.mock("@/lib/analytics", () => ({ trackEvent: vi.fn() }))
+vi.mock("sonner", () => ({ toast: toasts }))
+
+const { Route } = await import("@/routes/_auth/rooms/$roomId")
+const Page = (Route as unknown as { options: { component: ComponentType } }).options.component
+
+const STATE = "GET /api/v1/rooms/room-1/state"
+const BANS = "GET /api/v1/rooms/room-1/bans"
+const KICK = "PATCH /api/v1/rooms/room-1/kick"
+const LIFT = "DELETE /api/v1/rooms/room-1/bans/u2"
+
+const player = (user_id: string, username: string) => ({ user_id, username, is_spectator: false, is_disconnected: false, away_seconds_left: null })
+
+const roomState = (over: Record<string, unknown> = {}) => ({
+  id: "room-1",
+  public_id: "QX7PA",
+  owner_id: "u1",
+  password: "4821",
+  active_game_id: null,
+  game_type: "undercover",
+  settings: { game_type: "undercover" },
+  players: [player("u1", "Yusuf"), player("u2", "Maryam"), player("u3", "Ali")],
+  ...over,
+})
+
+async function renderPage() {
+  const queryClient = new QueryClient()
+  await act(async () => {
+    render(
+      <QueryClientProvider client={queryClient}>
+        <Page />
+      </QueryClientProvider>,
+    )
+  })
+  return queryClient
+}
+
+const pinTiles = () => screen.getByRole("group", { name: "room.pinLabel" })
+
+beforeEach(() => {
+  resetFakeApi()
+  router.navigate.mockReset()
+  Object.values(toasts).forEach((fn) => fn.mockReset())
+})
+
+describe("the lobby's PIN after a kick", () => {
+  it("shows the new PIN from room_state and copies it in the share link", async () => {
+    // Prepare
+    const writeText = vi.fn(async () => {})
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true })
+    answer(STATE, () => roomState())
+    answer(BANS, () => [])
+    const queryClient = await renderPage()
+    await waitFor(() => expect(pinTiles()).toHaveTextContent("4 8 2 1"))
+
+    // Act: the push that follows a kick carries the rotated PIN
+    answer(STATE, () => roomState({ password: "9034", players: [player("u1", "Yusuf"), player("u3", "Ali")] }))
+    act(() => {
+      queryClient.setQueryData(queryKeys.room.state("room-1"), roomState({ password: "9034", players: [player("u1", "Yusuf"), player("u3", "Ali")] }))
+    })
+    await waitFor(() => expect(pinTiles()).toHaveTextContent("9 0 3 4"))
+    fireEvent.click(screen.getByRole("button", { name: "room.lobbyPage.share" }))
+
+    // Assert: the tiles and the link hold the new PIN, never the old one
+    await waitFor(() => expect(writeText).toHaveBeenCalledOnce())
+    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/rooms/join?code=QX7PA&pin=9034`)
+    expect(pinTiles()).not.toHaveTextContent("4 8 2 1")
+  })
+})
+
+describe("the host removes a player", () => {
+  it("asks first, kicks once, then lists the player with a way back, which lifts the ban", async () => {
+    // Prepare
+    let bans: { user_id: string; username: string; banned_at: string }[] = []
+    answer(STATE, () => roomState())
+    answer(BANS, () => bans)
+    answer(KICK, () => {
+      bans = [{ user_id: "u2", username: "Maryam", banned_at: "2026-10-31T18:00:00Z" }]
+      answer(STATE, () => roomState({ password: "9034", players: [player("u1", "Yusuf"), player("u3", "Ali")] }))
+      return { status: "kicked" }
+    })
+    answer(LIFT, () => {
+      bans = []
+      return { status: "lifted" }
+    })
+    await renderPage()
+    await waitFor(() => expect(requestsTo(BANS)).toHaveLength(1))
+    // nobody removed yet: no panel
+    expect(screen.queryByRole("heading", { name: /room\.lobbyPage\.bans\.title/ })).toBeNull()
+    const maryamRow = screen.getAllByText("Maryam").find((el) => el.closest("div.flex.items-center.justify-between"))
+    const remove = within(maryamRow!.closest("div.flex.items-center.justify-between") as HTMLElement).getByRole("button")
+
+    // Act: Remove, then confirm
+    fireEvent.click(remove)
+    const confirm = await screen.findByRole("alertdialog")
+    expect(within(confirm).getByText("room.lobbyPage.kickConfirmBody")).toBeInTheDocument()
+    expect(requestsTo(KICK)).toHaveLength(0)
+    fireEvent.click(within(confirm).getByRole("button", { name: "room.lobbyPage.kickConfirmAction" }))
+
+    // Assert: one kick; the removed player is listed, the PIN is the new one
+    await waitFor(() => expect(screen.getByRole("heading", { name: /room\.lobbyPage\.bans\.title/ })).toHaveTextContent("(1)"))
+    expect(requestsTo(KICK).map((r) => r.data)).toEqual([{ user_id: "u2" }])
+    await waitFor(() => expect(pinTiles()).toHaveTextContent("9 0 3 4"))
+
+    // Act: let Maryam come back
+    fireEvent.click(screen.getByRole("button", { name: "room.lobbyPage.bans.liftBan" }))
+
+    // Assert
+    await waitFor(() => expect(screen.getByText("room.lobbyPage.bans.empty")).toBeInTheDocument())
+    expect(requestsTo(LIFT)).toHaveLength(1)
+    expect(toasts.error).not.toHaveBeenCalled()
+  })
+
+  it("gives a guest no list of removed players, and asks for none", async () => {
+    // Prepare
+    answer(STATE, () => roomState({ owner_id: "u2" }))
+    answer(BANS, () => [{ user_id: "u9", username: "Bilal", banned_at: "2026-10-31T18:00:00Z" }])
+
+    // Act
+    await renderPage()
+    await screen.findByRole("heading", { level: 1 })
+
+    // Assert
+    expect(requestsTo(BANS)).toHaveLength(0)
+    expect(screen.queryByText("Bilal")).toBeNull()
+    expect(screen.queryAllByRole("button", { name: "room.lobbyPage.kick" })).toHaveLength(0)
+  })
+})

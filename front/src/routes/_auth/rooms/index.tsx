@@ -6,7 +6,7 @@ import { toast } from "sonner"
 import { Alert } from "@/components/ui/alert"
 import { useGetActiveRoomApiV1RoomsActiveGet, useJoinRoomApiV1RoomsJoinPatch, useLeaveRoomApiV1RoomsLeavePatch } from "@/api/generated"
 import { CodeTiles, CodeTilesInput } from "@/components/brand"
-import { roomErrorMessage } from "@/components/rooms/errors"
+import { joinRepairFor, roomErrorKey, roomErrorMessage } from "@/components/rooms/errors"
 import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/ui/empty-state"
 import { Panel } from "@/components/ui/panel"
@@ -39,6 +39,8 @@ function RoomsPage() {
   const [pin, setPin] = useState("")
   const [showIncomplete, setShowIncomplete] = useState(false)
   const [joinError, setJoinError] = useState<string | null>(null)
+  // "Check the code and PIN with your host" is no repair for a ban or a seat elsewhere (review F2)
+  const [joinErrorRepairs, setJoinErrorRepairs] = useState(true)
   // "The host removed you" lands here as a line on the page, never a toast: the player
   // did not cause it. Taken once, so a later visit does not repeat it.
   const [notice] = useState(takeRoomNotice)
@@ -54,6 +56,7 @@ function RoomsPage() {
       },
       onError: (err) => {
         setJoinError(roomErrorMessage(err, t("room.joinPage.unreachable")))
+        setJoinErrorRepairs(joinRepairFor(roomErrorKey(err)) !== "none")
       },
     },
   })
@@ -157,7 +160,7 @@ function RoomsPage() {
                 </p>
               ) : joinError ? (
                 <p id="join-error" role="alert" data-testid="join-error" className="text-[14px] leading-[1.45] text-ember">
-                  {joinError} {t("room.indexPage.joinRepair")}
+                  {joinErrorRepairs ? `${joinError} ${t("room.indexPage.joinRepair")}` : joinError}
                 </p>
               ) : (
                 <p id="join-hint" className="text-[14px] leading-[1.45] text-muted-foreground">

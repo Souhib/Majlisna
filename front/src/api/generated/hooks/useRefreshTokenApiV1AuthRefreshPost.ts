@@ -27,9 +27,11 @@ export type RefreshTokenApiV1AuthRefreshPostMutationKey = ReturnType<
 >;
 
 /**
- * @description Refresh access token using refresh token (from request body or httpOnly cookie).
- * The token is accepted in the JSON body only — never as a query parameter,
- * so it cannot leak into access logs / browser history.
+ * @description Spend the refresh token (JSON body, else the httpOnly cookie) for a new pair.
+ * Single use: ``AuthController.refresh_session`` rotates it, answers a tab that raced
+ * another one, and revokes the session when an old copy is replayed (SEC F01). The new
+ * refresh token is set as the httpOnly cookie only (SEC F13): a body still holding one
+ * is accepted (an old client's stored token), but none is ever sent back.
  * @summary Refresh Token
  * {@link /api/v1/auth/refresh}
  */
@@ -78,9 +80,11 @@ export function refreshTokenApiV1AuthRefreshPostMutationOptions<
 }
 
 /**
- * @description Refresh access token using refresh token (from request body or httpOnly cookie).
- * The token is accepted in the JSON body only — never as a query parameter,
- * so it cannot leak into access logs / browser history.
+ * @description Spend the refresh token (JSON body, else the httpOnly cookie) for a new pair.
+ * Single use: ``AuthController.refresh_session`` rotates it, answers a tab that raced
+ * another one, and revokes the session when an old copy is replayed (SEC F01). The new
+ * refresh token is set as the httpOnly cookie only (SEC F13): a body still holding one
+ * is accepted (an old client's stored token), but none is ever sent back.
  * @summary Refresh Token
  * {@link /api/v1/auth/refresh}
  */

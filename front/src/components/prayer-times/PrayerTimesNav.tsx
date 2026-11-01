@@ -45,7 +45,8 @@ export function PrayerTimesNav({
   const { t } = useTranslation()
   const [coordinates, setCoordinates] = useState<CityCoordinates | null>(() => loadStoredCity())
 
-  // Auto-detect location by IP if no stored city
+  // No stored city: take the IP guess. The nav asks too (main-nav.tsx); both share one
+  // request per page load, and none is made for a day after a failure (CitySelector.tsx).
   useEffect(() => {
     if (!coordinates) {
       autoDetectLocationByIP().then((coords) => {

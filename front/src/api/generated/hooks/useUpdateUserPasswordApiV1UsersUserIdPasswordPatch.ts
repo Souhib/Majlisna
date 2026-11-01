@@ -28,6 +28,7 @@ export type UpdateUserPasswordApiV1UsersUserIdPasswordPatchMutationKey =
   ReturnType<typeof updateUserPasswordApiV1UsersUserIdPasswordPatchMutationKey>;
 
 /**
+ * @description Change the password; every OTHER session of the account is signed out (SEC F01).
  * @summary Update User Password
  * {@link /api/v1/users/:user_id/password}
  */
@@ -95,6 +96,7 @@ export function updateUserPasswordApiV1UsersUserIdPasswordPatchMutationOptions<
 }
 
 /**
+ * @description Change the password; every OTHER session of the account is signed out (SEC F01).
  * @summary Update User Password
  * {@link /api/v1/users/:user_id/password}
  */

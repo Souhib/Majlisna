@@ -97,8 +97,11 @@ export type { KeepNotebookGameWordsApiV1NotebookGamesGameIdKeepPostMutationKey }
 export type { KeepNotebookWordApiV1NotebookEntriesPostMutationKey } from "./useKeepNotebookWordApiV1NotebookEntriesPost.ts";
 export type { KickPlayerApiV1RoomsRoomIdKickPatchMutationKey } from "./useKickPlayerApiV1RoomsRoomIdKickPatch.ts";
 export type { LeaveRoomApiV1RoomsLeavePatchMutationKey } from "./useLeaveRoomApiV1RoomsLeavePatch.ts";
+export type { LiftRoomBanApiV1RoomsRoomIdBansUserIdDeleteMutationKey } from "./useLiftRoomBanApiV1RoomsRoomIdBansUserIdDelete.ts";
 export type { ListNotebookEntriesApiV1NotebookGetQueryKey } from "./useListNotebookEntriesApiV1NotebookGet.ts";
 export type { ListNotebookEntriesApiV1NotebookGetSuspenseQueryKey } from "./useListNotebookEntriesApiV1NotebookGetSuspense.ts";
+export type { ListRoomBansApiV1RoomsRoomIdBansGetQueryKey } from "./useListRoomBansApiV1RoomsRoomIdBansGet.ts";
+export type { ListRoomBansApiV1RoomsRoomIdBansGetSuspenseQueryKey } from "./useListRoomBansApiV1RoomsRoomIdBansGetSuspense.ts";
 export type { LoginApiV1AuthLoginPostMutationKey } from "./useLoginApiV1AuthLoginPost.ts";
 export type { LogoutApiV1AuthLogoutPostMutationKey } from "./useLogoutApiV1AuthLogoutPost.ts";
 export type { MrWhiteGuessApiV1UndercoverGamesGameIdMrWhiteGuessPostMutationKey } from "./useMrWhiteGuessApiV1UndercoverGamesGameIdMrWhiteGuessPost.ts";
@@ -541,6 +544,10 @@ export { leaveRoomApiV1RoomsLeavePatchMutationKey } from "./useLeaveRoomApiV1Roo
 export { leaveRoomApiV1RoomsLeavePatch } from "./useLeaveRoomApiV1RoomsLeavePatch.ts";
 export { leaveRoomApiV1RoomsLeavePatchMutationOptions } from "./useLeaveRoomApiV1RoomsLeavePatch.ts";
 export { useLeaveRoomApiV1RoomsLeavePatch } from "./useLeaveRoomApiV1RoomsLeavePatch.ts";
+export { liftRoomBanApiV1RoomsRoomIdBansUserIdDeleteMutationKey } from "./useLiftRoomBanApiV1RoomsRoomIdBansUserIdDelete.ts";
+export { liftRoomBanApiV1RoomsRoomIdBansUserIdDelete } from "./useLiftRoomBanApiV1RoomsRoomIdBansUserIdDelete.ts";
+export { liftRoomBanApiV1RoomsRoomIdBansUserIdDeleteMutationOptions } from "./useLiftRoomBanApiV1RoomsRoomIdBansUserIdDelete.ts";
+export { useLiftRoomBanApiV1RoomsRoomIdBansUserIdDelete } from "./useLiftRoomBanApiV1RoomsRoomIdBansUserIdDelete.ts";
 export { listNotebookEntriesApiV1NotebookGetQueryKey } from "./useListNotebookEntriesApiV1NotebookGet.ts";
 export { listNotebookEntriesApiV1NotebookGet } from "./useListNotebookEntriesApiV1NotebookGet.ts";
 export { listNotebookEntriesApiV1NotebookGetQueryOptions } from "./useListNotebookEntriesApiV1NotebookGet.ts";
@@ -549,6 +556,14 @@ export { listNotebookEntriesApiV1NotebookGetSuspenseQueryKey } from "./useListNo
 export { listNotebookEntriesApiV1NotebookGetSuspense } from "./useListNotebookEntriesApiV1NotebookGetSuspense.ts";
 export { listNotebookEntriesApiV1NotebookGetSuspenseQueryOptions } from "./useListNotebookEntriesApiV1NotebookGetSuspense.ts";
 export { useListNotebookEntriesApiV1NotebookGetSuspense } from "./useListNotebookEntriesApiV1NotebookGetSuspense.ts";
+export { listRoomBansApiV1RoomsRoomIdBansGetQueryKey } from "./useListRoomBansApiV1RoomsRoomIdBansGet.ts";
+export { listRoomBansApiV1RoomsRoomIdBansGet } from "./useListRoomBansApiV1RoomsRoomIdBansGet.ts";
+export { listRoomBansApiV1RoomsRoomIdBansGetQueryOptions } from "./useListRoomBansApiV1RoomsRoomIdBansGet.ts";
+export { useListRoomBansApiV1RoomsRoomIdBansGet } from "./useListRoomBansApiV1RoomsRoomIdBansGet.ts";
+export { listRoomBansApiV1RoomsRoomIdBansGetSuspenseQueryKey } from "./useListRoomBansApiV1RoomsRoomIdBansGetSuspense.ts";
+export { listRoomBansApiV1RoomsRoomIdBansGetSuspense } from "./useListRoomBansApiV1RoomsRoomIdBansGetSuspense.ts";
+export { listRoomBansApiV1RoomsRoomIdBansGetSuspenseQueryOptions } from "./useListRoomBansApiV1RoomsRoomIdBansGetSuspense.ts";
+export { useListRoomBansApiV1RoomsRoomIdBansGetSuspense } from "./useListRoomBansApiV1RoomsRoomIdBansGetSuspense.ts";
 export { loginApiV1AuthLoginPostMutationKey } from "./useLoginApiV1AuthLoginPost.ts";
 export { loginApiV1AuthLoginPost } from "./useLoginApiV1AuthLoginPost.ts";
 export { loginApiV1AuthLoginPostMutationOptions } from "./useLoginApiV1AuthLoginPost.ts";

@@ -28,12 +28,15 @@ export type DeleteAccountApiV1UsersMeAccountDeleteMutationKey = ReturnType<
 >;
 
 /**
- * @description Delete current user's account. Requires password confirmation.
+ * @description Delete the current user's account, confirmed by the password or, for a Google
+ * account, a fresh Google access token naming it.
+ * The account first leaves every room like a leave does (its game is played on
+ * without it), so each room is told, and the socket cut off it, as the leave route does.
  * @summary Delete Account
  * {@link /api/v1/users/me/account}
  */
 export async function deleteAccountApiV1UsersMeAccountDelete(
-  data: DeleteAccountApiV1UsersMeAccountDeleteMutationRequest,
+  data?: DeleteAccountApiV1UsersMeAccountDeleteMutationRequest,
   config: Partial<
     RequestConfig<DeleteAccountApiV1UsersMeAccountDeleteMutationRequest>
   > & { client?: Client } = {},
@@ -72,7 +75,7 @@ export function deleteAccountApiV1UsersMeAccountDeleteMutationOptions<
       | DeleteAccountApiV1UsersMeAccountDelete404
       | DeleteAccountApiV1UsersMeAccountDelete422
     >,
-    { data: DeleteAccountApiV1UsersMeAccountDeleteMutationRequest },
+    { data?: DeleteAccountApiV1UsersMeAccountDeleteMutationRequest },
     TContext
   >({
     mutationKey,
@@ -83,7 +86,10 @@ export function deleteAccountApiV1UsersMeAccountDeleteMutationOptions<
 }
 
 /**
- * @description Delete current user's account. Requires password confirmation.
+ * @description Delete the current user's account, confirmed by the password or, for a Google
+ * account, a fresh Google access token naming it.
+ * The account first leaves every room like a leave does (its game is played on
+ * without it), so each room is told, and the socket cut off it, as the leave route does.
  * @summary Delete Account
  * {@link /api/v1/users/me/account}
  */
@@ -95,7 +101,7 @@ export function useDeleteAccountApiV1UsersMeAccountDelete<TContext>(
         | DeleteAccountApiV1UsersMeAccountDelete404
         | DeleteAccountApiV1UsersMeAccountDelete422
       >,
-      { data: DeleteAccountApiV1UsersMeAccountDeleteMutationRequest },
+      { data?: DeleteAccountApiV1UsersMeAccountDeleteMutationRequest },
       TContext
     > & { client?: QueryClient };
     client?: Partial<
@@ -117,7 +123,7 @@ export function useDeleteAccountApiV1UsersMeAccountDelete<TContext>(
       | DeleteAccountApiV1UsersMeAccountDelete404
       | DeleteAccountApiV1UsersMeAccountDelete422
     >,
-    { data: DeleteAccountApiV1UsersMeAccountDeleteMutationRequest },
+    { data?: DeleteAccountApiV1UsersMeAccountDeleteMutationRequest },
     TContext
   >;
 
@@ -127,7 +133,7 @@ export function useDeleteAccountApiV1UsersMeAccountDelete<TContext>(
       | DeleteAccountApiV1UsersMeAccountDelete404
       | DeleteAccountApiV1UsersMeAccountDelete422
     >,
-    { data: DeleteAccountApiV1UsersMeAccountDeleteMutationRequest },
+    { data?: DeleteAccountApiV1UsersMeAccountDeleteMutationRequest },
     TContext
   >(
     {
@@ -142,7 +148,7 @@ export function useDeleteAccountApiV1UsersMeAccountDelete<TContext>(
       | DeleteAccountApiV1UsersMeAccountDelete404
       | DeleteAccountApiV1UsersMeAccountDelete422
     >,
-    { data: DeleteAccountApiV1UsersMeAccountDeleteMutationRequest },
+    { data?: DeleteAccountApiV1UsersMeAccountDeleteMutationRequest },
     TContext
   >;
 }

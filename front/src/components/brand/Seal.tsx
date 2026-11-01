@@ -7,6 +7,10 @@ import { cn } from "@/lib/utils"
  * it fades in. Achievements are sealed in the colophon at the end of the game, never
  * as mid-game toasts.
  *
+ * - `index` (its place in a set, the colophon's seals): the press waits for the phase
+ *   crossfade (--dur-state), then the seals land one by one, --stagger apart, 240 ms at
+ *   most (index.css, `.seal-press[data-seal-index]`); the reduced fade waits the same.
+ *
  * - `progress` (0–1) draws a brass arc around it: the lawh's "hold to read" seal.
  * - `ground` is the colour the ring cuts out (defaults to --surface; pass "var(--surface-2)"
  *   on a sand tile).
@@ -21,6 +25,8 @@ export interface SealProps {
   size?: number
   /** Animate the press on mount. Default true. */
   pressed?: boolean
+  /** Its place in a set of seals pressed together (0-based): staggers the press. */
+  index?: number
   /** 0–1: brass arc around the seal (hold progress). */
   progress?: number
   ground?: string
@@ -29,14 +35,16 @@ export interface SealProps {
   className?: string
 }
 
-export function Seal({ size = 22, pressed = true, progress, ground, title, caption, className }: SealProps) {
+export function Seal({ size = 22, pressed = true, index, progress, ground, title, caption, className }: SealProps) {
   const r = 29
   const c = 2 * Math.PI * r
+  const inSet = pressed && index !== undefined
   const mark = (
     <span
       aria-hidden="true"
       className={cn("brass-seal", pressed && "seal-press")}
-      style={{ "--seal": `${size}px`, ...(ground ? { "--seal-ground": ground } : {}) } as CSSProperties}
+      data-seal-index={inSet ? index : undefined}
+      style={{ "--seal": `${size}px`, ...(inSet ? { "--i": index } : {}), ...(ground ? { "--seal-ground": ground } : {}) } as CSSProperties}
     >
       {progress !== undefined ? (
         <svg viewBox="0 0 64 64">

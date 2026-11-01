@@ -45,10 +45,14 @@ interface QuizGameOverProps {
  * all in the Jabreen arch. The title is the colophon's h2 and always carries "Game
  * Over" (visually hidden when a sentence says who won), which the E2E helpers wait on.
  *
- * Ties are said as ties: the server names one winner even when the top scores are
- * equal, so the title reads the leaderboard instead of trusting `winner` alone. The
- * title is a plain sentence ("Umar wins.", like the other colophons), and one line
- * under it says how it ended ("3 points clear of Aisha.", "4 points each.").
+ * The result follows owner rule (a), read from the final leaderboard (leavers are not on
+ * it), the same rule the server records the wins by:
+ * - several top scorers above 0 share the win, all of them named ("Umar and Aisha share
+ *   the win.", then "4 points each."); the server's `winner` is null then;
+ * - a game where nobody scored has no winner ("No one scored: no winner this time.");
+ * - a game of one is never a win: it says the player's score ("You finished with 7 points.");
+ * - one top scorer wins ("Umar wins.", then "3 points clear of Aisha."), named by the
+ *   server's `winner`. Without it (a state from before the end) the title is "Game Over".
  *
  * Kalimat also lists the game's words after the scores (from the notebook's read of
  * the game: the quiz state only holds the current round's answer) and offers "Keep
@@ -80,19 +84,24 @@ export const QuizGameOver = memo(function QuizGameOver({
   const ranks = competitionRanks(sorted.map((e) => e.total_score))
   const leaders = sorted.filter((_, i) => ranks[i] === 1)
   const solo = sorted.length === 1
+  // Only a score above 0 wins anything: a 0-0 game has no winner, and no one is first.
+  const topScore = sorted[0]?.total_score ?? 0
+  const someoneScored = topScore > 0
 
   let sentence: string | null = null
   let summary: string | undefined
   if (solo) {
     sentence = t("game.quiz.soloScore", { count: sorted[0].total_score })
+  } else if (sorted.length > 0 && !someoneScored) {
+    sentence = t("game.quiz.noWinner")
   } else if (leaders.length > 1) {
-    sentence = t("game.quiz.tie", {
+    sentence = t("game.quiz.sharedWin", {
       names: listFormat(
         leaders.map((e) => e.username),
         i18n.language,
       ),
     })
-    summary = t("game.quiz.tieSummary", { count: leaders[0].total_score })
+    summary = t("game.quiz.tieSummary", { count: topScore })
   } else if (winner) {
     sentence = t(winnerI18nKey, { username: leaders[0]?.username ?? winner })
     const runnerUp = sorted[1]
@@ -133,7 +142,7 @@ export const QuizGameOver = memo(function QuizGameOver({
       <ol className="mt-1.5 border-t border-line-brass" data-testid="quiz-final-scores">
         {sorted.map((entry, index) => {
           const isMe = entry.user_id === currentUserId
-          const first = ranks[index] === 1 && !solo
+          const first = ranks[index] === 1 && !solo && someoneScored
           return (
             <li
               key={entry.user_id}

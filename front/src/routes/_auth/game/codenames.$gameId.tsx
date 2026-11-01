@@ -23,6 +23,7 @@ import { EmptyState } from "@/components/ui/empty-state"
 import { Panel } from "@/components/ui/panel"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useCodenamesGame } from "@/hooks/use-codenames-game"
+import { usePhaseFocus } from "@/hooks/use-phase-focus"
 
 export const Route = createFileRoute("/_auth/game/codenames/$gameId")({
   component: () => (
@@ -38,6 +39,10 @@ export const Route = createFileRoute("/_auth/game/codenames/$gameId")({
  * so far; at the end the colophon (sketch H) takes the side and the board shows every
  * card. The page wrapper is `relative`: while the host has paused the game for the
  * prayer, the pause veil lies over it and everything under it is inert.
+ *
+ * The end (F3): the decisive card is woven, the veil holds the ceremony, then lifts
+ * through a view transition into the colophon (`colophonHeld` keeps it back until then),
+ * and focus goes to the colophon's title.
  */
 function CodenamesGamePage() {
   const { gameId } = Route.useParams()
@@ -52,12 +57,14 @@ function CodenamesGamePage() {
     cancelMessage,
     isPaused,
     showGameOverTransition,
+    colophonHeld,
     roomIdRef,
     clueWord,
     setClueWord,
     clueNumber,
     setClueNumber,
     isSubmittingClue,
+    isEndingTurn,
     handleGiveClue,
     handleGuessCard,
     handleEndTurn,
@@ -72,6 +79,10 @@ function CodenamesGamePage() {
   const prayerPause = usePrayerPause("codenames", gameId, serverState)
   const adhan = useAdhanSuggestion({ gameId, canPause: prayerPause.canPause, paused: isPaused })
   const gameRef = useRef<HTMLDivElement>(null)
+  // The colophon is on screen once the game is over and the veil has lifted: focus goes to
+  // its title then (never on a page opened on a finished game, where nothing changed).
+  const colophonShown = gameState?.status === "finished" && !!gameState.winner && !colophonHeld
+  usePhaseFocus(gameState ? (colophonShown ? "colophon" : "board") : null, gameRef, { targets: { colophon: "[data-colophon-title]" } })
   const { answer: answerAdhan } = adhan
   const { pause: pauseGame } = prayerPause
   const pauseFromStrip = useCallback(() => {
@@ -216,7 +227,7 @@ function CodenamesGamePage() {
                 <p className="text-[13.5px] leading-snug text-muted-foreground">
                   {totalOperatives > 1 ? t("game.codenames.pointTogether") : t("game.codenames.tapToGuess")}
                 </p>
-                <Button variant="secondary" size="sm" onClick={handleEndTurn}>
+                <Button variant="secondary" size="sm" onClick={handleEndTurn} loading={isEndingTurn}>
                   {t("game.codenames.endTurn")}
                 </Button>
               </div>
@@ -230,7 +241,7 @@ function CodenamesGamePage() {
             <ClueHistory history={history} />
           </div>
 
-          {isFinished && gameState.winner && !showGameOverTransition ? (
+          {colophonShown && gameState.winner ? (
             <div className="cn-area-colophon">
               <GameOverScreen
                 winner={gameState.winner}

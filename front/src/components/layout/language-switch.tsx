@@ -17,10 +17,17 @@ export const LANGUAGES = [
 
 export type LanguageCode = (typeof LANGUAGES)[number]["code"]
 
+/** One of the three interface languages, from any tag: "ar-SA" → "ar", "fr_CA" → "fr", else "en". */
 export function currentLanguage(language: string | undefined): LanguageCode {
-  if (language?.startsWith("ar")) return "ar"
-  if (language?.startsWith("fr")) return "fr"
-  return "en"
+  const part = language?.trim().split(/[-_]/)[0].toLowerCase()
+  return LANGUAGES.find((l) => l.code === part)?.code ?? "en"
+}
+
+/** <html dir/lang> for a language, from its normalised code (never `=== "ar"` on a raw tag). */
+export function syncDocumentLanguage(language: string | undefined) {
+  const lang = LANGUAGES.find((l) => l.code === currentLanguage(language)) ?? LANGUAGES[0]
+  document.documentElement.dir = lang.dir
+  document.documentElement.lang = lang.code
 }
 
 /** Apply a language everywhere it lives: i18next, storage, and <html dir/lang>. */
@@ -33,8 +40,7 @@ export function applyLanguage(i18n: { changeLanguage: (lng: string) => unknown }
   } catch {
     // private mode: the choice lasts for this visit only
   }
-  document.documentElement.dir = lang.dir
-  document.documentElement.lang = lang.code
+  syncDocumentLanguage(lang.code)
 }
 
 export function LanguageSwitch({ variant = "short", className }: { variant?: "short" | "full"; className?: string }) {
@@ -51,8 +57,10 @@ export function LanguageSwitch({ variant = "short", className }: { variant?: "sh
           dir={lang.dir}
           aria-pressed={current === lang.code}
           onClick={() => {
-            if (current === lang.code) return
-            trackEvent("language-change", { lang: lang.code })
+            // Only the exact code is a no-op: a regional tag left over from before the
+            // detection was normalised (ar-SA) reads as current, and the tap repairs it.
+            if (i18n.language === lang.code) return
+            if (current !== lang.code) trackEvent("language-change", { lang: lang.code })
             applyLanguage(i18n, lang.code)
           }}
         >

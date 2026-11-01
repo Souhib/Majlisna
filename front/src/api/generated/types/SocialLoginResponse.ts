@@ -9,7 +9,7 @@ import type { SocialLoginUserData } from "./SocialLoginUserData.ts";
 
 /**
  * SocialLoginResponse
- * @description Response schema for social login endpoint.
+ * @description Response schema for social login endpoint (the refresh token is the httpOnly cookie).
  */
 export type SocialLoginResponse = {
   /**
@@ -17,11 +17,6 @@ export type SocialLoginResponse = {
    * @type string
    */
   access_token: string;
-  /**
-   * @description JWT refresh token
-   * @type string
-   */
-  refresh_token: string;
   /**
    * @description Token type
    * @default "bearer"

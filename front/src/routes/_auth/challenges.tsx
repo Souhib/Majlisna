@@ -5,6 +5,7 @@ import { useGetActiveChallengesApiV1ChallengesActiveGet } from "@/api/generated"
 import type { ActiveChallenge } from "@/api/generated"
 import { Lozenge, Seal } from "@/components/brand"
 import { gameName, percentOf, timeLeft } from "@/components/stats/format"
+import { LoadFailed } from "@/components/stats/LoadFailed"
 import { PageHeader } from "@/components/stats/PlayerSpace"
 import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/ui/empty-state"
@@ -21,9 +22,8 @@ function ChallengesPage() {
   const { t } = useTranslation()
   const { user } = useAuth()
 
-  const { data: challenges = [], isLoading } = useGetActiveChallengesApiV1ChallengesActiveGet({
-    query: { enabled: !!user?.id },
-  }) as { data: ActiveChallenge[] | undefined; isLoading: boolean }
+  const query = useGetActiveChallengesApiV1ChallengesActiveGet({ query: { enabled: !!user?.id } })
+  const challenges: ActiveChallenge[] = useMemo(() => query.data ?? [], [query.data])
 
   const daily = useMemo(() => challenges.filter((c) => c.challenge_type === "daily"), [challenges])
   const weekly = useMemo(() => challenges.filter((c) => c.challenge_type === "weekly"), [challenges])
@@ -33,11 +33,14 @@ function ChallengesPage() {
     <div className="page-wrap py-[clamp(32px,5vw,72px)]">
       <PageHeader title={t("challenges.title")} lede={challenges.length > 0 ? t("challenges.doneCount", { done, total: challenges.length }) : undefined} />
 
-      {isLoading ? (
+      {query.isLoading ? (
         <div className="grid gap-[clamp(16px,2vw,24px)] lg:grid-cols-2" aria-busy="true">
           <Skeleton className="h-80 w-full" />
           <Skeleton className="h-80 w-full" />
         </div>
+      ) : query.isError ? (
+        // a failed read is not "No challenges yet" (FR-7)
+        <LoadFailed error={query.error} retrying={query.isRefetching} onRetry={() => void query.refetch()} />
       ) : challenges.length === 0 ? (
         <Panel>
           <EmptyState

@@ -7,10 +7,9 @@
 
 /**
  * DeleteAccountRequest
+ * @description How the owner confirms a deletion: EXACTLY one of the two (SEC F14).\n\n- ``password``: an account with a password (checked in bytes, SEC F10);\n- ``google_access_token``: a fresh Google access token, verified like a sign-in\n  (``SocialAuthService``, the same audience check), whose ``sub`` must be the\n  account\'s ``google_sub``. A Google-only account\'s password is a random value its\n  owner never saw, so it could only delete after a password reset.
  */
 export type DeleteAccountRequest = {
-  /**
-   * @type string
-   */
-  password: string;
+  password?: string | null;
+  google_access_token?: string | null;
 };

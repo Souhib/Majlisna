@@ -1,4 +1,4 @@
-import { memo, type FormEvent } from "react"
+import { memo, type FormEvent, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Field, Input } from "@/components/ui/field"
@@ -16,26 +16,58 @@ interface CluePanelProps {
 export const CLUE_COUNTS = [1, 2, 3, 4, 0] as const
 
 /**
+ * A clue is one word: once trimmed, no whitespace of any kind inside it. The server's
+ * rule (`ClueMustBeOneWordError`: `len(clue.split()) != 1`), checked here first so a
+ * spymaster typing "the Sunnah" (which carries the board's "Sunnah") is told in the field.
+ */
+export function isOneWordClue(clue: string): boolean {
+  const trimmed = clue.trim()
+  return trimmed.length > 0 && !/\s/.test(trimmed)
+}
+
+/**
  * The spymaster's composer (sketch D): one word, how many cards it covers (1–4 or no
  * limit), "Give clue". Under the board, so the key stays in view while typing.
+ *
+ * A clue of several words is refused before anything is sent (BR-14), with the server's
+ * own message (`errors.api.clueMustBeOneWord`) under the field, focus back in it; the
+ * message goes as soon as the clue is edited.
  */
 export const CluePanel = memo(function CluePanel({ clueWord, clueNumber, isSubmitting, onClueWordChange, onClueNumberChange, onSubmit }: CluePanelProps) {
   const { t } = useTranslation()
   const empty = !clueWord.trim()
+  const [refused, setRefused] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault()
     if (empty || isSubmitting) return
+    if (!isOneWordClue(clueWord)) {
+      setRefused(true)
+      inputRef.current?.focus()
+      return
+    }
     onSubmit()
+  }
+
+  const handleChange = (value: string) => {
+    setRefused(false)
+    onClueWordChange(value)
   }
 
   return (
     <form onSubmit={handleSubmit} className="mt-4 grid gap-3" aria-label={t("game.codenames.giveClue")}>
       <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
-        <Field label={t("game.codenames.composer.label")} hideLabel hint={t("game.codenames.composer.hint")}>
+        <Field
+          label={t("game.codenames.composer.label")}
+          hideLabel
+          hint={t("game.codenames.composer.hint")}
+          error={refused ? t("errors.api.clueMustBeOneWord") : undefined}
+        >
           <Input
+            ref={inputRef}
             value={clueWord}
-            onChange={(e) => onClueWordChange(e.target.value)}
+            onChange={(e) => handleChange(e.target.value)}
             placeholder={t("game.codenames.cluePlaceholder")}
             autoComplete="off"
             autoCapitalize="off"

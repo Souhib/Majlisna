@@ -1,14 +1,13 @@
 import { useQueryClient } from "@tanstack/react-query"
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
+import { createFileRoute, Link } from "@tanstack/react-router"
 import { KeyRound, Pencil } from "lucide-react"
-import { type FormEvent, type KeyboardEvent, useMemo, useState } from "react"
+import { type FormEvent, type KeyboardEvent, type ReactNode, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import { getApiErrorMessage } from "@/api/client"
 import {
   getPublicProfileApiV1ProfilesUsersUserIdGetQueryKey,
   getUserByIdApiV1UsersUserIdGetQueryKey,
-  useDeleteAccountApiV1UsersMeAccountDelete,
   useGetUserByIdApiV1UsersUserIdGet,
   useUpdateUserApiV1UsersUserIdPatch,
   useUpdateUserPasswordApiV1UsersUserIdPasswordPatch,
@@ -16,17 +15,10 @@ import {
 import type { PublicUserView, UserView } from "@/api/generated"
 import { currentLanguage } from "@/components/layout/language-switch"
 import { countryName, countryOptions } from "@/components/profile/countries"
+import { DeleteAccount } from "@/components/profile/DeleteAccount"
+import { passwordErrorMessage } from "@/components/profile/password-error"
+import { LoadFailed } from "@/components/stats/LoadFailed"
 import { PlayLinks } from "@/components/stats/PlayLinks"
-import {
-  AlertDialog,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog"
 import { Avatar } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Field, Input, Textarea } from "@/components/ui/field"
@@ -59,17 +51,21 @@ function ProfilePage() {
   const { user } = useAuth()
   const [editing, setEditing] = useState<Editing>(null)
 
-  const { data: details } = useGetUserByIdApiV1UsersUserIdGet({ user_id: user?.id ?? "" }, { query: { enabled: !!user?.id } }) as {
-    data: PublicUserView | undefined
-  }
+  const detailsQuery = useGetUserByIdApiV1UsersUserIdGet({ user_id: user?.id ?? "" }, { query: { enabled: !!user?.id } })
+  const details: PublicUserView | undefined = detailsQuery.data
 
   if (!user) return null
+
+  // a failed read of the details is said, with Retry: it used to be a skeleton that never ended (FR-7)
+  const detailsFailed = detailsQuery.isError ? (
+    <LoadFailed error={detailsQuery.error} retrying={detailsQuery.isRefetching} onRetry={() => void detailsQuery.refetch()} />
+  ) : null
 
   return (
     <div className="page-wrap py-[clamp(32px,5vw,72px)]">
       <div className="mx-auto grid max-w-[72rem] items-start gap-[clamp(20px,2.5vw,32px)] lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
         <div className="grid min-w-0 gap-[clamp(20px,2.5vw,32px)]">
-          <IdentityPanel details={details} editing={editing} setEditing={setEditing} />
+          <IdentityPanel details={details} failed={detailsFailed} editing={editing} setEditing={setEditing} />
           <PlayLinks />
         </div>
         <AccountPanel />
@@ -78,7 +74,18 @@ function ProfilePage() {
   )
 }
 
-function IdentityPanel({ details, editing, setEditing }: { details: PublicUserView | undefined; editing: Editing; setEditing: (e: Editing) => void }) {
+function IdentityPanel({
+  details,
+  failed,
+  editing,
+  setEditing,
+}: {
+  details: PublicUserView | undefined
+  /** What to show instead of the details when their read failed. */
+  failed: ReactNode
+  editing: Editing
+  setEditing: (e: Editing) => void
+}) {
   const { t, i18n } = useTranslation()
   const { user } = useAuth()
   if (!user) return null
@@ -138,10 +145,12 @@ function IdentityPanel({ details, editing, setEditing }: { details: PublicUserVi
               </dd>
             </dl>
           ) : (
-            <div className="grid gap-3" aria-hidden="true">
-              <Skeleton className="h-5 w-2/3" />
-              <Skeleton className="h-5 w-5/6" />
-            </div>
+            (failed ?? (
+              <div className="grid gap-3" aria-hidden="true">
+                <Skeleton className="h-5 w-2/3" />
+                <Skeleton className="h-5 w-5/6" />
+              </div>
+            ))
           )}
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
             {/* the form starts from the saved values, so it opens once they are here */}
@@ -371,7 +380,8 @@ function PasswordForm({ onDone }: { onDone: () => void }) {
       toast.success(t("profile.passwordChanged"))
       onDone()
     } catch (err) {
-      setErrors({ current: getApiErrorMessage(err) })
+      // a wrong current password is the login's 401: said as a wrong password (F6)
+      setErrors({ current: passwordErrorMessage(err, t) })
     }
   }
 
@@ -399,86 +409,5 @@ function PasswordForm({ onDone }: { onDone: () => void }) {
       </Field>
       <FormActions busy={changePasswordMutation.isPending} onCancel={onDone} />
     </form>
-  )
-}
-
-/** Account deletion: behind a confirmation that asks for the password, as the server does. */
-function DeleteAccount() {
-  const { t } = useTranslation()
-  const { logout } = useAuth()
-  const navigate = useNavigate()
-  const deleteAccountMutation = useDeleteAccountApiV1UsersMeAccountDelete()
-  const [open, setOpen] = useState(false)
-  const [password, setPassword] = useState("")
-  const [error, setError] = useState<string | null>(null)
-
-  const onOpenChange = (next: boolean) => {
-    if (deleteAccountMutation.isPending) return
-    setOpen(next)
-    if (!next) {
-      setPassword("")
-      setError(null)
-    }
-  }
-
-  const submit = async (e: FormEvent) => {
-    e.preventDefault()
-    if (deleteAccountMutation.isPending) return
-    if (!password) {
-      setError(t("profile.passwordRequired"))
-      return
-    }
-    try {
-      await deleteAccountMutation.mutateAsync({ data: { password } })
-      setOpen(false)
-      logout()
-      navigate({ to: "/" })
-      toast.success(t("profile.accountDeleted"))
-    } catch (err) {
-      setError(getApiErrorMessage(err))
-    }
-  }
-
-  return (
-    <section aria-labelledby="delete-title" className="grid gap-3">
-      <h3 id="delete-title" className="type-label">
-        {t("profile.deleteAccount")}
-      </h3>
-      <p className="text-[14.5px] leading-normal text-muted-foreground text-pretty">{t("profile.deleteAccountDescription")}</p>
-      <AlertDialog open={open} onOpenChange={onOpenChange}>
-        <AlertDialogTrigger asChild>
-          <Button variant="danger" size="sm" className="justify-self-start">
-            {t("profile.deleteAccountOpen")}
-          </Button>
-        </AlertDialogTrigger>
-        <AlertDialogContent>
-          <form onSubmit={submit} className="grid gap-4" noValidate>
-            <AlertDialogHeader>
-              <AlertDialogTitle>{t("profile.deleteAccountTitle")}</AlertDialogTitle>
-              <AlertDialogDescription>{t("profile.deleteAccountWarning")}</AlertDialogDescription>
-            </AlertDialogHeader>
-            <Field label={t("profile.password")} error={error}>
-              <Input
-                type="password"
-                value={password}
-                onChange={(e) => {
-                  setPassword(e.target.value)
-                  setError(null)
-                }}
-                placeholder={t("profile.enterPasswordToDelete")}
-                autoComplete="current-password"
-                autoFocus
-              />
-            </Field>
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={deleteAccountMutation.isPending}>{t("common.cancel")}</AlertDialogCancel>
-              <Button type="submit" variant="danger" loading={deleteAccountMutation.isPending}>
-                {t("profile.deleteAccountConfirm")}
-              </Button>
-            </AlertDialogFooter>
-          </form>
-        </AlertDialogContent>
-      </AlertDialog>
-    </section>
   )
 }

@@ -31,7 +31,8 @@ export function PopoverContent({ className, sideOffset = 8, arrow = false, child
         className={cn(
           "z-50 w-72 max-w-[calc(100vw-32px)] rounded-lg border border-line-brass bg-popover p-4 text-[15px] leading-normal text-popover-foreground",
           "shadow-[0_18px_36px_-20px_oklch(0_0_0/0.45)] outline-none",
-          "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 duration-(--dur-state)",
+          "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0",
+          "duration-(--dur-state) ease-(--ease-out) data-[state=closed]:ease-(--ease-in) data-[state=closed]:duration-[calc(var(--dur-state)*0.66)]",
           className,
         )}
         {...props}

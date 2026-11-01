@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, renderHook } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { createElement } from "react"
@@ -75,6 +75,7 @@ const mockServerState = {
 
 // Shared, so the prayer-pause tests can see what was (not) sent.
 const mockGuess = vi.fn()
+const mockClue = vi.fn()
 const mockEndTurn = vi.fn()
 const mockTimerExpired = vi.fn()
 
@@ -88,7 +89,7 @@ vi.mock("@/api/generated", () => ({
     isLoading: mockIsLoading,
     error: mockQueryError,
   }),
-  useGiveClueApiV1CodenamesGamesGameIdCluePost: () => ({ mutateAsync: vi.fn() }),
+  useGiveClueApiV1CodenamesGamesGameIdCluePost: () => ({ mutateAsync: mockClue }),
   useGuessCardApiV1CodenamesGamesGameIdGuessPost: () => ({ mutateAsync: mockGuess }),
   useEndTurnApiV1CodenamesGamesGameIdEndTurnPost: () => ({ mutateAsync: mockEndTurn }),
   useRecordHintViewedApiV1CodenamesGamesGameIdHintViewedPost: () => ({ mutateAsync: vi.fn() }),
@@ -305,5 +306,195 @@ describe("useCodenamesGame: the prayer pause", () => {
 
     expect(mockGuess).toHaveBeenCalledTimes(1)
     expect(toast.error).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("useCodenamesGame: the end of the game (the veil)", () => {
+  const realMatchMedia = window.matchMedia
+
+  function reducedMotion(on: boolean) {
+    window.matchMedia = ((query: string) => ({
+      matches: on && query.includes("prefers-reduced-motion: reduce"),
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    })) as unknown as typeof window.matchMedia
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.useFakeTimers()
+    mockIsLoading = false
+    mockQueryError = null
+    reducedMotion(false)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    window.matchMedia = realMatchMedia
+  })
+
+  /** Ends the game on screen, then follows the veil in 10 ms steps: when it came, how long it stayed. */
+  function endTheGame() {
+    mockQueryData = { ...mockServerState, status: "in_progress", winner: null }
+    const hook = renderHook(() => useCodenamesGame("game-1"), { wrapper: createWrapper() })
+    mockQueryData = { ...mockServerState, status: "finished", winner: "red" } as typeof mockQueryData
+    act(() => hook.rerender())
+    let shownAt: number | null = null
+    let liftedAt: number | null = null
+    const colophonHeldWhileVeiled: boolean[] = []
+    for (let t = 0; t <= 4000 && liftedAt === null; t += 10) {
+      const veiled = hook.result.current.showGameOverTransition
+      if (veiled) colophonHeldWhileVeiled.push(hook.result.current.colophonHeld)
+      if (veiled && shownAt === null) shownAt = t
+      if (!veiled && shownAt !== null) liftedAt = t
+      act(() => vi.advanceTimersByTime(10))
+    }
+    return { hook, shownAt, liftedAt, colophonHeldWhileVeiled }
+  }
+
+  it("lets the decisive card's selvedge be seen, then holds the veil for the ceremony, not 3 s", () => {
+    // Act
+    const { hook, shownAt, liftedAt, colophonHeldWhileVeiled } = endTheGame()
+
+    // Assert: the veil comes after the card's 640 ms weave and is gone within 1.3 s
+    expect(shownAt).not.toBeNull()
+    expect(shownAt!).toBeGreaterThanOrEqual(600)
+    expect(liftedAt).not.toBeNull()
+    expect(liftedAt! - shownAt!).toBeLessThanOrEqual(1300)
+    // the colophon waits for the veil (its "Game Over" never sits beside the veil's)
+    expect(colophonHeldWhileVeiled.every(Boolean)).toBe(true)
+    expect(hook.result.current.colophonHeld).toBe(false)
+  })
+
+  it("holds the colophon back while the decisive card is still being woven", () => {
+    mockQueryData = { ...mockServerState, status: "in_progress", winner: null }
+    const { result, rerender } = renderHook(() => useCodenamesGame("game-1"), { wrapper: createWrapper() })
+    mockQueryData = { ...mockServerState, status: "finished", winner: "red" } as typeof mockQueryData
+
+    act(() => rerender())
+
+    expect(result.current.showGameOverTransition).toBe(false)
+    expect(result.current.colophonHeld).toBe(true)
+  })
+
+  it("under reduced motion, shows the veil at once and holds it 600 ms at most", () => {
+    // Prepare
+    reducedMotion(true)
+
+    // Act
+    const { shownAt, liftedAt } = endTheGame()
+
+    // Assert
+    expect(shownAt).toBe(0)
+    expect(liftedAt).not.toBeNull()
+    expect(liftedAt! - shownAt!).toBeLessThanOrEqual(600)
+  })
+
+  it("draws no veil for a game that was already over when the page opened", () => {
+    mockQueryData = { ...mockServerState, status: "finished", winner: "red" } as typeof mockQueryData
+    const { result } = renderHook(() => useCodenamesGame("game-1"), { wrapper: createWrapper() })
+
+    act(() => vi.advanceTimersByTime(100))
+
+    expect(result.current.showGameOverTransition).toBe(false)
+    expect(result.current.colophonHeld).toBe(false)
+  })
+})
+
+describe("useCodenamesGame: reporting the end of the clock (BDP-03)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.useFakeTimers()
+    mockIsLoading = false
+    mockQueryError = null
+    mockTimerExpired.mockResolvedValue({ game_id: "game-1", action: "auto_end_turn" })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it("lets the host report at once", async () => {
+    mockQueryData = { ...mockServerState, is_host: true, timer_started_at: "2026-10-28T14:59:00+00:00" } as typeof mockQueryData
+    const { result } = renderHook(() => useCodenamesGame("game-1"), { wrapper: createWrapper() })
+
+    await act(() => result.current.handleTimerExpired())
+
+    expect(mockTimerExpired).toHaveBeenCalledTimes(1)
+  })
+
+  it("a non-host does not POST timer-expired within 1 s, nor at all when a game_updated arrives", async () => {
+    // Prepare: a guest's clock ran out
+    mockQueryData = { ...mockServerState, is_host: false, timer_started_at: "2026-10-28T14:59:00+00:00" } as typeof mockQueryData
+    const { result, rerender } = renderHook(() => useCodenamesGame("game-1"), { wrapper: createWrapper() })
+    await act(() => result.current.handleTimerExpired())
+    await act(() => vi.advanceTimersByTimeAsync(900))
+    expect(mockTimerExpired).not.toHaveBeenCalled()
+
+    // Act: the host's report landed, the turn passed (game_updated → the new board)
+    mockQueryData = { ...mockServerState, is_host: false, current_team: "blue", timer_started_at: "2026-10-28T15:00:01+00:00" } as typeof mockQueryData
+    rerender()
+    await act(() => vi.advanceTimersByTimeAsync(3000))
+
+    // Assert
+    expect(mockTimerExpired).not.toHaveBeenCalled()
+  })
+
+  it("a non-host reports after its wait when nothing came", async () => {
+    mockQueryData = { ...mockServerState, is_host: false, timer_started_at: "2026-10-28T14:59:00+00:00" } as typeof mockQueryData
+    const { result } = renderHook(() => useCodenamesGame("game-1"), { wrapper: createWrapper() })
+
+    await act(() => result.current.handleTimerExpired())
+    await act(() => vi.advanceTimersByTimeAsync(2001))
+
+    expect(mockTimerExpired).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("useCodenamesGame: moves", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockIsLoading = false
+    mockQueryError = null
+    mockQueryData = { ...mockServerState } as typeof mockQueryData
+  })
+
+  it("says a refused move in the player's language, never an English literal", async () => {
+    // Prepare
+    mockEndTurn.mockRejectedValue(new TypeError("Failed to fetch"))
+    mockGuess.mockRejectedValue(new TypeError("Failed to fetch"))
+    mockClue.mockRejectedValue(new TypeError("Failed to fetch"))
+    const { result } = renderHook(() => useCodenamesGame("game-1"), { wrapper: createWrapper() })
+    act(() => result.current.setClueWord("Ilm"))
+
+    // Act
+    await act(() => result.current.handleEndTurn())
+    await act(() => result.current.handleGuessCard(0))
+    await act(() => result.current.handleGiveClue())
+
+    // Assert
+    expect(vi.mocked(toast.error).mock.calls.map((c) => c[0])).toEqual(["game.errors.moveFailed", "game.errors.moveFailed", "game.errors.moveFailed"])
+  })
+
+  it("sends one guess and one end of turn for a double tap", async () => {
+    // Prepare: the requests take a moment
+    mockGuess.mockImplementation(() => new Promise((resolve) => setTimeout(() => resolve({ all_voted: true }), 20)))
+    mockEndTurn.mockImplementation(() => new Promise((resolve) => setTimeout(() => resolve({}), 20)))
+    const { result } = renderHook(() => useCodenamesGame("game-1"), { wrapper: createWrapper() })
+
+    // Act: two taps in the same tick, before any re-render
+    await act(async () => {
+      await Promise.all([result.current.handleGuessCard(1), result.current.handleGuessCard(1)])
+      await Promise.all([result.current.handleEndTurn(), result.current.handleEndTurn()])
+    })
+
+    // Assert
+    expect(mockGuess).toHaveBeenCalledTimes(1)
+    expect(mockEndTurn).toHaveBeenCalledTimes(1)
   })
 })

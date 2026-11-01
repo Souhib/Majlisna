@@ -1,6 +1,7 @@
 import { MapPin, Search } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
+import { currentLanguage, type LanguageCode } from "@/components/layout/language-switch"
 import { Button } from "@/components/ui/button"
 
 export interface CityCoordinates {
@@ -18,6 +19,11 @@ interface CitySelectorProps {
 const STORAGE_CITY_KEY = "majlisna-city"
 const STORAGE_COORDS_KEY = "majlisna-coordinates"
 
+/** When the last IP detection failed (ms since the epoch): not asked again for a day. */
+export const GEO_FAILED_AT_KEY = "majlisna-geo-failed-at"
+export const GEO_RETRY_AFTER_MS = 24 * 60 * 60 * 1000
+const IPAPI_URL = "https://ipapi.co/json/"
+
 export function loadStoredCity(): CityCoordinates | null {
   try {
     const city = localStorage.getItem(STORAGE_CITY_KEY)
@@ -31,8 +37,12 @@ export function loadStoredCity(): CityCoordinates | null {
 }
 
 export function storeCity(data: CityCoordinates) {
-  localStorage.setItem(STORAGE_CITY_KEY, data.city)
-  localStorage.setItem(STORAGE_COORDS_KEY, JSON.stringify({ lat: data.lat, lng: data.lng, timezone: data.timezone }))
+  try {
+    localStorage.setItem(STORAGE_CITY_KEY, data.city)
+    localStorage.setItem(STORAGE_COORDS_KEY, JSON.stringify({ lat: data.lat, lng: data.lng, timezone: data.timezone }))
+  } catch {
+    // blocked storage: the city holds for this page only
+  }
 }
 
 async function fetchTimezone(lat: number, lng: number): Promise<string | undefined> {
@@ -65,10 +75,10 @@ interface OpenMeteoGeoResult {
   admin1?: string
 }
 
-async function searchCitiesFree(query: string): Promise<OpenMeteoGeoResult[]> {
+async function searchCitiesFree(query: string, language: LanguageCode): Promise<OpenMeteoGeoResult[]> {
   if (query.length < 2) return []
   try {
-    const res = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=5&language=en&format=json`)
+    const res = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=5&language=${language}&format=json`)
     const data = await res.json()
     return (data.results || []) as OpenMeteoGeoResult[]
   } catch {
@@ -76,39 +86,82 @@ async function searchCitiesFree(query: string): Promise<OpenMeteoGeoResult[]> {
   }
 }
 
-// Free reverse geocoding via Nominatim (OpenStreetMap)
-async function reverseGeocodeFree(lat: number, lng: number): Promise<string> {
+// Free reverse geocoding via Nominatim (OpenStreetMap), named in the interface language;
+// null when it has no name for the place (the caller says "My location").
+async function reverseGeocodeFree(lat: number, lng: number, language: LanguageCode): Promise<string | null> {
   try {
-    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&zoom=10`, { headers: { "Accept-Language": "en" } })
+    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&zoom=10`, {
+      headers: { "Accept-Language": language },
+    })
     const data = await res.json()
-    return data.address?.city || data.address?.town || data.address?.village || data.address?.county || "My Location"
+    return data.address?.city || data.address?.town || data.address?.village || data.address?.county || null
   } catch {
-    return "My Location"
+    return null
   }
 }
 
-export async function autoDetectLocationByIP(): Promise<CityCoordinates | null> {
+function detectionFailedRecently(): boolean {
   try {
-    const res = await fetch("https://ipapi.co/json/")
-    const data = await res.json()
-    if (data.city && data.latitude && data.longitude) {
-      const coords: CityCoordinates = {
-        city: data.city,
-        lat: data.latitude,
-        lng: data.longitude,
-        timezone: data.timezone,
+    const at = Number(localStorage.getItem(GEO_FAILED_AT_KEY))
+    return at > 0 && Date.now() - at < GEO_RETRY_AFTER_MS
+  } catch {
+    return false
+  }
+}
+
+function rememberDetection(failed: boolean) {
+  try {
+    if (failed) localStorage.setItem(GEO_FAILED_AT_KEY, String(Date.now()))
+    else localStorage.removeItem(GEO_FAILED_AT_KEY)
+  } catch {
+    // blocked storage: nothing to remember the failure with
+  }
+}
+
+async function askIpapi(): Promise<CityCoordinates | null> {
+  try {
+    const res = await fetch(IPAPI_URL)
+    if (res.ok) {
+      const data = await res.json()
+      if (data.city && Number.isFinite(data.latitude) && Number.isFinite(data.longitude)) {
+        const coords: CityCoordinates = {
+          city: data.city,
+          lat: data.latitude,
+          lng: data.longitude,
+          timezone: data.timezone,
+        }
+        storeCity(coords)
+        rememberDetection(false)
+        return coords
       }
-      storeCity(coords)
-      return coords
     }
   } catch {
-    // IP geolocation unavailable
+    // IP geolocation unavailable: ipapi.co's 429 carries no CORS header, so it lands here
   }
+  rememberDetection(true)
   return null
 }
 
+let detection: Promise<CityCoordinates | null> | null = null
+
+/**
+ * The city guessed from the IP (ipapi.co), stored when found. One request per page load
+ * whoever asks (the nav and a mounted chip share it), and none for a day after a failure
+ * (FR-11): ipapi.co rate-limits per IP, and every visitor behind a carrier's shared IP
+ * used to ask again, and fail again, on every page.
+ */
+export function autoDetectLocationByIP(): Promise<CityCoordinates | null> {
+  if (detection) return detection
+  if (detectionFailedRecently()) return Promise.resolve(null)
+  detection = askIpapi().finally(() => {
+    detection = null
+  })
+  return detection
+}
+
 export function CitySelector({ onSelect, initialCity }: CitySelectorProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const language = currentLanguage(i18n.language)
   const [query, setQuery] = useState("")
   const [detecting, setDetecting] = useState(false)
   const [selectedCity, setSelectedCity] = useState(initialCity || "")
@@ -130,21 +183,24 @@ export function CitySelector({ onSelect, initialCity }: CitySelectorProps) {
     return () => document.removeEventListener("mousedown", handler)
   }, [])
 
-  const handleSearch = useCallback((input: string) => {
-    setQuery(input)
-    if (input.length < 2) {
-      setPredictions([])
-      setShowDropdown(false)
-      return
-    }
+  const handleSearch = useCallback(
+    (input: string) => {
+      setQuery(input)
+      if (input.length < 2) {
+        setPredictions([])
+        setShowDropdown(false)
+        return
+      }
 
-    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
-    searchTimeoutRef.current = setTimeout(async () => {
-      const results = await searchCitiesFree(input)
-      setPredictions(results)
-      setShowDropdown(true)
-    }, 300)
-  }, [])
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
+      searchTimeoutRef.current = setTimeout(async () => {
+        const results = await searchCitiesFree(input, language)
+        setPredictions(results)
+        setShowDropdown(true)
+      }, 300)
+    },
+    [language],
+  )
 
   const selectPrediction = useCallback(
     async (result: OpenMeteoGeoResult) => {
@@ -172,7 +228,7 @@ export function CitySelector({ onSelect, initialCity }: CitySelectorProps) {
         navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 10000 }),
       )
       const { latitude: lat, longitude: lng } = position.coords
-      const cityName = await reverseGeocodeFree(lat, lng)
+      const cityName = (await reverseGeocodeFree(lat, lng, language)) ?? t("prayer.myLocation")
       const timezone = await fetchTimezone(lat, lng)
       const data: CityCoordinates = { city: cityName, lat, lng, timezone }
       storeCity(data)
@@ -183,7 +239,7 @@ export function CitySelector({ onSelect, initialCity }: CitySelectorProps) {
     } finally {
       setDetecting(false)
     }
-  }, [onSelect])
+  }, [onSelect, language, t])
 
   return (
     <div className="relative" ref={dropdownRef}>

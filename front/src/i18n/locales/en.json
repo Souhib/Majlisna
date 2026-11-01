@@ -118,6 +118,7 @@
     "errorBody": "This page stopped working. Try again, and reload if it keeps happening.",
     "tryAgain": "Try again",
     "reload": "Reload the page",
+    "errorDetails": "Technical details",
     "notFoundTitle": "This page is not in the majlis",
     "notFoundBody": "The link may be old, or the room may have closed. The way back is open.",
     "opensInNewTab": "(opens in a new tab)"
@@ -139,7 +140,8 @@
     "close": "Close",
     "or": "or",
     "goHome": "Back to the majlis",
-    "retry": "Retry"
+    "retry": "Retry",
+    "loadFailed": "This did not load. Check your connection, then try again."
   },
   "nav": {
     "home": "Home",
@@ -199,6 +201,7 @@
     "orContinueWith": "or",
     "continueWithGoogle": "Continue with Google",
     "socialLoginFailed": "Google sign-in did not go through. Try again, or use your email and password.",
+    "sessionRevoked": "You were signed out. Sign in again.",
     "socialWelcomeNew": "Welcome! Your account has been created.",
     "socialWelcomeBack": "Welcome back!",
     "showPassword": "Show password",
@@ -409,7 +412,17 @@
       "backToRooms": "Back to rooms",
       "startFailed": "The game did not start. Try again.",
       "kickFailed": "That player is still seated. Try again.",
-      "pickFailed": "The game did not change for the table. Try again."
+      "pickFailed": "The game did not change for the table. Try again.",
+      "joinThisRoom": "Join this room",
+      "kickConfirmTitle": "Remove {{name}}?",
+      "kickConfirmBody": "{{name}} leaves the room and cannot come back to it. You can lift this later, in the list of removed players.",
+      "kickConfirmAction": "Remove",
+      "bans": {
+        "title": "Removed players",
+        "liftBan": "Let {{name}} come back",
+        "empty": "No one has been removed from this room.",
+        "liftFailed": "The ban was not lifted. Try again."
+      }
     },
     "indexPage": {
       "lede": "Sit down at a friend’s majlis with its code and PIN, or open your own.",
@@ -446,8 +459,11 @@
       "missingBody": "A room link carries a code and a PIN. Ask the host to share it again, or type them yourself.",
       "errorTitle": "This link did not open a room",
       "errorRepair": "The room may have closed. Ask the host for a fresh link, or type the code and PIN yourself.",
+      "pinChangedRepair": "The room’s PIN may have changed since this link was made: it changes each time the host removes a player. Ask the host for a new link or invite, or type the code and the new PIN yourself.",
       "typeCode": "Type the code yourself",
-      "unreachable": "The majlis could not be reached. Check your connection, then try again."
+      "unreachable": "The majlis could not be reached. Check your connection, then try again.",
+      "alreadyInRoom": "You already have a seat in another room. Leave it to sit here.",
+      "leaveAndJoin": "Leave {{room}} and join"
     },
     "settingsPanel": {
       "title": "Settings for {{game}}",
@@ -474,7 +490,6 @@
     }
   },
   "toast": {
-    "gameStarting": "Game is starting!",
     "youLeftRoom": "You left the room",
     "roomCreated": "Room created"
   },
@@ -482,6 +497,12 @@
     "readyUp": "I’m ready",
     "readyWaiting": "Ready — waiting for the others",
     "readyCount": "{{count}} ready",
+    "errors": {
+      "answerFailed": "Your answer did not go through. Try again.",
+      "moveFailed": "Your move did not go through. Try again.",
+      "startFailed": "The game did not start. Try again.",
+      "nextRoundFailed": "The next round did not start. Try again."
+    },
     "eliminated": "Eliminated",
     "gameOver": "Game Over",
     "gameOverLead": "Game over: ",
@@ -608,10 +629,13 @@
         "sub": "The seat empties, and its tablet turns over for everyone.",
         "votedFor_one": "voted for {{target}}",
         "votedFor_other": "voted for {{target}}",
-        "hostStarts": "The host starts the next round.",
         "guessWrong": "Mr. White guessed <said></said>: not the word.",
         "guessRight": "Mr. White guessed <said></said>: the table’s word.",
-        "guessTimeout": "Mr. White’s time to guess ran out."
+        "guessTimeout": "Mr. White’s time to guess ran out.",
+        "imReady": "I’m ready",
+        "readyCount_one": "{{ready}} of {{total}} ready",
+        "readyCount_other": "{{ready}} of {{total}} ready",
+        "youAreReady": "You are ready. The next round starts when everyone is, or when the host starts it."
       },
       "colophon": {
         "found": "The table found {{names}}.",
@@ -726,7 +750,10 @@
       "seeResults": "See the results",
       "notAnswered": "Didn’t answer",
       "finalScores": "Final scores",
-      "winner": "{{username}} wins."
+      "winner": "{{username}} wins.",
+      "triesLeft_zero": "No tries left",
+      "triesLeft_one": "{{count}} try left",
+      "triesLeft_other": "{{count}} tries left"
     },
     "mcqQuiz": {
       "explanation": "Explanation",
@@ -752,6 +779,8 @@
       "soloScore_one": "You finished with {{count}} point.",
       "soloScore_other": "You finished with {{count}} points.",
       "tie": "A tie at the top: {{names}}.",
+      "sharedWin": "{{names}} share the win.",
+      "noWinner": "No one scored: no winner this time.",
       "tieSummary_one": "{{count}} point each.",
       "tieSummary_other": "{{count}} points each.",
       "winSummary_one": "One point clear of {{name}}.",
@@ -993,6 +1022,9 @@
     "deleteAccountWarning": "This will permanently delete your account. Enter your password to confirm.",
     "enterPasswordToDelete": "Enter your password",
     "deleteAccountConfirm": "Delete permanently",
+    "deleteAccountConfirmWithGoogle": "Confirm with Google",
+    "deleteAccountWarningGoogle": "This will permanently delete your account. Confirm with the Google account you sign in with.",
+    "deleteAccountGoogleFailed": "Google did not confirm. Try again.",
     "accountDeleted": "Your account has been deleted",
     "yourPlay": "Your play",
     "viewChallenges": "Today’s and this week’s challenges",
@@ -1015,6 +1047,7 @@
     "passwordTooShort": "Use at least {{min}} characters.",
     "currentPasswordRequired": "Enter your current password.",
     "passwordRequired": "Enter your password to confirm.",
+    "wrongPassword": "That password is not right.",
     "deleteAccountOpen": "Delete my account",
     "deleteAccountTitle": "Delete your account?",
     "playerNotFound": "We could not find this player",
@@ -1137,7 +1170,7 @@
       "weekly_win_3": "Win 3 games this week",
       "weekly_win_5": "Win 5 games this week",
       "weekly_play_both": "Play both Undercover and Codenames",
-      "weekly_play_all_3": "Play all 3 game types this week",
+      "weekly_play_all_3": "Play 3 different games this week",
       "weekly_play_undercover_3": "Play 3 Undercover games this week",
       "weekly_play_codenames_3": "Play 3 Codenames games this week",
       "weekly_play_wordquiz_3": "Play 3 games of Kalimat this week",
@@ -1193,10 +1226,12 @@
     },
     "nextIn": "{{name}} in {{time}}",
     "method": "Muslim World League method, computed on your device",
-    "chooseCity": "Choose a city"
+    "chooseCity": "Choose a city",
+    "myLocation": "My location"
   },
   "errors": {
     "loadFailed": "Failed to load data. Please try again.",
+    "network": "The connection was lost. Check it, then try again.",
     "api": {
       "userNotFound": "User not found.",
       "userAlreadyExists": "An account with this email already exists.",
@@ -1292,7 +1327,17 @@
       "notYourFriendRequest": "You can only answer requests sent to you.",
       "friendRequestNotPending": "This request is no longer pending.",
       "notYourFriendship": "You are not part of this friendship.",
-      "friendshipNotFound": "Friend request not found."
+      "friendshipNotFound": "Friend request not found.",
+      "clueMustBeOneWord": "Give a one-word clue.",
+      "descriptionRevealsWord": "Describe your word without saying it.",
+      "answerAttemptsExhausted": "You have used your {{max}} tries for this round.",
+      "roomBanned": "The host removed you from this room.",
+      "roomBanNotFound": "This player is not banned from the room.",
+      "passwordTooLong": "This password is too long. Choose a shorter one.",
+      "sessionRevoked": "You were signed out. Sign in again.",
+      "notAnAlivePlayer": "Only a player still in the game can do this.",
+      "invalidAvatarUrl": "This picture address cannot be used.",
+      "googleAccountMismatch": "That Google account is not the one linked to this profile."
     }
   },
   "footer": {
@@ -1348,7 +1393,7 @@
     "wordQuiz": {
       "step1": "A term is hidden behind six hints, from vague to precise. A new hint appears every few seconds.",
       "step2": "Type your answer as soon as you know it. Arabic diacritics, capitals and extra spaces do not count against you.",
-      "step3": "The earlier you answer, the more it is worth: six points at the first hint, one at the last.",
+      "step3": "The earlier you answer, the more it is worth: six points at the first hint, one at the last. Each wrong try costs a point, and a round allows five tries.",
       "step4": "Each round ends with the answer explained. The highest score after the last round wins."
     },
     "mcqQuiz": {
@@ -1361,7 +1406,7 @@
   "privacy": {
     "link": "Privacy policy",
     "title": "Privacy policy",
-    "updated": "Last updated: 28 October 2026",
+    "updated": "Last updated: 31 October 2026",
     "intro": "Majlisna (majlisna.app) is a free online platform for Islamic party games, run by Souhib Trabelsi. This page explains what data we collect, why, and how you can control it.",
     "sections": [
       {
@@ -1386,16 +1431,16 @@
         "title": "Prayer times and your location",
         "body": [
           "Prayer times are calculated on your device (Muslim World League method). No prayer-time service is called, and your city is never sent to our server.",
-          "<b>Automatic detection:</b> while no city is saved, each time you open Majlisna your browser asks ipapi.co for an approximate location based on your IP address. Once a city is found it is saved, and these requests stop.",
-          "<b>City search:</b> what you type is sent to Open-Meteo’s geocoding service, and the coordinates of the city you choose are sent to Open-Meteo to find its time zone.",
-          "<b>Use my location:</b> only when you press it and allow it in your browser, your device’s position is read once. Its coordinates are sent to OpenStreetMap (Nominatim) to name the city, and to Open-Meteo to find its time zone.",
+          "<b>Automatic detection:</b> while no city is saved, each time you open Majlisna your browser asks ipapi.co for an approximate location based on your IP address. Once a city is found it is saved, and these requests stop. If ipapi.co gives no answer, your browser waits a day before asking again.",
+          "<b>City search:</b> what you type is sent, with the interface language, to Open-Meteo’s geocoding service, and the coordinates of the city you choose are sent to Open-Meteo to find its time zone.",
+          "<b>Use my location:</b> only when you press it and allow it in your browser, your device’s position is read once. Its coordinates are sent to OpenStreetMap (Nominatim) to name the city in the interface language, and to Open-Meteo to find its time zone.",
           "The city, its coordinates and its time zone stay in your browser. During a game, the host’s device uses them to suggest a pause when the adhan comes; nothing is sent."
         ]
       },
       {
         "title": "What your browser keeps",
         "body": [
-          "<b>Your session:</b> our server sets two cookies that keep you signed in. They are httpOnly (the page’s scripts cannot read them) and are sent only to Majlisna. The same tokens, with your account ID, username and email address, are also kept in your browser’s local storage so that the app can resume your session. Logging out removes them.",
+          "<b>Your session:</b> our server sets two cookies that keep you signed in. They are httpOnly (the page’s scripts cannot read them) and are sent only to Majlisna. The short-lived access token, with your account ID, username and email address, is also kept in your browser’s local storage so that the app can resume your session and keep its live updates connected. The refresh token that renews it stays in its cookie only. Logging out removes them.",
           "<b>Your preferences:</b> your language, your theme (afternoon or night), whether you have seen the welcome window, and your prayer-times city with its coordinates and time zone.",
           "<b>During a game:</b> a few values kept only while the tab stays open (such as the room you came from, or whether you have already read your word), so that a reload does not lose them.",
           "The app also keeps its own files in your browser so that its pages can open offline. We set no advertising or tracking cookies, and the audience statistics use none."
@@ -1418,12 +1463,12 @@
       {
         "title": "Service providers",
         "body": [
-          "<b>Google:</b> sign-in with Google, and nothing else. Google’s sign-in script is loaded from Google on every page so that the button works, our server checks each Google sign-in with Google, and the profile pictures of Google accounts are loaded from Google’s servers.",
+          "<b>Google:</b> sign-in with Google, and nothing else. Google’s sign-in script is loaded from Google only on the sign-in and sign-up pages, where its button is, and in the deletion dialog of an account that signs in with Google, where it confirms the deletion; our server checks each Google sign-in, and each such confirmation, with Google, and the profile pictures of Google accounts are loaded from Google’s servers.",
           "<b>Resend:</b> sends the account emails (email verification and password reset). It receives your email address and username.",
           "<b>Cloudflare:</b> every request to Majlisna passes through Cloudflare, which provides the network, HTTPS and protection against attacks. It sees your IP address and the pages you request.",
           "<b>Oracle Cloud:</b> hosts our server and database.",
           "<b>From your browser, for prayer times:</b> ipapi.co, Open-Meteo and OpenStreetMap (Nominatim), as described above.",
-          "<b>On our own server:</b> Umami counts visits and a few events (such as a sign-up, a game started or a change of language), without cookies and without linking them to your account. Error reports (what failed, on which page, in which browser) go to GlitchTip."
+          "<b>On our own server:</b> Umami counts visits and a few events (such as a sign-up, a game started or a change of language), without cookies and without linking them to your account. Error reports (what failed, on which page, in which browser) go only to our own self-hosted error tracker, and only once it is set up: until then, none are sent."
         ]
       },
       {
@@ -1437,9 +1482,9 @@
       {
         "title": "Your rights",
         "body": [
-          "You can edit your profile at any time, erase words from your notebook, and delete your account from <profile>your profile page</profile>. Deletion removes your account and what is linked to it: statistics, achievements, challenges, friends, chat messages, kept words and word-of-the-day plays.",
+          "You can edit your profile at any time, erase words from your notebook, and delete your account from <profile>your profile page</profile>, with your password or, for an account that signs in with Google, with Google. Deletion removes your account and what is linked to it: statistics, achievements, challenges, friends, chat messages, kept words and word-of-the-day plays.",
           "The games you played stay in the other players’ history, no longer linked to your account, but the name you played under still appears in them.",
-          "If you signed up with Google, or for any other request (access, correction, deletion, objection), contact us by email.",
+          "For any other request (access, correction, deletion, objection), contact us by email.",
           "Your session leaves your browser when you log out; your preferences and your city go when you clear this site’s data in your browser."
         ]
       },

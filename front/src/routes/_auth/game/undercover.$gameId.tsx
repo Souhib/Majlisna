@@ -22,6 +22,7 @@ import { VoteHistory } from "@/components/games/undercover/VoteHistory"
 import { VotingPhase } from "@/components/games/undercover/VotingPhase"
 import { Panel } from "@/components/ui/panel"
 import { Skeleton } from "@/components/ui/skeleton"
+import { type PhaseFocusTargets, usePhaseFocus } from "@/hooks/use-phase-focus"
 import { useUndercoverGame } from "@/hooks/use-undercover-game"
 import { rememberReads, storedReads } from "@/lib/undercover-session"
 import { useViewTransitionValue } from "@/lib/view-transition"
@@ -36,6 +37,13 @@ export const Route = createFileRoute("/_auth/game/undercover/$gameId")({
 
 /** Phases in which the player holds their own tablet. */
 const TABLET_PHASES = new Set(["role_reveal", "describing", "playing", "mr_white_guessing"])
+
+/**
+ * Where focus goes when the phase on screen changes (F2, `usePhaseFocus`): each phase's
+ * own h2 (the first reading, "Describe your word", the vote, the verdict, Mr. White's
+ * guess), and the colophon's title at the end.
+ */
+const FOCUS_TARGETS: PhaseFocusTargets = { game_over: "[data-colophon-title]" }
 
 function UndercoverGamePage() {
   const { gameId } = Route.useParams()
@@ -55,6 +63,10 @@ function UndercoverGamePage() {
     mrWhiteGuessInput,
     isSubmittingMrWhiteGuess,
     isStartingNextRound,
+    canMarkReady,
+    isReady,
+    readyCount,
+    readyQuorum,
     setMrWhiteGuessInput,
     handleStartNextRound,
     handleSubmitMrWhiteGuess,
@@ -92,6 +104,11 @@ function UndercoverGamePage() {
 
   // Phase swaps crossfade through a view transition (no blank exit between phases).
   const phase = useViewTransitionValue(gameState.phase)
+  // ...and focus follows to the new phase's title (never while the page is still loading:
+  // the first state to arrive is a page load, not a phase change).
+  const gameRef = useRef<HTMLDivElement>(null)
+  const loading = isLoading && !gameState.my_role
+  usePhaseFocus(loading ? null : phase, gameRef, { targets: FOCUS_TARGETS })
 
   const myWord = useMemo<LawhWord | null>(() => {
     if (gameState.my_role === "mr_white" || !gameState.my_word) return null
@@ -107,7 +124,6 @@ function UndercoverGamePage() {
   // The prayer pause: the host's control, the veil over the whole game, the adhan strip.
   const prayerPause = usePrayerPause("undercover", gameId, serverState)
   const adhan = useAdhanSuggestion({ gameId, canPause: prayerPause.canPause, paused: isPaused })
-  const gameRef = useRef<HTMLDivElement>(null)
   const { answer: answerAdhan } = adhan
   const { pause: pauseGame } = prayerPause
   const pauseFromStrip = useCallback(() => {
@@ -147,7 +163,6 @@ function UndercoverGamePage() {
       />
     ) : null
 
-  const loading = isLoading && !gameState.my_role
   const holdsTablet = !loading && !isSpectator && !!gameState.my_role && TABLET_PHASES.has(phase)
 
   // The table is listed once per screen. While describing and voting the seats are the
@@ -294,6 +309,10 @@ function UndercoverGamePage() {
                   currentUserId={user?.id}
                   myWord={myWord}
                   isHost={gameState.isHost && !isSpectator}
+                  canMarkReady={canMarkReady}
+                  isReady={isReady}
+                  readyCount={readyCount}
+                  readyQuorum={readyQuorum}
                   isStarting={isStartingNextRound}
                   onNextRound={handleStartNextRound}
                 />

@@ -3,7 +3,9 @@ import { useResolvedTheme } from "@/hooks/use-resolved-theme"
 
 /**
  * The app's single toast region, themed for Samar (sonner's colour variables are
- * re-pointed at the tokens in styles/brand.css, "sonner"). A toast is a --surface card
+ * re-pointed at the tokens in styles/brand.css, "sonner", and so are its timings: a toast
+ * lands on --dur-move/--ease-settle and leaves on --ease-in in 0.66 × that, instead of
+ * sonner's 400 ms on the browser's `ease`). A toast is a --surface card
  * with a hairline; errors take an ember hairline and ember-on-tint title, successes a
  * brass one. Behaviour is unchanged from before the redesign (top-center, close button,
  * expanded, at most three): the E2E suite reads `[data-sonner-toast][data-type="error"]`

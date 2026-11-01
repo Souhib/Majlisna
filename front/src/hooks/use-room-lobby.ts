@@ -1,0 +1,389 @@
+import { useQueryClient } from "@tanstack/react-query"
+import { useNavigate } from "@tanstack/react-router"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useTranslation } from "react-i18next"
+import { toast } from "sonner"
+import {
+  useGetRoomStateApiV1RoomsRoomIdStateGet,
+  useKickPlayerApiV1RoomsRoomIdKickPatch,
+  useLeaveRoomApiV1RoomsLeavePatch,
+  useStartCodenamesGameApiV1CodenamesGamesRoomIdStartPost,
+  useStartMcqquizGameApiV1McqquizGamesRoomIdStartPost,
+  useStartUndercoverGameApiV1UndercoverGamesRoomIdStartPost,
+  useStartWordquizGameApiV1WordquizGamesRoomIdStartPost,
+  useUpdateRoomSettingsApiV1RoomsRoomIdSettingsPatch,
+} from "@/api/generated"
+import { queryKeys } from "@/api/queryKeys"
+import type { ChatMessage } from "@/components/rooms/ChatPanel"
+import { ROOM_ERROR_KEYS, retryUnlessRefused, roomErrorKey, roomErrorMessage } from "@/components/rooms/errors"
+import { type GameType, isGameType, type LobbyMember, toMembers } from "@/components/rooms/lobby"
+import { useLeaveAfterKick } from "@/hooks/use-leave-after-kick"
+import { useSocket } from "@/hooks/use-socket"
+import { trackEvent } from "@/lib/analytics"
+import { storeRoomIdForGame } from "@/lib/room-session"
+import { useAuth } from "@/providers/AuthProvider"
+
+const GAME_ROUTE = {
+  undercover: "/game/undercover/$gameId",
+  codenames: "/game/codenames/$gameId",
+  word_quiz: "/game/wordquiz/$gameId",
+  mcq_quiz: "/game/mcqquiz/$gameId",
+} as const
+
+/** Polling of the room state while the socket is down. */
+export const LOBBY_POLL_INTERVAL_MS = 2_000
+
+/** How long the Share button says "Link copied". */
+const SHARE_COPIED_MS = 1_500
+
+/** The room as the lobby reads it from its state (REST or a socket push). */
+export interface LobbyRoom {
+  id: string
+  publicId: string
+  ownerId: string
+  /** The PIN. It changes when the host removes a player (owner rule (c)). */
+  password: string
+  activeGameId: string | null
+  gameType: string | null
+  settings: Record<string, unknown> | null
+  members: LobbyMember[]
+}
+
+export interface RoomLobby {
+  /** The room on screen; undefined before its first state, after a refusal, or for a malformed push. */
+  room: LobbyRoom | undefined
+  members: LobbyMember[]
+  isHost: boolean
+  isSpectator: boolean
+  hostName: string | undefined
+  /** The game on the table: the room's, or the host's pick while it is on its way. */
+  gameType: GameType
+  /** When the state on screen arrived (a push resets it too): the away countdowns start there. */
+  dataUpdatedAt: number
+  /** The latest read failed: with a roster on screen, the page says it is stale. */
+  isError: boolean
+  error: unknown
+  /** The refusal with nothing on screen, held while it is asked again (final for a 4xx). */
+  refusal: unknown
+  /** The refusal says the player has no seat here: the page offers "Join this room". */
+  notSeated: boolean
+  socketConnected: boolean
+  lastChatMessage: ChatMessage | null
+  /** Seated from the refusal page: re-read this room, or open the one joined. */
+  onJoinedFromRefusal: (joinedRoomId: string) => void
+  /** The host starts the game on the table (the page checks the table is ready). */
+  startGame: (playerCount: number) => void
+  isStartingGame: boolean
+  pickGame: (next: GameType) => Promise<void>
+  /** The host removes a player: a ban for the room's lifetime and a new PIN (owner rule (c)). */
+  kickPlayer: (member: LobbyMember) => Promise<void>
+  kickingId: string | null
+  leaveRoom: () => Promise<void>
+  isLeaving: boolean
+  /** Copy the share link, built from the PIN the room state carries now. */
+  shareRoom: () => Promise<void>
+  shareCopied: boolean
+}
+
+/** Copy text, falling back to a hidden textarea where the async clipboard is refused. */
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch {
+    const textarea = document.createElement("textarea")
+    textarea.value = text
+    textarea.style.position = "fixed"
+    textarea.style.opacity = "0"
+    document.body.appendChild(textarea)
+    textarea.select()
+    const ok = document.execCommand("copy")
+    document.body.removeChild(textarea)
+    return ok
+  }
+}
+
+/** The room state as the lobby reads it; undefined for a malformed socket payload. */
+function readRoom(raw: unknown): LobbyRoom | undefined {
+  if (!raw || typeof raw !== "object") return undefined
+  const state = raw as Record<string, unknown>
+  if (!state.id || !state.public_id || !state.owner_id) return undefined
+  return {
+    id: state.id as string,
+    publicId: state.public_id as string,
+    ownerId: state.owner_id as string,
+    password: (state.password as string) ?? "",
+    activeGameId: (state.active_game_id as string | null | undefined) ?? null,
+    gameType: (state.game_type as string | null | undefined) ?? null,
+    settings: (state.settings as Record<string, unknown> | null | undefined) ?? null,
+    members: toMembers(state.players, state.owner_id as string),
+  }
+}
+
+/**
+ * The lobby's client logic (/rooms/$roomId), out of the page so it can be tested with fake
+ * timers (TQ-12): reading the room, its socket, following the table into a game, and the
+ * host's and the player's actions.
+ *
+ * - Real time: Socket.IO pushes `room_state` into the query cache; polling (2 s) runs only
+ *   while the socket is down. Only a REconnect invalidates (`useSocket`).
+ * - A refusal with nothing on screen is final (FR-5): never retried (`retryUnlessRefused`),
+ *   not polled, and held while asked again (a refocus), so no skeleton between two errors.
+ *   For `userNotInRoom` the socket stays closed: the server refuses a non-member's socket,
+ *   and socket.io-client never retries a refused one.
+ * - Removed by the host: the `you_were_kicked` event, or (on the polling fallback, where no
+ *   event arrives) the player's seat gone from the state without having left.
+ * - The host's kick (owner rule (c)) bans the player for the room's lifetime and rotates the
+ *   PIN. On success the room state, the bans list (RoomBans) and the share link are read
+ *   again; a new PIN in the room state does the same, so a kick from the host's other
+ *   device reaches this screen's list too.
+ */
+export function useRoomLobby(roomId: string): RoomLobby {
+  const { t } = useTranslation()
+  const { user } = useAuth()
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  // The host's pick while it is on its way to the server (see `gameType` below).
+  const [pendingPick, setPendingPick] = useState<GameType | null>(null)
+  const [kickingId, setKickingId] = useState<string | null>(null)
+  const [shareCopied, setShareCopied] = useState(false)
+  const [lastChatMessage, setLastChatMessage] = useState<ChatMessage | null>(null)
+  const navigatingToGameRef = useRef(false)
+  const isLeavingRef = useRef(false)
+  // set before the request, so a double tap on Start sends one (isPending arrives a tick later)
+  const startingRef = useRef(false)
+  const shareTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const leaveAfterKick = useLeaveAfterKick()
+
+  const handleChatMessage = useCallback((msg: ChatMessage) => setLastChatMessage(msg), [])
+
+  // The socket's state comes from useSocket below (which needs this query's answer first);
+  // TanStack reads the interval after each render, by when the ref holds it.
+  const socketConnectedRef = useRef(false)
+  const {
+    data: rawRoomData,
+    dataUpdatedAt,
+    isError,
+    error,
+  } = useGetRoomStateApiV1RoomsRoomIdStateGet(
+    { room_id: roomId },
+    {
+      query: {
+        refetchOnWindowFocus: true,
+        // an error with nothing on screen is the server's no: asking every 2 s drew the
+        // skeleton between two error pages (a no-data query is pending again at each fetch)
+        refetchInterval: (query) =>
+          query.state.status === "error" && query.state.data === undefined ? false : socketConnectedRef.current ? false : LOBBY_POLL_INTERVAL_MS,
+        enabled: !!user,
+        retry: retryUnlessRefused,
+      },
+    },
+  )
+
+  // Socket.IO payloads land in the same cache: guard against a malformed one.
+  const room = useMemo(() => readRoom(rawRoomData), [rawRoomData])
+
+  // The refusal on screen, kept while it is asked again (a refocus refetches, and the
+  // query is pending meanwhile). Idempotent, so writing the ref while rendering is safe
+  // under StrictMode.
+  const refusalRef = useRef<unknown>(null)
+  if (room) refusalRef.current = null
+  else if (error) refusalRef.current = error
+  const refusal = room ? null : refusalRef.current
+  const notSeated = !!refusal && roomErrorKey(refusal) === ROOM_ERROR_KEYS.notInRoom
+
+  const { connected: socketConnected } = useSocket({
+    roomId,
+    enabled: !!user && !notSeated,
+    onKicked: leaveAfterKick,
+    onChatMessage: handleChatMessage,
+  })
+  socketConnectedRef.current = socketConnected
+
+  const onJoinedFromRefusal = useCallback(
+    (joinedRoomId: string) => {
+      if (joinedRoomId === roomId) void queryClient.invalidateQueries({ queryKey: queryKeys.room.state(roomId) })
+      else navigate({ to: "/rooms/$roomId", params: { roomId: joinedRoomId }, replace: true })
+    },
+    [navigate, queryClient, roomId],
+  )
+
+  const members = useMemo(() => room?.members ?? [], [room])
+  const isHost = !!room && room.ownerId === user?.id
+  const isSpectator = !!members.find((m) => m.id === user?.id)?.isSpectator
+  const hostName = members.find((m) => m.isHost)?.username
+
+  // The game on the table is the room's, for everyone: the host's pick is stored in the
+  // room's settings and comes back in every member's room state. While the host's pick
+  // is in flight, theirs is shown.
+  const roomGameType: GameType = isGameType(room?.gameType) ? room.gameType : "undercover"
+  const gameType: GameType = (isHost && pendingPick) || roomGameType
+
+  // A new PIN means a player was removed (the PIN rotates on every kick, from any of the
+  // host's devices): the share link and the bans list on screen are stale.
+  const pinRef = useRef<string | null>(null)
+  const pin = room?.password || null
+  useEffect(() => {
+    const previous = pinRef.current
+    pinRef.current = pin
+    if (!previous || !pin || previous === pin) return
+    // a re-read already on its way (the kick's own, just below) is reused, not restarted
+    void queryClient.invalidateQueries({ queryKey: queryKeys.room.shareLink(roomId) }, { cancelRefetch: false })
+    void queryClient.invalidateQueries({ queryKey: queryKeys.room.bans(roomId) }, { cancelRefetch: false })
+  }, [pin, queryClient, roomId])
+
+  // Reset navigating ref when game ends (active_game_id disappears)
+  useEffect(() => {
+    if (!room?.activeGameId) navigatingToGameRef.current = false
+  }, [room?.activeGameId])
+
+  // Follow the table into the game when it starts (non-hosts learn it from the room state)
+  useEffect(() => {
+    if (!room?.activeGameId || navigatingToGameRef.current) return
+    navigatingToGameRef.current = true
+    storeRoomIdForGame(room.activeGameId, room.id)
+    const gt = isGameType(room.gameType) ? room.gameType : gameType
+    navigate({ to: GAME_ROUTE[gt], params: { gameId: room.activeGameId } })
+  }, [room?.activeGameId, room?.gameType, room?.id, gameType, navigate])
+
+  // Removed: the player was in the list and is not any more, without having left. This
+  // tracks membership in its OWN ref, so it works on the 2 s polling fallback too, where
+  // the `you_were_kicked` socket event never arrives.
+  const wasRoomMemberRef = useRef(false)
+  useEffect(() => {
+    if (!user || !room || isLeavingRef.current) return
+    const isInRoom = members.some((u) => u.id === user.id)
+    if (wasRoomMemberRef.current && !isInRoom) {
+      wasRoomMemberRef.current = false
+      leaveAfterKick()
+      return
+    }
+    wasRoomMemberRef.current = isInRoom
+  }, [members, user, room, leaveAfterKick])
+
+  useEffect(() => () => clearTimeout(shareTimerRef.current), [])
+
+  const startOptions = (gt: GameType) => ({
+    mutation: {
+      onSuccess: (data: unknown) => {
+        const d = data as { game_id: string; room_id: string }
+        navigatingToGameRef.current = true
+        storeRoomIdForGame(d.game_id, d.room_id)
+        // no toast: the game page is the answer, and a toast sat over its header (F10)
+        navigate({ to: GAME_ROUTE[gt], params: { gameId: d.game_id } })
+      },
+      onError: (err: unknown) => toast.error(roomErrorMessage(err, t("room.lobbyPage.startFailed"))),
+    },
+  })
+  const startUndercover = useStartUndercoverGameApiV1UndercoverGamesRoomIdStartPost(startOptions("undercover"))
+  const startCodenames = useStartCodenamesGameApiV1CodenamesGamesRoomIdStartPost(startOptions("codenames"))
+  const startWordQuiz = useStartWordquizGameApiV1WordquizGamesRoomIdStartPost(startOptions("word_quiz"))
+  const startMcqQuiz = useStartMcqquizGameApiV1McqquizGamesRoomIdStartPost(startOptions("mcq_quiz"))
+  const isStartingGame = startUndercover.isPending || startCodenames.isPending || startWordQuiz.isPending || startMcqQuiz.isPending
+
+  const startGame = (playerCount: number) => {
+    if (!room || startingRef.current) return
+    startingRef.current = true
+    trackEvent("game-start", { game: gameType, players: playerCount })
+    const vars = { room_id: room.id }
+    const started =
+      gameType === "codenames"
+        ? startCodenames.mutateAsync(vars)
+        : gameType === "word_quiz"
+          ? startWordQuiz.mutateAsync(vars)
+          : gameType === "mcq_quiz"
+            ? startMcqQuiz.mutateAsync(vars)
+            : startUndercover.mutateAsync(vars)
+    // refused (said by onError): the host may try again; started: the page is leaving
+    started.catch(() => {
+      startingRef.current = false
+    })
+  }
+
+  const pickMutation = useUpdateRoomSettingsApiV1RoomsRoomIdSettingsPatch()
+  const pickGame = async (next: GameType) => {
+    if (!room || next === gameType) return
+    setPendingPick(next)
+    try {
+      await pickMutation.mutateAsync({ room_id: room.id, data: { game_type: next } })
+      // the push (or the next poll) brings it back for everyone; write it now so the
+      // host's own screen does not step back to the old game in between
+      queryClient.setQueryData(queryKeys.room.state(roomId), (old: unknown) =>
+        old && typeof old === "object" ? { ...old, game_type: next, settings: { ...(old as { settings?: object }).settings, game_type: next } } : old,
+      )
+    } catch (err) {
+      toast.error(roomErrorMessage(err, t("room.lobbyPage.pickFailed")))
+    } finally {
+      setPendingPick(null)
+    }
+  }
+
+  const kickMutation = useKickPlayerApiV1RoomsRoomIdKickPatch()
+  const kickPlayer = async (member: LobbyMember) => {
+    if (!room) return
+    setKickingId(member.id)
+    try {
+      await kickMutation.mutateAsync({ room_id: room.id, data: { user_id: member.id } })
+      // the seat, the new PIN (the share link) and the new ban (the host's list)
+      void queryClient.invalidateQueries({ queryKey: queryKeys.room.state(roomId) })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.room.shareLink(roomId) })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.room.bans(roomId) })
+    } catch (err) {
+      toast.error(roomErrorMessage(err, t("room.lobbyPage.kickFailed")))
+    } finally {
+      setKickingId(null)
+    }
+  }
+
+  const leaveMutation = useLeaveRoomApiV1RoomsLeavePatch()
+  const leaveRoom = async () => {
+    isLeavingRef.current = true
+    if (!user || !room) {
+      navigate({ to: "/rooms" })
+      return
+    }
+    try {
+      await leaveMutation.mutateAsync({ data: { room_id: room.id } })
+    } catch {
+      // Leaving is best effort: the grace period frees the seat anyway.
+    }
+    toast.info(t("toast.youLeftRoom"))
+    navigate({ to: "/rooms" })
+  }
+
+  const shareRoom = async () => {
+    if (!room) return
+    const shareUrl = `${window.location.origin}/rooms/join?code=${room.publicId}&pin=${room.password}`
+    if (!(await copyText(shareUrl))) return
+    setShareCopied(true)
+    toast.success(t("room.lobbyPage.shareToast"))
+    clearTimeout(shareTimerRef.current)
+    shareTimerRef.current = setTimeout(() => setShareCopied(false), SHARE_COPIED_MS)
+  }
+
+  return {
+    room,
+    members,
+    isHost,
+    isSpectator,
+    hostName,
+    gameType,
+    dataUpdatedAt,
+    isError,
+    error,
+    refusal,
+    notSeated,
+    socketConnected,
+    lastChatMessage,
+    onJoinedFromRefusal,
+    startGame,
+    isStartingGame,
+    pickGame,
+    kickPlayer,
+    kickingId,
+    leaveRoom,
+    isLeaving: leaveMutation.isPending,
+    shareRoom,
+    shareCopied,
+  }
+}

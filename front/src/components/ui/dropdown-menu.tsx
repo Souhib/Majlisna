@@ -42,7 +42,8 @@ export function DropdownMenuContent({ className, sideOffset = 6, ...props }: Com
         className={cn(
           "z-50 min-w-[12rem] overflow-hidden rounded-lg border border-line-brass bg-popover p-1.5 text-popover-foreground",
           "shadow-[0_18px_36px_-20px_oklch(0_0_0/0.45)]",
-          "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 duration-(--dur-state)",
+          "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0",
+          "duration-(--dur-state) ease-(--ease-out) data-[state=closed]:ease-(--ease-in) data-[state=closed]:duration-[calc(var(--dur-state)*0.66)]",
           className,
         )}
         {...props}

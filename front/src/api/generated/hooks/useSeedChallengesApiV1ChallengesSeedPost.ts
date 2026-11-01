@@ -26,7 +26,8 @@ export type SeedChallengesApiV1ChallengesSeedPostMutationKey = ReturnType<
 >;
 
 /**
- * @description Seed challenge definitions into the database.
+ * @description Seed challenge definitions into the database. Administrators only (SEC F15):
+ * it is a content operation, which every signed-in player could run.
  * @summary Seed Challenges
  * {@link /api/v1/challenges/seed}
  */
@@ -61,7 +62,8 @@ export function seedChallengesApiV1ChallengesSeedPostMutationOptions<
 }
 
 /**
- * @description Seed challenge definitions into the database.
+ * @description Seed challenge definitions into the database. Administrators only (SEC F15):
+ * it is a content operation, which every signed-in player could run.
  * @summary Seed Challenges
  * {@link /api/v1/challenges/seed}
  */

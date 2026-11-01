@@ -60,6 +60,10 @@ vi.mock("@/api/generated", () => ({
   getMcqquizStateApiV1McqquizGamesGameIdStateGetQueryKey: ({ game_id }: { game_id: string }) => [
     { url: "/api/v1/mcqquiz/games/:game_id/state", params: { game_id } },
   ],
+  getMessagesApiV1RoomsRoomIdMessagesGetQueryKey: ({ room_id }: { room_id: string }, params: object = {}) => [
+    { url: "/api/v1/rooms/:room_id/messages", params: { room_id } },
+    params,
+  ],
 }))
 
 // Mock TanStack Query
@@ -80,6 +84,13 @@ const { useSocket } = await import("./use-socket")
 
 // Minimal renderHook for testing hooks without full React test utils
 import { act, renderHook } from "@testing-library/react"
+
+/** The listener the hook registered last for a socket event. */
+function handlerFor(event: string): (...args: unknown[]) => void {
+  const call = mockOn.mock.calls.filter((c: unknown[]) => c[0] === event).at(-1)
+  if (!call) throw new Error(`no listener for ${event}`)
+  return call[1] as (...args: unknown[]) => void
+}
 
 describe("useSocket", () => {
   beforeEach(() => {
@@ -249,25 +260,74 @@ describe("useSocket", () => {
     expect(result.current.connected).toBe(false)
   })
 
-  it("reconnect invalidates room and game queries", () => {
+  it("the first connect invalidates nothing", () => {
+    // The page has just read its state over REST, the server pushes room_state on
+    // connect and join_game answers with game_state: a refetch on top of them was a
+    // third read of the same state on every load (FP-10).
+    // Prepare
     mockSocket.connected = true
     renderHook(() => useSocket({ roomId: "room-1", gameId: "game-1", gameType: "undercover", enabled: true }))
+    const connectHandler = handlerFor("connect")
 
-    const connectHandler = mockOn.mock.calls.find((c: unknown[]) => c[0] === "connect")?.[1]
+    // Act
     act(() => connectHandler())
 
-    // Should invalidate room state query
-    expect(mockInvalidateQueries).toHaveBeenCalledWith(
-      expect.objectContaining({
-        queryKey: [{ url: "/api/v1/rooms/:room_id/state", params: { room_id: "room-1" } }],
-      }),
-    )
-    // Should invalidate game state query
-    expect(mockInvalidateQueries).toHaveBeenCalledWith(
-      expect.objectContaining({
-        queryKey: [{ url: "/api/v1/undercover/games/:game_id/state", params: { game_id: "game-1" } }],
-      }),
-    )
+    // Assert
+    expect(mockInvalidateQueries).not.toHaveBeenCalled()
+    expect(mockEmit).toHaveBeenCalledWith("join_game", { game_id: "game-1", lang: "en" })
+  })
+
+  it("a reconnect invalidates the room, game and chat queries", () => {
+    // python-socketio replays nothing: what happened while the socket was down (a chat
+    // line above all, which nothing else re-reads) has to be fetched again (FR-6).
+    // Prepare
+    mockSocket.connected = true
+    renderHook(() => useSocket({ roomId: "room-1", gameId: "game-1", gameType: "undercover", enabled: true }))
+    act(() => handlerFor("connect")())
+    act(() => handlerFor("disconnect")())
+    mockInvalidateQueries.mockClear()
+
+    // Act
+    act(() => handlerFor("connect")())
+
+    // Assert
+    const invalidated = mockInvalidateQueries.mock.calls.map((c: unknown[]) => (c[0] as { queryKey: unknown }).queryKey)
+    expect(invalidated).toContainEqual([{ url: "/api/v1/rooms/:room_id/state", params: { room_id: "room-1" } }])
+    expect(invalidated).toContainEqual([{ url: "/api/v1/undercover/games/:game_id/state", params: { game_id: "game-1" } }])
+    expect(invalidated).toContainEqual([{ url: "/api/v1/rooms/:room_id/messages", params: { room_id: "room-1" } }, {}])
+  })
+
+  it("catches up on a first connect that came after a failed attempt", () => {
+    // The page read its state at mount, then the socket could not connect for a while:
+    // a chat line sent in between reached no one's socket.
+    // Prepare
+    renderHook(() => useSocket({ roomId: "room-1", enabled: true }))
+    handlerFor("connect_error")(new Error("websocket error"))
+
+    // Act
+    act(() => handlerFor("connect")())
+
+    // Assert
+    const invalidated = mockInvalidateQueries.mock.calls.map((c: unknown[]) => (c[0] as { queryKey: unknown }).queryKey)
+    expect(invalidated).toContainEqual([{ url: "/api/v1/rooms/:room_id/state", params: { room_id: "room-1" } }])
+    expect(invalidated).toContainEqual([{ url: "/api/v1/rooms/:room_id/messages", params: { room_id: "room-1" } }, {}])
+  })
+
+  it("a socket for another room starts over: its first connect invalidates nothing", () => {
+    // Prepare
+    const { rerender } = renderHook(({ roomId }) => useSocket({ roomId, enabled: true }), { initialProps: { roomId: "room-1" } })
+    act(() => handlerFor("connect")())
+    act(() => handlerFor("disconnect")())
+    mockOn.mockClear()
+    mockInvalidateQueries.mockClear()
+
+    // Act
+    rerender({ roomId: "room-2" })
+    act(() => handlerFor("connect")())
+
+    // Assert
+    expect(mockIo).toHaveBeenCalledTimes(2)
+    expect(mockInvalidateQueries).not.toHaveBeenCalled()
   })
 
   it("reconnect re-emits join_game", () => {

@@ -647,6 +647,14 @@
   animation: seal-press 330ms var(--ease-press) both;
 }
 
+/* Seals pressed as a set (the colophon's, components/brand/Seal.tsx `index`): after the
+   phase crossfade (--dur-state), one by one, --stagger apart, 240 ms at most. Unlayered and
+   more specific than the reduced-motion `.seal-press` shorthand below, so its fade waits
+   the same; the `both` fill keeps each seal unseen until its turn. */
+.seal-press[data-seal-index] {
+  animation-delay: calc(var(--dur-state) + min(var(--i, 0) * var(--stagger), 240ms));
+}
+
 /* View transitions for phase changes (lib/view-transition.ts): a short root fade. */
 ::view-transition-old(root),
 ::view-transition-new(root) {

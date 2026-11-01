@@ -17,10 +17,11 @@ import {
 } from "@/api/generated"
 import { queryKeys } from "@/api/queryKeys"
 import { isGameGoneError } from "@/components/games/shared/game-errors"
-import { isGamePausedError, isTimerStopAction } from "@/components/games/shared/prayer-pause/pause-utils"
+import { isGamePausedError } from "@/components/games/shared/prayer-pause/pause-utils"
 import { roomErrorMessage } from "@/components/rooms/errors"
 import { useLeaveAfterKick } from "@/hooks/use-leave-after-kick"
 import { useSocket } from "@/hooks/use-socket"
+import { useTimerReport } from "@/hooks/use-timer-report"
 import { trackEvent } from "@/lib/analytics"
 import { deriveUndercoverPhase, derivePlayerList, deriveVotedPlayers, type UndercoverPhase } from "@/lib/game-state"
 import { useAuth } from "@/providers/AuthProvider"
@@ -97,6 +98,12 @@ export function useUndercoverGame(gameId: string) {
   const [mrWhiteGuessInput, setMrWhiteGuessInput] = useState("")
   const [isSubmittingMrWhiteGuess, setIsSubmittingMrWhiteGuess] = useState(false)
   const [isStartingNextRound, setIsStartingNextRound] = useState(false)
+  // One next-round request at a time: `isStartingNextRound` reaches the button a render
+  // later, so a double tap used to send two.
+  const nextRoundInFlightRef = useRef(false)
+  // A ready mark the server accepted (`advanced: false`), shown at once: the state that
+  // says so is a refetch away (the socket's game_updated). Kept per round.
+  const [acceptedReadyMark, setAcceptedReadyMark] = useState<{ round: number; count: number; quorum: number } | null>(null)
   const [eliminationData, setEliminationData] = useState<EliminationData | null>(null)
 
   const {
@@ -133,6 +140,11 @@ export function useUndercoverGame(gameId: string) {
           winner?: string | null
           turn_phase?: string
           round_resolved?: boolean
+          /** Between rounds (owner rule (d)): who of those asked is ready, how many are asked, and the caller's own mark. */
+          ready_players?: string[]
+          ready_count?: number
+          ready_quorum?: number
+          is_ready?: boolean
           mr_white_guesser?: string | null
           description_order?: DescriptionOrderEntry[]
           current_describer_index?: number
@@ -387,46 +399,65 @@ export function useUndercoverGame(gameId: string) {
   // Achievements earned this game are sealed in the colophon (GameOverScreen), never
   // announced as toasts while the game runs.
 
-  const timerExpiredRef = useRef(false)
-  // The timer window (its server start) the server told us to stop reporting: the game
-  // was paused, or the round was already resolved. A new window (the next phase, or the
-  // start the resume moved forward) re-arms it.
+  // Any player may report an expired timer (the server acts only once it has really run
+  // out: gating it on the host stalled the round whenever the host's phone was locked);
+  // the host at once, the others after a jittered wait that the round's next state
+  // cancels (`useTimerReport`). The window is the phase's server start: a stop answer
+  // (`paused`, `round_already_resolved`) silences it until the next phase or the resume.
   const timerWindow = serverState?.timer_started_at ?? null
-  const timerWindowRef = useRef(timerWindow)
-  timerWindowRef.current = timerWindow
-  const stoppedWindowRef = useRef<string | null>(null)
-  // Any player may report an expired timer — the server only acts once the timer
-  // has really elapsed. Gating this on the host stalled the round whenever the
-  // host's phone was locked or their tab backgrounded.
-  const handleTimerExpired = useCallback(async () => {
-    const timerKey = timerWindowRef.current
-    if (timerExpiredRef.current || pausedRef.current) return
-    if (timerKey !== null && stoppedWindowRef.current === timerKey) return
-    timerExpiredRef.current = true
-    try {
-      const result = await timerExpiredMutation.mutateAsync({ game_id: gameId })
-      if (isTimerStopAction(result?.action)) stoppedWindowRef.current = timerKey
-      queryClient.invalidateQueries({ queryKey: queryKeys.game.undercover(gameId) })
-    } catch {
-      // Ignore — another client may have already triggered it
-    } finally {
-      timerExpiredRef.current = false
-    }
-  }, [gameId, queryClient, timerExpiredMutation])
+  const invalidateGame = useCallback(() => queryClient.invalidateQueries({ queryKey: queryKeys.game.undercover(gameId) }), [gameId, queryClient])
+  const handleTimerExpired = useTimerReport({
+    isHost: !!serverState?.is_host,
+    paused: isPaused,
+    phaseKey: [
+      serverState?.winner ?? "",
+      serverState?.turn_number,
+      serverState?.turn_phase,
+      serverState?.round_resolved ? "resolved" : "open",
+      serverState?.current_describer_index,
+      timerWindow,
+    ].join(":"),
+    windowKey: timerWindow,
+    send: () => timerExpiredMutation.mutateAsync({ game_id: gameId }),
+    onChanged: invalidateGame,
+  })
+
+  // Between rounds (owner rule (d)) the same next-round call is the host's "Next round",
+  // which opens it at once, and any other alive player's "I'm ready": the round opens once
+  // every alive player but the host is ready (the server's rule, `ready_required`). An
+  // eliminated player or a spectator has neither (the server answers 400/403).
+  const isSpectatorRole = gameState.my_role === "spectator"
+  const canForceNextRound = gameState.isHost && !isSpectatorRole
+  const canMarkReady = !gameState.isHost && !isSpectatorRole && gameState.players.some((p) => p.id === user?.id && p.is_alive)
+  const turnNumber = serverState?.turn_number ?? 0
+  const roundAwaitsNext = !!serverState?.round_resolved
+  const markThisRound = roundAwaitsNext && acceptedReadyMark?.round === turnNumber ? acceptedReadyMark : null
+  const stateSaysReady = roundAwaitsNext && !!serverState?.is_ready
+  const isReady = stateSaysReady || !!markThisRound
+  const readyCount = roundAwaitsNext ? Math.max(serverState?.ready_count ?? 0, stateSaysReady ? 0 : (markThisRound?.count ?? 0)) : 0
+  const readyQuorum = roundAwaitsNext ? serverState?.ready_quorum || markThisRound?.quorum || 0 : 0
 
   const handleStartNextRound = useCallback(async () => {
-    if (!gameState.isHost || !roomIdRef.current || isStartingNextRound || pausedRef.current) return
+    if (!roomIdRef.current || nextRoundInFlightRef.current || pausedRef.current) return
+    if (!canForceNextRound && !canMarkReady) return
+    nextRoundInFlightRef.current = true
     setIsStartingNextRound(true)
     try {
-      await nextRoundMutation.mutateAsync({ game_id: gameId, data: { room_id: roomIdRef.current } })
+      const result = await nextRoundMutation.mutateAsync({ game_id: gameId, data: { room_id: roomIdRef.current } })
+      // `advanced: false` is a ready mark, not a failure: shown at once, and the socket's
+      // push brings everyone the new count
+      if (result && result.advanced === false) {
+        setAcceptedReadyMark({ round: turnNumber, count: result.ready_count ?? 0, quorum: result.ready_quorum ?? 0 })
+      }
       queryClient.invalidateQueries({ queryKey: queryKeys.game.undercover(gameId) })
     } catch (err) {
       toast.error(roomErrorMessage(err, t("game.undercover.errors.nextRound")))
       refetchIfPaused(err)
     } finally {
+      nextRoundInFlightRef.current = false
       setIsStartingNextRound(false)
     }
-  }, [gameId, gameState.isHost, isStartingNextRound, nextRoundMutation, queryClient, t, refetchIfPaused])
+  }, [gameId, canForceNextRound, canMarkReady, turnNumber, nextRoundMutation, queryClient, t, refetchIfPaused])
 
   const handleSubmitMrWhiteGuess = useCallback(async () => {
     const guess = mrWhiteGuessInput.trim()
@@ -446,11 +477,14 @@ export function useUndercoverGame(gameId: string) {
     }
   }, [gameId, isSubmittingMrWhiteGuess, mrWhiteGuessInput, mrWhiteGuessMutation, queryClient, t, refetchIfPaused])
 
+  const leavingRef = useRef(false)
   const handleLeaveRoom = useCallback(async () => {
+    if (leavingRef.current) return
     if (!user || !roomIdRef.current) {
       navigate({ to: "/rooms" })
       return
     }
+    leavingRef.current = true
     try {
       await leaveMutation.mutateAsync({ data: { room_id: roomIdRef.current } })
     } catch {
@@ -502,6 +536,10 @@ export function useUndercoverGame(gameId: string) {
     mrWhiteGuessInput,
     isSubmittingMrWhiteGuess,
     isStartingNextRound,
+    canMarkReady,
+    isReady,
+    readyCount,
+    readyQuorum,
     setMrWhiteGuessInput,
     handleStartNextRound,
     handleSubmitMrWhiteGuess,

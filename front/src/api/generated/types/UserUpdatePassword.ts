@@ -7,6 +7,7 @@
 
 /**
  * UserUpdatePassword
+ * @description A password change: both passwords are checked in bytes (SEC F10).
  */
 export type UserUpdatePassword = {
   /**

@@ -1,26 +1,18 @@
-// FIRST, deliberately: this disables Zod's `new Function` probe, and it has to run
-// before any module that constructs a schema (the generated API schemas are built at
-// import time). See lib/zod-jitless.ts.
-import "./lib/zod-jitless"
 // Self-hosted faces (no font CDN under the enforced CSP). Before index.css so the
 // @font-face rules are registered before the first styled paint.
 import "./fonts"
 
-import * as Sentry from "@sentry/react"
 import { createRouter, RouterProvider } from "@tanstack/react-router"
 import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
+import { startErrorReporting } from "./lib/report-error"
 import { routeTree } from "./routeTree.gen"
 import "./index.css"
 import "./i18n"
 
-const sentryDsn = import.meta.env.VITE_SENTRY_DSN
-if (sentryDsn) {
-  Sentry.init({
-    dsn: sentryDsn,
-    tracesSampleRate: 0.1,
-  })
-}
+// The error tracker's SDK is fetched once the page is idle, and only in a build with a DSN;
+// what fails before that is queued (lib/report-error.ts).
+startErrorReporting({ dsn: import.meta.env.VITE_SENTRY_DSN })
 
 const router = createRouter({
   routeTree,

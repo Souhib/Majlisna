@@ -36,6 +36,8 @@ function getGameQueryKeyPrefix(gameType: string, gameId: string) {
  *   cache, so without `lang` an English push overwrote the Arabic meanings
  * - room_state events update ["room", roomId] query cache directly
  * - game_updated events invalidate [gameType, gameId] query, triggering a REST re-fetch
+ * - a REconnect (never the first connect) invalidates the room state, the room's chat
+ *   history and the game: events sent while the socket was down are not replayed
  *
  * Mutations still go through REST. Socket.IO is notification-only.
  */
@@ -51,6 +53,9 @@ export function useSocket({ roomId, gameId, gameType, enabled = true, onKicked, 
   const joinedLangRef = useRef(i18n.language)
   const gameTypeRef = useRef<string | undefined>(gameType)
   const [connected, setConnected] = useState(false)
+  // True once this socket has been connected, or has tried and failed: from then on a
+  // connect is a REconnect, after which the page may have missed events.
+  const hasConnectedRef = useRef(false)
 
   const onKickedRef = useRef(onKicked)
   onKickedRef.current = onKicked
@@ -71,11 +76,17 @@ export function useSocket({ roomId, gameId, gameType, enabled = true, onKicked, 
     if (gameIdRef.current) {
       joinGame(socketRef.current, gameIdRef.current)
     }
-    // On reconnect, invalidate queries to catch up on events missed while disconnected
+    // The first connect needs no catch-up: the page has just read its state over REST,
+    // the server pushes room_state on connect and answers join_game with game_state.
+    // Refetching on top of them read the same state three times per load (FP-10).
+    const isReconnect = hasConnectedRef.current
+    hasConnectedRef.current = true
+    if (!isReconnect) return
+    // A reconnect: python-socketio replays nothing, so re-read what may have changed
+    // while the socket was down, the chat included (nothing else re-reads it, FR-6).
     if (roomId) {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.room.state(roomId),
-      })
+      queryClient.invalidateQueries({ queryKey: queryKeys.room.state(roomId) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.room.messages(roomId) })
     }
     if (gameIdRef.current && gameTypeRef.current) {
       const keyPrefix = getGameQueryKeyPrefix(gameTypeRef.current, gameIdRef.current)
@@ -93,6 +104,8 @@ export function useSocket({ roomId, gameId, gameType, enabled = true, onKicked, 
 
     if (!getStoredToken()) return
 
+    // a new socket (another room, or enabled again): its first connect is a first one
+    hasConnectedRef.current = false
     const socket = io(window.location.origin, {
       path: "/socket.io",
       // A function, so every (re)connect shows the token stored NOW: access tokens last
@@ -148,6 +161,9 @@ export function useSocket({ roomId, gameId, gameType, enabled = true, onKicked, 
 
     socket.on("connect_error", (err: Error) => {
       console.error("Socket.IO connection error:", err.message)
+      // the page was read at mount, then the socket could not connect: whatever was
+      // said in between reached no socket of ours, so the connect that follows catches up
+      hasConnectedRef.current = true
     })
 
     // socket.io-client never retries a handshake the server refused (`socket.active`

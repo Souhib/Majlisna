@@ -1,0 +1,38 @@
+Majlisna font subsets: provenance and licence
+=============================================
+
+These files are subsets of the @fontsource files the app already ships (package versions
+in front/package.json), declared in src/fonts.css over the @fontsource faces (src/fonts.ts).
+Licence: SIL Open Font License 1.1, like their sources (Readex Pro: The Readex Pro Project
+Authors; Amiri: The Amiri Project Authors). Neither font has a Reserved Font Name.
+
+Files
+  readex-pro-translit-wght-normal.woff2   5.4 kB  Readex Pro Variable (wght 160-700), the
+                                                  transliteration letters only:
+      ā ī ū Ā Ī Ū  ḥ Ḥ ṣ Ṣ ḍ Ḍ ṭ Ṭ ẓ Ẓ  ʾ ʿ  ṯ Ṯ ḏ Ḏ ḫ Ḫ ġ Ġ š Š ǧ Ǧ
+      from @fontsource-variable/readex-pro/files/readex-pro-latin-ext-wght-normal.woff2
+  amiri-space-400-normal.woff2            0.5 kB  Amiri 400, U+0020 and U+00A0 only
+      from @fontsource/amiri/files/amiri-latin-400-normal.woff2
+  amiri-space-700-normal.woff2            0.5 kB  Amiri 700, U+0020 and U+00A0 only
+      from @fontsource/amiri/files/amiri-latin-700-normal.woff2
+
+How they were cut (fontTools 4.x, from front/):
+  F=node_modules/@fontsource-variable/readex-pro/files
+  uvx --with brotli --from fonttools pyftsubset $F/readex-pro-latin-ext-wght-normal.woff2 \
+    --unicodes="U+0100-0101,U+0120-0121,U+012A-012B,U+0160-0161,U+016A-016B,U+01E6-01E7,U+02BE-02BF,U+1E0C-1E0F,U+1E24-1E25,U+1E2A-1E2B,U+1E62-1E63,U+1E6C-1E6F,U+1E92-1E93" \
+    --layout-features='*' --flavor=woff2 \
+    --output-file=src/assets/fonts/readex-pro-translit-wght-normal.woff2
+  A=node_modules/@fontsource/amiri/files
+  for w in 400 700; do
+    uvx --with brotli --from fonttools pyftsubset $A/amiri-latin-$w-normal.woff2 \
+      --unicodes="U+0020,U+00A0" --layout-features='' --no-hinting --notdef-outline \
+      --flavor=woff2 --output-file=src/assets/fonts/amiri-space-$w-normal.woff2
+  done
+--notdef-outline is required: without it no glyph has an outline, and Chrome's font
+sanitizer (OTS) rejects the file ("glyf: zero-length table"). The face then fails
+silently and the space falls back to the 20 kB Latin file again.
+
+The unicode-range of each face in fonts.css must stay the file's cmap: a letter added to
+the copy outside it falls back to the larger face (a 28 kB download), and
+src/fonts-subsets.test.ts fails for any such letter in the three locales. Re-cut both
+files after upgrading the @fontsource packages.

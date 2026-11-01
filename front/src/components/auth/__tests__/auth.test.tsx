@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import type { ReactNode } from "react"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { AuthPage } from "../AuthPage"
 import { PasswordInput } from "../PasswordInput"
 import { compactErrors, confirmError, currentPasswordError, emailError, newPasswordError, usernameError } from "../validation"
@@ -32,8 +32,21 @@ vi.mock("@/api/generated", () => ({
 
 const login = vi.fn()
 vi.mock("@/providers/AuthProvider", () => ({ useAuth: () => ({ login }) }))
-vi.mock("@/components/auth/GoogleLoginButton", () => ({ GoogleLoginButton: () => null }))
+// No GoogleLoginButton stand-in: the pages render the real one. The test env has no
+// VITE_GOOGLE_CLIENT_ID, which is exactly the build that used to crash both pages.
 vi.mock("@/lib/analytics", () => ({ trackEvent: vi.fn() }))
+
+const GSI_SCRIPT = 'script[src^="https://accounts.google.com/gsi/client"]'
+// happy-dom never fetches scripts in tests; let a disabled load read as a success instead of
+// printing a DOMException for Google's script on every render that mounts the provider.
+const happyDOM = (window as unknown as { happyDOM?: { settings: { handleDisabledFileLoadingAsSuccess: boolean } } }).happyDOM
+if (happyDOM) happyDOM.settings.handleDisabledFileLoadingAsSuccess = true
+
+async function renderAuthRoute(path: "login" | "register") {
+  const { Route } = path === "login" ? await import("@/routes/auth/login") : await import("@/routes/auth/register")
+  const Page = (Route as unknown as { options: { component: () => ReactNode } }).options.component
+  return render(<Page />)
+}
 
 describe("auth validation", () => {
   it("mirrors the server's rules and returns i18n keys", () => {
@@ -130,7 +143,6 @@ describe("RegisterPage", () => {
     registerMutateAsync.mockResolvedValue({ id: "u1", username: "maryam", email_address: "m@example.com" })
     loginMutateAsync.mockResolvedValue({
       access_token: "access",
-      refresh_token: "refresh",
       expires_in: 900,
       user: { id: "u1", username: "maryam", email: "m@example.com" },
     })
@@ -145,14 +157,14 @@ describe("RegisterPage", () => {
     // Assert
     expect(registerMutateAsync).toHaveBeenCalledWith({ data: { username: "maryam", email_address: "m@example.com", password: "TestPass123!" } })
     expect(loginMutateAsync).toHaveBeenCalledWith({ data: { email: "m@example.com", password: "TestPass123!" } })
-    expect(login).toHaveBeenCalledWith("access", "refresh", 900, { id: "u1", username: "maryam", email: "m@example.com" })
+    expect(login).toHaveBeenCalledWith("access", 900, { id: "u1", username: "maryam", email: "m@example.com" })
     expect(navigate).toHaveBeenCalledWith({ href: "/rooms/join?code=ABCDE&pin=1234" })
   })
 
   it("keeps the player on the page with a way to log in when the automatic log-in fails", async () => {
     // Prepare
     registerMutateAsync.mockResolvedValue({ id: "u1" })
-    loginMutateAsync.mockRejectedValue(new Error("Verify your email first"))
+    loginMutateAsync.mockRejectedValue({ response: { status: 403, data: { message: "Verify your email first" } } })
     await renderRegister()
     fill("maryam", "m@example.com", "TestPass123!")
 
@@ -170,7 +182,7 @@ describe("RegisterPage", () => {
 
   it("shows the server's refusal in the form-error alert the E2E specs read", async () => {
     // Prepare
-    registerMutateAsync.mockRejectedValue(new Error("This email is already registered"))
+    registerMutateAsync.mockRejectedValue({ response: { status: 409, data: { message: "This email is already registered" } } })
     await renderRegister()
     fill("maryam", "m@example.com", "TestPass123!")
 
@@ -227,6 +239,48 @@ describe("LoginPage", () => {
     expect(order.indexOf("email")).toBeLessThan(order.indexOf("password"))
     expect(order.indexOf("password")).toBeLessThan(order.indexOf("/auth/forgot-password"))
     expect(document.querySelector("[tabindex]:not([tabindex='0']):not([tabindex='-1'])")).toBeNull()
+  })
+})
+
+describe("Google sign-in", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    search.redirect = undefined
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it.each(["login", "register"] as const)("keeps the %s page working when the build has no Google client id", async (path) => {
+    // Prepare
+    vi.stubEnv("VITE_GOOGLE_CLIENT_ID", "")
+
+    // Act
+    await renderAuthRoute(path)
+
+    // Assert: the email form is there, and neither Google's button nor its script
+    expect(document.getElementById("email")).toBeInstanceOf(HTMLInputElement)
+    expect(screen.queryByTestId("google-login-button")).toBeNull()
+    expect(document.querySelector(GSI_SCRIPT)).toBeNull()
+  })
+
+  it.each(["login", "register"] as const)("loads Google's script on the %s page, and only while it is open", async (path) => {
+    // Prepare
+    vi.stubEnv("VITE_GOOGLE_CLIENT_ID", "test-client.apps.googleusercontent.com")
+
+    // Act
+    const { unmount } = await renderAuthRoute(path)
+
+    // Assert
+    expect(screen.getByTestId("google-login-button")).toHaveTextContent("auth.continueWithGoogle")
+    expect(document.querySelectorAll(GSI_SCRIPT)).toHaveLength(1)
+
+    // Act: leaving the page
+    unmount()
+
+    // Assert
+    expect(document.querySelector(GSI_SCRIPT)).toBeNull()
   })
 })
 

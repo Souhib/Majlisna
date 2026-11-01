@@ -1,5 +1,8 @@
 import {
   getRoomStateApiV1RoomsRoomIdStateGetQueryKey,
+  getMessagesApiV1RoomsRoomIdMessagesGetQueryKey,
+  listRoomBansApiV1RoomsRoomIdBansGetQueryKey,
+  getShareLinkApiV1RoomsRoomIdShareLinkGetQueryKey,
   getCodenamesBoardApiV1CodenamesGamesGameIdBoardGetQueryKey,
   getUndercoverStateApiV1UndercoverGamesGameIdStateGetQueryKey,
   getWordquizStateApiV1WordquizGamesGameIdStateGetQueryKey,
@@ -12,6 +15,11 @@ import {
 export const queryKeys = {
   room: {
     state: (roomId: string) => getRoomStateApiV1RoomsRoomIdStateGetQueryKey({ room_id: roomId }),
+    // the chat history, every page size: `{}` as the params is a prefix of `{ limit: 50 }`
+    messages: (roomId: string) => getMessagesApiV1RoomsRoomIdMessagesGetQueryKey({ room_id: roomId }),
+    // the host's list of removed players, and the share link: both stale after a kick
+    bans: (roomId: string) => listRoomBansApiV1RoomsRoomIdBansGetQueryKey({ room_id: roomId }),
+    shareLink: (roomId: string) => getShareLinkApiV1RoomsRoomIdShareLinkGetQueryKey({ room_id: roomId }),
   },
   game: {
     undercover: (gameId: string) => getUndercoverStateApiV1UndercoverGamesGameIdStateGetQueryKey({ game_id: gameId }),

@@ -80,6 +80,17 @@ export type WordQuizGameState = {
    * @type integer
    */
   my_points: number;
+  my_attempts_left?: number | null;
+  /**
+   * @default 0
+   * @type integer | undefined
+   */
+  my_rungs_lost?: number;
+  /**
+   * @default 0
+   * @type integer | undefined
+   */
+  max_attempts?: number;
   /**
    * @type array
    */
@@ -87,6 +98,10 @@ export type WordQuizGameState = {
   correct_answer?: string | null;
   explanation?: string | null;
   winner?: string | null;
+  /**
+   * @type array | undefined
+   */
+  winner_ids?: string[];
   /**
    * @type array
    */
