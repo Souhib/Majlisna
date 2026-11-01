@@ -3,15 +3,13 @@ import { generateTestAccounts } from "../../helpers/test-setup";
 import {
   setupRoomWithPlayers,
   startGameViaAPI,
-  isPageAlive,
   giveClue,
   guessCard,
   endTurnViaUI,
   findSpymaster,
   findOperative,
-  type PlayerContext,
 } from "../../helpers/ui-game-setup";
-import { apiGetCodenamesBoard } from "../../helpers/api-client";
+import { apiGetCodenamesBoard, expectApiError, rawPost } from "../../helpers/api-client";
 
 test.describe("Codenames Game Gameplay", () => {
   test("spymaster gives clue and operatives see it", async ({ browser }) => {
@@ -31,13 +29,70 @@ test.describe("Codenames Game Gameplay", () => {
     // Give clue via UI
     await giveClue(spymaster.page, "testclue", 1);
 
-    // Verify operative can see the clue on their page
-    if (isPageAlive(operative.page)) {
-      await expect(
-        operative.page.locator("text=testclue").first()
-          .or(operative.page.locator("text=TESTCLUE").first()),
-      ).toBeVisible({ timeout: 15_000 });
-    }
+    // The operative sees the clue on their page
+    await expect(
+      operative.page.locator("text=testclue").first().or(operative.page.locator("text=TESTCLUE").first()),
+    ).toBeVisible({ timeout: 15_000 });
+
+    await setup.cleanup();
+  });
+
+  test("an operative cannot pass the team's turn before the clue", async ({ browser }) => {
+    // Prepare — the first team's operative, before their spymaster has spoken
+    const accounts = await generateTestAccounts(4);
+    const setup = await setupRoomWithPlayers(browser, accounts, "codenames");
+    const gameId = await startGameViaAPI(setup.players, "codenames", setup.roomId);
+    const board = await apiGetCodenamesBoard(gameId, setup.players[0].login.access_token);
+    const team = board.current_team;
+    const spymaster = await findSpymaster(setup.players, gameId, team);
+    const operative = await findOperative(setup.players, gameId, team);
+    await expect(operative.page.locator('[data-testid="codenames-board"]')).toBeVisible({ timeout: 15_000 });
+
+    // Assert — the page offers no End Turn, and the server refuses the call by name: one
+    // operative used to pass the team's whole turn before the clue (BR-15)
+    await expect(operative.page.getByRole("button", { name: "End Turn" })).toHaveCount(0);
+    await expectApiError(await rawPost(`/api/v1/codenames/games/${gameId}/end-turn`, {}, operative.login.access_token), 400, "errors.api.noClueGiven");
+    const after = await apiGetCodenamesBoard(gameId, operative.login.access_token);
+    expect(after.current_team).toBe(team);
+
+    // ...once the clue is given, End Turn is there and passes the turn
+    await giveClue(spymaster.page, "patience", 1);
+    await endTurnViaUI(operative.page);
+    await expect.poll(async () => (await apiGetCodenamesBoard(gameId, operative.login.access_token)).current_team).not.toBe(team);
+
+    await setup.cleanup();
+  });
+
+  test("a clue of two words is refused, in the field and by the server", async ({ browser }) => {
+    const accounts = await generateTestAccounts(4);
+    const setup = await setupRoomWithPlayers(browser, accounts, "codenames");
+    const gameId = await startGameViaAPI(setup.players, "codenames", setup.roomId);
+    const board = await apiGetCodenamesBoard(gameId, setup.players[0].login.access_token);
+    const spymaster = await findSpymaster(setup.players, gameId, board.current_team);
+    const clues: string[] = [];
+    spymaster.page.on("request", (r) => r.url().endsWith("/clue") && clues.push(r.url()));
+
+    // Act — two words in the field
+    const field = spymaster.page.locator('input[placeholder="One word clue"]');
+    await field.fill("the sunnah");
+    await spymaster.page.getByRole("button", { name: "Give clue" }).click();
+
+    // Assert — said under the field, nothing sent; the server refuses it by name too
+    await expect(spymaster.page.getByText("Give a one-word clue.")).toBeVisible({ timeout: 10_000 });
+    expect(clues).toEqual([]);
+    await expectApiError(
+      await rawPost(`/api/v1/codenames/games/${gameId}/clue`, { clue_word: "the sunnah", clue_number: 1 }, spymaster.login.access_token),
+      400,
+      "errors.api.clueMustBeOneWord",
+    );
+    // ...and a card's own word is refused as well
+    const oneWordCard = board.board.find((c) => !/\s/.test(c.word))!;
+    await expectApiError(
+      await rawPost(`/api/v1/codenames/games/${gameId}/clue`, { clue_word: oneWordCard.word, clue_number: 1 }, spymaster.login.access_token),
+      400,
+      "errors.api.clueWordIsOnBoard",
+    );
+    expect((await apiGetCodenamesBoard(gameId, spymaster.login.access_token)).current_turn.clue_word).toBeNull();
 
     await setup.cleanup();
   });
@@ -116,13 +171,9 @@ test.describe("Codenames Game Gameplay", () => {
     // guessCard() waits up to 30s for the card to be enabled (clue delivered via Socket.IO)
     await guessCard(operative.page, assassinWord);
 
-    // At least one player should see "Game Over"
-    const anyPage = setup.players.find((p) => isPageAlive(p.page))?.page;
-    if (anyPage) {
-      await expect(
-        anyPage.locator('h2:has-text("Game Over")')
-          .or(anyPage.locator('text=Game Over')),
-      ).toBeVisible({ timeout: 15_000 });
+    // Every player sees the end
+    for (const player of setup.players) {
+      await expect(player.page.locator('h2:has-text("Game Over")').first()).toBeVisible({ timeout: 15_000 });
     }
 
     // Verify via API that opponent won
@@ -175,69 +226,34 @@ test.describe("Codenames Game Gameplay", () => {
     const gameId = setup.players[0].page.url().match(/\/game\/codenames\/([a-f0-9-]+)/)?.[1];
     expect(gameId).toBeTruthy();
 
-    // Play the game: each turn, spymaster gives clue via UI, operative guesses via UI
+    // Play the game: each turn, the spymaster gives a clue and the operative turns one of
+    // the team's cards, then ends the turn if it is still theirs. Every step must work:
+    // no step is excused by "the game probably ended" (TQ-07).
     for (let turn = 0; turn < 30; turn++) {
-      // Read board via API to get current state
       const board = await apiGetCodenamesBoard(gameId!, setup.players[0].login.access_token);
       if (board.status === "finished") break;
-
       const currentTeam = board.current_team;
+      const spymaster = await findSpymaster(setup.players, gameId!, currentTeam);
+      const operative = await findOperative(setup.players, gameId!, currentTeam);
 
-      let spymaster: PlayerContext;
-      let operative: PlayerContext;
-      try {
-        spymaster = await findSpymaster(setup.players, gameId!, currentTeam);
-        operative = await findOperative(setup.players, gameId!, currentTeam);
-      } catch {
-        break;
-      }
-
-      // Give clue via UI — may fail if game ended between API check and UI action
-      try {
-        await giveClue(spymaster.page, `clue${turn}`, 1);
-      } catch {
-        // Game likely ended — check and break
-        const check = await apiGetCodenamesBoard(gameId!, setup.players[0].login.access_token);
-        if (check.status === "finished") break;
-        throw new Error("giveClue failed but game is not finished");
-      }
-
-      // Read spymaster's board to find a team card word
+      await giveClue(spymaster.page, `clue${turn}`, 1);
       const smBoard = await apiGetCodenamesBoard(gameId!, spymaster.login.access_token);
-      if (smBoard.status === "finished") break;
+      const teamCard = smBoard.board.find((c) => c.card_type === currentTeam && !c.revealed);
+      expect(teamCard, "a team with cards left to find").toBeTruthy();
+      const cardIndex = smBoard.board.indexOf(teamCard!);
+      await guessCard(operative.page, teamCard!.word);
+      await expect
+        .poll(async () => (await apiGetCodenamesBoard(gameId!, setup.players[0].login.access_token)).board[cardIndex].revealed)
+        .toBe(true);
 
-      const teamCard = smBoard.board.find(
-        (c) => c.card_type === currentTeam && !c.revealed,
-      );
-
-      if (teamCard) {
-        // Check if game ended on this player's UI before attempting to guess
-        const uiFinished = await operative.page
-          .locator('h2:has-text("Game Over")').isVisible().catch(() => false);
-        if (uiFinished) break;
-
-        try {
-          await guessCard(operative.page, teamCard.word);
-        } catch {
-          const check = await apiGetCodenamesBoard(gameId!, setup.players[0].login.access_token);
-          if (check.status === "finished") break;
-          throw new Error("guessCard failed but game is not finished");
-        }
-      }
-
-      // Check if game ended or turn already switched after guess
       const afterGuess = await apiGetCodenamesBoard(gameId!, setup.players[0].login.access_token);
       if (afterGuess.status === "finished") break;
-
-      // Only end turn if the current team hasn't changed (guess didn't auto-end turn)
-      if (afterGuess.current_team === currentTeam) {
-        await endTurnViaUI(operative.page).catch(() => {});
-        // Wait for turn to actually switch or game to finish before next iteration
-        await expect.poll(async () => {
-          const b = await apiGetCodenamesBoard(gameId!, setup.players[0].login.access_token);
-          return b.status === "finished" || b.current_team !== currentTeam;
-        }, { timeout: 15_000 }).toBe(true);
-      }
+      // A clue of 1 allows one more guess: the turn is still the team's, so it passes it
+      expect(afterGuess.current_team).toBe(currentTeam);
+      await endTurnViaUI(operative.page);
+      await expect
+        .poll(async () => (await apiGetCodenamesBoard(gameId!, setup.players[0].login.access_token)).current_team)
+        .not.toBe(currentTeam);
     }
 
     // Verify game finished
@@ -245,13 +261,9 @@ test.describe("Codenames Game Gameplay", () => {
     expect(finalBoard.status).toBe("finished");
     expect(finalBoard.winner).toBeTruthy();
 
-    // Verify UI shows game over
-    const anyPage = setup.players.find((p) => isPageAlive(p.page))?.page;
-    if (anyPage) {
-      await expect(
-        anyPage.locator('h2:has-text("Game Over")')
-          .or(anyPage.locator('text=Game Over')),
-      ).toBeVisible({ timeout: 15_000 });
+    // Every page shows the end
+    for (const player of setup.players) {
+      await expect(player.page.locator('h2:has-text("Game Over")').first()).toBeVisible({ timeout: 15_000 });
     }
 
     await setup.cleanup();

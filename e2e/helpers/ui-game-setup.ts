@@ -8,10 +8,12 @@ import {
   apiGetUndercoverState,
   apiGetCodenamesBoard,
   apiSubmitDescription,
+  apiSubmitVote,
   apiUpdateRoomSettings,
   type LoginResponse,
   type RoomResponse,
   type CodenamesBoardState,
+  type UndercoverGameState,
 } from "./api-client";
 import { createPlayerPage } from "../fixtures/auth.fixture";
 import { ROUTES, FRONTEND_URL } from "./constants";
@@ -39,15 +41,49 @@ export interface CodenamesPlayerRole {
 // ─── Utilities ──────────────────────────────────────────────
 
 /**
- * Check if a Playwright page is still alive (browser context not closed).
+ * Whether a player's page is still open. The old helper called `page.url()` in a
+ * try/catch, which never throws, so it answered true for a page whose context had been
+ * closed (TQ-15). Only the specs that close a player's browser on purpose meet a closed
+ * page; everywhere else a closed page is a failure the next locator reports.
  */
 export function isPageAlive(page: Page): boolean {
-  try {
-    page.url();
-    return true;
-  } catch {
-    return false;
+  return !page.isClosed();
+}
+
+/** The game id in a game page's address (`/game/<game>/<id>`). */
+export function gameIdFromUrl(page: Page, game: "undercover" | "codenames" | "wordquiz" | "mcqquiz"): string {
+  const id = page.url().match(new RegExp(`/game/${game}/([a-f0-9-]+)`))?.[1];
+  if (!id) throw new Error(`not on a ${game} game page: ${page.url()}`);
+  return id;
+}
+
+/** Open every player's browser on the room lobby and wait until each one sees the whole table. */
+async function openLobbies(
+  browser: Browser,
+  accounts: { email: string; password: string }[],
+  logins: LoginResponse[],
+  roomId: string,
+): Promise<PlayerContext[]> {
+  const players: PlayerContext[] = [];
+  for (let i = 0; i < accounts.length; i++) {
+    const page = await createPlayerPage(browser, accounts[i].email, accounts[i].password);
+    await page.goto(ROUTES.room(roomId));
+    await page.waitForLoadState("domcontentloaded");
+    players.push({ page, login: logins[i], account: accounts[i] });
   }
+  await Promise.all(
+    players.map((player) =>
+      expect(player.page.locator(`text=Players (${accounts.length})`)).toBeVisible({ timeout: 30_000 }),
+    ),
+  );
+  return players;
+}
+
+/** Close every player's browser (a context closed before, by the spec itself, is fine). */
+function closeAll(players: PlayerContext[]): () => Promise<void> {
+  return async () => {
+    for (const p of players) await p.page.context().close();
+  };
 }
 
 // ─── Room Setup via Pure API ────────────────────────────────
@@ -62,69 +98,24 @@ export async function setupRoomWithPlayers(
   accounts: { email: string; password: string }[],
   gameType: "undercover" | "codenames" | "word_quiz" | "mcq_quiz" = "undercover",
 ): Promise<UIGameSetup> {
-  // Login all players via API (parallel)
-  const logins = await Promise.all(
-    accounts.map((a) => apiLogin(a.email, a.password)),
-  );
+  const logins = await Promise.all(accounts.map((a) => apiLogin(a.email, a.password)));
 
-  // Host creates room via API
   const room = await apiCreateRoom(logins[0].access_token, gameType);
   const roomDetails = await apiGetRoom(room.id, logins[0].access_token);
 
-  // Set very long timers so they never expire during tests
+  // Long timers, so no clock runs out during a test that does not ask for it
   await apiUpdateRoomSettings(
     room.id,
-    {
-      description_timer: 600,
-      voting_timer: 600,
-      codenames_clue_timer: 600,
-      codenames_guess_timer: 600,
-    },
+    { description_timer: 600, voting_timer: 600, codenames_clue_timer: 600, codenames_guess_timer: 600 },
     logins[0].access_token,
   );
 
-  // All other players join via API
   for (let i = 1; i < logins.length; i++) {
-    await apiJoinRoom(
-      roomDetails.public_id,
-      logins[i].user.id,
-      roomDetails.password,
-      logins[i].access_token,
-    );
+    await apiJoinRoom(roomDetails.public_id, logins[i].user.id, roomDetails.password, logins[i].access_token);
   }
 
-  // Create browser pages and navigate to room lobby
-  const players: PlayerContext[] = [];
-  for (let i = 0; i < accounts.length; i++) {
-    const page = await createPlayerPage(
-      browser,
-      accounts[i].email,
-      accounts[i].password,
-    );
-    await page.goto(ROUTES.room(room.id));
-    await page.waitForLoadState("domcontentloaded");
-    players.push({ page, login: logins[i], account: accounts[i] });
-  }
-
-  // Wait for all players to see the full player count
-  const expectedCount = accounts.length;
-  await Promise.all(
-    players.map((player) =>
-      expect(player.page.locator(`text=Players (${expectedCount})`))
-        .toBeVisible({ timeout: 30_000 })
-    ),
-  );
-
-  return {
-    players,
-    roomDetails,
-    roomId: room.id,
-    cleanup: async () => {
-      for (const p of players) {
-        await p.page.context().close().catch(() => {});
-      }
-    },
-  };
+  const players = await openLobbies(browser, accounts, logins, room.id);
+  return { players, roomDetails, roomId: room.id, cleanup: closeAll(players) };
 }
 
 // ─── Room Setup via UI (for room management tests) ──────────
@@ -139,104 +130,63 @@ export async function setupRoomWithPlayersViaUI(
   accounts: { email: string; password: string }[],
   gameType: "undercover" | "codenames" | "word_quiz" = "undercover",
 ): Promise<UIGameSetup> {
-  const logins = await Promise.all(
-    accounts.map((a) => apiLogin(a.email, a.password)),
-  );
+  const logins = await Promise.all(accounts.map((a) => apiLogin(a.email, a.password)));
 
-  // Host creates room via API
   const room = await apiCreateRoom(logins[0].access_token, gameType);
   const roomDetails = await apiGetRoom(room.id, logins[0].access_token);
-
-  // Set very long timers so they never expire during tests
   await apiUpdateRoomSettings(
     room.id,
-    {
-      description_timer: 600,
-      voting_timer: 600,
-      codenames_clue_timer: 600,
-      codenames_guess_timer: 600,
-    },
+    { description_timer: 600, voting_timer: 600, codenames_clue_timer: 600, codenames_guess_timer: 600 },
     logins[0].access_token,
   );
 
-  // Host navigates directly to room lobby
-  const hostPage = await createPlayerPage(
-    browser,
-    accounts[0].email,
-    accounts[0].password,
-  );
-  hostPage.on('pageerror', err => console.error(`[E2E] Host pageerror: ${err.message}\n${err.stack}`));
-  hostPage.on('console', msg => {
-    if (msg.type() === 'error' && msg.text().includes('ErrorBoundary')) {
-      console.error(`[E2E] Host ErrorBoundary: ${msg.text()}`);
-    }
-  });
+  const hostPage = await createPlayerPage(browser, accounts[0].email, accounts[0].password);
   await hostPage.goto(ROUTES.room(room.id));
-  await hostPage.waitForLoadState("domcontentloaded");
-  await expect(
-    hostPage.locator('text=/Players \\(\\d+/')
-  ).toBeVisible({ timeout: 10_000 });
-
-  const players: PlayerContext[] = [
-    { page: hostPage, login: logins[0], account: accounts[0] },
-  ];
+  await expect(hostPage.locator("text=/Players \\(\\d+/")).toBeVisible({ timeout: 10_000 });
+  const players: PlayerContext[] = [{ page: hostPage, login: logins[0], account: accounts[0] }];
 
   // Other players join via UI
   for (let i = 1; i < accounts.length; i++) {
-    const page = await createPlayerPage(
-      browser,
-      accounts[i].email,
-      accounts[i].password,
-    );
-    page.on('pageerror', err => console.error(`[E2E] Player ${i} pageerror: ${err.message}\n${err.stack}`));
-    page.on('console', msg => {
-      if (msg.type() === 'error' && msg.text().includes('ErrorBoundary')) {
-        console.error(`[E2E] Player ${i} ErrorBoundary: ${msg.text()}`);
-      }
-    });
-
+    const page = await createPlayerPage(browser, accounts[i].email, accounts[i].password);
     await page.goto(ROUTES.rooms);
-    await page.waitForLoadState("domcontentloaded");
-
-    // Fill room code + PIN and click join
-    await page.locator('input[id="room-code"]').fill(roomDetails.public_id);
-    const pinDigits = roomDetails.password.split("");
-    for (let j = 0; j < 4; j++) {
-      await page
-        .locator(`input[aria-label="Password digit ${j + 1}"]`)
-        .fill(pinDigits[j]);
-    }
-    const joinBtn = page.locator('button[type="submit"]');
-    await expect(joinBtn).toBeEnabled({ timeout: 10_000 });
-    await joinBtn.click();
-
-    // Wait for navigation to room page
+    await joinWithCodeAndPin(page, roomDetails.public_id, roomDetails.password);
     await expect(page).toHaveURL(/\/rooms\/[a-f0-9-]+/, { timeout: 15_000 });
     players.push({ page, login: logins[i], account: accounts[i] });
   }
 
-  // Verify all players see full count
-  const expectedCount = accounts.length;
   await Promise.all(
-    players.map((player) =>
-      expect(player.page.locator(`text=Players (${expectedCount})`))
-        .toBeVisible({ timeout: 30_000 })
-    ),
+    players.map((player) => expect(player.page.locator(`text=Players (${accounts.length})`)).toBeVisible({ timeout: 30_000 })),
   );
+  return { players, roomDetails, roomId: room.id, cleanup: closeAll(players) };
+}
 
-  return {
-    players,
-    roomDetails,
-    roomId: room.id,
-    cleanup: async () => {
-      for (const p of players) {
-        await p.page.context().close().catch(() => {});
-      }
-    },
-  };
+/** On /rooms: type the code and the PIN, then Join. */
+export async function joinWithCodeAndPin(page: Page, code: string, pin: string): Promise<void> {
+  await page.locator('input[id="room-code"]').fill(code);
+  const digits = pin.split("");
+  for (let j = 0; j < 4; j++) {
+    await page.locator(`input[aria-label="Password digit ${j + 1}"]`).fill(digits[j]);
+  }
+  const joinBtn = page.locator('button[type="submit"]');
+  await expect(joinBtn).toBeEnabled({ timeout: 10_000 });
+  await joinBtn.click();
 }
 
 // ─── Game Start via API ─────────────────────────────────────
+
+const GAME_URL_PATH: Record<string, string> = {
+  undercover: "undercover",
+  codenames: "codenames",
+  word_quiz: "wordquiz",
+  mcq_quiz: "mcqquiz",
+};
+
+const GAME_URL_PATTERN: Record<string, RegExp> = {
+  undercover: /\/game\/undercover\//,
+  codenames: /\/game\/codenames\//,
+  word_quiz: /\/game\/wordquiz\//,
+  mcq_quiz: /\/game\/mcqquiz\//,
+};
 
 /**
  * Start a game via API and navigate all players to the game page.
@@ -246,19 +196,10 @@ export async function startGameViaAPI(
   players: PlayerContext[],
   gameType: "undercover" | "codenames" | "word_quiz" | "mcq_quiz",
   roomId: string,
-): Promise<void> {
-  const hostToken = players[0].login.access_token;
-  const result = await apiStartGame(roomId, gameType, hostToken);
-  const gameUrlPathMap: Record<string, string> = {
-    undercover: "undercover",
-    codenames: "codenames",
-    word_quiz: "wordquiz",
-    mcq_quiz: "mcqquiz",
-  };
-  const gameUrlPath = gameUrlPathMap[gameType] || gameType;
-  const gameUrl = `/game/${gameUrlPath}/${result.game_id}`;
+): Promise<string> {
+  const result = await apiStartGame(roomId, gameType, players[0].login.access_token);
+  const gameUrl = `/game/${GAME_URL_PATH[gameType]}/${result.game_id}`;
 
-  // Navigate all players to the game page
   await Promise.all(
     players.map(async (player) => {
       await player.page.goto(`${FRONTEND_URL}${gameUrl}`);
@@ -266,60 +207,43 @@ export async function startGameViaAPI(
     }),
   );
 
-  // Wait for game UI to load on all pages
-  const urlPatterns: Record<string, RegExp> = {
-    undercover: /\/game\/undercover\//,
-    codenames: /\/game\/codenames\//,
-    word_quiz: /\/game\/wordquiz\//,
-    mcq_quiz: /\/game\/mcqquiz\//,
-  };
-  const urlPattern = urlPatterns[gameType];
-
   for (const player of players) {
-    await expect(player.page).toHaveURL(urlPattern, { timeout: 15_000 });
+    await expect(player.page).toHaveURL(GAME_URL_PATTERN[gameType], { timeout: 15_000 });
     if (gameType === "codenames") {
-      await expect(
-        player.page.locator('[data-testid="codenames-card"]').first(),
-      ).toBeVisible({ timeout: 15_000 });
+      await expect(player.page.locator('[data-testid="codenames-card"]').first()).toBeVisible({ timeout: 15_000 });
     } else if (gameType === "word_quiz") {
-      await expect(
-        player.page.locator("h1:has-text('Kalimat')").or(player.page.locator("h1:has-text('كلمات')")),
-      ).toBeVisible({ timeout: 15_000 });
+      await expect(player.page.locator("h1:has-text('Kalimat')").or(player.page.locator("h1:has-text('كلمات')"))).toBeVisible({
+        timeout: 15_000,
+      });
     } else if (gameType === "mcq_quiz") {
       await expect(
-        player.page.locator("h1:has-text('The Quiz')").or(player.page.locator("h1:has-text('Le Quiz')")).or(player.page.locator("h1:has-text('مسائل')")),
+        player.page
+          .locator("h1:has-text('The Quiz')")
+          .or(player.page.locator("h1:has-text('Le Quiz')"))
+          .or(player.page.locator("h1:has-text('مسائل')")),
       ).toBeVisible({ timeout: 15_000 });
     } else {
-      await expect(
-        player.page.locator("h1:has-text('Undercover')"),
-      ).toBeVisible({ timeout: 15_000 });
+      await expect(player.page.locator("h1:has-text('Undercover')")).toBeVisible({ timeout: 15_000 });
     }
   }
+  return result.game_id;
 }
 
 // ─── Game Start via UI ──────────────────────────────────────
 
 /**
- * Host clicks the start button. For codenames, first selects the game type.
- * Returns after all players have navigated to the game page.
- *
- * With REST polling, players auto-navigate when active_game_id appears
- * in the room state response.
+ * Host clicks the start button (after picking the game in the lobby's picker), and every
+ * player is taken to the game page by the room's push (or its 2 s poll).
  */
 export async function startGameViaUI(
   players: PlayerContext[],
   gameType: "undercover" | "codenames" | "word_quiz" | "mcq_quiz",
 ): Promise<void> {
   const hostPage = players[0].page;
+  await expect(hostPage.locator(`text=Players (${players.length})`)).toBeVisible({ timeout: 30_000 });
 
-  // Wait for all players to appear in the lobby before starting
-  const playerCountText = `Players (${players.length})`;
-  await expect(
-    hostPage.locator(`text=${playerCountText}`),
-  ).toBeVisible({ timeout: 30_000 });
-
-  // Select game type in the lobby's game picker (a tab list; undercover is default).
-  // Picking a tab also saves the room's game type on the server (PATCH settings).
+  // The lobby's game picker (a tab list; undercover is default). Picking a tab also saves
+  // the room's game type on the server (PATCH settings).
   const tabNames: Record<string, string> = {
     undercover: "Undercover",
     codenames: "Codenames",
@@ -332,186 +256,122 @@ export async function startGameViaUI(
   }
   await expect(gameTab).toHaveAttribute("aria-selected", "true");
 
-  // Click start game
   const startButton = hostPage.locator('button:has-text("Start")');
   await expect(startButton).toBeEnabled({ timeout: 10_000 });
   await startButton.click();
 
-  // Wait for all players to navigate to game page
-  // With polling, the room page auto-navigates when active_game_id appears
-  const urlPatternMap: Record<string, RegExp> = {
-    undercover: /\/game\/undercover\//,
-    codenames: /\/game\/codenames\//,
-    word_quiz: /\/game\/wordquiz\//,
-    mcq_quiz: /\/game\/mcqquiz\//,
-  };
-  const urlPattern = urlPatternMap[gameType];
-
-  // Wait for all players to auto-navigate via polling/Socket.IO
-  await Promise.all(
-    players.map((player) =>
-      expect(player.page).toHaveURL(urlPattern, { timeout: 20_000 })
-    ),
-  );
-
-  // Fallback: force-navigate any stuck players (log as warning)
-  let gameUrl = "";
-  for (const player of players) {
-    if (urlPattern.test(player.page.url())) {
-      gameUrl = player.page.url();
-      break;
-    }
-  }
-
-  for (const player of players) {
-    if (!urlPattern.test(player.page.url()) && gameUrl) {
-      console.warn(`[E2E] Player did not auto-navigate; forcing to ${gameUrl}`);
-      await player.page.goto(gameUrl);
-      await expect(player.page).toHaveURL(urlPattern, { timeout: 15_000 });
-    }
-  }
+  // Every player follows the table; one who does not is a failure, never forced along
+  await Promise.all(players.map((player) => expect(player.page).toHaveURL(GAME_URL_PATTERN[gameType], { timeout: 20_000 })));
 }
 
 // ─── Undercover: Role Reveal ────────────────────────────────
+
+/** The describing phase's heading, or a later phase's (the table may have moved on). */
+function atTheTable(page: Page) {
+  return page
+    .locator('h2:has-text("turn to describe")')
+    .or(page.locator('h2:has-text("is describing")'))
+    .or(page.locator('h2:has-text("Discuss and vote")'))
+    .or(page.locator('h2:has-text("Game Over")'))
+    .first();
+}
 
 /**
  * Wait for role reveal screen and dismiss it for all players.
  * Returns only players confirmed on the game page (active players).
  */
-export async function dismissRoleRevealAll(
-  players: PlayerContext[],
-): Promise<PlayerContext[]> {
-  const activePlayers: PlayerContext[] = [];
-
+export async function dismissRoleRevealAll(players: PlayerContext[]): Promise<PlayerContext[]> {
   for (const player of players) {
-    if (!isPageAlive(player.page)) continue;
-
     // The first reading ("Your role is in your word.") ends with "I understand".
     const dismissBtn = player.page.getByRole("button", { name: "I understand" });
     await expect(dismissBtn).toBeVisible({ timeout: 15_000 });
     await dismissBtn.click();
-
-    // The player is now at the table: the describing phase's heading ("Your turn to
-    // describe" / "<name> is describing"), or a later phase if the table moved on.
-    await expect(
-      player.page
-        .locator('h2:has-text("turn to describe")')
-        .or(player.page.locator('h2:has-text("is describing")'))
-        .or(player.page.locator('h2:has-text("Discuss and vote")'))
-        .or(player.page.locator('h2:has-text("Game Over")'))
-        .first(),
-    ).toBeVisible({ timeout: 15_000 });
-
-    activePlayers.push(player);
+    await expect(atTheTable(player.page)).toBeVisible({ timeout: 15_000 });
   }
+  return players;
+}
 
-  return activePlayers;
+/** Each player's own role, read from their own state (a role is secret: nobody else's payload has it). */
+export async function undercoverRoles(players: PlayerContext[], gameId: string): Promise<Map<string, string>> {
+  const roles = new Map<string, string>();
+  for (const player of players) {
+    const state = await apiGetUndercoverState(gameId, player.login.access_token);
+    roles.set(player.login.user.id, state.my_role);
+  }
+  return roles;
 }
 
 // ─── Undercover: Description Phase ──────────────────────────
 
 /**
- * Extract the game ID from a player's page URL.
- * URL format: /game/undercover/{gameId}
- */
-function extractGameId(page: Page): string | null {
-  const url = page.url();
-  const match = url.match(/\/game\/undercover\/([a-f0-9-]+)/);
-  return match ? match[1] : null;
-}
-
-/**
  * Submit a description via the UI for the current describer.
- * Fills the #description-input and presses Enter.
+ * Fills the #description-input and presses Submit.
  */
-export async function submitDescriptionViaUI(
-  page: Page,
-  word: string,
-): Promise<void> {
+export async function submitDescriptionViaUI(page: Page, word: string): Promise<void> {
   const input = page.locator("#description-input");
   await input.fill(word);
-  // Wait for React to process the input and enable the Submit button
   const submitBtn = page.locator('button:has-text("Submit")').first();
   await expect(submitBtn).toBeEnabled({ timeout: 5_000 });
   await submitBtn.click();
 }
 
-/**
- * Submit descriptions for all alive players via the UI.
- * Finds which player's page has the description input visible (only the
- * current describer sees it), fills and submits, then waits for the next
- * describer or phase transition.
- */
-export async function submitDescriptionsForAllPlayersViaUI(
-  activePlayers: PlayerContext[],
-): Promise<void> {
-  const alivePlayers = activePlayers.filter((p) => isPageAlive(p.page));
-  if (alivePlayers.length === 0) return;
+/** A one-off description: never anyone's word (the server refuses a describer's own word). */
+const description = () => `desc${Math.random().toString(36).slice(2, 6)}`;
 
-  const maxIterations = alivePlayers.length + 2;
+/** The player whose turn it is to describe, from the server's state. */
+function describerOf(state: UndercoverGameState, players: PlayerContext[]): PlayerContext {
+  const entry = state.description_order?.[state.current_describer_index ?? 0];
+  const describer = players.find((p) => p.login.user.id === entry?.user_id);
+  if (!describer) throw new Error(`the describer ${entry?.username} is not among the players given`);
+  return describer;
+}
 
-  for (let i = 0; i < maxIterations; i++) {
-    // Check if phase already transitioned past describing
-    const anyPage = alivePlayers.find((p) => isPageAlive(p.page))?.page;
-    if (!anyPage) break;
+/** Wait until the server has moved past this describer (the next one, or the vote). */
+async function waitForTurnToMove(gameId: string, token: string, index: number): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        const state = await apiGetUndercoverState(gameId, token);
+        return state.turn_phase !== "describing" || state.current_describer_index !== index;
+      },
+      { timeout: 15_000, intervals: [250] },
+    )
+    .toBe(true);
+}
 
-    const phaseTransitioned = await anyPage
-      .locator('text=Discuss and vote')
-      .or(anyPage.locator('h2:has-text("Game Over")'))
-      .isVisible()
-      .catch(() => false);
-    if (phaseTransitioned) break;
-
-    // Find which player's page has the description input visible.
-    // Poll with 500ms intervals for up to 20s (polling fallback is 2s).
-    let describer: PlayerContext | undefined;
-    const deadline = Date.now() + 20_000;
-    while (Date.now() < deadline) {
-      for (const player of alivePlayers) {
-        if (!isPageAlive(player.page)) continue;
-        const inputVisible = await player.page
-          .locator("#description-input")
-          .isVisible()
-          .catch(() => false);
-        if (inputVisible) {
-          describer = player;
-          break;
-        }
-      }
-      if (describer) break;
-
-      // Check for phase transition while waiting
-      const transitioned = await anyPage
-        .locator('text=Discuss and vote')
-        .or(anyPage.locator('h2:has-text("Game Over")'))
-        .isVisible()
-        .catch(() => false);
-      if (transitioned) break;
-
-      await anyPage.waitForTimeout(500);
-    }
-
-    if (!describer) break;
-
-    // Submit description via UI
-    const word = `desc${Math.random().toString(36).slice(2, 6)}`;
-    await submitDescriptionViaUI(describer.page, word);
-
-    // Wait for the input to disappear (server processed the description)
-    await expect(
-      describer.page.locator("#description-input")
-    ).toBeHidden({ timeout: 10_000 });
-  }
-
-  // Wait for all players to see the voting phase or game over
-  for (const player of activePlayers) {
+/** Every player's page shows the vote (or the end of the game). */
+async function waitForVotingEverywhere(players: PlayerContext[]): Promise<void> {
+  for (const player of players) {
     if (!isPageAlive(player.page)) continue;
     await expect(
-      player.page
-        .locator("text=Discuss and vote")
-        .or(player.page.locator('h2:has-text("Game Over")'))
+      player.page.locator("text=Discuss and vote").or(player.page.locator('h2:has-text("Game Over")')),
     ).toBeVisible({ timeout: 30_000 });
   }
+}
+
+/**
+ * Every living player describes through the UI, in the server's order: the describer is
+ * read from the state, and their page must show the field (no hunting from page to page
+ * with snapshots). Returns once every page shows the vote.
+ */
+export async function submitDescriptionsForAllPlayersViaUI(activePlayers: PlayerContext[]): Promise<void> {
+  const gameId = gameIdFromUrl(activePlayers[0].page, "undercover");
+  const token = activePlayers[0].login.access_token;
+
+  for (let turn = 0; turn <= activePlayers.length; turn++) {
+    const state = await apiGetUndercoverState(gameId, token);
+    if (state.turn_phase !== "describing") break;
+    if (turn === activePlayers.length) throw new Error("still describing after every player has described");
+    const index = state.current_describer_index ?? 0;
+    const describer = describerOf(state, activePlayers);
+    const input = describer.page.locator("#description-input");
+    await expect(input).toBeVisible({ timeout: 20_000 });
+    await submitDescriptionViaUI(describer.page, description());
+    await expect(input).toBeHidden({ timeout: 10_000 });
+    await waitForTurnToMove(gameId, token, index);
+  }
+
+  await waitForVotingEverywhere(activePlayers);
 }
 
 /**
@@ -520,201 +380,129 @@ export async function submitDescriptionsForAllPlayersViaUI(
  * for the voting phase to appear on all players' UIs.
  * Use this only for setup in error/boundary tests, not for gameplay E2E.
  */
-export async function submitDescriptionsForAllPlayersViaAPI(
-  activePlayers: PlayerContext[],
-): Promise<void> {
-  const alivePlayers = activePlayers.filter((p) => isPageAlive(p.page));
-  if (alivePlayers.length === 0) return;
+export async function submitDescriptionsForAllPlayersViaAPI(activePlayers: PlayerContext[]): Promise<void> {
+  const gameId = gameIdFromUrl(activePlayers[0].page, "undercover");
+  const token = activePlayers[0].login.access_token;
 
-  // Get game ID from any player's URL
-  const gameId = extractGameId(alivePlayers[0].page);
-  if (!gameId) throw new Error("Could not extract game ID from player URL");
-
-  // Submit descriptions one by one, re-fetching state each time
-  for (let submitted = 0; submitted < alivePlayers.length; submitted++) {
-    // Re-fetch state to get current describer
-    const currentState = await apiGetUndercoverState(
-      gameId,
-      alivePlayers[0].login.access_token,
-    );
-
-    // Check if descriptions are done
-    if (currentState.turn_phase !== "describing") break;
-    if (
-      !currentState.description_order ||
-      currentState.description_order.length === 0
-    ) {
-      break;
-    }
-
-    const idx = currentState.current_describer_index ?? 0;
-    if (idx >= currentState.description_order.length) break;
-
-    const describerId = currentState.description_order[idx].user_id;
-    const describer = alivePlayers.find(
-      (p) => p.login.user.id === describerId,
-    );
-    if (!describer) break;
-
-    const word = `desc${Math.random().toString(36).slice(2, 6)}`;
-    await apiSubmitDescription(gameId, word, describer.login.access_token);
-
-    // Small delay for server processing
-    const sleepFn = (ms: number) => new Promise(r => setTimeout(r, ms));
-    await sleepFn(300);
+  for (let turn = 0; turn <= activePlayers.length; turn++) {
+    const state = await apiGetUndercoverState(gameId, token);
+    if (state.turn_phase !== "describing") break;
+    if (turn === activePlayers.length) throw new Error("still describing after every player has described");
+    const index = state.current_describer_index ?? 0;
+    const describer = describerOf(state, activePlayers);
+    await apiSubmitDescription(gameId, description(), describer.login.access_token);
+    await waitForTurnToMove(gameId, token, index);
   }
 
-  // Wait for all players to see the voting phase (polling updates the UI)
-  for (const player of activePlayers) {
-    if (!isPageAlive(player.page)) continue;
-    await expect(
-      player.page
-        .locator("text=Discuss and vote")
-        .or(player.page.locator('h2:has-text("Game Over")'))
-    ).toBeVisible({ timeout: 30_000 });
-  }
+  await waitForVotingEverywhere(activePlayers);
 }
 
 // ─── Undercover: Voting ─────────────────────────────────────
 
-/**
- * Vote for a specific player by username.
- * Retries once if the click doesn't register.
- */
-export async function voteForPlayer(
-  page: Page,
-  targetUsername: string,
-): Promise<void> {
-  // Check if already voted
-  const alreadyVoted = await page
-    .locator("text=Waiting for")
-    .isVisible()
-    .catch(() => false);
-  if (alreadyVoted) return;
+/** What a page shows once its player's ballot is in: their vote, the round counted, or the end. */
+function votedOrResolved(page: Page) {
+  return page
+    .getByRole("status")
+    .filter({ hasText: "Waiting for the others to vote." })
+    .or(page.locator('[data-testid="elimination-overlay"]'))
+    .or(page.locator('[data-testid="you-are-eliminated"]'))
+    .or(page.locator('h2:has-text("Game Over")'));
+}
 
-  // Check for game over
-  const gameOver = await page
-    .locator('h2:has-text("Game Over")')
-    .isVisible()
-    .catch(() => false);
-  if (gameOver) return;
+/** Vote for a player through the UI: pick their seat, then "Vote to eliminate". */
+export async function voteForPlayer(page: Page, targetUsername: string): Promise<void> {
+  const candidate = page.getByRole("button", { name: `Vote for ${targetUsername}`, exact: true });
+  await expect(candidate).toBeVisible({ timeout: 10_000 });
+  await candidate.click();
+  await expect(candidate).toHaveAttribute("aria-pressed", "true");
 
-  // Find the player card and click it
-  const playerCard = page.locator(`button:has-text("${targetUsername}")`).first();
-  await playerCard.waitFor({ state: "visible", timeout: 10_000 });
-  await playerCard.click();
-
-  // Click the vote/eliminate button
-  const voteBtn = page.locator('button:has-text("Vote to Eliminate")').first();
-  await voteBtn.waitFor({ state: "visible", timeout: 5_000 });
-  await voteBtn.click();
-
-  // Verify vote was submitted (UI shows waiting message or vote status)
-  await expect(
-    page
-      .locator("text=Waiting for")
-      .or(page.locator('h2:has-text("Game Over")'))
-      .or(page.locator('[data-testid="elimination-overlay"], [data-testid="you-are-eliminated"]'))
-  ).toBeVisible({ timeout: 10_000 });
+  await page.getByRole("button", { name: "Vote to eliminate" }).click();
+  await expect(votedOrResolved(page)).toBeVisible({ timeout: 10_000 });
 }
 
 /**
- * Verify all players have voted. If any haven't, retry with target or fallback.
- * fallbackUsername is needed because the vote target can't vote for themselves.
+ * Every living player votes through the UI: for `target`, or, for the target, for
+ * `fallback` (nobody may vote for themselves). Then asserts every ballot is in.
  */
-export async function verifyAllPlayersVoted(
-  activePlayers: PlayerContext[],
-  targetUsername: string,
-  fallbackUsername?: string,
+export async function voteOut(
+  voters: PlayerContext[],
+  alive: { user_id: string; username: string }[],
+  target: { user_id: string; username: string },
+  fallback: { user_id: string; username: string },
 ): Promise<void> {
-  for (const player of activePlayers) {
-    if (!isPageAlive(player.page)) continue;
+  const living = new Set(alive.map((p) => p.user_id));
+  const ballots = voters.filter((voter) => living.has(voter.login.user.id));
+  for (const voter of ballots) {
+    await voteForPlayer(voter.page, voter.login.user.id === target.user_id ? fallback.username : target.username);
+  }
+  await verifyAllPlayersVoted(ballots);
+}
 
-    const done = await player.page
-      .locator("text=Waiting for")
-      .or(player.page.locator('h2:has-text("Game Over")'))
-      .or(player.page.locator('[data-testid="elimination-overlay"], [data-testid="you-are-eliminated"]'))
-      .isVisible()
-      .catch(() => false);
+/**
+ * Assert that every given voter's ballot is in: their page shows their vote, the round
+ * counted, or the end. It used to cast a missing ballot itself, which turned a lost
+ * click into a pass (TQ-16); a ballot that should exist is checked, never re-cast.
+ */
+export async function verifyAllPlayersVoted(voters: PlayerContext[]): Promise<void> {
+  for (const voter of voters) {
+    if (!isPageAlive(voter.page)) continue;
+    await expect(votedOrResolved(voter.page), `${voter.login.user.username} has not voted`).toBeVisible({ timeout: 15_000 });
+  }
+}
 
-    if (done) continue;
-
-    // Player hasn't voted — retry with target, fall back if they ARE the target
-    try {
-      await voteForPlayer(player.page, targetUsername);
-    } catch {
-      if (fallbackUsername) {
-        await voteForPlayer(player.page, fallbackUsername);
-      } else {
-        throw new Error(
-          `Player ${player.login.user.username} hasn't voted for ${targetUsername} and no fallback provided`,
-        );
-      }
-    }
+/** Every alive player votes through the API (setup only; gameplay specs vote in the UI). */
+export async function voteOutViaAPI(
+  gameId: string,
+  voters: PlayerContext[],
+  state: UndercoverGameState,
+  targetId: string,
+): Promise<void> {
+  const alive = state.players.filter((p) => p.is_alive);
+  const fallback = alive.find((p) => p.user_id !== targetId);
+  if (!fallback) throw new Error("nobody else alive to vote for");
+  for (const p of alive) {
+    const voter = voters.find((v) => v.login.user.id === p.user_id);
+    if (!voter) throw new Error(`no player context for ${p.username}`);
+    await apiSubmitVote(gameId, p.user_id === targetId ? fallback.user_id : targetId, voter.login.access_token);
   }
 }
 
 // ─── Undercover: Elimination / Game Over ────────────────────
 
-/**
- * Wait for either elimination screen or game over.
- */
-export async function waitForEliminationOrGameOver(
-  page: Page,
-): Promise<{ type: "elimination" | "game_over"; playerName?: string }> {
-  await page
-    .locator('[data-testid="elimination-overlay"]')
-    .or(page.locator('h2:has-text("Game Over")'))
-    .waitFor({ state: "visible", timeout: 30_000 });
-
-  const gameOver = await page
-    .locator('h2:has-text("Game Over")')
-    .isVisible()
-    .catch(() => false);
-
-  if (gameOver) {
-    return { type: "game_over" };
-  }
-
-  return { type: "elimination" };
+/** Wait for either the round-over screen or the end of the game. */
+export async function waitForEliminationOrGameOver(page: Page): Promise<{ type: "elimination" | "game_over" }> {
+  const gameOver = page.locator('h2:has-text("Game Over")');
+  await page.locator('[data-testid="elimination-overlay"]').or(gameOver).first().waitFor({ state: "visible", timeout: 30_000 });
+  return { type: (await gameOver.count()) > 0 ? "game_over" : "elimination" };
 }
 
 /**
- * Start the next round from the round-over screen. Only the host has "Next round"
- * (the others read "The host starts the next round"), so this clicks it on the host's
- * page and waits until every player is back at the describing table.
+ * Start the next round from the round-over screen as the host: "Next round" forces it
+ * (every other player has "I’m ready", owner rule (d)). Waits until every player is back
+ * at the describing table.
  */
-export async function startNextRoundAsHost(
-  hostPage: Page,
-  players: PlayerContext[],
-): Promise<void> {
+export async function startNextRoundAsHost(hostPage: Page, players: PlayerContext[]): Promise<void> {
   const nextRound = hostPage.getByRole("button", { name: "Next round" });
   await expect(nextRound).toBeEnabled({ timeout: 15_000 });
   await nextRound.click();
+  await waitForDescribingEverywhere(players);
+}
 
+/** Every player is back at the describing table (a new round has opened). */
+export async function waitForDescribingEverywhere(players: PlayerContext[]): Promise<void> {
   for (const player of players) {
     if (!isPageAlive(player.page)) continue;
     await expect(player.page.locator('[data-testid="elimination-overlay"]')).toBeHidden({ timeout: 15_000 });
     await expect(
-      player.page
-        .locator('h2:has-text("turn to describe")')
-        .or(player.page.locator('h2:has-text("is describing")'))
-        .first(),
+      player.page.locator('h2:has-text("turn to describe")').or(player.page.locator('h2:has-text("is describing")')).first(),
     ).toBeVisible({ timeout: 15_000 });
   }
 }
 
 // ─── Codenames Helpers ──────────────────────────────────────
 
-/**
- * Give a clue as spymaster.
- */
-export async function giveClue(
-  spymasterPage: Page,
-  clue: string,
-  count: number,
-  { timeout = 30_000 }: { timeout?: number } = {},
-): Promise<void> {
+/** Give a clue as spymaster (one word: the server refuses anything else). */
+export async function giveClue(spymasterPage: Page, clue: string, count: number, { timeout = 30_000 }: { timeout?: number } = {}): Promise<void> {
   const clueInput = spymasterPage.locator('input[placeholder="One word clue"]');
   await clueInput.waitFor({ state: "visible", timeout });
   await clueInput.fill(clue);
@@ -732,57 +520,36 @@ export async function giveClue(
 }
 
 /**
- * Guess a card as operative by clicking on a card word.
+ * The board's button for a card, by its word. CardCell names a card "Word" or "Word,
+ * <its state>" (the team, the votes, "meaning"), so the word is matched whole: up to the
+ * end of the name or its first ", ". A `^Word\b` match also took "Umar ibn Abdul Aziz"
+ * for "Umar" (and "Ilm al-Rijal" for "Ilm"), and `.first()` then clicked whichever came
+ * first on the board.
  */
-export async function guessCard(
-  operativePage: Page,
-  cardWord: string,
-): Promise<void> {
-  // Match card by accessible name (starts with the word).
-  // The button name includes vote badge/hint text, so use regex for word boundary.
-  // Escape special regex chars in the word to prevent matching issues.
+export function cardButton(page: Page, cardWord: string) {
   const escaped = cardWord.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const card = operativePage.locator('[data-testid="codenames-board"]').getByRole("button", { name: new RegExp(`^${escaped}\\b`), disabled: false }).first();
+  return page.locator('[data-testid="codenames-board"]').getByRole("button", { name: new RegExp(`^${escaped}(?:, |$)`) });
+}
+
+/** Guess a card as operative by clicking on a card word. */
+export async function guessCard(operativePage: Page, cardWord: string): Promise<void> {
+  const card = cardButton(operativePage, cardWord).first();
   await expect(card).toBeEnabled({ timeout: 30_000 });
   await card.click({ timeout: 15_000 });
 }
 
-/**
- * Click the "End Turn" button as an operative.
- * The button is only visible when canGuess is true (operative's turn with a clue given).
- */
-export async function endTurnViaUI(
-  operativePage: Page,
-): Promise<void> {
+/** Click "End Turn" as an operative (offered once the clue is on the board). */
+export async function endTurnViaUI(operativePage: Page): Promise<void> {
   const endTurnBtn = operativePage.locator('button:has-text("End Turn")');
-  await endTurnBtn.waitFor({ state: "visible", timeout: 10_000 });
+  await expect(endTurnBtn).toBeVisible({ timeout: 10_000 });
   await endTurnBtn.click();
 }
 
 // ─── Codenames: Role Discovery ──────────────────────────────
 
-/**
- * Extract the game ID from a codenames page URL.
- * URL format: /game/codenames/{gameId}
- */
-function extractCodenamesGameId(page: Page): string | null {
-  const url = page.url();
-  const match = url.match(/\/game\/codenames\/([a-f0-9-]+)/);
-  return match ? match[1] : null;
-}
-
-/**
- * Get codenames roles for all players by querying the board API.
- * Returns a Map from user_id to { team, role }.
- */
-export async function getCodenamesRoles(
-  players: PlayerContext[],
-  gameId?: string,
-): Promise<Map<string, CodenamesPlayerRole>> {
-  const gid =
-    gameId || extractCodenamesGameId(players[0].page);
-  if (!gid) throw new Error("Could not determine codenames game ID");
-
+/** Every player's team and role, from the board (public: who plays what is no secret). */
+export async function getCodenamesRoles(players: PlayerContext[], gameId?: string): Promise<Map<string, CodenamesPlayerRole>> {
+  const gid = gameId || gameIdFromUrl(players[0].page, "codenames");
   const board = await apiGetCodenamesBoard(gid, players[0].login.access_token);
   const roles = new Map<string, CodenamesPlayerRole>();
   for (const p of board.players) {
@@ -791,14 +558,8 @@ export async function getCodenamesRoles(
   return roles;
 }
 
-/**
- * Find the spymaster PlayerContext for a given team.
- */
-export async function findSpymaster(
-  players: PlayerContext[],
-  gameId?: string,
-  team?: "red" | "blue",
-): Promise<PlayerContext> {
+/** Find the spymaster PlayerContext for a given team. */
+export async function findSpymaster(players: PlayerContext[], gameId?: string, team?: "red" | "blue"): Promise<PlayerContext> {
   const roles = await getCodenamesRoles(players, gameId);
   const found = players.find((p) => {
     const r = roles.get(p.login.user.id);
@@ -808,14 +569,8 @@ export async function findSpymaster(
   return found;
 }
 
-/**
- * Find an operative PlayerContext for a given team.
- */
-export async function findOperative(
-  players: PlayerContext[],
-  gameId?: string,
-  team?: "red" | "blue",
-): Promise<PlayerContext> {
+/** Find an operative PlayerContext for a given team. */
+export async function findOperative(players: PlayerContext[], gameId?: string, team?: "red" | "blue"): Promise<PlayerContext> {
   const roles = await getCodenamesRoles(players, gameId);
   const found = players.find((p) => {
     const r = roles.get(p.login.user.id);
@@ -825,17 +580,13 @@ export async function findOperative(
   return found;
 }
 
-/**
- * Find ALL operative PlayerContexts for a given team.
- */
-export async function findAllOperatives(
-  players: PlayerContext[],
-  gameId?: string,
-  team?: "red" | "blue",
-): Promise<PlayerContext[]> {
+/** Find ALL operative PlayerContexts for a given team. */
+export async function findAllOperatives(players: PlayerContext[], gameId?: string, team?: "red" | "blue"): Promise<PlayerContext[]> {
   const roles = await getCodenamesRoles(players, gameId);
   return players.filter((p) => {
     const r = roles.get(p.login.user.id);
     return r && r.role === "operative" && (team ? r.team === team : true);
   });
 }
+
+export type { CodenamesBoardState };

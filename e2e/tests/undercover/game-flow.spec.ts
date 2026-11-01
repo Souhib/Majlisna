@@ -5,10 +5,8 @@ import {
   startGameViaAPI,
   dismissRoleRevealAll,
   submitDescriptionsForAllPlayersViaUI,
-  voteForPlayer,
-  verifyAllPlayersVoted,
+  voteOut,
   waitForEliminationOrGameOver,
-  isPageAlive,
 } from "../../helpers/ui-game-setup";
 import { apiGetUndercoverState } from "../../helpers/api-client";
 
@@ -77,37 +75,26 @@ test.describe("Undercover Game Flow", () => {
   test("full round: describe then vote then elimination", async ({ browser }) => {
     const accounts = await generateTestAccounts(3);
     const setup = await setupRoomWithPlayers(browser, accounts);
-    await startGameViaAPI(setup.players, "undercover", setup.roomId);
+    const gameId = await startGameViaAPI(setup.players, "undercover", setup.roomId);
     const activePlayers = await dismissRoleRevealAll(setup.players);
 
-    // Description phase via UI
+    // Description phase via UI: every page then shows the vote
     await submitDescriptionsForAllPlayersViaUI(activePlayers);
-
-    // All players should see voting phase
     for (const player of activePlayers) {
-      if (!isPageAlive(player.page)) continue;
-      await expect(
-        player.page.locator("text=Discuss and vote")
-          .or(player.page.locator('h2:has-text("Game Over")')),
-      ).toBeVisible({ timeout: 15_000 });
+      await expect(player.page.locator("text=Discuss and vote")).toBeVisible({ timeout: 15_000 });
     }
 
-    // Vote for the first player (who isn't the voter)
-    const voteTarget = activePlayers[1].login.user.username;
+    // The table votes the second player out (who votes for the first)
+    const state = await apiGetUndercoverState(gameId, activePlayers[0].login.access_token);
+    const alive = state.players.filter((p) => p.is_alive);
+    const target = alive.find((p) => p.user_id === activePlayers[1].login.user.id)!;
+    await voteOut(activePlayers, alive, target, alive.find((p) => p.user_id === activePlayers[0].login.user.id)!);
 
-    for (const voter of activePlayers) {
-      if (!isPageAlive(voter.page)) continue;
-      if (voter.login.user.username === voteTarget) continue;
-      await voteForPlayer(voter.page, voteTarget);
-    }
-    await verifyAllPlayersVoted(activePlayers, voteTarget, activePlayers[0].login.user.username);
-
-    // Should see elimination or game over
-    const observerPage = activePlayers.find((p) => isPageAlive(p.page))?.page;
-    if (observerPage) {
-      const result = await waitForEliminationOrGameOver(observerPage);
-      expect(["elimination", "game_over"]).toContain(result.type);
-    }
+    // Three players, one elimination: the game is decided, and the target is out
+    const result = await waitForEliminationOrGameOver(activePlayers[0].page);
+    expect(result.type).toBe("game_over");
+    const after = await apiGetUndercoverState(gameId, activePlayers[0].login.access_token);
+    expect(after.players.find((p) => p.user_id === target.user_id)?.is_alive).toBe(false);
 
     await setup.cleanup();
   });
@@ -118,7 +105,7 @@ test.describe("Undercover Game Flow", () => {
     await startGameViaAPI(setup.players, "undercover", setup.roomId);
     const activePlayers = await dismissRoleRevealAll(setup.players);
 
-    // Verify player 1 is in describing phase (dynamic title: "Your turn to describe!" or "X is describing...")
+    // Player 1 is in the describing phase (dynamic title: "Your turn to describe!" or "X is describing...")
     await expect(
       activePlayers[0].page.locator('h2:has-text("turn to describe")')
         .or(activePlayers[0].page.locator('h2:has-text("is describing")')

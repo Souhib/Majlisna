@@ -1,16 +1,33 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { generateTestAccounts } from "../../helpers/test-setup";
-import {
-  setupRoomWithPlayers,
-  startGameViaAPI,
-} from "../../helpers/ui-game-setup";
-import {
-  apiGetWordQuizState,
-  apiSubmitWordQuizAnswer,
-  apiWordQuizTimerExpired,
-  apiWordQuizNextRound,
-  apiUpdateRoomSettings,
-} from "../../helpers/api-client";
+import { setupRoomWithPlayers, startGameViaAPI, gameIdFromUrl } from "../../helpers/ui-game-setup";
+import { apiGetWordQuizState, apiSubmitWordQuizAnswer, apiUpdateRoomSettings } from "../../helpers/api-client";
+import { dbWordQuizCurrentWord } from "../../helpers/db";
+
+/**
+ * Kalimat through the page. The round's word is read from the game's live_state in the
+ * E2E database (the API never sends it while the round is open). Round lengths have a
+ * floor of 10 s (MIN_QUIZ_TURN_SECONDS: a 1 s round expired the moment it opened), so
+ * a round is closed by its answers, or by its clock as every page reports it; the specs
+ * poll the server, never sleep a fixed time (a guest's report comes 1–2 s late).
+ */
+
+/** The shortest round the server allows. */
+const SHORTEST_ROUND_SECONDS = 10;
+
+const answerField = (page: Page) => page.getByRole("textbox", { name: "Your answer" });
+
+/**
+ * Type the round's word in the page and send it: the page says "You found it", or, when
+ * this answer was the last one the round waited for, goes straight to its results.
+ */
+async function answerInPage(page: Page, gameId: string): Promise<void> {
+  await answerField(page).fill(dbWordQuizCurrentWord(gameId));
+  await page.getByRole("button", { name: "Answer", exact: true }).click();
+  await expect(page.getByRole("status").filter({ hasText: "You found it" }).or(page.getByText("The answer was"))).toBeVisible({
+    timeout: 10_000,
+  });
+}
 
 test.describe("Word Quiz Game Flow", () => {
   test("game starts and shows hints", async ({ browser }) => {
@@ -18,129 +35,104 @@ test.describe("Word Quiz Game Flow", () => {
     const setup = await setupRoomWithPlayers(browser, accounts, "word_quiz");
     await startGameViaAPI(setup.players, "word_quiz", setup.roomId);
 
-    // All players should see the game header
     for (const player of setup.players) {
+      await expect(player.page.locator("h1:has-text('Kalimat')")).toBeVisible({ timeout: 15_000 });
+      await expect(player.page.locator("text=Round 1 of")).toBeVisible({ timeout: 5_000 });
       await expect(
-        player.page.locator("h1:has-text('Kalimat')"),
-      ).toBeVisible({ timeout: 15_000 });
-
-      // Should see round info
-      await expect(
-        player.page.locator("text=Round 1 of"),
-      ).toBeVisible({ timeout: 5_000 });
-
-      // Should see at least the first hint
-      await expect(
-        player.page
-          .getByRole("list", { name: "Hints, from the vaguest to the most specific" })
-          .locator('li[aria-current="step"]'),
+        player.page.getByRole("list", { name: "Hints, from the vaguest to the most specific" }).locator('li[aria-current="step"]'),
       ).toContainText("Hint 1 of", { timeout: 5_000 });
     }
 
     await setup.cleanup();
   });
 
-  test("correct answer shows success and points", async ({ browser }) => {
+  test("the right answer typed in the page is found, at full worth", async ({ browser }) => {
+    // Prepare — the ladder stands on its first rung for the whole test
     const accounts = await generateTestAccounts(2);
     const setup = await setupRoomWithPlayers(browser, accounts, "word_quiz");
-    await startGameViaAPI(setup.players, "word_quiz", setup.roomId);
+    const [host, other] = setup.players;
+    await apiUpdateRoomSettings(setup.roomId, { word_quiz_turn_duration: 300, word_quiz_hint_interval: 120 }, host.login.access_token);
+    const gameId = await startGameViaAPI(setup.players, "word_quiz", setup.roomId);
+    await expect(host.page.getByText("Worth 6 points now")).toBeVisible({ timeout: 15_000 });
 
-    // Get the game state to find the correct answer
-    const hostToken = setup.players[0].login.access_token;
-    const gameId = setup.players[0].page.url().split("/").pop()!;
-    const state = await apiGetWordQuizState(gameId, hostToken);
+    // Act
+    await answerInPage(host.page, gameId);
 
-    // Game should be in playing phase
+    // Assert — found at hint 1: 6 points, and the server agrees; the round waits for the other
+    await expect(host.page.getByRole("status").filter({ hasText: "You found it" })).toContainText("+6");
+    // ...the finder's page stops pricing the word (review F5), the other's still does
+    await expect(host.page.getByText(/^Worth \d+ points? now$/)).toHaveCount(0);
+    await expect(other.page.getByText("Worth 6 points now")).toBeVisible();
+    const state = await apiGetWordQuizState(gameId, host.login.access_token);
+    expect(state.my_answered).toBe(true);
     expect(state.round_phase).toBe("playing");
-    expect(state.hints.length).toBeGreaterThan(0);
+    const theOther = await apiGetWordQuizState(gameId, other.login.access_token);
+    expect(theOther.my_answered).toBe(false);
 
     await setup.cleanup();
   });
 
-  test("submit wrong answer via API returns correct=false", async ({ browser }) => {
+  test("a wrong answer is said in the field and costs a try", async ({ browser }) => {
     const accounts = await generateTestAccounts(2);
     const setup = await setupRoomWithPlayers(browser, accounts, "word_quiz");
-    await startGameViaAPI(setup.players, "word_quiz", setup.roomId);
-
-    const gameId = setup.players[0].page.url().split("/").pop()!;
+    const gameId = await startGameViaAPI(setup.players, "word_quiz", setup.roomId);
     const hostToken = setup.players[0].login.access_token;
 
-    // Submit a wrong answer
     const result = await apiSubmitWordQuizAnswer(gameId, "definitely_wrong_answer_xyz", hostToken);
+
     expect(result.correct).toBe(false);
     expect(result.points_earned).toBe(0);
+    const state = await apiGetWordQuizState(gameId, hostToken);
+    expect(state.my_answered).toBe(false);
+    expect(state.my_attempts_left).toBe(state.max_attempts - 1);
 
     await setup.cleanup();
   });
 
-  test("timer expired transitions to results", async ({ browser }) => {
+  test("a round nobody answers is closed by its clock", async ({ browser }) => {
+    // Prepare — the shortest round, and nobody answers
     const accounts = await generateTestAccounts(2);
     const setup = await setupRoomWithPlayers(browser, accounts, "word_quiz");
     const hostToken = setup.players[0].login.access_token;
+    await apiUpdateRoomSettings(setup.roomId, { word_quiz_turn_duration: SHORTEST_ROUND_SECONDS }, hostToken);
+    const gameId = await startGameViaAPI(setup.players, "word_quiz", setup.roomId);
+    expect((await apiGetWordQuizState(gameId, hostToken)).round_phase).toBe("playing");
 
-    // Set very short turn duration so timer actually expires server-side
-    await apiUpdateRoomSettings(setup.roomId, { word_quiz_turn_duration: 1 }, hostToken);
-
-    await startGameViaAPI(setup.players, "word_quiz", setup.roomId);
-    const gameId = setup.players[0].page.url().split("/").pop()!;
-
-    // Wait for the 1s server-side timer to expire
-    const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
-    await sleep(2000);
-
-    // Force timer expired
-    await apiWordQuizTimerExpired(gameId, hostToken);
-
-    // Verify via API that results phase was reached
-    await expect.poll(
-      async () => (await apiGetWordQuizState(gameId, hostToken)).round_phase,
-      { timeout: 10_000, intervals: [500] },
-    ).toBe("results");
-
-    // Host's page should show results (host's mutation invalidates query directly)
-    const hostPage = setup.players[0].page;
-    await expect(
-      hostPage.locator("text=The answer was").or(hostPage.locator("text=La réponse")).or(hostPage.locator("text=الإجابة")),
-    ).toBeVisible({ timeout: 15_000 });
+    // Assert — the pages report the clock themselves (the host at once, the other 1–2 s
+    // later): the server moves to the results, and both pages show the answer
+    await expect
+      .poll(async () => (await apiGetWordQuizState(gameId, hostToken)).round_phase, {
+        timeout: (SHORTEST_ROUND_SECONDS + 15) * 1000,
+        intervals: [500],
+      })
+      .toBe("results");
+    for (const player of setup.players) {
+      await expect(player.page.getByText("The answer was")).toBeVisible({ timeout: 15_000 });
+    }
 
     await setup.cleanup();
   });
 
-  test("next round advances the game", async ({ browser }) => {
+  test("the host's Next round opens round 2 on every page", async ({ browser }) => {
+    // Prepare — both players find the word: the round goes to its results at once
     const accounts = await generateTestAccounts(2);
     const setup = await setupRoomWithPlayers(browser, accounts, "word_quiz");
-    const hostToken = setup.players[0].login.access_token;
+    const host = setup.players[0];
+    const gameId = await startGameViaAPI(setup.players, "word_quiz", setup.roomId);
+    expect(gameIdFromUrl(host.page, "wordquiz")).toBe(gameId);
+    for (const player of setup.players) await answerInPage(player.page, gameId);
+    await expect.poll(async () => (await apiGetWordQuizState(gameId, host.login.access_token)).round_phase).toBe("results");
 
-    // Set very short turn duration
-    await apiUpdateRoomSettings(setup.roomId, { word_quiz_turn_duration: 1 }, hostToken);
+    // Act — the host moves the table on, from the page
+    await expect(host.page.getByText("The answer was")).toBeVisible({ timeout: 15_000 });
+    await host.page.getByRole("button", { name: "Next round" }).click();
 
-    await startGameViaAPI(setup.players, "word_quiz", setup.roomId);
-    const gameId = setup.players[0].page.url().split("/").pop()!;
-
-    // Wait for the 1s server-side timer to expire
-    const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
-    await sleep(2000);
-
-    // Force to results
-    await apiWordQuizTimerExpired(gameId, hostToken);
-
-    // Wait for results to be reflected in state
-    await expect.poll(
-      async () => (await apiGetWordQuizState(gameId, hostToken)).round_phase,
-      { timeout: 10_000, intervals: [500] },
-    ).toBe("results");
-
-    // Advance to next round
-    await apiWordQuizNextRound(gameId, hostToken);
-
-    // Reload to pick up latest state (API call was outside browser)
-    const hostPage = setup.players[0].page;
-    await hostPage.reload();
-
-    // Host should see round 2
-    await expect(
-      hostPage.locator("text=Round 2 of"),
-    ).toBeVisible({ timeout: 10_000 });
+    // Assert — round 2, on every page, pushed (no reload)
+    for (const player of setup.players) {
+      await expect(player.page.locator("text=Round 2 of")).toBeVisible({ timeout: 15_000 });
+      await expect(answerField(player.page)).toBeEnabled();
+    }
+    expect((await apiGetWordQuizState(gameId, host.login.access_token)).current_round).toBe(2);
 
     await setup.cleanup();
   });

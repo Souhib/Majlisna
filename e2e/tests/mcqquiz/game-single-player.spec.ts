@@ -7,7 +7,6 @@ import {
 import {
   apiGetMCQQuizState,
   apiSubmitMCQQuizAnswer,
-  apiMCQQuizTimerExpired,
   apiMCQQuizNextRound,
   apiUpdateRoomSettings,
 } from "../../helpers/api-client";
@@ -76,13 +75,9 @@ test.describe("MCQ Quiz Single Player", () => {
     ).not.toBe("playing");
     state = await apiGetMCQQuizState(gameId, token);
 
-    // Should be in results phase now
-    expect(["results", "game_over"]).toContain(state.round_phase);
-
-    // Correct answer index should be revealed
-    if (state.round_phase === "results") {
-      expect(state.correct_answer_index).not.toBeNull();
-    }
+    // A 10-question game: the first answer leads to that question's results
+    expect(state.round_phase).toBe("results");
+    expect(state.correct_answer_index).not.toBeNull();
 
     await setup.cleanup();
   });

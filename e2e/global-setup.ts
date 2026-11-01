@@ -1,113 +1,73 @@
 import { execSync } from "child_process";
 import { waitForBackend, waitForFrontend } from "./helpers/api-client";
-import { FRONTEND_URL } from "./helpers/constants";
-
-const MAX_SEED_RETRIES = 3;
-const RETRY_DELAY_MS = 3_000;
-
-const DELETE_CMD =
-  "docker exec -w /app majlisna-e2e-backend " +
-  "env PYTHONPATH=/app python scripts/generate_fake_data.py --delete";
-
-const SEED_CMD =
-  "docker exec -w /app majlisna-e2e-backend " +
-  "env PYTHONPATH=/app python scripts/generate_fake_data.py --create-db";
-
-function sleep(ms: number): void {
-  execSync(`sleep ${ms / 1000}`);
-}
+import { API_URL, FRONTEND_URL } from "./helpers/constants";
 
 /**
- * Restart PgBouncer + backend to clear stale prepared statement caches.
- * PgBouncer in transaction mode caches prepared statements that reference
- * old OIDs after tables are dropped/recreated, causing asyncpg errors like
- * "could not resolve query result and/or argument types".
- */
-function restartServicesAfterDDL(): void {
-  console.log("[E2E Setup] Restarting PgBouncer + backend to clear stale connections...");
-  execSync("docker restart majlisna-e2e-pgbouncer", { stdio: "inherit", timeout: 15_000 });
-  execSync("docker restart majlisna-e2e-backend", { stdio: "inherit", timeout: 30_000 });
-}
-
-/**
- * Run delete + restart + seed as an atomic unit, retrying all on failure.
+ * The ONE place the E2E database is reset and seeded, before every Playwright run
+ * (`run-local.sh` runs Playwright once per gate run, so each run starts identical).
  *
- * After --delete drops/recreates tables, PgBouncer's prepared statement
- * cache is stale. We must restart PgBouncer and the backend before seeding.
- * If --create-db fails mid-way (partial data committed), --delete re-runs
- * to clean up before the next attempt.
+ * It used to happen twice: `run-local.sh` reseeded, then this file deleted and reseeded
+ * again, inside a 3-attempt retry loop that would have hidden a timeout (INFRA-19). A
+ * failing step now fails the run, loudly: a run against a half-seeded database reports
+ * missing test accounts, which reads like a product bug.
  */
-function seedDatabase(): void {
-  for (let attempt = 1; attempt <= MAX_SEED_RETRIES; attempt++) {
-    try {
-      execSync(DELETE_CMD, { stdio: "inherit", timeout: 120_000 });
-      restartServicesAfterDDL();
-      waitForService("http://localhost:5049/health", 30_000);
-      execSync(SEED_CMD, { stdio: "inherit", timeout: 120_000 });
-      return;
-    } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : String(error);
-      if (attempt < MAX_SEED_RETRIES) {
-        console.log(
-          `[E2E Setup] Seed failed (attempt ${attempt}/${MAX_SEED_RETRIES}): ${msg.split("\n")[0]}`,
-        );
-        console.log(`[E2E Setup] Retrying delete + seed in ${RETRY_DELAY_MS / 1000}s...`);
-        sleep(RETRY_DELAY_MS);
-      } else {
-        throw error;
-      }
-    }
-  }
-}
+
+const BACKEND_CONTAINER = "majlisna-e2e-backend";
+const PGBOUNCER_CONTAINER = "majlisna-e2e-pgbouncer";
+const DB_CONTAINER = "majlisna-e2e-db";
 
 /**
- * Synchronously poll a health endpoint until it responds 200.
+ * The seed reaches PostgreSQL directly (DIRECT_DATABASE_URL in docker-compose.e2e.yml):
+ * it runs DDL, and through PgBouncer's transaction pooling asyncpg's stale per-connection
+ * type cache makes the follow-up bulk inserts fail ("could not resolve query result
+ * and/or argument types").
  */
-function waitForService(url: string, timeoutMs: number): void {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      execSync(`curl -sf ${url} > /dev/null 2>&1`);
-      return;
-    } catch {
-      sleep(1_000);
-    }
-  }
-  throw new Error(`Service at ${url} did not become healthy within ${timeoutMs}ms`);
+const seedScript = (flag: string) =>
+  `docker exec -w /app ${BACKEND_CONTAINER} env PYTHONPATH=/app python scripts/generate_fake_data.py ${flag}`;
+
+/**
+ * Restart the disposable PgBouncer and backend with a 1 s stop timeout. PgBouncer waits
+ * for its connected clients until SIGKILL, so a plain `docker restart` spent its whole
+ * 10 s grace there on every run; nothing in either container needs a graceful stop.
+ * Restarting clears the prepared statements and type caches that point at the tables
+ * the --delete just dropped.
+ */
+function restartPoolAndBackend(): void {
+  execSync(`docker restart -t 1 ${PGBOUNCER_CONTAINER} ${BACKEND_CONTAINER}`, { stdio: "inherit", timeout: 60_000 });
+}
+
+function restartBackend(): void {
+  execSync(`docker restart -t 1 ${BACKEND_CONTAINER}`, { stdio: "inherit", timeout: 60_000 });
 }
 
 async function globalSetup(): Promise<void> {
-  console.log("[E2E Setup] Waiting for backend to be healthy...");
+  console.log("[E2E Setup] Waiting for backend and frontend...");
   await waitForBackend();
-  console.log("[E2E Setup] Backend is healthy.");
-
-  console.log("[E2E Setup] Waiting for frontend to be reachable...");
   await waitForFrontend(FRONTEND_URL);
-  console.log("[E2E Setup] Frontend is reachable.");
 
-  // Terminate stale DB connections before dropping tables (prevents lock deadlocks)
+  // Stale connections hold locks the drop below would wait on.
   console.log("[E2E Setup] Terminating stale DB connections...");
-  try {
-    execSync(
-      'docker exec majlisna-e2e-db psql -U majlisna -d majlisna -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid();"',
-      { stdio: "inherit", timeout: 15_000 },
-    );
-  } catch {
-    // Ignore — DB might not have stale connections
-  }
+  execSync(
+    `docker exec ${DB_CONTAINER} psql -U majlisna -d majlisna -v ON_ERROR_STOP=1 -c ` +
+      `"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid();"`,
+    { stdio: "inherit", timeout: 15_000 },
+  );
 
-  console.log("[E2E Setup] Resetting and seeding database via docker exec...");
-  seedDatabase();
-  console.log("[E2E Setup] Database seeded.");
+  console.log("[E2E Setup] Dropping and recreating the tables...");
+  execSync(seedScript("--delete"), { stdio: "inherit", timeout: 120_000 });
 
-  // Restart backend to ensure fresh DB connections after seeding
-  console.log("[E2E Setup] Restarting backend to refresh DB connections...");
-  execSync("docker restart majlisna-e2e-backend", {
-    stdio: "inherit",
-    timeout: 30_000,
-  });
-  await waitForBackend();
-  console.log("[E2E Setup] Backend restarted and healthy.");
+  console.log("[E2E Setup] Restarting PgBouncer + backend (stale caches after the DDL)...");
+  restartPoolAndBackend();
+  await waitForBackend(60, 1_000);
+
+  console.log("[E2E Setup] Seeding...");
+  execSync(seedScript("--create-db"), { stdio: "inherit", timeout: 180_000 });
+
+  // A fresh backend for the run: no connection or worker cache from before the seed.
+  console.log("[E2E Setup] Restarting the backend...");
+  restartBackend();
+  await waitForBackend(60, 1_000);
+  console.log(`[E2E Setup] Ready: ${API_URL} and ${FRONTEND_URL}.`);
 }
 
 export default globalSetup;

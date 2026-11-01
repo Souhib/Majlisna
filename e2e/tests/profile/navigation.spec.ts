@@ -54,31 +54,44 @@ test.describe("Profile — Authenticated Navigation", () => {
 });
 
 test.describe("Leaderboard — Public Page", () => {
-  test("leaderboard page loads and shows table structure", async ({
-    authenticatedPage,
-  }) => {
+  // The seed gives the leaderboard its players: the page must list them, one row each.
+  // The old check passed on `data-testid="leaderboard"`, which sits on the <table> while
+  // it loads and when it is empty, and on a 500 too (TQ-08).
+  test("leaderboard page lists the seeded players", async ({ authenticatedPage }) => {
+    const ranked = authenticatedPage.waitForResponse((r) => r.url().includes("/api/v1/stats/leaderboard"));
     await authenticatedPage.goto(ROUTES.leaderboard);
-    await authenticatedPage.waitForLoadState("domcontentloaded");
 
-    // Should see the leaderboard title
-    await expect(
-      authenticatedPage.getByRole("heading", { name: "Leaderboard" }),
-    ).toBeVisible({ timeout: 10_000 });
+    await expect(authenticatedPage.getByRole("heading", { name: "Leaderboard" })).toBeVisible({ timeout: 10_000 });
+    const response = await ranked;
+    expect(response.status()).toBe(200);
+    const entries = (await response.json()) as { username: string }[];
+    expect(entries.length).toBeGreaterThan(0);
+    const rows = authenticatedPage.getByTestId("leaderboard-row");
+    await expect(rows).toHaveCount(entries.length);
+    await expect(rows.first()).toContainText(entries[0].username);
+    await expect(authenticatedPage.getByTestId("leaderboard-error")).toHaveCount(0);
+  });
 
-    // Should see table headers or empty state
-    const hasTable = await authenticatedPage
-      .locator('[data-testid="leaderboard"]')
-      .first()
-      .isVisible()
-      .catch(() => false);
+  test("a leaderboard the server cannot read says so, never 'No players yet'", async ({ authenticatedPage }) => {
+    // Prepare — the leaderboard read fails
+    await authenticatedPage.route("**/api/v1/stats/leaderboard**", (route) =>
+      route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error_key: "errors.api.base" }) }),
+    );
 
-    const hasEmptyState = await authenticatedPage
-      .getByText(/No players yet/i)
-      .isVisible()
-      .catch(() => false);
+    // Act
+    await authenticatedPage.goto(ROUTES.leaderboard);
 
-    // Either table or empty state should be visible
-    expect(hasTable || hasEmptyState).toBeTruthy();
+    // Assert — the failure, with Retry; no empty state, no table
+    const failure = authenticatedPage.getByTestId("leaderboard-error");
+    await expect(failure).toBeVisible({ timeout: 15_000 });
+    await expect(failure.getByRole("button", { name: "Retry" })).toBeVisible();
+    await expect(authenticatedPage.getByText(/No players yet/i)).toHaveCount(0);
+    await expect(authenticatedPage.getByTestId("leaderboard-row")).toHaveCount(0);
+
+    // ...and Retry reads again: once the server answers, the rows come back
+    await authenticatedPage.unroute("**/api/v1/stats/leaderboard**");
+    await failure.getByRole("button", { name: "Retry" }).click();
+    await expect(authenticatedPage.getByTestId("leaderboard-row").first()).toBeVisible({ timeout: 15_000 });
   });
 });
 
@@ -111,35 +124,26 @@ test.describe("Navigation — Protected Routes", () => {
     await expect(authenticatedPage).toHaveURL(/\/leaderboard/);
   });
 
-  test("navigating to non-existent game ID shows error or redirect", async ({
-    authenticatedPage,
-  }) => {
-    await authenticatedPage.goto(
-      "/game/undercover/00000000-0000-0000-0000-000000000000",
-    );
-    await authenticatedPage.waitForLoadState("domcontentloaded");
+  // A game that does not exist is said ("Game not found."), then the page goes home. The
+  // old checks only asked for some text in <body>, which the nav alone provides (TQ-08).
+  test("a game that does not exist is said, then the page goes home", async ({ authenticatedPage }) => {
+    await authenticatedPage.goto("/game/undercover/00000000-0000-0000-0000-000000000000");
 
-    // Wait for error state or content to render (not crash or show blank page)
-    await expect(async () => {
-      const bodyText = await authenticatedPage.locator("body").textContent();
-      expect(bodyText).toBeTruthy();
-      expect(bodyText!.length).toBeGreaterThan(0);
-    }).toPass({ timeout: 10_000 });
+    const notice = authenticatedPage.getByRole("alert").filter({ hasText: "Game not found." });
+    await expect(notice).toBeVisible({ timeout: 15_000 });
+    await expect(notice).toContainText("Game Over");
+    await expect(authenticatedPage).toHaveURL(new URL("/", authenticatedPage.url()).href, { timeout: 15_000 });
   });
 
-  test("navigating to non-existent room ID shows error or redirect", async ({
-    authenticatedPage,
-  }) => {
-    await authenticatedPage.goto(
-      "/rooms/00000000-0000-0000-0000-000000000000",
-    );
-    await authenticatedPage.waitForLoadState("domcontentloaded");
+  test("a room that does not exist says it did not open, with the way back", async ({ authenticatedPage }) => {
+    await authenticatedPage.goto("/rooms/00000000-0000-0000-0000-000000000000");
 
-    // Wait for error state or content to render (not crash)
-    await expect(async () => {
-      const bodyText = await authenticatedPage.locator("body").textContent();
-      expect(bodyText).toBeTruthy();
-    }).toPass({ timeout: 10_000 });
+    await expect(authenticatedPage.getByRole("heading", { level: 1, name: "This room did not open" })).toBeVisible({ timeout: 15_000 });
+    await expect(authenticatedPage.getByText("Room not found.")).toBeVisible();
+    const back = authenticatedPage.getByRole("link", { name: "Back to rooms" });
+    await expect(back).toBeVisible();
+    await back.click();
+    await expect(authenticatedPage).toHaveURL(/\/rooms$/);
   });
 });
 

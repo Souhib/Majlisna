@@ -18,10 +18,9 @@
 #   ./run-local.sh --no-build     # reuse the images already built
 #   ./run-local.sh -- --grep @x   # everything after `--` goes to playwright
 #
-# Exits non-zero on ANY failure. Retries are OFF locally (playwright.config.ts
-# only enables them when CI is set), so a test that only passes on a second
-# attempt is reported as a failure — which is the intent: a flaky test is a
-# failing test.
+# Exits non-zero on ANY failure. Retries are OFF, locally and in CI
+# (playwright.config.ts), so a test that only passes on a second attempt is
+# reported as a failure — which is the intent: a flaky test is a failing test.
 set -uo pipefail
 
 cd "$(dirname "$0")"
@@ -29,7 +28,6 @@ cd "$(dirname "$0")"
 COMPOSE_FILE=docker-compose.e2e.yml
 BACKEND_HEALTH=http://localhost:5049/health
 FRONTEND_URL=http://localhost:3049
-BACKEND_CONTAINER=majlisna-e2e-backend
 
 RUNS=1
 BUILD=1
@@ -86,28 +84,16 @@ curl -sf "$FRONTEND_URL" >/dev/null 2>&1 || fail "frontend never became reachabl
 
 # ── Seed ─────────────────────────────────────────────────────────────────────
 #
-# Reseeded before EVERY run so each one starts from an identical database. The
-# script drops and recreates the schema, which also means a model change is
-# picked up here without any migration.
-#
-# The seed reaches PostgreSQL directly via DIRECT_DATABASE_URL (set in the e2e
-# compose): it runs DDL, and through PgBouncer's transaction pooling asyncpg's
-# stale per-connection type cache makes the follow-up bulk inserts fail with
-# "could not resolve query result and/or argument types".
-seed() {
-  docker exec -w /app "$BACKEND_CONTAINER" env PYTHONPATH=/app \
-    python scripts/generate_fake_data.py --delete >/dev/null 2>&1 || return 1
-  docker exec -w /app "$BACKEND_CONTAINER" env PYTHONPATH=/app \
-    python scripts/generate_fake_data.py --create-db 2>&1 | tail -1
-}
+# Seeding is global-setup.ts's job, and only its: Playwright runs it before EVERY run
+# below, so each run starts from an identical database (drop, recreate, reseed). This
+# script used to reseed as well, then global-setup did it again, so every run seeded
+# twice (INFRA-19). The schema is dropped and recreated each time, so a model change is
+# picked up without any migration.
 
 # ── Runs ─────────────────────────────────────────────────────────────────────
 
 failed_runs=()
 for run in $(seq 1 "$RUNS"); do
-  step "Seeding database (run $run/$RUNS)"
-  seed || fail "seeding failed — the suite would report false failures on missing test accounts"
-
   step "Playwright run $run/$RUNS"
   out=$(mktemp)
   "${PW[@]}" test "${PW_ARGS[@]+"${PW_ARGS[@]}"}" 2>&1 | tee "$out"
@@ -115,8 +101,9 @@ for run in $(seq 1 "$RUNS"); do
   # failed Playwright runs into a green deployment gate.
   status=${PIPESTATUS[0]}
 
-  # Belt and braces: `flaky` only appears when retries are enabled, but if
-  # someone runs this with CI set we still refuse to call a rescued test a pass.
+  # Belt and braces: `flaky` only appears when retries are enabled, which
+  # playwright.config.ts never does; if someone turns them on, a rescued test
+  # still is not a pass.
   if grep -qE '[0-9]+ flaky' "$out"; then
     echo "  flaky tests detected — treated as failure"
     status=1

@@ -5,14 +5,23 @@ import {
   startGameViaAPI,
   dismissRoleRevealAll,
   submitDescriptionViaUI,
+  giveClue,
+  guessCard,
+  findSpymaster,
+  findOperative,
   type PlayerContext,
 } from "../../helpers/ui-game-setup";
 import {
+  apiGetCodenamesBoard,
+  apiGetMCQQuizState,
   apiGetUndercoverState,
   apiPauseGame,
   apiResumeGame,
+  apiUpdateRoomSettings,
+  expectApiError,
   rawPost,
 } from "../../helpers/api-client";
+import { dbMcqCorrectIndex } from "../../helpers/db";
 
 /**
  * The prayer pause (وقفة الصلاة): when the adhan comes, the host pauses the game.
@@ -25,6 +34,24 @@ import {
 
 /** The game header's phase clock ("Time left: 9:58"); the veil's still clock has no "Time left". */
 const headerClock = (page: Page) => page.locator('[role="timer"][aria-label^="Time left: "]');
+
+/** "9:58", as the clock writes a number of seconds (rounded up, like ThreadClock). */
+function clockText(seconds: number): string {
+  const s = Math.max(0, Math.ceil(seconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+/** The thread clock's one animation (id "thread-clock"): its state, time and where it stands. */
+const threadAnimation = (page: Page) =>
+  page.evaluate(() => {
+    const animation = document.getAnimations().find((a) => a.id === "thread-clock");
+    const target = (animation?.effect as KeyframeEffect | null)?.target as Element | null;
+    return {
+      playState: animation?.playState ?? "none",
+      currentTime: animation?.currentTime == null ? null : Number(animation.currentTime),
+      transform: target ? getComputedStyle(target).transform : "",
+    };
+  });
 
 const gameIdOf = (page: Page): string => {
   const id = page.url().match(/\/game\/undercover\/([a-f0-9-]+)/)?.[1];
@@ -98,10 +125,20 @@ test.describe("Prayer pause", () => {
     expect(paused.paused?.remaining_seconds).not.toBeNull();
     const frozen = await headerClock(guests[0].page).getAttribute("aria-label");
     expect(frozen).toMatch(/^Time left: \d+:\d\d$/);
+    // ...exactly the server's frozen countdown (WP-18: the clock freezes from the server's
+    // figure, never from the device's last tick)
+    expect(frozen).toBe(`Time left: ${clockText(paused.paused!.remaining_seconds!)}`);
+    const threadBefore = await threadAnimation(guests[0].page);
+    expect(threadBefore.playState).toBe("paused");
     await guests[0].page.waitForTimeout(2_500); // let real time pass: a running clock would move
     await expect(headerClock(guests[0].page)).toHaveAttribute("aria-label", frozen!);
     const stillPaused = await apiGetUndercoverState(gameId, host.login.access_token);
     expect(stillPaused.paused?.remaining_seconds).toBe(paused.paused?.remaining_seconds);
+    // ...and the thread stands still to the pixel: its one animation is paused, not moving
+    const threadAfter = await threadAnimation(guests[0].page);
+    expect(threadAfter.playState).toBe("paused");
+    expect(threadAfter.currentTime).toBe(threadBefore.currentTime);
+    expect(threadAfter.transform).toBe(threadBefore.transform);
 
     // Act — the host resumes from the veil
     await host.page.getByTestId("pause-veil-resume").click();
@@ -150,6 +187,89 @@ test.describe("Prayer pause", () => {
     await apiResumeGame("undercover", gameId, host.login.access_token);
     await expect(guest.page.getByTestId("pause-veil")).toHaveCount(0, { timeout: 15_000 });
     await expect(headerClock(guest.page)).toBeVisible();
+
+    await setup.cleanup();
+  });
+
+  test("Codenames: the host pauses, a guess is refused under the veil, and play resumes", async ({ browser }) => {
+    // Prepare — a 4-player Codenames game, the first clue given
+    const accounts = await generateTestAccounts(4);
+    const setup = await setupRoomWithPlayers(browser, accounts, "codenames");
+    const gameId = await startGameViaAPI(setup.players, "codenames", setup.roomId);
+    const host = setup.players[0];
+    const board = await apiGetCodenamesBoard(gameId, host.login.access_token);
+    const spymaster = await findSpymaster(setup.players, gameId, board.current_team);
+    const operative = await findOperative(setup.players, gameId, board.current_team);
+    await giveClue(spymaster.page, "pause", 1);
+    const spyBoard = await apiGetCodenamesBoard(gameId, spymaster.login.access_token);
+    const cardIndex = spyBoard.board.findIndex((c) => c.card_type === board.current_team && !c.revealed);
+
+    // Act — the host pauses from the header
+    await host.page.getByTestId("pause-game").click();
+
+    // Assert — the veil on every seat; the board under it is inert; the server refuses a guess
+    for (const player of setup.players) {
+      await expect(player.page.getByRole("dialog", { name: "The majlis pauses for ṣalāh" })).toBeVisible({ timeout: 15_000 });
+    }
+    await expect(operative.page.locator('[inert] [data-testid="codenames-board"]')).toHaveCount(1);
+    await expectApiError(
+      await rawPost(`/api/v1/codenames/games/${gameId}/guess`, { card_index: cardIndex }, operative.login.access_token),
+      409,
+      "errors.api.gamePaused",
+    );
+    expect((await apiGetCodenamesBoard(gameId, host.login.access_token)).board[cardIndex].revealed).toBe(false);
+
+    // Act — the host resumes from the veil
+    await host.page.getByTestId("pause-veil-resume").click();
+
+    // Assert — the veil lifts everywhere, and the operative's guess now turns the card
+    for (const player of setup.players) await expect(player.page.getByTestId("pause-veil")).toHaveCount(0, { timeout: 15_000 });
+    await guessCard(operative.page, spyBoard.board[cardIndex].word);
+    await expect.poll(async () => (await apiGetCodenamesBoard(gameId, host.login.access_token)).board[cardIndex].revealed).toBe(true);
+
+    await setup.cleanup();
+  });
+
+  test("The Quiz: a pause freezes the question's clock and refuses answers until the resume", async ({ browser }) => {
+    // Prepare — two players, a 60 s question open
+    const accounts = await generateTestAccounts(2);
+    const setup = await setupRoomWithPlayers(browser, accounts, "mcq_quiz");
+    const [host, guest] = setup.players;
+    await apiUpdateRoomSettings(setup.roomId, { mcq_quiz_turn_duration: 60 }, host.login.access_token);
+    const gameId = await startGameViaAPI(setup.players, "mcq_quiz", setup.roomId);
+    await expect(headerClock(guest.page)).toBeVisible({ timeout: 15_000 });
+
+    // Act — the host pauses
+    await apiPauseGame("mcqquiz", gameId, host.login.access_token);
+
+    // Assert — the veil, a refused answer, and a clock that stands at the server's figure
+    for (const player of setup.players) {
+      await expect(player.page.getByRole("dialog", { name: "The majlis pauses for ṣalāh" })).toBeVisible({ timeout: 15_000 });
+    }
+    await expectApiError(
+      await rawPost(`/api/v1/mcqquiz/games/${gameId}/answer`, { choice_index: 0 }, guest.login.access_token),
+      409,
+      "errors.api.gamePaused",
+    );
+    const paused = await apiGetMCQQuizState(gameId, host.login.access_token);
+    const remaining = paused.paused!.remaining_seconds!;
+    expect(remaining).toBeGreaterThan(30);
+    await expect(headerClock(guest.page)).toHaveAttribute("aria-label", `Time left: ${clockText(remaining)}`);
+    await guest.page.waitForTimeout(2_500); // let real time pass: a running clock would move
+    await expect(headerClock(guest.page)).toHaveAttribute("aria-label", `Time left: ${clockText(remaining)}`);
+    expect((await apiGetMCQQuizState(gameId, host.login.access_token)).paused?.remaining_seconds).toBe(remaining);
+
+    // Act — resume; the guest answers
+    await apiResumeGame("mcqquiz", gameId, host.login.access_token);
+    for (const player of setup.players) await expect(player.page.getByTestId("pause-veil")).toHaveCount(0, { timeout: 15_000 });
+    const answer = await rawPost(`/api/v1/mcqquiz/games/${gameId}/answer`, { choice_index: dbMcqCorrectIndex(gameId) }, guest.login.access_token);
+
+    // Assert — taken, the clock running again from where it stood
+    expect(answer.status).toBe(200);
+    expect((await apiGetMCQQuizState(gameId, guest.login.access_token)).my_answered).toBe(true);
+    await expect
+      .poll(async () => headerClock(guest.page).getAttribute("aria-label"), { timeout: 5_000 })
+      .not.toBe(`Time left: ${clockText(remaining)}`);
 
     await setup.cleanup();
   });

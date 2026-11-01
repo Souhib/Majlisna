@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { randomUUID } from "crypto";
-import { FRONTEND_URL, TEST_USER, TEST_ADMIN } from "../../helpers/constants";
+import { FRONTEND_URL } from "../../helpers/constants";
+import { generateTestAccounts } from "../../helpers/test-setup";
 
 /**
  * Full user journey test: register → login → create room → join → start game.
@@ -97,11 +98,9 @@ test.describe("Full User Journey", () => {
     expect(roomPassword).toMatch(/^\d{4}$/);
 
     // ─── Step 4: Login players 2-3 via UI ─────────────────────
-    // Use pre-seeded test accounts
-    const otherAccounts = [
-      { email: TEST_USER.email, password: TEST_USER.password },
-      { email: TEST_ADMIN.email, password: TEST_ADMIN.password },
-    ];
+    // Fresh accounts: a seat in this room is a change to the account (one live room at a
+    // time), so the seeded accounts every worker shares stay out of it
+    const otherAccounts = await generateTestAccounts(2);
 
     const otherPages: Page[] = [];
     for (const account of otherAccounts) {
@@ -198,7 +197,7 @@ test.describe("Full User Journey", () => {
 
     // Cleanup
     for (const page of allPages) {
-      await page.context().close().catch(() => {});
+      await page.context().close();
     }
   });
 });

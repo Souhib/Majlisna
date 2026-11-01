@@ -1,3 +1,4 @@
+import { expect } from "@playwright/test";
 import { API_URL } from "./constants";
 
 /**
@@ -16,8 +17,9 @@ export function apiFetch(input: string, init: RequestInit = {}): Promise<Respons
 
 export interface LoginResponse {
   access_token: string;
-  refresh_token: string;
-  token_type: string;
+  // No refresh_token: the server sets it as the httpOnly cookie only (SEC F13).
+  token_type?: string;
+  expires_in: number;
   user: {
     id: string;
     username: string;
@@ -39,64 +41,91 @@ export interface RoomResponse {
   users: { id: string; username: string }[];
 }
 
-// ─── HTTP Helpers ───────────────────────────────────────────
-
-async function postJSON<T>(
-  path: string,
-  body: Record<string, unknown>,
-  token?: string,
-): Promise<T> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-
-  const res = await apiFetch(`${API_URL}${path}`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body),
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`POST ${path} failed (${res.status}): ${text}`);
-  }
-
-  return res.json();
+/** The server's error envelope (schemas/error.error_response). */
+export interface ApiErrorBody {
+  error_key: string;
+  message: string;
+  details?: Record<string, unknown>;
 }
 
-async function getJSON<T>(path: string, token?: string): Promise<T> {
+// ─── HTTP Helpers ───────────────────────────────────────────
+
+type Method = "GET" | "POST" | "PATCH" | "DELETE";
+
+/** A request that returns the raw Response: it never throws on a non-2xx. */
+export async function rawRequest(
+  method: Method,
+  path: string,
+  body?: Record<string, unknown>,
+  token?: string,
+): Promise<Response> {
   const headers: Record<string, string> = {};
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  return apiFetch(`${API_URL}${path}`, {
+    method,
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+}
 
-  const res = await apiFetch(`${API_URL}${path}`, { headers });
-
+/** A request that must succeed: a non-2xx throws with the status and the body. */
+async function requestJSON<T>(
+  method: Method,
+  path: string,
+  body?: Record<string, unknown>,
+  token?: string,
+): Promise<T> {
+  const res = await rawRequest(method, path, body, token);
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`GET ${path} failed (${res.status}): ${text}`);
+    throw new Error(`${method} ${path} failed (${res.status}): ${text}`);
   }
+  if (res.status === 204) return undefined as T;
+  return res.json() as Promise<T>;
+}
 
-  return res.json();
+const postJSON = <T>(path: string, body: Record<string, unknown>, token?: string) =>
+  requestJSON<T>("POST", path, body, token);
+const getJSON = <T>(path: string, token?: string) => requestJSON<T>("GET", path, undefined, token);
+const patchJSON = <T>(path: string, body: Record<string, unknown>, token?: string) =>
+  requestJSON<T>("PATCH", path, body, token);
+
+/** POST that returns the raw Response (does NOT throw on non-2xx). */
+export function rawPost(path: string, body: Record<string, unknown>, token?: string): Promise<Response> {
+  return rawRequest("POST", path, body, token);
+}
+
+/** PATCH that returns the raw Response (does NOT throw on non-2xx). */
+export function rawPatch(path: string, body: Record<string, unknown>, token?: string): Promise<Response> {
+  return rawRequest("PATCH", path, body, token);
+}
+
+/** GET that returns the raw Response (does NOT throw on non-2xx). */
+export function rawGet(path: string, token?: string): Promise<Response> {
+  return rawRequest("GET", path, undefined, token);
+}
+
+/**
+ * Assert a refusal by its exact status and error key. `res.ok === false` also holds for
+ * a 500 or a 422, which is exactly the class of bug a refusal test must not take for a
+ * pass (TQ-07).
+ */
+export async function expectApiError(res: Response, status: number, errorKey: string): Promise<ApiErrorBody> {
+  const text = await res.text();
+  expect(res.status, `expected ${status} ${errorKey}, got ${res.status}: ${text}`).toBe(status);
+  const body = JSON.parse(text) as ApiErrorBody;
+  expect(body.error_key, text).toBe(errorKey);
+  return body;
 }
 
 // ─── Auth API ───────────────────────────────────────────────
 
-export async function apiLogin(
-  email: string,
-  password: string,
-): Promise<LoginResponse> {
+export async function apiLogin(email: string, password: string): Promise<LoginResponse> {
   return postJSON<LoginResponse>("/api/v1/auth/login", { email, password });
 }
 
-export async function apiRegister(
-  username: string,
-  email: string,
-  password: string,
-): Promise<RegisterResponse> {
+export async function apiRegister(username: string, email: string, password: string): Promise<RegisterResponse> {
   return postJSON<RegisterResponse>("/api/v1/auth/register", {
     username,
     email_address: email,
@@ -104,21 +133,62 @@ export async function apiRegister(
   });
 }
 
-/**
- * Refresh a token pair.
- *
- * The token goes in the JSON body. It used to be passed as a query parameter,
- * which the endpoint no longer accepts — and a refresh token in a query string
- * lands in access logs and browser history.
- */
-export async function apiRefreshToken(
-  refreshToken: string,
-): Promise<{ access_token: string; refresh_token: string; expires_in: number }> {
-  return postJSON<{
-    access_token: string;
-    refresh_token: string;
-    expires_in: number;
-  }>("/api/v1/auth/refresh", { refresh_token: refreshToken });
+/** `GET /auth/me`, raw: a test of a signed-out token reads the 401 itself. */
+export function rawGetMe(token: string): Promise<Response> {
+  return rawGet("/api/v1/auth/me", token);
+}
+
+// ─── User API ───────────────────────────────────────────────
+
+/** A player's stats row (read-only: an account with no game reads zeros). */
+export interface UserStatsRow {
+  total_games_played: number;
+  total_games_won: number;
+  total_games_lost: number;
+  undercover_games_played: number;
+  undercover_games_won: number;
+  games_hosted: number;
+  rooms_created: number;
+}
+
+export async function apiGetUserStats(userId: string): Promise<UserStatsRow> {
+  return getJSON<UserStatsRow>(`/api/v1/stats/users/${userId}/stats`);
+}
+
+/** One achievement as a player's achievements page reads it (public, like the stats). */
+export interface AchievementRow {
+  code: string;
+  name: string;
+  unlocked: boolean;
+  progress: number;
+  threshold: number;
+}
+
+/** Every achievement with this player's progress and whether it is unlocked. */
+export async function apiGetUserAchievements(userId: string): Promise<AchievementRow[]> {
+  return getJSON<AchievementRow[]>(`/api/v1/stats/users/${userId}/achievements`);
+}
+
+/** The codes this player has unlocked. */
+export async function apiUnlockedAchievements(userId: string): Promise<string[]> {
+  return (await apiGetUserAchievements(userId)).filter((a) => a.unlocked).map((a) => a.code);
+}
+
+export interface GameHistoryEntry {
+  id: string;
+  type: string;
+  start_time: string;
+  end_time: string | null;
+  number_of_players: number;
+  winner: string | null;
+  user_role: string | null;
+  user_won: boolean | null;
+  game_status: string | null;
+}
+
+/** A player's game history, as their own /stats page reads it. */
+export async function apiGetGameHistory(userId: string, token: string): Promise<GameHistoryEntry[]> {
+  return getJSON<GameHistoryEntry[]>(`/api/v1/games/user/${userId}`, token);
 }
 
 // ─── Room API ───────────────────────────────────────────────
@@ -127,11 +197,7 @@ export async function apiCreateRoom(
   token: string,
   gameType: "undercover" | "codenames" | "word_quiz" | "mcq_quiz" = "undercover",
 ): Promise<RoomResponse> {
-  return postJSON<RoomResponse>(
-    "/api/v1/rooms",
-    { game_type: gameType },
-    token,
-  );
+  return postJSON<RoomResponse>("/api/v1/rooms", { game_type: gameType }, token);
 }
 
 /**
@@ -143,13 +209,26 @@ export async function apiCreateRoom(
  * membership. Tests still need `roomDetails.password` to have other players join,
  * so this helper merges the two calls.
  */
-export async function apiGetRoom(
-  roomId: string,
-  token: string,
-): Promise<RoomResponse> {
+export async function apiGetRoom(roomId: string, token: string): Promise<RoomResponse> {
   const room = await getJSON<RoomResponse>(`/api/v1/rooms/${roomId}`, token);
   const { password } = await apiGetShareLink(roomId, token);
   return { ...room, password };
+}
+
+export interface RoomStateResponse {
+  id: string;
+  public_id: string;
+  password: string;
+  owner_id: string;
+  active_game_id: string | null;
+  game_type: string | null;
+  type: string;
+  players: { user_id: string; username: string; is_connected: boolean; is_host: boolean; is_spectator: boolean }[];
+}
+
+/** The lobby's own read: the roster, the PIN, the active game. */
+export async function apiGetRoomState(roomId: string, token: string): Promise<RoomStateResponse> {
+  return getJSON<RoomStateResponse>(`/api/v1/rooms/${roomId}/state`, token);
 }
 
 /**
@@ -166,87 +245,41 @@ export async function apiJoinRoom(
   token: string,
 ): Promise<RoomResponse> {
   void userId;
-  return patchJSON<RoomResponse>(
-    "/api/v1/rooms/join",
-    { public_room_id: publicRoomId, password },
-    token,
-  );
+  return patchJSON<RoomResponse>("/api/v1/rooms/join", { public_room_id: publicRoomId, password }, token);
 }
 
-// ─── Room Leave API ─────────────────────────────────────────
-
-async function patchJSON<T>(
-  path: string,
-  body: Record<string, unknown>,
-  token?: string,
-): Promise<T> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-
-  const res = await apiFetch(`${API_URL}${path}`, {
-    method: "PATCH",
-    headers,
-    body: JSON.stringify(body),
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`PATCH ${path} failed (${res.status}): ${text}`);
-  }
-
-  return res.json();
+/** The same join, raw: a refusal test reads the status and the key itself. */
+export function rawJoinRoom(publicRoomId: string, password: string, token: string): Promise<Response> {
+  return rawPatch("/api/v1/rooms/join", { public_room_id: publicRoomId, password }, token);
 }
 
-/**
- * Leave a room. `userId` is accepted but not sent — see apiJoinRoom.
- */
-export async function apiLeaveRoom(
-  roomId: string,
-  userId: string,
-  token: string,
-): Promise<void> {
+/** Leave a room. `userId` is accepted but not sent — see apiJoinRoom. */
+export async function apiLeaveRoom(roomId: string, userId: string, token: string): Promise<void> {
   void userId;
   await patchJSON("/api/v1/rooms/leave", { room_id: roomId }, token);
 }
 
 /** The host kicks a player from the room (and from its game, when one is running). */
-export async function apiKickPlayer(
-  roomId: string,
-  userId: string,
-  hostToken: string,
-): Promise<void> {
+export async function apiKickPlayer(roomId: string, userId: string, hostToken: string): Promise<void> {
   await patchJSON(`/api/v1/rooms/${roomId}/kick`, { user_id: userId }, hostToken);
 }
 
-/**
- * Ensure a user is not in any room before creating/joining a new one.
- * Fetches all rooms and leaves any the user is currently in.
- */
-export async function apiLeaveAllRooms(
-  userId: string,
-  token: string,
-): Promise<void> {
-  // Uses GET /rooms/active, which returns THIS user's active room. It used to
-  // list every room via GET /rooms and filter client-side; that endpoint was
-  // removed (it leaked the full room directory), and because the failure was
-  // swallowed by the catch below this helper would have silently become a no-op.
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      const active = await getJSON<{ room_id: string } | null>(
-        "/api/v1/rooms/active",
-        token,
-      );
-      if (!active?.room_id) return; // Clean
-      await apiLeaveRoom(active.room_id, userId, token);
-    } catch {
-      // Token might be expired, or the room vanished — nothing left to clean.
-      return;
-    }
-  }
+/** The players the host removed from the room (host only). */
+export async function apiListBans(
+  roomId: string,
+  hostToken: string,
+): Promise<{ user_id: string; username: string; banned_at: string }[]> {
+  return getJSON(`/api/v1/rooms/${roomId}/bans`, hostToken);
+}
+
+/** The host's rematch: back to the lobby, the running game (if any) cancelled. */
+export async function apiRematch(roomId: string, hostToken: string): Promise<{ room_id: string; status: string }> {
+  return postJSON(`/api/v1/rooms/${roomId}/rematch`, {}, hostToken);
+}
+
+/** A chat line in the room's lobby. */
+export async function apiSendChatMessage(roomId: string, message: string, token: string): Promise<void> {
+  await postJSON(`/api/v1/rooms/${roomId}/messages`, { message }, token);
 }
 
 // ─── Game Start API ─────────────────────────────────────────
@@ -285,6 +318,12 @@ export interface UndercoverGameState {
   votes?: Record<string, string>;
   winner?: string | null;
   turn_phase?: string;
+  round_resolved?: boolean;
+  ready_players?: string[];
+  ready_count?: number;
+  ready_quorum?: number;
+  is_ready?: boolean;
+  mr_white_guesser?: string | null;
   description_order?: { user_id: string; username: string }[];
   current_describer_index?: number;
   descriptions?: Record<string, string>;
@@ -314,68 +353,33 @@ export interface GamePause {
 
 export type PausableGame = "undercover" | "codenames" | "wordquiz" | "mcqquiz";
 
-export async function apiPauseGame(
-  game: PausableGame,
-  gameId: string,
-  token: string,
-): Promise<Record<string, unknown>> {
+export async function apiPauseGame(game: PausableGame, gameId: string, token: string): Promise<Record<string, unknown>> {
   return postJSON(`/api/v1/${game}/games/${gameId}/pause`, {}, token);
 }
 
-export async function apiResumeGame(
-  game: PausableGame,
-  gameId: string,
-  token: string,
-): Promise<Record<string, unknown>> {
+export async function apiResumeGame(game: PausableGame, gameId: string, token: string): Promise<Record<string, unknown>> {
   return postJSON(`/api/v1/${game}/games/${gameId}/resume`, {}, token);
 }
 
-export async function apiGetUndercoverState(
-  gameId: string,
-  token: string,
-): Promise<UndercoverGameState> {
-  return getJSON<UndercoverGameState>(
-    `/api/v1/undercover/games/${gameId}/state`,
-    token,
-  );
+export async function apiGetUndercoverState(gameId: string, token: string): Promise<UndercoverGameState> {
+  return getJSON<UndercoverGameState>(`/api/v1/undercover/games/${gameId}/state`, token);
 }
 
-export async function apiSubmitDescription(
-  gameId: string,
-  word: string,
-  token: string,
-): Promise<void> {
-  await postJSON(
-    `/api/v1/undercover/games/${gameId}/describe`,
-    { word },
-    token,
-  );
+export async function apiSubmitDescription(gameId: string, word: string, token: string): Promise<void> {
+  await postJSON(`/api/v1/undercover/games/${gameId}/describe`, { word }, token);
 }
 
-// ─── Undercover Vote & Next Round API ──────────────────────
-
-export async function apiSubmitVote(
-  gameId: string,
-  votedFor: string,
-  token: string,
-): Promise<Record<string, unknown>> {
-  return postJSON(
-    `/api/v1/undercover/games/${gameId}/vote`,
-    { voted_for: votedFor },
-    token,
-  );
+export async function apiSubmitVote(gameId: string, votedFor: string, token: string): Promise<Record<string, unknown>> {
+  return postJSON(`/api/v1/undercover/games/${gameId}/vote`, { voted_for: votedFor }, token);
 }
 
+/** The host's "next round", or any other alive player's "I'm ready" (owner rule (d)). */
 export async function apiNextRound(
   gameId: string,
   roomId: string,
   token: string,
-): Promise<Record<string, unknown>> {
-  return postJSON(
-    `/api/v1/undercover/games/${gameId}/next-round`,
-    { room_id: roomId },
-    token,
-  );
+): Promise<{ advanced: boolean; ready_count: number; ready_quorum: number; ready_players: string[] }> {
+  return postJSON(`/api/v1/undercover/games/${gameId}/next-round`, { room_id: roomId }, token);
 }
 
 // ─── Codenames Game API ────────────────────────────────────
@@ -407,16 +411,11 @@ export interface CodenamesBoardState {
   winner: string | null;
   room_id?: string;
   is_host?: boolean;
+  paused?: GamePause | null;
 }
 
-export async function apiGetCodenamesBoard(
-  gameId: string,
-  token: string,
-): Promise<CodenamesBoardState> {
-  return getJSON<CodenamesBoardState>(
-    `/api/v1/codenames/games/${gameId}/board`,
-    token,
-  );
+export async function apiGetCodenamesBoard(gameId: string, token: string): Promise<CodenamesBoardState> {
+  return getJSON<CodenamesBoardState>(`/api/v1/codenames/games/${gameId}/board`, token);
 }
 
 export async function apiGiveClue(
@@ -425,34 +424,15 @@ export async function apiGiveClue(
   clueNumber: number,
   token: string,
 ): Promise<Record<string, unknown>> {
-  return postJSON(
-    `/api/v1/codenames/games/${gameId}/clue`,
-    { clue_word: clueWord, clue_number: clueNumber },
-    token,
-  );
+  return postJSON(`/api/v1/codenames/games/${gameId}/clue`, { clue_word: clueWord, clue_number: clueNumber }, token);
 }
 
-export async function apiGuessCard(
-  gameId: string,
-  cardIndex: number,
-  token: string,
-): Promise<Record<string, unknown>> {
-  return postJSON(
-    `/api/v1/codenames/games/${gameId}/guess`,
-    { card_index: cardIndex },
-    token,
-  );
+export async function apiGuessCard(gameId: string, cardIndex: number, token: string): Promise<Record<string, unknown>> {
+  return postJSON(`/api/v1/codenames/games/${gameId}/guess`, { card_index: cardIndex }, token);
 }
 
-export async function apiEndTurn(
-  gameId: string,
-  token: string,
-): Promise<Record<string, unknown>> {
-  return postJSON(
-    `/api/v1/codenames/games/${gameId}/end-turn`,
-    {},
-    token,
-  );
+export async function apiEndTurn(gameId: string, token: string): Promise<Record<string, unknown>> {
+  return postJSON(`/api/v1/codenames/games/${gameId}/end-turn`, {}, token);
 }
 
 // ─── Word Quiz Game API ────────────────────────────────────
@@ -480,30 +460,31 @@ export interface WordQuizGameState {
   }[];
   my_answered: boolean;
   my_points: number;
+  my_attempts_left: number | null;
+  my_rungs_lost: number;
+  max_attempts: number;
   round_results: {
     user_id: string;
     username: string;
     answered_at_hint: number | null;
     points: number;
+    attempts?: number;
+    typed_answer?: string | null;
   }[];
   correct_answer: string | null;
   winner: string | null;
+  winner_ids?: string[] | null;
   leaderboard: {
     user_id: string;
     username: string;
     total_score: number;
   }[];
   game_over: boolean;
+  paused?: GamePause | null;
 }
 
-export async function apiGetWordQuizState(
-  gameId: string,
-  token: string,
-): Promise<WordQuizGameState> {
-  return getJSON<WordQuizGameState>(
-    `/api/v1/wordquiz/games/${gameId}/state`,
-    token,
-  );
+export async function apiGetWordQuizState(gameId: string, token: string): Promise<WordQuizGameState> {
+  return getJSON<WordQuizGameState>(`/api/v1/wordquiz/games/${gameId}/state`, token);
 }
 
 export async function apiSubmitWordQuizAnswer(
@@ -511,33 +492,15 @@ export async function apiSubmitWordQuizAnswer(
   answer: string,
   token: string,
 ): Promise<{ correct: boolean; points_earned: number; hint_number: number }> {
-  return postJSON(
-    `/api/v1/wordquiz/games/${gameId}/answer`,
-    { answer },
-    token,
-  );
+  return postJSON(`/api/v1/wordquiz/games/${gameId}/answer`, { answer }, token);
 }
 
-export async function apiWordQuizTimerExpired(
-  gameId: string,
-  token: string,
-): Promise<Record<string, unknown>> {
-  return postJSON(
-    `/api/v1/wordquiz/games/${gameId}/timer-expired`,
-    {},
-    token,
-  );
+export async function apiWordQuizTimerExpired(gameId: string, token: string): Promise<{ action: string }> {
+  return postJSON(`/api/v1/wordquiz/games/${gameId}/timer-expired`, {}, token);
 }
 
-export async function apiWordQuizNextRound(
-  gameId: string,
-  token: string,
-): Promise<Record<string, unknown>> {
-  return postJSON(
-    `/api/v1/wordquiz/games/${gameId}/next-round`,
-    {},
-    token,
-  );
+export async function apiWordQuizNextRound(gameId: string, token: string): Promise<Record<string, unknown>> {
+  return postJSON(`/api/v1/wordquiz/games/${gameId}/next-round`, {}, token);
 }
 
 // ─── MCQ Quiz Game API ──────────────────────────────────────
@@ -573,23 +536,18 @@ export interface MCQQuizGameState {
   correct_answer_index: number | null;
   explanation: string | null;
   winner: string | null;
+  winner_ids?: string[] | null;
   leaderboard: {
     user_id: string;
     username: string;
     total_score: number;
   }[];
   game_over: boolean;
+  paused?: GamePause | null;
 }
 
-export async function apiGetMCQQuizState(
-  gameId: string,
-  token: string,
-  lang = "en",
-): Promise<MCQQuizGameState> {
-  return getJSON<MCQQuizGameState>(
-    `/api/v1/mcqquiz/games/${gameId}/state?lang=${lang}`,
-    token,
-  );
+export async function apiGetMCQQuizState(gameId: string, token: string, lang = "en"): Promise<MCQQuizGameState> {
+  return getJSON<MCQQuizGameState>(`/api/v1/mcqquiz/games/${gameId}/state?lang=${lang}`, token);
 }
 
 export async function apiSubmitMCQQuizAnswer(
@@ -597,81 +555,15 @@ export async function apiSubmitMCQQuizAnswer(
   choiceIndex: number,
   token: string,
 ): Promise<{ correct: boolean; points_earned: number }> {
-  return postJSON(
-    `/api/v1/mcqquiz/games/${gameId}/answer`,
-    { choice_index: choiceIndex },
-    token,
-  );
+  return postJSON(`/api/v1/mcqquiz/games/${gameId}/answer`, { choice_index: choiceIndex }, token);
 }
 
-export async function apiMCQQuizTimerExpired(
-  gameId: string,
-  token: string,
-): Promise<Record<string, unknown>> {
-  return postJSON(
-    `/api/v1/mcqquiz/games/${gameId}/timer-expired`,
-    {},
-    token,
-  );
+export async function apiMCQQuizTimerExpired(gameId: string, token: string): Promise<{ action: string }> {
+  return postJSON(`/api/v1/mcqquiz/games/${gameId}/timer-expired`, {}, token);
 }
 
-export async function apiMCQQuizNextRound(
-  gameId: string,
-  token: string,
-): Promise<Record<string, unknown>> {
-  return postJSON(
-    `/api/v1/mcqquiz/games/${gameId}/next-round`,
-    {},
-    token,
-  );
-}
-
-// ─── Raw HTTP helpers (for error testing) ──────────────────
-
-/**
- * POST that returns the raw Response (does NOT throw on non-2xx).
- * Use this in error tests to check status codes.
- */
-export async function rawPost(
-  path: string,
-  body: Record<string, unknown>,
-  token?: string,
-): Promise<Response> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-
-  return apiFetch(`${API_URL}${path}`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body),
-  });
-}
-
-/**
- * PATCH that returns the raw Response (does NOT throw on non-2xx).
- * Use this in error tests to check status codes.
- */
-export async function rawPatch(
-  path: string,
-  body: Record<string, unknown>,
-  token?: string,
-): Promise<Response> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-
-  return apiFetch(`${API_URL}${path}`, {
-    method: "PATCH",
-    headers,
-    body: JSON.stringify(body),
-  });
+export async function apiMCQQuizNextRound(gameId: string, token: string): Promise<Record<string, unknown>> {
+  return postJSON(`/api/v1/mcqquiz/games/${gameId}/next-round`, {}, token);
 }
 
 // ─── Kunnash (notebook) API ─────────────────────────────────
@@ -730,9 +622,7 @@ export async function apiAcceptFriendRequest(
   return postJSON(`/api/v1/friends/${friendshipId}/accept`, {}, token);
 }
 
-export async function apiGetFriends(
-  token: string,
-): Promise<{ user_id: string; username: string; status: string }[]> {
+export async function apiGetFriends(token: string): Promise<{ user_id: string; username: string; status: string }[]> {
   return getJSON("/api/v1/friends", token);
 }
 
@@ -744,27 +634,20 @@ export async function apiGetPendingRequests(
 
 // ─── Challenge API ──────────────────────────────────────────
 
-export async function apiSeedChallenges(
-  token: string,
-): Promise<void> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    "Authorization": `Bearer ${token}`,
-  };
-  const res = await apiFetch(`${API_URL}/api/v1/challenges/seed`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({}),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`POST /api/v1/challenges/seed failed (${res.status}): ${text}`);
-  }
+export interface ActiveChallenge {
+  id: string;
+  code: string;
+  description: string;
+  challenge_type: string;
+  target_count: number;
+  game_type: string | null;
+  condition: string;
+  role: string | null;
+  progress: number;
+  completed: boolean;
 }
 
-export async function apiGetActiveChallenges(
-  token: string,
-): Promise<{ id: string; code: string; description: string; challenge_type: string; progress: number; completed: boolean }[]> {
+export async function apiGetActiveChallenges(token: string): Promise<ActiveChallenge[]> {
   return getJSON("/api/v1/challenges/active", token);
 }
 
@@ -778,8 +661,11 @@ export async function apiUpdateRoomSettings(
     codenames_clue_timer?: number;
     codenames_guess_timer?: number;
     word_quiz_turn_duration?: number;
+    word_quiz_hint_interval?: number;
+    word_quiz_rounds?: number;
     mcq_quiz_turn_duration?: number;
     mcq_quiz_rounds?: number;
+    enable_mr_white?: boolean;
   },
   token: string,
 ): Promise<Record<string, unknown>> {
@@ -795,59 +681,38 @@ export async function apiUpdateRoomSettings(
  * spectator cannot look it up themselves (`/share-link` is members-only), so it
  * has to be passed in, exactly like a real user receiving a share link.
  */
-export async function apiJoinRoomAsSpectator(
-  roomId: string,
-  token: string,
-  password: string,
-): Promise<RoomResponse> {
-  return patchJSON<RoomResponse>(
-    "/api/v1/rooms/join-spectator",
-    { room_id: roomId, password },
-    token,
-  );
+export async function apiJoinRoomAsSpectator(roomId: string, token: string, password: string): Promise<RoomResponse> {
+  return patchJSON<RoomResponse>("/api/v1/rooms/join-spectator", { room_id: roomId, password }, token);
 }
 
 // ─── Share Link API ────────────────────────────────────────
 
-export async function apiGetShareLink(
-  roomId: string,
-  token: string,
-): Promise<{ public_id: string; password: string }> {
-  return getJSON<{ public_id: string; password: string }>(
-    `/api/v1/rooms/${roomId}/share-link`,
-    token,
-  );
+export async function apiGetShareLink(roomId: string, token: string): Promise<{ public_id: string; password: string }> {
+  return getJSON<{ public_id: string; password: string }>(`/api/v1/rooms/${roomId}/share-link`, token);
 }
 
 // ─── Health Checks ──────────────────────────────────────────
 
-export async function waitForBackend(
-  maxRetries = 60,
-  delayMs = 2000,
-): Promise<void> {
+export async function waitForBackend(maxRetries = 60, delayMs = 2000): Promise<void> {
   for (let i = 0; i < maxRetries; i++) {
     try {
       const res = await apiFetch(`${API_URL}/health`);
       if (res.ok) return;
     } catch {
-      // Connection refused, keep retrying
+      // Connection refused while the container starts: ask again
     }
     await new Promise((r) => setTimeout(r, delayMs));
   }
   throw new Error(`Backend not healthy after ${maxRetries} retries`);
 }
 
-export async function waitForFrontend(
-  frontendUrl: string,
-  maxRetries = 60,
-  delayMs = 2000,
-): Promise<void> {
+export async function waitForFrontend(frontendUrl: string, maxRetries = 60, delayMs = 2000): Promise<void> {
   for (let i = 0; i < maxRetries; i++) {
     try {
       const res = await apiFetch(frontendUrl);
       if (res.ok) return;
     } catch {
-      // Connection refused, keep retrying
+      // Connection refused while the container starts: ask again
     }
     await new Promise((r) => setTimeout(r, delayMs));
   }

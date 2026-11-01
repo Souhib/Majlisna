@@ -14,12 +14,13 @@ import {
   apiGetNotebookGameWords,
   apiListNotebook,
   apiGetWordQuizState,
-  apiWordQuizTimerExpired,
+  apiSubmitWordQuizAnswer,
   apiWordQuizNextRound,
   apiUpdateRoomSettings,
   type NotebookEntry,
 } from "../../helpers/api-client";
 import { FRONTEND_URL } from "../../helpers/constants";
+import { dbWordQuizCurrentWord } from "../../helpers/db";
 
 /**
  * The Kunnash (كُنّاش): the words a player keeps from a finished game.
@@ -164,30 +165,25 @@ test.describe("Kunnash — keeping a game's words", () => {
   });
 
   test("Kalimat: the colophon lists the game's words; keep them all, then put one back", async ({ browser }) => {
-    // Prepare — a solo Kalimat game played to its end (each round runs out)
+    // Prepare — a solo Kalimat game of three rounds, each word found (a round of a solo
+    // game ends on its answer; the clocks have a 10 s floor, so none is left to run out)
     const accounts = await generateTestAccounts(1);
     const setup = await setupRoomWithPlayers(browser, accounts, "word_quiz");
     const player = setup.players[0];
     const token = player.login.access_token;
-    await apiUpdateRoomSettings(setup.roomId, { word_quiz_turn_duration: 1 }, token);
+    await apiUpdateRoomSettings(setup.roomId, { word_quiz_rounds: 3, word_quiz_turn_duration: 300 }, token);
     await startGameViaAPI(setup.players, "word_quiz", setup.roomId);
     const gameId = gameIdOf(player.page, "wordquiz");
 
     const totalRounds = (await apiGetWordQuizState(gameId, token)).total_rounds;
+    expect(totalRounds).toBe(3);
     for (let round = 1; round <= totalRounds; round++) {
-      let state = await apiGetWordQuizState(gameId, token);
-      if (state.round_phase === "game_over") break;
-      if (state.round_phase === "playing") {
-        // the 1 s round must really be over on the server before it is called
-        await expect
-          .poll(async () => (await apiWordQuizTimerExpired(gameId, token)).action, { timeout: 10_000, intervals: [500] })
-          .not.toBe("timer_not_expired");
-      }
+      expect((await apiGetWordQuizState(gameId, token)).round_phase).toBe("playing");
+      await apiSubmitWordQuizAnswer(gameId, dbWordQuizCurrentWord(gameId), token);
       await expect
-        .poll(async () => (await apiGetWordQuizState(gameId, token)).round_phase, { timeout: 10_000, intervals: [500] })
-        .not.toBe("playing");
-      state = await apiGetWordQuizState(gameId, token);
-      if (state.round_phase === "results") await apiWordQuizNextRound(gameId, token);
+        .poll(async () => (await apiGetWordQuizState(gameId, token)).round_phase, { timeout: 10_000, intervals: [250] })
+        .toBe("results");
+      await apiWordQuizNextRound(gameId, token);
     }
     expect((await apiGetWordQuizState(gameId, token)).game_over).toBe(true);
 

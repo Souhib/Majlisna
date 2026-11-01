@@ -8,6 +8,7 @@ import {
   rawPatch,
 } from "../../helpers/api-client";
 import { ROUTES } from "../../helpers/constants";
+import { setupRoomWithPlayers } from "../../helpers/ui-game-setup";
 
 test.describe("Room Join Errors", () => {
   test("join room with wrong PIN via API returns error", async () => {
@@ -80,5 +81,41 @@ test.describe("Room Join Errors", () => {
     await expect(page).toHaveURL(/\/rooms$/);
 
     await page.context().close();
+  });
+
+  test("a visitor who opens a room's address without a seat is told so at once, and joins with its code and PIN", async ({ browser }) => {
+    // Prepare — a host in their lobby, and someone who has the room's address only
+    const accounts = await generateTestAccounts(2);
+    const setup = await setupRoomWithPlayers(browser, accounts.slice(0, 1));
+    const [host] = setup.players;
+    const visitor = await createPlayerPage(browser, accounts[1].email, accounts[1].password);
+    const roomStates: number[] = [];
+    visitor.on("response", (r) => new URL(r.url()).pathname === `/api/v1/rooms/${setup.roomId}/state` && roomStates.push(r.status()));
+
+    // Act
+    await visitor.goto(`/rooms/${setup.roomId}`);
+
+    // Assert — said once, with no retries behind it (it used to retry for ~3 s, then say
+    // the room "did not open" with nothing to do but go back), and a way in right there
+    await expect(visitor.getByRole("heading", { name: "This room did not open" })).toBeVisible({ timeout: 15_000 });
+    const join = visitor.getByRole("button", { name: "Join this room" });
+    await expect(join).toBeDisabled();
+    expect(roomStates).toEqual([404]);
+
+    // Act — the code and the PIN, typed in the page
+    await visitor.locator("#lobby-join-code").fill(setup.roomDetails.public_id);
+    await visitor.locator("#lobby-join-pin").fill(setup.roomDetails.password);
+    await expect(join).toBeEnabled();
+    // ...the refused read was not asked again meanwhile: a refusal is not polled
+    expect(roomStates).toEqual([404]);
+    await join.click();
+
+    // Assert — seated: both lobbies count two
+    await expect(visitor).toHaveURL(new RegExp(`/rooms/${setup.roomId}$`));
+    await expect(visitor.locator("text=Players (2)")).toBeVisible({ timeout: 15_000 });
+    await expect(host.page.locator("text=Players (2)")).toBeVisible({ timeout: 15_000 });
+
+    await visitor.context().close();
+    await setup.cleanup();
   });
 });

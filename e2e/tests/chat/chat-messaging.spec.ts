@@ -5,22 +5,12 @@ import { setupRoomWithPlayers } from "../../helpers/ui-game-setup";
 const CHAT_INPUT_SELECTOR = 'input[placeholder="Type a message…"]';
 
 /**
- * The ChatPanel is inline in the room lobby and starts open by default.
- * If it was collapsed (via the toggle button), click the "Chat" header to re-open.
+ * The ChatPanel is inline in the room lobby and starts open: its field is there. (The
+ * old helper branched on `isVisible({ timeout })`, whose timeout Playwright ignores: it
+ * answered at once, before the panel had rendered; TQ-16.)
  */
 async function ensureChatOpen(page: import("@playwright/test").Page) {
-  const chatInput = page.locator(CHAT_INPUT_SELECTOR);
-
-  // Already open?
-  if (await chatInput.isVisible().catch(() => false)) return;
-
-  // Click the Chat header toggle to open
-  const toggle = page.getByText("Chat", { exact: true });
-  if (await toggle.isVisible({ timeout: 5_000 }).catch(() => false)) {
-    await toggle.click();
-  }
-
-  await expect(chatInput).toBeVisible({ timeout: 5_000 });
+  await expect(page.locator(CHAT_INPUT_SELECTOR)).toBeVisible({ timeout: 10_000 });
 }
 
 test.describe("Chat Messaging in Room", () => {

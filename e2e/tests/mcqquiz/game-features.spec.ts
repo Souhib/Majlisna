@@ -7,7 +7,6 @@ import {
 import {
   apiGetMCQQuizState,
   apiSubmitMCQQuizAnswer,
-  apiMCQQuizTimerExpired,
   apiMCQQuizNextRound,
   apiUpdateRoomSettings,
 } from "../../helpers/api-client";
@@ -44,7 +43,7 @@ test.describe("MCQ Quiz Game Features", () => {
     ).not.toBe("playing");
 
     state = await apiGetMCQQuizState(gameId, token);
-    expect(["results", "game_over"]).toContain(state.round_phase);
+    expect(state.round_phase).toBe("results");
 
     // Explanation should be available in the API state
     expect(state.explanation).not.toBeNull();
@@ -94,7 +93,7 @@ test.describe("MCQ Quiz Game Features", () => {
     ).not.toBe("playing");
 
     state = await apiGetMCQQuizState(gameId, token);
-    expect(["results", "game_over"]).toContain(state.round_phase);
+    expect(state.round_phase).toBe("results");
 
     // Correct answer index should be revealed in results
     expect(state.correct_answer_index).not.toBeNull();
@@ -188,56 +187,28 @@ test.describe("MCQ Quiz Game Features", () => {
   });
 
   test("timer expiry auto-advances to results", async ({ browser }) => {
+    // The shortest clock the server allows (MIN_QUIZ_TURN_SECONDS): 3 s is refused now,
+    // a round of a few seconds expired the moment it opened (BR-17)
     const accounts = await generateTestAccounts(1);
     const setup = await setupRoomWithPlayers(browser, accounts, "mcq_quiz");
     const token = setup.players[0].login.access_token;
-
-    // Set very short timer so it expires quickly
-    await apiUpdateRoomSettings(
-      setup.roomId,
-      { mcq_quiz_turn_duration: 3 },
-      token,
-    );
-
+    await apiUpdateRoomSettings(setup.roomId, { mcq_quiz_turn_duration: 10 }, token);
     await startGameViaAPI(setup.players, "mcq_quiz", setup.roomId);
-
     const player = setup.players[0];
     const gameId = player.page.url().split("/").pop()!;
+    expect((await apiGetMCQQuizState(gameId, token)).round_phase).toBe("playing");
 
-    // Wait for question to appear
-    await expect(
-      player.page.locator("h1:has-text('The Quiz')")
-        .or(player.page.locator("h1:has-text('Le Quiz')"))
-        .or(player.page.locator("h1:has-text('مسائل')")),
-    ).toBeVisible({ timeout: 15_000 });
+    // Do NOT answer: the page reports its own clock when it runs out, and the server
+    // moves to the results (polled: no fixed sleep)
+    await expect
+      .poll(async () => (await apiGetMCQQuizState(gameId, token)).round_phase, { timeout: 30_000, intervals: [500] })
+      .toBe("results");
 
-    // Verify we're in playing phase
-    let state = await apiGetMCQQuizState(gameId, token);
-    expect(state.round_phase).toBe("playing");
-
-    // Do NOT answer — wait for the 3s server-side timer to expire
-    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-    await sleep(4000);
-
-    // Force timer expired via API (in case server-side auto-expire hasn't triggered)
-    await apiMCQQuizTimerExpired(gameId, token);
-
-    // Wait for results phase
-    await expect.poll(
-      async () => (await apiGetMCQQuizState(gameId, token)).round_phase,
-      { timeout: 10_000, intervals: [500] },
-    ).not.toBe("playing");
-
-    state = await apiGetMCQQuizState(gameId, token);
-    expect(["results", "game_over"]).toContain(state.round_phase);
-
-    // Player should not have answered
+    const state = await apiGetMCQQuizState(gameId, token);
     expect(state.my_answered).toBe(false);
-
-    // Correct answer should be revealed
-    if (state.round_phase === "results") {
-      expect(state.correct_answer_index).not.toBeNull();
-    }
+    expect(state.correct_answer_index).not.toBeNull();
+    await expect(player.page.getByTestId("mcq-round-results")).toBeVisible({ timeout: 15_000 });
+    await expect(player.page.getByRole("button", { name: "Next question" })).toBeVisible();
 
     await setup.cleanup();
   });

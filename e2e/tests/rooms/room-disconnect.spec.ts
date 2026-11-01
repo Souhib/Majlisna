@@ -4,6 +4,7 @@ import {
   setupRoomWithPlayers,
 } from "../../helpers/ui-game-setup";
 import { apiGetRoom, apiLeaveRoom, apiJoinRoom } from "../../helpers/api-client";
+import { ROUTES } from "../../helpers/constants";
 
 test.describe("Room Disconnect Behavior", () => {
   test("player refreshes in room and recovers state", async ({ browser }) => {
@@ -28,6 +29,32 @@ test.describe("Room Disconnect Behavior", () => {
     await expect(
       setup.players[1].page.locator(`text=${setup.roomDetails.public_id}`),
     ).toBeVisible({ timeout: 10_000 });
+
+    await setup.cleanup();
+  });
+
+  test("a player who comes back is shown back at once on the others' screens", async ({ browser }) => {
+    // Prepare — two players in the lobby
+    const accounts = await generateTestAccounts(2);
+    const setup = await setupRoomWithPlayers(browser, accounts);
+    const [host, guest] = setup.players;
+    const guestName = guest.login.user.username;
+    const awayRow = host.page.locator("li").filter({ hasText: guestName }).filter({ hasText: "away" });
+    await expect(awayRow).toHaveCount(0);
+
+    // Act — the guest's tab closes: their socket drops and the host sees the seat away
+    await guest.page.close();
+    await expect(awayRow).toBeVisible({ timeout: 15_000 });
+    await expect(awayRow).toContainText(/away · \d+:\d\d/);
+
+    // ...then the guest opens the lobby again
+    const back = await guest.page.context().newPage();
+    await back.goto(ROUTES.room(setup.roomId));
+    await expect(back.locator("text=Players (2)")).toBeVisible({ timeout: 15_000 });
+
+    // Assert — the return is pushed to the host at once (it used to wait for some other
+    // change of the room: the host's socket is up, so the host's page does not poll)
+    await expect(awayRow).toHaveCount(0, { timeout: 5_000 });
 
     await setup.cleanup();
   });

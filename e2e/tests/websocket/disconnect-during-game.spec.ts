@@ -6,29 +6,20 @@ import {
   dismissRoleRevealAll,
   isPageAlive,
 } from "../../helpers/ui-game-setup";
-import { apiFetch, apiGetUndercoverState } from "../../helpers/api-client";
+import { apiGetUndercoverState, rawPatch } from "../../helpers/api-client";
 
 /**
- * Wait until all expected players are alive in the undercover game state.
- * This ensures heartbeats are fresh before we proceed with the test.
+ * Wait until all expected players are alive in the undercover game state (their
+ * heartbeats fresh) before the test goes on. It used to return silently when the time
+ * ran out, so the test went on from a state it had not reached (TQ-16).
  */
-async function waitForAllPlayersAlive(
-  gameId: string,
-  token: string,
-  expectedCount: number,
-  timeoutMs = 30_000,
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      const state = await apiGetUndercoverState(gameId, token);
-      const alive = state.players.filter((p) => p.is_alive).length;
-      if (alive >= expectedCount) return;
-    } catch {
-      // Game state not ready yet
-    }
-    await new Promise((r) => setTimeout(r, 1000));
-  }
+async function waitForAllPlayersAlive(gameId: string, token: string, expectedCount: number): Promise<void> {
+  await expect
+    .poll(async () => (await apiGetUndercoverState(gameId, token)).players.filter((p) => p.is_alive).length, {
+      timeout: 30_000,
+      intervals: [1_000],
+    })
+    .toBeGreaterThanOrEqual(expectedCount);
 }
 
 test.describe("Disconnect During Active Game", () => {
@@ -51,11 +42,6 @@ test.describe("Disconnect During Active Game", () => {
     }
 
     const activePlayers = await dismissRoleRevealAll(setup.players);
-    // If game already ended during setup (heartbeat timing), skip gracefully
-    if (activePlayers.length === 0) {
-      await setup.cleanup();
-      return;
-    }
 
     const gameId = activePlayers[0].page
       .url()
@@ -162,10 +148,6 @@ test.describe("Disconnect During Active Game", () => {
     }
 
     const activePlayers = await dismissRoleRevealAll(setup.players);
-    if (activePlayers.length === 0) {
-      await setup.cleanup();
-      return;
-    }
 
     const gameId = activePlayers[0].page
       .url()
@@ -185,19 +167,8 @@ test.describe("Disconnect During Active Game", () => {
     const hostToken = activePlayers[0].login.access_token;
     const kickedUserId = kickedPlayer.login.user.id;
 
-    const baseUrl = process.env.FRONTEND_URL || "http://localhost:3000";
-    const res = await apiFetch(
-      `${baseUrl}/api/v1/rooms/${setup.roomId}/kick`,
-      {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${hostToken}`,
-        },
-        body: JSON.stringify({ user_id: kickedUserId }),
-      },
-    );
-    expect(res.ok).toBe(true);
+    const res = await rawPatch(`/api/v1/rooms/${setup.roomId}/kick`, { user_id: kickedUserId }, hostToken);
+    expect(res.status).toBe(200);
 
     // Kicked player should be redirected to /rooms via UI
     await expect(kickedPlayer.page).toHaveURL(/\/rooms/, {

@@ -93,13 +93,16 @@ async function measureTintedText(page: Page, rootSelector: string): Promise<Meas
   }, rootSelector);
 }
 
-/** Wait until every finite animation on the page has finished (the thread clock loops). */
+/**
+ * Wait until every finite animation on the page has finished, except the thread clock's:
+ * it is one animation for the whole phase (`ThreadClock`, id "thread-clock").
+ */
 async function settle(page: Page): Promise<void> {
   await page.evaluate(() =>
     Promise.all(
       document
         .getAnimations()
-        .filter((a) => a.effect?.getComputedTiming().iterations !== Infinity)
+        .filter((a) => a.id !== "thread-clock" && a.effect?.getComputedTiming().iterations !== Infinity)
         .map((a) => a.finished.catch(() => undefined)),
     ),
   );

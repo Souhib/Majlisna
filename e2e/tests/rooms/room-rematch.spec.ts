@@ -1,104 +1,94 @@
 import { test, expect } from "@playwright/test";
 import { generateTestAccounts } from "../../helpers/test-setup";
 import {
-  apiFetch,
-  apiLogin,
-  apiCreateRoom,
-  apiGetRoom,
-  apiJoinRoom,
-  apiStartGame,
+  setupRoomWithPlayers,
+  startGameViaAPI,
+  startGameViaUI,
+  dismissRoleRevealAll,
+  submitDescriptionsForAllPlayersViaAPI,
+  voteOutViaAPI,
+  gameIdFromUrl,
+} from "../../helpers/ui-game-setup";
+import {
+  apiGetGameHistory,
+  apiGetRoomState,
   apiGetUndercoverState,
-  apiSubmitDescription,
-  apiSubmitVote,
-  apiUpdateRoomSettings,
+  apiRematch,
 } from "../../helpers/api-client";
-import { API_URL } from "../../helpers/constants";
+import { ROUTES } from "../../helpers/constants";
+import { dbGameStatus } from "../../helpers/db";
 
+/**
+ * The host's rematch sends the room back to its lobby. A game still being played is
+ * CANCELLED (closing it is the point of a rematch mid-game), a finished one stays
+ * finished. The old spec asserted only the fields the server hardcodes in its answer
+ * (the request's own room id and the literal "lobby") and swallowed every describe and
+ * vote error: it passed on a rematch that did nothing (TQ-09).
+ */
 test.describe("Room Rematch", () => {
-  test("rematch clears active game and returns to lobby", async () => {
+  test("a rematch mid-game cancels the running game and reopens the lobby", async ({ browser }) => {
+    // Prepare — a 3-player Undercover game under way
     const accounts = await generateTestAccounts(3);
-    const logins = await Promise.all(
-      accounts.map((a) => apiLogin(a.email, a.password)),
-    );
+    const setup = await setupRoomWithPlayers(browser, accounts);
+    const host = setup.players[0];
+    const oldGameId = await startGameViaAPI(setup.players, "undercover", setup.roomId);
+    expect(dbGameStatus(oldGameId)).toBe("IN_PROGRESS");
 
-    // Create room and join all players
-    const room = await apiCreateRoom(logins[0].access_token);
-    const roomDetails = await apiGetRoom(room.id, logins[0].access_token);
+    // Act — the host calls a rematch while the game runs
+    const answer = await apiRematch(setup.roomId, host.login.access_token);
+    expect(answer).toEqual({ room_id: setup.roomId, status: "lobby" });
 
-    await apiUpdateRoomSettings(
-      room.id,
-      { description_timer: 600, voting_timer: 600 },
-      logins[0].access_token,
-    );
+    // Assert — the old game is CANCELLED, in the database and in the host's history
+    expect(dbGameStatus(oldGameId)).toBe("CANCELLED");
+    const history = await apiGetGameHistory(host.login.user.id, host.login.access_token);
+    expect(history.find((g) => g.id === oldGameId)?.game_status).toBe("cancelled");
 
-    for (let i = 1; i < logins.length; i++) {
-      await apiJoinRoom(
-        roomDetails.public_id,
-        logins[i].user.id,
-        roomDetails.password,
-        logins[i].access_token,
-      );
+    // ...the room has no active game any more...
+    const room = await apiGetRoomState(setup.roomId, host.login.access_token);
+    expect(room.active_game_id).toBeNull();
+    expect(room.players.map((p) => p.user_id).sort()).toEqual(setup.players.map((p) => p.login.user.id).sort());
+
+    // ...and the host's lobby offers to start again: the room stays on its lobby
+    for (const player of setup.players) {
+      await player.page.goto(ROUTES.room(setup.roomId));
+      await expect(player.page.locator("text=Players (3)")).toBeVisible({ timeout: 15_000 });
     }
+    await expect(host.page.locator('button:has-text("Start")')).toBeEnabled({ timeout: 10_000 });
+    await expect(host.page).toHaveURL(new RegExp(`/rooms/${setup.roomId}$`));
 
-    // Start game
-    const game = await apiStartGame(room.id, "undercover", logins[0].access_token);
+    // The table plays again: a new game, not the cancelled one
+    await startGameViaUI(setup.players, "undercover");
+    const newGameId = gameIdFromUrl(host.page, "undercover");
+    expect(newGameId).not.toBe(oldGameId);
+    expect(dbGameStatus(newGameId)).toBe("IN_PROGRESS");
 
-    // Play to completion: describe + vote out players until game ends
-    let state = await apiGetUndercoverState(game.game_id, logins[0].access_token);
-    let rounds = 0;
+    await setup.cleanup();
+  });
 
-    while (!state.winner && rounds < 10) {
-      // Submit descriptions
-      if (state.turn_phase === "describing" && state.description_order) {
-        // Snapshot the order: `state` is reassigned inside the loop, which drops
-        // TypeScript's narrowing of state.description_order on the next iteration.
-        const describeOrder = state.description_order;
-        for (let idx = 0; idx < describeOrder.length; idx++) {
-          const describer = describeOrder[idx];
-          const login = logins.find((l) => l.user.id === describer.user_id);
-          if (login) {
-            await apiSubmitDescription(game.game_id, `word${idx}`, login.access_token).catch(() => {});
-          }
-          // Re-fetch state
-          state = await apiGetUndercoverState(game.game_id, logins[0].access_token);
-          if (state.turn_phase !== "describing") break;
-        }
-      }
+  test("a rematch after the end leaves the finished game as it ended", async ({ browser }) => {
+    // Prepare — a 3-player game played to its end (one vote decides it)
+    const accounts = await generateTestAccounts(3);
+    const setup = await setupRoomWithPlayers(browser, accounts);
+    const host = setup.players[0];
+    const gameId = await startGameViaAPI(setup.players, "undercover", setup.roomId);
+    const players = await dismissRoleRevealAll(setup.players);
+    await submitDescriptionsForAllPlayersViaAPI(players);
+    const voting = await apiGetUndercoverState(gameId, host.login.access_token);
+    await voteOutViaAPI(gameId, players, voting, voting.players[voting.players.length - 1].user_id);
+    await expect.poll(async () => (await apiGetUndercoverState(gameId, host.login.access_token)).winner).toBeTruthy();
+    const winner = (await apiGetUndercoverState(gameId, host.login.access_token)).winner;
+    expect(dbGameStatus(gameId)).toBe("FINISHED");
 
-      // Re-fetch after descriptions
-      state = await apiGetUndercoverState(game.game_id, logins[0].access_token);
+    // Act
+    await apiRematch(setup.roomId, host.login.access_token);
 
-      // Vote: all alive players vote for first alive non-self player
-      if (state.turn_phase === "voting") {
-        const alivePlayers = state.players.filter((p) => p.is_alive);
-        for (const voter of alivePlayers) {
-          const target = alivePlayers.find((p) => p.user_id !== voter.user_id);
-          if (!target) continue;
-          const login = logins.find((l) => l.user.id === voter.user_id);
-          if (login) {
-            await apiSubmitVote(game.game_id, target.user_id, login.access_token).catch(() => {});
-          }
-        }
-      }
+    // Assert — still finished, with its winner; the room is back in its lobby
+    expect(dbGameStatus(gameId)).toBe("FINISHED");
+    expect((await apiGetUndercoverState(gameId, host.login.access_token)).winner).toBe(winner);
+    expect((await apiGetRoomState(setup.roomId, host.login.access_token)).active_game_id).toBeNull();
+    await host.page.goto(ROUTES.room(setup.roomId));
+    await expect(host.page.locator('button:has-text("Start")')).toBeEnabled({ timeout: 15_000 });
 
-      // Wait for server to process
-      await new Promise((r) => setTimeout(r, 500));
-      state = await apiGetUndercoverState(game.game_id, logins[0].access_token);
-      rounds++;
-    }
-
-    // Call rematch
-    const res = await apiFetch(`${API_URL}/api/v1/rooms/${room.id}/rematch`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${logins[0].access_token}`,
-      },
-    });
-    expect(res.status).toBe(200);
-
-    const rematchData = await res.json();
-    expect(rematchData).toHaveProperty("room_id", room.id);
-    expect(rematchData).toHaveProperty("status", "lobby");
+    await setup.cleanup();
   });
 });

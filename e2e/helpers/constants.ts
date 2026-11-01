@@ -3,8 +3,9 @@ export const FRONTEND_URL =
   process.env.FRONTEND_URL || "http://localhost:3049";
 
 // ─── Test Accounts (seeded by generate_fake_data.py) ───────
-// Only TEST_ADMIN and TEST_USER are still used (by auth/profile tests).
-// Game tests use generateTestAccounts() from test-setup.ts for per-test isolation.
+// Only TEST_ADMIN and TEST_USER are still used, read-only (login, page visits). A spec
+// that changes an account (password, deletion, a room seat) registers its own with
+// generateTestAccounts() from test-setup.ts: the seeded ones are shared by every worker.
 
 export const TEST_ADMIN = {
   email: process.env.TEST_ADMIN_EMAIL || "admin@test.com",
@@ -18,11 +19,17 @@ export const TEST_USER = {
 
 // ─── localStorage Keys (must match front/src/lib/auth.ts) ──
 
+/**
+ * What the page keeps of a session. The refresh token is NOT among them: the server sets
+ * it as an httpOnly cookie (SEC F13), so no script can read it. `legacyRefreshToken` is
+ * where the old client kept it; the specs only ever check that it stays empty.
+ */
 export const STORAGE_KEYS = {
   token: "majlisna-token",
-  refreshToken: "majlisna-refresh-token",
   tokenExpiry: "majlisna-token-expiry",
   userData: "majlisna-user-data",
+  sessionMarker: "majlisna-session",
+  legacyRefreshToken: "majlisna-refresh-token",
 } as const;
 
 // ─── Frontend Routes ────────────────────────────────────────

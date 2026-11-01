@@ -1,13 +1,31 @@
 # Majlisna - E2E Testing Docker Compose
 # Non-standard ports to avoid conflicts with local dev (54339, 5049, 3049)
 # Usage: docker compose -f docker-compose.e2e.yml up -d --build
+#
+# The gate tests what ships: db, pgbouncer and redis run the same digests and flags as
+# docker-compose.dokploy.yml. Change them together. One exception, on purpose: no
+# healthcheck `start_interval` here, because Compose before 2.20.2 rejects the key and
+# the gate also runs on workstations.
 
 services:
   # ─── Database ─────────────────────────────────────────────
 
   db:
-    image: postgres:16-alpine
+    # 16.15-alpine3.24, as in production
+    image: postgres:16-alpine@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685
     container_name: majlisna-e2e-db
+    # Production's flags (see docker-compose.dokploy.yml), so the gate also proves the
+    # app never idles in a transaction past the 60 s timeout.
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - log_min_duration_statement=250ms
+      - -c
+      - idle_in_transaction_session_timeout=60s
+      - -c
+      - track_io_timing=on
     environment:
       POSTGRES_USER: majlisna
       POSTGRES_PASSWORD: majlisna
@@ -19,13 +37,17 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+      # A first start runs initdb, which on a loaded machine outlasted 5 × 5 s and failed
+      # `up` with "dependency failed to start: container … is unhealthy". Probes that fail
+      # inside start_period do not count; the first success still ends it at once.
+      start_period: 30s
     networks:
       - majlisna-e2e-network
 
   # ─── PgBouncer ────────────────────────────────────────────
 
   pgbouncer:
-    image: edoburu/pgbouncer:v1.25.1-p0
+    image: edoburu/pgbouncer:v1.25.2-p0@sha256:7d7a27d9e90985cab5cf42256f5c13a3120baa4b055b69df37beb272b89b2340
     container_name: majlisna-e2e-pgbouncer
     environment:
       DATABASE_URL: postgres://majlisna:majlisna@db:5432/majlisna
@@ -38,8 +60,10 @@ services:
       db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-p", "6432"]
-      interval: 5s
+      # As the app's user: the default (postgres) does not exist in PgBouncer and every
+      # probe logged a failed login.
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-p", "6432", "-U", "majlisna", "-d", "majlisna"]
+      interval: 15s
       timeout: 5s
       retries: 5
     networks:
@@ -48,9 +72,22 @@ services:
   # ─── Redis ───────────────────────────────────────────────
 
   redis:
-    image: redis:7-alpine
+    # 7.4.11-alpine, as in production
+    image: redis:7-alpine@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf
     container_name: majlisna-e2e-redis
-    command: redis-server --maxmemory 64mb --maxmemory-policy allkeys-lru
+    # No persistence, as in production: pub/sub and rate-limit windows only.
+    command:
+      - redis-server
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      - --maxmemory
+      - 64mb
+      - --maxmemory-policy
+      - volatile-lru
+    tmpfs:
+      - /data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -69,11 +106,16 @@ services:
       args:
         INSTALL_DEV: "true"
     container_name: majlisna-e2e-backend
+    # As in production: an init forwards SIGTERM to uvicorn, so a stop or a restart
+    # drains instead of waiting out the 10 s SIGKILL.
+    init: true
+    stop_grace_period: 20s
     ports:
       - "127.0.0.1:5049:5000"
     environment:
       DATABASE_URL: postgresql+asyncpg://majlisna:majlisna@pgbouncer:6432/majlisna
-      # Bypasses PgBouncer for scripts/generate_fake_data.py, which runs DDL. See
+      # Bypasses PgBouncer for what runs DDL: scripts/generate_fake_data.py and the
+      # app's startup DDL (database.create_schema). See
       # the note in docker-compose.dokploy.yml — without it the E2E seed step dies
       # at "[3/12] Creating rooms" with an asyncpg type-resolution error.
       DIRECT_DATABASE_URL: postgresql+asyncpg://majlisna:majlisna@db:5432/majlisna
@@ -81,7 +123,10 @@ services:
       ENVIRONMENT: development
       MAJLISNA_ENV: development
       JWT_SECRET_KEY: e2e-secret-key
-      CORS_ORIGINS: "http://localhost:3049"
+      # The E2E frontend's origin, under both spellings a browser may use. The Socket.IO
+      # handshake accepts only these origins plus FRONTEND_URL (SEC F12).
+      CORS_ORIGINS: "http://localhost:3049,http://127.0.0.1:3049"
+      FRONTEND_URL: "http://localhost:3049"
       LOG_LEVEL: WARNING
       RATE_LIMIT_ENABLED: "false"
       # Single worker — avoids inter-worker Socket.IO pub/sub overhead via Redis
@@ -98,7 +143,12 @@ services:
       retries: 10
       start_period: 30s
     networks:
-      - majlisna-e2e-network
+      majlisna-e2e-network:
+        # The frontend's nginx proxies /api and /socket.io to this name (front/nginx.conf).
+        # The browser's room socket goes through that proxy, so without the alias every
+        # realtime spec fails.
+        aliases:
+          - majlisna-api
 
   # ─── Frontend SPA ─────────────────────────────────────────
 

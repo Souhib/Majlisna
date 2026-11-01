@@ -1,98 +1,144 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { ROUTES } from "../../helpers/constants";
+
+/**
+ * The login and register forms check what they can before asking the server: each
+ * field says what is missing, in place (`#<field>-error`, role=alert), and nothing is
+ * sent. The old specs only checked that the URL still read /auth/login three seconds
+ * later — which held for a build with no validation at all whenever the server took
+ * longer than that to log the player in (TQ-08). Now each asserts the field's own error
+ * AND that no request left.
+ */
+
+/** Every request to `path` the page sends from now on. */
+function watchRequests(page: Page, path: string): string[] {
+  const sent: string[] = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === path) sent.push(`${request.method()} ${request.url()}`);
+  });
+  return sent;
+}
+
+/** Nothing reached `path`: no request now, none in the second that follows. */
+async function expectNoRequest(page: Page, sent: string[], path: string): Promise<void> {
+  await expect(
+    page.waitForRequest((request) => new URL(request.url()).pathname === path, { timeout: 1_000 }),
+  ).rejects.toThrow(/Timeout/);
+  expect(sent, `the form sent ${sent.join(", ")}`).toEqual([]);
+}
+
+const LOGIN_API = "/api/v1/auth/login";
+const REGISTER_API = "/api/v1/auth/register";
 
 test.describe("Auth — Login Validation", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto(ROUTES.login);
-    await page.waitForLoadState("domcontentloaded");
+    await expect(page.locator('input[id="email"]')).toBeVisible();
   });
 
-  test("submit button is disabled when fields are empty", async ({ page }) => {
-    const submitButton = page.locator('button[type="submit"]');
-    // Try clicking without filling — should not navigate away
-    await submitButton.click();
+  test("an empty form says what is missing and sends nothing", async ({ page }) => {
+    const sent = watchRequests(page, LOGIN_API);
+
+    await page.locator('button[type="submit"]').click();
+
+    await expect(page.locator("#email-error")).toHaveText("Enter your email address.");
+    await expect(page.locator("#password-error")).toHaveText("Enter your password.");
+    await expect(page.locator('input[id="email"]')).toBeFocused();
+    await expectNoRequest(page, sent, LOGIN_API);
     await expect(page).toHaveURL(/\/auth\/login/);
   });
 
-  test("submit with only email shows validation or stays on page", async ({
-    page,
-  }) => {
+  test("an email without a password asks for the password and sends nothing", async ({ page }) => {
+    const sent = watchRequests(page, LOGIN_API);
     await page.locator('input[id="email"]').fill("test@test.com");
-    // Leave password empty
+
     await page.locator('button[type="submit"]').click();
 
-    // Should remain on login page
-    await expect(page).toHaveURL(/\/auth\/login/, { timeout: 3_000 });
+    await expect(page.locator("#password-error")).toHaveText("Enter your password.");
+    await expect(page.locator("#email-error")).toHaveCount(0);
+    await expect(page.locator('input[id="password"]')).toBeFocused();
+    await expectNoRequest(page, sent, LOGIN_API);
   });
 
-  test("submit with only password shows validation or stays on page", async ({
-    page,
-  }) => {
+  test("a password without an email asks for the email and sends nothing", async ({ page }) => {
+    const sent = watchRequests(page, LOGIN_API);
     await page.locator('input[id="password"]').fill("somepassword");
-    // Leave email empty
+
     await page.locator('button[type="submit"]').click();
 
-    // Should remain on login page
-    await expect(page).toHaveURL(/\/auth\/login/, { timeout: 3_000 });
+    await expect(page.locator("#email-error")).toHaveText("Enter your email address.");
+    await expect(page.locator("#password-error")).toHaveCount(0);
+    await expectNoRequest(page, sent, LOGIN_API);
   });
 
-  test("invalid email format is rejected", async ({ page }) => {
+  test("an address that is not one is refused before it is sent", async ({ page }) => {
+    const sent = watchRequests(page, LOGIN_API);
     await page.locator('input[id="email"]').fill("not-an-email");
     await page.locator('input[id="password"]').fill("password123");
+
     await page.locator('button[type="submit"]').click();
 
-    // Should stay on login page (HTML5 email validation or API error)
-    await expect(page).toHaveURL(/\/auth\/login/, { timeout: 3_000 });
+    await expect(page.locator("#email-error")).toHaveText("Enter a full email address, like name@example.com.");
+    await expectNoRequest(page, sent, LOGIN_API);
   });
 });
 
 test.describe("Auth — Register Validation", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto(ROUTES.register);
-    await page.waitForLoadState("domcontentloaded");
+    await expect(page.locator('input[id="username"]')).toBeVisible();
   });
 
-  test("submit with empty fields stays on page", async ({ page }) => {
+  test("an empty form says what each field needs and sends nothing", async ({ page }) => {
+    const sent = watchRequests(page, REGISTER_API);
+
     await page.locator('button[type="submit"]').click();
 
-    await expect(page).toHaveURL(/\/auth\/register/, { timeout: 3_000 });
+    await expect(page.locator("#username-error")).toHaveText("Choose a username of 3 to 30 characters.");
+    await expect(page.locator("#email-error")).toHaveText("Enter your email address.");
+    await expect(page.locator("#password-error")).toHaveText("Use at least 8 characters.");
+    await expectNoRequest(page, sent, REGISTER_API);
   });
 
-  test("submit without username stays on page", async ({ page }) => {
+  test("a missing username is asked for and nothing is sent", async ({ page }) => {
+    const sent = watchRequests(page, REGISTER_API);
     await page.locator('input[id="email"]').fill("test@test.com");
     await page.locator('input[id="password"]').fill("TestPass123!");
+
     await page.locator('button[type="submit"]').click();
 
-    await expect(page).toHaveURL(/\/auth\/register/, { timeout: 3_000 });
+    await expect(page.locator("#username-error")).toHaveText("Choose a username of 3 to 30 characters.");
+    await expect(page.locator('input[id="username"]')).toBeFocused();
+    await expectNoRequest(page, sent, REGISTER_API);
   });
 
-  test("short password is rejected", async ({ page }) => {
+  test("a short password is refused before it is sent", async ({ page }) => {
+    const sent = watchRequests(page, REGISTER_API);
     await page.locator('input[id="username"]').fill("testuser");
     await page.locator('input[id="email"]').fill("short@test.com");
     await page.locator('input[id="password"]').fill("short");
+
     await page.locator('button[type="submit"]').click();
 
-    // Should stay on register page (minlength=8 or API validation)
-    await expect(page).toHaveURL(/\/auth\/register/, { timeout: 3_000 });
+    await expect(page.locator("#password-error")).toHaveText("Use at least 8 characters.");
+    await expectNoRequest(page, sent, REGISTER_API);
   });
 
-  test("duplicate username shows error", async ({ page }) => {
-    // Use a username that's likely already taken (seeded "admin" user)
+  test("duplicate username shows the server's refusal", async ({ page }) => {
+    // The seeded "admin" account holds the name; the server answers 409 usernameAlreadyTaken
     await page.locator('input[id="username"]').fill("admin");
-    await page
-      .locator('input[id="email"]')
-      .fill(`unique-${Date.now()}@test.com`);
+    await page.locator('input[id="email"]').fill(`unique-${Date.now()}@test.com`);
     await page.locator('input[id="password"]').fill("TestPass123!");
+    const answered = page.waitForResponse((r) => new URL(r.url()).pathname === REGISTER_API);
+
     await page.locator('button[type="submit"]').click();
 
-    // Should show error (duplicate username)
-    const errorDiv = page.locator('[data-testid="form-error"]');
-    await expect(errorDiv).toBeVisible({ timeout: 10_000 });
+    expect((await answered).status()).toBe(409);
+    await expect(page.getByTestId("form-error")).toContainText("The username admin is already taken");
+    await expect(page).toHaveURL(/\/auth\/register/);
   });
 
   test("password field hides input", async ({ page }) => {
-    const passwordInput = page.locator('input[id="password"]');
-    const type = await passwordInput.getAttribute("type");
-    expect(type).toBe("password");
+    await expect(page.locator('input[id="password"]')).toHaveAttribute("type", "password");
   });
 });

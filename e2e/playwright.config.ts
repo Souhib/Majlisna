@@ -10,7 +10,10 @@ export default defineConfig({
   testDir: "./tests",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
+  // No retries, in CI either (INFRA-19): run-local.sh fails a run on any "flaky" result,
+  // so a retry could never turn a verdict green and only spent time. A flaky test is a
+  // failing test.
+  retries: 0,
   workers: 2,
   globalTimeout: 3_600_000, // 60 minutes for full suite
   reporter: process.env.CI
@@ -22,7 +25,9 @@ export default defineConfig({
   },
   use: {
     baseURL: FRONTEND_URL,
-    trace: "on-first-retry",
+    // "on-first-retry" recorded nothing once retries were off; a failure keeps its
+    // screenshot and video instead (tracing every test is too heavy for the CI runner).
+    trace: "off",
     screenshot: "only-on-failure",
     video: "retain-on-failure",
     actionTimeout: 15_000,
@@ -104,6 +109,18 @@ export default defineConfig({
     {
       name: "daily-word",
       testMatch: ["**/daily-word/**"],
+    },
+    {
+      // A whole game, then what it leaves behind: history chips, stats
+      name: "stats",
+      testMatch: ["**/stats/**"],
+      timeout: 120_000,
+    },
+    {
+      // What the browser renders and downloads: the thread clock's frames, image sizes
+      name: "perf",
+      testMatch: ["**/perf/**"],
+      timeout: 120_000,
     },
     // Mobile viewport projects — run existing tests at iPhone 14 size (Chromium)
     {

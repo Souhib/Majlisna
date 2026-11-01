@@ -1,7 +1,7 @@
 import { execFileSync } from "child_process";
 
 /**
- * Read-only access to the E2E PostgreSQL (`majlisna-e2e-db`, docker-compose.e2e.yml).
+ * Reads from the E2E PostgreSQL (`majlisna-e2e-db`, docker-compose.e2e.yml).
  *
  * For a secret the API keeps until the player has finished, such as today's word of the
  * day: a spec that solved it from an API answer would only show that the API leaks it.
@@ -9,7 +9,8 @@ import { execFileSync } from "child_process";
  * already knew the word would type it.
  *
  * `execFileSync` with an argument list, not a shell string, so the SQL needs no shell
- * quoting. Use it only for SELECTs; mutations go through the API like a player.
+ * quoting. Use it for SELECTs; mutations go through the API like a player. The one
+ * exception, `dbPlantPasswordResetToken`, stands in for the mail the stack never sends.
  */
 
 const DB_CONTAINER = "majlisna-e2e-db";
@@ -111,4 +112,74 @@ export function dbDailyWordPlay(userId: string, day: string): DailyWordPlayRow |
     )
     FROM daily_word_play p
     WHERE p.user_id = ${sqlUuid(userId)} AND p.day = ${sqlDay(day)}`);
+}
+
+// ─── Games ──────────────────────────────────────────────────
+
+/**
+ * A game's stored status, as the enum NAME PostgreSQL keeps (`IN_PROGRESS`, `FINISHED`,
+ * `CANCELLED`): what the database holds, whatever an endpoint chooses to show.
+ */
+export function dbGameStatus(gameId: string): string {
+  const status = dbQuery(`SELECT game_status FROM game WHERE id = ${sqlUuid(gameId)}`);
+  if (!status) throw new Error(`no game ${gameId}`);
+  return status;
+}
+
+/** The index of The Quiz's right choice for the question now open (never sent while it is). */
+export function dbMcqCorrectIndex(gameId: string): number {
+  const index = dbQuery(`SELECT live_state -> 'current_question' ->> 'correct_answer_index' FROM game WHERE id = ${sqlUuid(gameId)}`);
+  if (index === "") throw new Error(`no open question in MCQ game ${gameId}`);
+  return Number(index);
+}
+
+// ─── Accounts ───────────────────────────────────────────────
+
+/** Whether an account row still exists. */
+export function dbUserExists(userId: string): boolean {
+  return dbQuery(`SELECT count(*) FROM "user" WHERE id = ${sqlUuid(userId)}`) === "1";
+}
+
+/** A user's password-reset tokens as stored: the sha256 digest of the link's token, never the token. */
+export function dbPasswordResetTokens(userId: string): { token: string; used: boolean }[] {
+  const out = dbQuery(`
+    SELECT coalesce(json_agg(json_build_object('token', t.token, 'used', t.used)), '[]')
+    FROM passwordresettoken t
+    WHERE t.user_id = ${sqlUuid(userId)}`);
+  return JSON.parse(out);
+}
+
+const RESET_TOKEN = /^[A-Za-z0-9_-]{16,64}$/;
+
+/**
+ * Stand in for the mailbox: the one write this module makes.
+ *
+ * "Forgot password?" mails a link carrying a token, and the E2E stack sends no mail (no
+ * RESEND_API_KEY). The database holds only the token's sha256 digest (SEC F06), so the
+ * link cannot be read back from it either. The spec therefore replaces the digest of the
+ * row the page just made with the digest of a token it knows, in the same way the server
+ * stores one (`token_digest`: sha256 hex of the UTF-8 token), and follows the link a
+ * player would have received. Only the user's single unused row is touched, and the
+ * expiry the server set is kept.
+ */
+export function dbPlantPasswordResetToken(userId: string, token: string): void {
+  if (!RESET_TOKEN.test(token)) throw new Error(`not a url-safe token: ${token}`);
+  const updated = dbQuery(`
+    UPDATE passwordresettoken
+    SET token = encode(sha256(convert_to('${token}', 'UTF8')), 'hex')
+    WHERE user_id = ${sqlUuid(userId)} AND used = false
+    RETURNING id`);
+  // psql prints the RETURNING rows, then the command tag ("UPDATE 1")
+  if (updated.split("\n").filter((line) => UUID.test(line)).length !== 1) throw new Error(`expected one unused reset token for ${userId}, got: ${updated}`);
+}
+
+/** The text of each rung of `day`'s word in one language ("en", "fr", "ar"), "1" to "6". */
+export function dbDailyWordHints(day: string, lang: "en" | "fr" | "ar"): Record<string, string> {
+  if (!["en", "fr", "ar"].includes(lang)) throw new Error(`not a language: ${lang}`);
+  const out = dbQuery(`
+    SELECT json_object_agg(rung.key, rung.value ->> '${lang}')
+    FROM daily_word d JOIN quiz_word q ON q.id = d.quiz_word_id, json_each(q.hints::json) AS rung
+    WHERE d.day = ${sqlDay(day)}`);
+  if (!out) throw new Error(`no daily word for ${day}`);
+  return JSON.parse(out);
 }

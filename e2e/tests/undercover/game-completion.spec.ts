@@ -5,102 +5,50 @@ import {
   startGameViaAPI,
   dismissRoleRevealAll,
   submitDescriptionsForAllPlayersViaUI,
-  voteForPlayer,
-  verifyAllPlayersVoted,
+  voteOut,
   waitForEliminationOrGameOver,
   startNextRoundAsHost,
-  isPageAlive,
+  type PlayerContext,
 } from "../../helpers/ui-game-setup";
-import {
-  apiGetUndercoverState,
-} from "../../helpers/api-client";
+import { apiGetUndercoverState } from "../../helpers/api-client";
+
+/**
+ * Undercover played to its end through the UI. These used to catch every state-API
+ * error as "the game ended" (a 500 counted as a finished game) and to return early when
+ * the game was not where they expected (TQ-07); every read now has to succeed.
+ */
+
+/** Play one round: everyone describes, then the table votes out the last living player. */
+async function playOneRound(players: PlayerContext[], gameId: string): Promise<"elimination" | "game_over"> {
+  await submitDescriptionsForAllPlayersViaUI(players);
+  const state = await apiGetUndercoverState(gameId, players[0].login.access_token);
+  expect(state.turn_phase).toBe("voting");
+  const alive = state.players.filter((p) => p.is_alive);
+  await voteOut(players, alive, alive[alive.length - 1], alive[0]);
+  return (await waitForEliminationOrGameOver(players[0].page)).type;
+}
 
 test.describe("Undercover Game Completion", () => {
   test("full game: play rounds until a winner is determined", async ({ browser }) => {
     const accounts = await generateTestAccounts(4);
     const setup = await setupRoomWithPlayers(browser, accounts);
-    await startGameViaAPI(setup.players, "undercover", setup.roomId);
-    const activePlayers = await dismissRoleRevealAll(setup.players);
+    const gameId = await startGameViaAPI(setup.players, "undercover", setup.roomId);
+    const players = await dismissRoleRevealAll(setup.players);
 
-    const gameId = setup.players[0].page.url().match(/\/game\/undercover\/([a-f0-9-]+)/)?.[1];
-    expect(gameId).toBeTruthy();
-
-    // Play rounds until game ends (max 10 rounds to prevent infinite loop)
-    let gameOver = false;
-    for (let round = 0; round < 10; round++) {
-      // Check if game is already over via API (catch errors gracefully)
-      let state;
-      try {
-        state = await apiGetUndercoverState(gameId!, activePlayers[0].login.access_token);
-      } catch {
-        // API might fail if player was disconnected — check UI instead
-        gameOver = true;
-        break;
-      }
-      if (state.winner) { gameOver = true; break; }
-
-      // Description phase via API
-      await submitDescriptionsForAllPlayersViaUI(activePlayers);
-
-      // Re-check state after descriptions
-      let stateAfterDesc;
-      try {
-        stateAfterDesc = await apiGetUndercoverState(gameId!, activePlayers[0].login.access_token);
-      } catch {
-        gameOver = true;
-        break;
-      }
-      if (stateAfterDesc.winner) { gameOver = true; break; }
-
-      // Vote for a non-self player (pick the last alive player as target)
-      const alivePlayers = stateAfterDesc.players.filter((p) => p.is_alive);
-      if (alivePlayers.length < 2) { gameOver = true; break; }
-      const voteTarget = alivePlayers[alivePlayers.length - 1];
-
-      for (const voter of activePlayers) {
-        if (!isPageAlive(voter.page)) continue;
-        if (voter.login.user.id === voteTarget.user_id) continue;
-        // an eliminated player watches the vote: they have no ballot
-        if (!alivePlayers.some((p) => p.user_id === voter.login.user.id)) continue;
-        await voteForPlayer(voter.page, voteTarget.username);
-      }
-      await verifyAllPlayersVoted(
-        activePlayers,
-        voteTarget.username,
-        alivePlayers[0].username,
-      );
-
-      // Wait for elimination or game over
-      const observerPage = activePlayers.find((p) => isPageAlive(p.page))?.page;
-      if (!observerPage) { gameOver = true; break; }
-
-      const result = await waitForEliminationOrGameOver(observerPage);
-      if (result.type === "game_over") { gameOver = true; break; }
-
-      // The host starts the next round (only the host has "Next round")
-      await startNextRoundAsHost(setup.players[0].page, activePlayers);
+    // Four players lose one per round: the game is decided within three rounds
+    let outcome: "elimination" | "game_over" = "elimination";
+    for (let round = 1; round <= 3 && outcome === "elimination"; round++) {
+      outcome = await playOneRound(players, gameId);
+      if (outcome === "elimination") await startNextRoundAsHost(setup.players[0].page, players);
     }
 
-    // Verify game ended — check UI for "Game Over"
-    if (!gameOver) {
-      // Fallback: try API one more time
-      try {
-        const finalState = await apiGetUndercoverState(gameId!, activePlayers[0].login.access_token);
-        gameOver = !!finalState.winner;
-      } catch {
-        gameOver = true; // API error likely means game ended/player disconnected
-      }
+    // Assert — the server has a winner, and every page shows the end
+    expect(outcome).toBe("game_over");
+    const final = await apiGetUndercoverState(gameId, players[0].login.access_token);
+    expect(["civilians", "undercovers"]).toContain(final.winner);
+    for (const player of players) {
+      await expect(player.page.locator('h2:has-text("Game Over")')).toBeVisible({ timeout: 30_000 });
     }
-
-    // At minimum, check that UI shows game over for at least one player
-    const anyPage = activePlayers.find((p) => isPageAlive(p.page))?.page;
-    if (anyPage) {
-      await expect(
-        anyPage.locator('h2:has-text("Game Over")')
-      ).toBeVisible({ timeout: 30_000 });
-    }
-
-    expect(gameOver).toBe(true);
 
     await setup.cleanup();
   });
@@ -108,42 +56,16 @@ test.describe("Undercover Game Completion", () => {
   test("3-player game completes in one round", async ({ browser }) => {
     const accounts = await generateTestAccounts(3);
     const setup = await setupRoomWithPlayers(browser, accounts);
-    await startGameViaAPI(setup.players, "undercover", setup.roomId);
-    const activePlayers = await dismissRoleRevealAll(setup.players);
+    const gameId = await startGameViaAPI(setup.players, "undercover", setup.roomId);
+    const players = await dismissRoleRevealAll(setup.players);
 
-    const gameId = setup.players[0].page.url().match(/\/game\/undercover\/([a-f0-9-]+)/)?.[1];
-    expect(gameId).toBeTruthy();
+    // Act — one round: with three players, one elimination decides the game
+    const outcome = await playOneRound(players, gameId);
 
-    // Description phase
-    await submitDescriptionsForAllPlayersViaUI(activePlayers);
-
-    let state;
-    try {
-      state = await apiGetUndercoverState(gameId!, activePlayers[0].login.access_token);
-    } catch {
-      // Game might have ended via disconnect — still valid
-      await setup.cleanup();
-      return;
-    }
-    const alivePlayers = state.players.filter((p) => p.is_alive);
-    const target = alivePlayers[alivePlayers.length - 1];
-
-    for (const voter of activePlayers) {
-      if (!isPageAlive(voter.page)) continue;
-      if (voter.login.user.id === target.user_id) continue;
-      await voteForPlayer(voter.page, target.username);
-    }
-    await verifyAllPlayersVoted(activePlayers, target.username, alivePlayers[0].username);
-
-    // After 3-player game with 1 elimination, the game should end
-    let winner;
-    try {
-      const finalState = await apiGetUndercoverState(gameId!, activePlayers[0].login.access_token);
-      winner = finalState.winner;
-    } catch {
-      winner = "determined"; // API error means game ended
-    }
-    expect(winner).toBeTruthy();
+    // Assert
+    expect(outcome).toBe("game_over");
+    const final = await apiGetUndercoverState(gameId, players[0].login.access_token);
+    expect(["civilians", "undercovers"]).toContain(final.winner);
 
     await setup.cleanup();
   });
@@ -151,24 +73,19 @@ test.describe("Undercover Game Completion", () => {
   test("5-player game starts with correct roles distributed", async ({ browser }) => {
     const accounts = await generateTestAccounts(5);
     const setup = await setupRoomWithPlayers(browser, accounts);
-    await startGameViaAPI(setup.players, "undercover", setup.roomId);
+    const gameId = await startGameViaAPI(setup.players, "undercover", setup.roomId);
 
-    const gameId = setup.players[0].page.url().match(/\/game\/undercover\/([a-f0-9-]+)/)?.[1];
-    expect(gameId).toBeTruthy();
-
-    // Check that roles are distributed (each player sees their role)
+    // Each player reads their own role
     const roles: string[] = [];
     for (const player of setup.players) {
-      const state = await apiGetUndercoverState(gameId!, player.login.access_token);
+      const state = await apiGetUndercoverState(gameId, player.login.access_token);
       roles.push(state.my_role);
     }
 
-    // 5 players should have: some civilians, at least 1 undercover, possibly mr_white
-    const civilians = roles.filter((r) => r === "civilian");
-    const undercovers = roles.filter((r) => r === "undercover");
-    expect(civilians.length).toBeGreaterThanOrEqual(1);
-    expect(undercovers.length).toBeGreaterThanOrEqual(1);
-    expect(roles.length).toBe(5);
+    // Five players: three civilians, one undercover, one Mr. White (Mr. White is on by default)
+    expect(roles.filter((r) => r === "civilian")).toHaveLength(3);
+    expect(roles.filter((r) => r === "undercover")).toHaveLength(1);
+    expect(roles.filter((r) => r === "mr_white")).toHaveLength(1);
 
     await setup.cleanup();
   });
@@ -176,50 +93,19 @@ test.describe("Undercover Game Completion", () => {
   test("game over screen shows winner and back to room works", async ({ browser }) => {
     const accounts = await generateTestAccounts(3);
     const setup = await setupRoomWithPlayers(browser, accounts);
-    await startGameViaAPI(setup.players, "undercover", setup.roomId);
-    const activePlayers = await dismissRoleRevealAll(setup.players);
+    const gameId = await startGameViaAPI(setup.players, "undercover", setup.roomId);
+    const players = await dismissRoleRevealAll(setup.players);
 
-    const gameId = setup.players[0].page.url().match(/\/game\/undercover\/([a-f0-9-]+)/)?.[1];
-    expect(gameId).toBeTruthy();
+    expect(await playOneRound(players, gameId)).toBe("game_over");
 
-    // Play one round via API to finish fast
-    await submitDescriptionsForAllPlayersViaUI(activePlayers);
-
-    let state;
-    try {
-      state = await apiGetUndercoverState(gameId!, activePlayers[0].login.access_token);
-    } catch {
-      // If API fails, game likely ended via disconnect — still check UI
-      const anyPage = activePlayers.find((p) => isPageAlive(p.page))?.page;
-      if (anyPage) {
-        await expect(anyPage.locator('h2:has-text("Game Over")')).toBeVisible({ timeout: 30_000 });
-      }
-      await setup.cleanup();
-      return;
-    }
-    const alivePlayers = state.players.filter((p) => p.is_alive);
-    const target = alivePlayers[alivePlayers.length - 1];
-
-    for (const voter of activePlayers) {
-      if (!isPageAlive(voter.page)) continue;
-      if (voter.login.user.id === target.user_id) continue;
-      await voteForPlayer(voter.page, target.username);
-    }
-    await verifyAllPlayersVoted(activePlayers, target.username, alivePlayers[0].username);
-
-    // Wait for game over on any page
-    const observerPage = activePlayers.find((p) => isPageAlive(p.page))?.page;
-    if (observerPage) {
-      await expect(
-        observerPage.locator('h2:has-text("Game Over")')
-      ).toBeVisible({ timeout: 30_000 });
-
-      // The colophon's way back: "Back to the room" returns to the lobby
-      const backBtn = observerPage.getByRole("button", { name: "Back to the room" });
-      await expect(backBtn).toBeVisible({ timeout: 10_000 });
-      await backBtn.click();
-      await expect(observerPage).toHaveURL(/\/rooms\//, { timeout: 15_000 });
-    }
+    // The colophon's way back: "Back to the room" returns to the lobby
+    const observerPage = players[0].page;
+    await expect(observerPage.locator('h2:has-text("Game Over")')).toBeVisible({ timeout: 30_000 });
+    const backBtn = observerPage.getByRole("button", { name: "Back to the room" });
+    await expect(backBtn).toBeVisible({ timeout: 10_000 });
+    await backBtn.click();
+    await expect(observerPage).toHaveURL(new RegExp(`/rooms/${setup.roomId}`), { timeout: 15_000 });
+    await expect(observerPage.locator("text=Players (3)")).toBeVisible({ timeout: 15_000 });
 
     await setup.cleanup();
   });

@@ -25,14 +25,13 @@ test.describe("Leaderboard — Data Display", () => {
     await authenticatedPage.goto(ROUTES.leaderboard);
     await authenticatedPage.waitForLoadState("domcontentloaded");
 
-    // Wait for the table to render
-    await expect(authenticatedPage.locator("table")).toBeVisible({
-      timeout: 10_000,
-    });
+    // The table with its players (a table also stands while it loads, so wait for a row)
+    await expect(authenticatedPage.getByTestId("leaderboard-row").first()).toBeVisible({ timeout: 10_000 });
 
-    // Verify column headers
-    const headers = authenticatedPage.locator("thead th");
+    // Rank, player, then the four figures
+    const headers = authenticatedPage.locator('[data-testid="leaderboard"] thead th');
     await expect(headers).toHaveCount(6);
+    await expect(headers.nth(1)).toHaveText("Player");
   });
 
   test("clicking sort tabs changes the active tab styling", async ({

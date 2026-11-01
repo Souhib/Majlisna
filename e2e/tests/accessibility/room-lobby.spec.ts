@@ -12,9 +12,16 @@ test.describe("Accessibility — Room Lobby", () => {
     await expect(
       authenticatedPage.getByRole('heading', { name: 'Rooms', level: 1 }),
     ).toBeVisible({ timeout: 10_000 });
-    // Wait for framer-motion entry animations to complete (opacity 0→1)
-    // so axe-core computes foreground colors at full opacity
-    await authenticatedPage.waitForTimeout(1000);
+    // Wait for the entrance animations to finish (opacity 0→1), so axe measures the
+    // colours a player sees: every finite animation on the page, not a guessed second
+    await authenticatedPage.evaluate(() =>
+      Promise.all(
+        document
+          .getAnimations()
+          .filter((a) => a.effect?.getComputedTiming().iterations !== Infinity)
+          .map((a) => a.finished.catch(() => undefined)),
+      ),
+    );
 
     const results = await new AxeBuilder({ page: authenticatedPage })
       .withTags(["wcag2a", "wcag2aa"])

@@ -92,6 +92,11 @@ test.describe("WebSocket Real-time Updates", () => {
     await playerRow.waitFor({ state: "visible", timeout: 10_000 });
     const kickButton = playerRow.locator("button").last();
     await kickButton.click();
+    // A kick bans the player from the room for its lifetime (owner rule (c)): the host
+    // confirms it in a dialog that says so.
+    const confirmKick = setup.players[0].page.getByRole("alertdialog");
+    await expect(confirmKick).toContainText("cannot come back");
+    await confirmKick.getByRole("button", { name: "Remove", exact: true }).click();
 
     // Host and player 1 should see "Players (2)" via Socket.IO
     await expect(
