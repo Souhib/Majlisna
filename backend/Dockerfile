@@ -78,8 +78,9 @@ COPY --chown=appuser:appuser . .
 USER appuser
 
 # The app's own bytecode too (a few MB, rebuilt with the code layer), for the same reason
-# as UV_COMPILE_BYTECODE above.
-RUN /app/.venv/bin/python -m compileall -q main.py majlisna
+# as UV_COMPILE_BYTECODE above. migrations/ (alembic.ini beside it) is loaded by every
+# worker at boot: the app runs the migrations then (majlisna/schema.py).
+RUN /app/.venv/bin/python -m compileall -q main.py majlisna migrations
 
 # Add venv to PATH
 ENV PATH="/app/.venv/bin:$PATH"

@@ -5,8 +5,8 @@ Kick used to have no lasting effect: ``kick_player`` deleted the ``RoomUserLink`
 with the code and PIN a second later (BR-20). A ban lasts for the room's lifetime; the
 host can lift it.
 
-A table of its own, like ``NotebookEntry``: there are no migrations, and ``create_all``
-creates a missing table but never ALTERs an existing one. ``created_at`` (UTC-aware) is
+A table of its own, like ``NotebookEntry`` (added when ``create_all`` was the schema and
+never ALTERed a table; in the baseline migration since). ``created_at`` (UTC-aware) is
 ``BaseTable``'s. Account deletion deletes the bans OF the user and nulls ``banned_by``
 on the bans BY the user (``UserController._purge_user_references``).
 """

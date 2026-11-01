@@ -84,10 +84,11 @@ async def username_claim_lock(session: AsyncSession, username: str) -> AsyncGene
 async def username_is_taken(session: AsyncSession, username: str, *, exclude_user_id: UUID | None = None) -> bool:
     """Whether another account already uses ``username``, ignoring case.
 
-    ``user.username`` is indexed but NOT unique, and with no migrations a unique
-    (functional) index cannot be added to the existing table — so registration,
-    renames and Google sign-up ask here first, inside ``username_claim_lock``, which
-    is what keeps two concurrent claims of one new name from both passing.
+    ``user.username`` is indexed but NOT unique in the model; the unique functional
+    index on ``lower(username)`` exists on PostgreSQL only (the baseline migration), as
+    a backstop — so registration, renames and Google sign-up ask here first, inside
+    ``username_claim_lock``, which is what keeps two concurrent claims of one new name
+    from both passing.
 
     Both sides go through the database's ``lower()`` (ASCII on SQLite, full Unicode
     on PostgreSQL; Arabic has no case), the same fold the PostgreSQL lock key uses.

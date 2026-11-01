@@ -10,8 +10,8 @@ class TermScript(BaseTable, table=True):
 
     One row per distinct term across Undercover (``Word.word``) and Codenames
     (``CodenamesWord.word``). It is a table of its own, not columns on those two,
-    because there are no migrations: ``create_all`` creates a missing table on
-    startup but never ALTERs an existing one.
+    because it was added when ``create_all`` was the schema, which never ALTERs an
+    existing table (in the baseline migration since).
     """
 
     __tablename__ = "term_script"

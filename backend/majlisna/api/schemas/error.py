@@ -177,8 +177,9 @@ class UsernameAlreadyTakenError(BaseError):
     """Another account already uses this username (compared case-insensitively).
 
     Raised by registration and by a profile rename. ``user.username`` carries no
-    unique constraint (and there are no migrations to add one), so the controllers
-    enforce it — see ``username_is_taken``.
+    unique constraint in the model (the PostgreSQL-only ``ix_user_username_lower`` is
+    a backstop; SQLite has none), so the controllers enforce it — see
+    ``username_is_taken``.
     """
 
     def __init__(self, username: str):

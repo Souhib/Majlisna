@@ -24,8 +24,8 @@ class NotebookGameType(StrEnum):
 class NotebookEntry(BaseTable, table=True):
     """One word a player kept from a finished game — a line of their Kunnash (كُنّاش).
 
-    A table of its own, like ``TermScript``: there are no migrations, and
-    ``create_all`` creates a missing table but never ALTERs an existing one.
+    A table of its own, like ``TermScript`` (added when ``create_all`` was the schema
+    and never ALTERed a table; in the baseline migration since).
 
     ``term`` is the Latin key exactly as the game stored it (``Word.word``,
     ``CodenamesWord.word``, ``QuizWord.word_en``); the Arabic forms and the hint are

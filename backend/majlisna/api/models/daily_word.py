@@ -7,8 +7,8 @@ from sqlmodel import Field
 from majlisna.api.constants import DAILY_WORD_INITIAL_HINTS, DAILY_WORD_PLAY_UNIQUE_COLUMNS
 from majlisna.api.schemas.shared import BaseTable
 
-# The word of the day (Kalimat al-yawm, كلمة اليوم). Two tables of their own: there are
-# no migrations, and `create_all` creates a missing table but never ALTERs one.
+# The word of the day (Kalimat al-yawm, كلمة اليوم). Two tables of their own (added when
+# `create_all` was the schema and never ALTERed a table; in the baseline migration since).
 
 
 class DailyWord(BaseTable, table=True):

@@ -39,8 +39,9 @@ class Settings(BaseSettings):
     database_url: str
 
     # Direct PostgreSQL URL that BYPASSES PgBouncer, for whatever runs DDL: admin
-    # scripts (scripts/generate_fake_data.py) and the app's startup DDL
-    # (database.create_schema, on a throwaway engine; requests keep database_url).
+    # scripts (scripts/generate_fake_data.py), the app's migrations at boot
+    # (database.create_schema, on a throwaway engine; requests keep database_url) and
+    # the `alembic` CLI (migrations/env.py).
     #
     # asyncpg caches type introspection per connection. Under PgBouncer's
     # transaction pooling, a DROP/CREATE of every table invalidates those types
@@ -108,8 +109,8 @@ class Settings(BaseSettings):
     # Emails allowed to reach the game-content endpoints (undercover words and
     # term pairs, codenames word packs). Comma-separated or a JSON array.
     #
-    # There is no admin column on User and no migration mechanism, so membership
-    # is configuration rather than data. Empty means NOBODY is an admin — content
+    # There is no admin column on User (chosen before migrations existed; kept because
+    # no API path can grant it), so membership is configuration rather than data. Empty means NOBODY is an admin — content
     # is seeded by scripts/generate_fake_data.py, so a deployment that never sets
     # this loses nothing. Fail-closed is deliberate: those endpoints previously
     # accepted any logged-in user, i.e. any player could DELETE every word in the

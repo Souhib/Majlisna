@@ -1,6 +1,6 @@
 """The seed never draws one username or email address twice (WP-21).
 
-On PostgreSQL the startup DDL now makes ``lower(username)`` unique
+On PostgreSQL the baseline migration makes ``lower(username)`` unique
 (``ix_user_username_lower``), the backstop behind ``username_claim_lock``. The dev / E2E
 seed (``--create-db``) builds the schema first, then draws its random users from Faker,
 which repeats a ``user_name()`` in about 0.14 % of 15-user seeds: that seed used to store

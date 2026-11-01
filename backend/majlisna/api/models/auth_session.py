@@ -12,7 +12,7 @@ Written by ``AuthController`` (login, Google sign-in and the legacy-token upgrad
 session; ``refresh_session`` rotates it; logout, a reset, reuse detection and Google
 taking an unverified account back revoke it) and checked on every request and socket
 connect by ``controllers/token_auth.authenticate_caller`` (one primary-key read, joined
-to the user). A new table (``create_all``), no migration. Account deletion deletes the
+to the user). In the baseline migration. Account deletion deletes the
 user's rows (``UserController._purge_user_references``). The timestamps read back NAIVE
 on SQLite: compare them through ``controllers/auth.utc_instant``.
 """
@@ -57,8 +57,7 @@ class AuthSession(BaseTable, table=True):
     # The sha256 digest of the pre-session (legacy) refresh token this session was
     # upgraded from, if any (``AuthController._upgrade_legacy_refresh``). Unique: a
     # legacy token upgrades ONCE; presenting it again outside the two-tab grace is a
-    # replayed copy and revokes this session (review R3). A column of a table new in the
-    # same release as it, so ``create_all`` makes it with the table: no migration.
+    # replayed copy and revokes this session (review R3). In the baseline migration.
     legacy_refresh_digest: str | None = Field(default=None, max_length=64, unique=True)
     # Set by logout, "sign out everywhere", a password change or reset, reuse detection.
     revoked_at: datetime | None = Field(

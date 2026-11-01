@@ -192,6 +192,22 @@ jobs:
       run:
         working-directory: backend
 
+    # For the migrations' drift guard below (the tests start their own testcontainer).
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: majlisna
+          POSTGRES_PASSWORD: majlisna
+          POSTGRES_DB: majlisna
+        ports:
+          - 127.0.0.1:5432:5432
+        options: >-
+          --health-cmd "pg_isready -U majlisna"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -208,10 +224,10 @@ jobs:
         run: uv sync --frozen --all-extras
 
       - name: Lint (ruff check)
-        run: uv run ruff check majlisna/ tests/
+        run: uv run ruff check majlisna/ migrations/ tests/
 
       - name: Format check (ruff format)
-        run: uv run ruff format --check majlisna/ tests/
+        run: uv run ruff format --check majlisna/ migrations/ tests/
 
       # Type checking runs HERE, not only in a local hook. The repo carried a type
       # checker in .pre-commit-config.yaml for months while the hook was never
@@ -224,6 +240,18 @@ jobs:
       # resend exception class that does not exist.
       - name: Type check (ty)
         run: uv run ty check majlisna/ --error-on-warning
+
+      # The migrations are the models (backend/CLAUDE.md, "Migrations (Alembic)"): a
+      # database built by every revision must leave `alembic check` nothing to write, so
+      # a model changed without its migration fails here, through the CLI's own
+      # migrations/env.py. tests/api/test_migrations.py (below) also checks what
+      # autogenerate cannot: the enum values, baseline == production, the boot.
+      - name: Migrations match the models (alembic upgrade head, alembic check)
+        env:
+          DATABASE_URL: postgresql+asyncpg://majlisna:majlisna@127.0.0.1:5432/majlisna
+        run: |
+          uv run alembic upgrade head
+          uv run alembic check
 
       # --use-postgres spins up a PostgreSQL testcontainer (Docker is available
       # on ubuntu-latest) so the advisory-lock / concurrency tests actually run

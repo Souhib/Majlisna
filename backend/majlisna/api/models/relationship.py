@@ -28,8 +28,8 @@ class RoomUserLink(DBModel, table=True):
 
     id: int | None = Field(default=None, primary_key=True)
     # No index of its own: uq_roomuserlink_room_user (room_id, user_id) serves every
-    # room_id lookup. The one this declared was never read (BDP-12); the startup DDL
-    # drops it where an older boot created it (database.POSTGRES_DROPPED_INDEXES).
+    # room_id lookup. The one this declared was never read (BDP-12): the old startup DDL
+    # dropped it, and neither production nor the baseline migration has it.
     room_id: UUID | None = Field(default=None, foreign_key="room.id")
     user_id: UUID | None = Field(default=None, foreign_key="user.id", index=True)
     joined_at: datetime = Field(default_factory=datetime.now)

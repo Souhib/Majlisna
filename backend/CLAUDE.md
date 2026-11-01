@@ -27,8 +27,13 @@ uv run pytest --use-postgres
 # Game content only: upserts, safe on every database, production included
 PYTHONPATH=. uv run python scripts/generate_fake_data.py --seed
 
-# Fake data: dev and E2E databases ONLY (production refuses both, exit 2:
-# "There are no migrations" below)
+# Fake data: dev and E2E databases ONLY (production refuses both, exit 2; see
+# "Migrations (Alembic)" below)
+
+# Migrations (PostgreSQL only; the app runs them at boot). See "Migrations (Alembic)".
+export DATABASE_URL=postgresql+asyncpg://...     # a throwaway PostgreSQL 16
+uv run alembic revision --autogenerate -m "add x to y"
+uv run alembic upgrade head && uv run alembic check
 PYTHONPATH=. uv run python scripts/generate_fake_data.py --create-db
 PYTHONPATH=. uv run python scripts/generate_fake_data.py --delete
 ```
@@ -578,58 +583,135 @@ which is why the whole test suite passed while production recorded no stats.
 **When changing a `datetime.now()` to `datetime.now(UTC)`, change the column with
 it, and verify with `pytest --use-postgres`.**
 
-### There are no migrations — schema changes are additive and idempotent
+### Migrations (Alembic)
 
-`create_all` only CREATEs missing tables — it never ALTERs an existing one. So the rule
-for every schema change is:
+The PostgreSQL schema is the migrations' (`backend/migrations/`, `backend/alembic.ini`),
+set up on 2026-11-01, once development was finished. SQLite (dev, the default test run)
+keeps `create_all`: the migrations are written for PostgreSQL only, and the CLI refuses any
+other URL. Until then the schema came from `create_all` at boot plus optional startup DDL
+(`POSTGRES_INDEXES`, `POSTGRES_DROPPED_INDEXES`): both are gone, and so is the rule that a
+schema change had to be a new table.
 
-1. **A `pg_dump` of production first** (`docs/operations/backups.md`: the nightly dump, or
-   a fresh run of it before the deploy).
-2. **Additive and idempotent only**: a new table (`create_all` makes it at the next boot),
-   `CREATE INDEX IF NOT EXISTS` in `database.POSTGRES_INDEXES`, a unique index guarded so
-   that a duplicate already stored skips it with a log instead of failing the boot (below);
-   never a new column on an existing table, never an ALTER by drop-and-reseed. The only
-   hand-written DDL in `database.py` is `POSTGRES_INDEXES` and `POSTGRES_DROPPED_INDEXES`
-   (`DROP INDEX IF EXISTS`).
-3. **Never `--delete` or `--create-db` on production**: the script refuses (below).
-4. **List each new table here.** The 2026-10 audit added two, both through `create_all`:
-   `room_ban` (`RoomBan`, a kick's ban; WP-07) and `auth_session` (`AuthSession`, the
-   revocable sessions; WP-17). `auth_session.legacy_refresh_digest` (unique, nullable;
-   review R3) is a column of that same new table, so it comes with the table — it is not a
-   column added to an existing one; a dev database that already had `auth_session` needs
-   `--delete` + `--create-db`. Before them: `notebook_entry`, `daily_word`,
-   `daily_word_play`, `term_script`. The audit's new indexes are listed under "The
-   PostgreSQL indexes" below. `test_database_ddl.py::test_the_tables_added_by_this_release_are_created`
-   pins the newest tables.
+**Writing one.** Dev runs on SQLite, so start a throwaway PostgreSQL 16 first:
 
-A new value of a native PostgreSQL enum (`notebookgametype`) is the one exception that
-needs a statement by hand (`ALTER TYPE … ADD VALUE IF NOT EXISTS`, see the Kunnash below):
-additive too, after the dump. A migration tool is a later, separate step and is not set up.
+```bash
+cd backend
+docker run -d --name majlisna-migrate -p 127.0.0.1:55432:5432 -e POSTGRES_PASSWORD=postgres postgres:16-alpine
+export DATABASE_URL=postgresql+asyncpg://postgres:postgres@127.0.0.1:55432/postgres
+uv run alembic upgrade head                                 # the schema as it is today
+# ... change the model(s) ...
+uv run alembic revision --autogenerate -m "add x to y"     # migrations/versions/<date>_<rev>_<slug>.py
+uv run alembic upgrade head && uv run alembic check        # applies, and nothing is left to write
+uv run alembic downgrade -1 && uv run alembic upgrade head # the downgrade works too
+docker rm -f majlisna-migrate
+```
 
-**The startup DDL runs one worker at a time** (`create_db_and_tables`, WP-21). Every
-uvicorn worker calls it from its lifespan; on a database missing a table or an enum the
-four raced on `CREATE TYPE` / `CREATE TABLE` and three crashed at boot (INFRA-13 — it
-happened on the deploy that added `notebook_entry`). It now runs in ONE transaction under
-the blocking, transaction-scoped `pg_advisory_xact_lock(SCHEMA_DDL_LOCK_KEY)`: the first
-worker creates, the next ones find everything there. `main.py` calls it through
-`create_schema(settings, engine)`, which uses `DIRECT_DATABASE_URL` (not PgBouncer) on a
-throwaway `NullPool` engine, and the app engine when no direct URL is set.
+`env.py` reads `Settings` (`DIRECT_DATABASE_URL` when set, else `DATABASE_URL`) and takes
+the same schema lock as the boot. A generated revision is formatted and lint-fixed by the
+post-write hooks; `migrations/` is in `poe lint` / `format-check` and in CI.
 
-**The PostgreSQL indexes are optional, by design.** Each one is created only when
-missing (so a normal boot takes no table lock), in its own savepoint, under
-`SCHEMA_DDL_LOCK_TIMEOUT`: one that cannot be built — a case-variant duplicate already
-stored, a table lock not granted in time — is logged (`Startup DDL: <name> skipped`,
-without the duplicated value) and the boot goes on; the next boot tries again. The set:
-unique `ix_user_username_lower` (`lower(username)`, the backstop behind
-`username_claim_lock`) and `ix_user_email_lower` (`lower(email_address)`, one account per
-mailbox whatever the case; SEC-F14), `ix_chatmessage_user_id` (account purge) and
-`ix_userstats_total_games_won_desc` (leaderboard). Dropped when present, as never read
-and paid for on every write: `ix_game_live_state_gin` (no query uses a JSONB operator)
-and `ix_roomuserlink_room_id` (a prefix of `uq_roomuserlink_room_user`; the model no
-longer declares it). SQLite (dev, the default test run) has none of these. Tests:
-`tests/api/test_database_ddl.py` (postgres-marked; each test gets a database of its
-own, so the unique `lower()` indexes never reach the shared test database), including a
-boot behind a transaction that holds `game` (it skips that one statement and finishes).
+1. **Read every operation autogenerate wrote, and add what it cannot see**: a new value of
+   a native enum (`op.execute("ALTER TYPE notebookgametype ADD VALUE IF NOT EXISTS
+   'NEW'")`: autogenerate ignores enum labels, `test_a_database_at_head_is_what_the_models_declare`
+   catches the omission), an index on an expression or with a sort order (`op.create_index(...,
+   [sa.text("lower(x)")])`, its name added to `constants.POSTGRES_ONLY_INDEXES`; a plain index
+   is declared in its model), a rename (autogenerate sees a drop and an add:
+   `op.alter_column(..., new_column_name=)`), a data step.
+2. **Never edit a revision that has run on a server** (production, anyone's E2E database).
+   A fix is a new revision. That includes the baseline.
+3. **Additive first, destructive later.** A new column on a table with rows is nullable or
+   has a `server_default`. A column the deployed code still reads is dropped one release
+   after the last code that reads it (a revert redeploys the old code on the new schema); a
+   rename is add, copy, then drop, across two releases.
+4. **A migration must run on production's data.** A unique index or a NOT NULL on existing
+   rows makes the rows fit first, in the same revision. A migration that fails fails the
+   boot: the whole schema step rolls back and the workers exit, so production is down until
+   a fixed image ships. **A `pg_dump` of production before deploying any migration**
+   (`docs/operations/backups.md`).
+5. **Locks.** Once the schema lock is held, every statement waits at most
+   `SCHEMA_DDL_LOCK_TIMEOUT` (5 s) for a table lock, then the migration and the boot fail and
+   the next boot tries again: a DDL statement never sits in a lock queue holding every query
+   on its table behind it. `CREATE INDEX CONCURRENTLY` cannot run in the boot's transaction.
+6. **Never `op.get_context().autocommit_block()`**: it commits the boot's transaction, which
+   releases the schema lock in the middle of the migrations. `ALTER TYPE ... ADD VALUE` runs
+   inside a transaction on PostgreSQL 16 (the new value can be used only after the commit, so
+   not by a data step of the same revision).
+7. **A new table** is a model registered in `models/table.py` (it imports every model, and
+   `env.py` sees nothing else: `test_table_py_registers_every_model_of_the_package`), then its
+   migration.
+
+**At boot** (`majlisna/schema.py`). Every uvicorn worker's lifespan calls
+`database.create_schema` → `create_db_and_tables` → `schema.migrate_to_head`, over
+`DIRECT_DATABASE_URL` (never PgBouncer) on a throwaway `NullPool` engine, the app engine
+when no direct URL is set. It all runs in ONE transaction under the blocking,
+transaction-scoped `pg_advisory_xact_lock(SCHEMA_DDL_LOCK_KEY)`: the first worker migrates,
+the next ones find the database at head (INFRA-13: four workers racing on `CREATE TYPE`
+crashed three of them). The database is one of:
+
+- **versioned** (`alembic_version` exists): `upgrade head`;
+- **empty** (no table of its own; an extension's objects do not count): `upgrade head`,
+  baseline first;
+- **created before migrations** (tables, no `alembic_version`: production on its first boot
+  of this release, an E2E or dev database built by `create_all`): ADOPTED, i.e. stamped at
+  `0001_baseline` then upgraded, **only if its schema is exactly what the baseline
+  creates**. The baseline is built for the comparison in a schema of its own
+  (`SCHEMA_ADOPTION_PROBE_SCHEMA`) inside a savepoint that is always rolled back, and both
+  are described from the catalogs by `schema.describe_schema`: tables, columns in their
+  order (type, NOT NULL, default, identity), constraints, indexes, enum labels in order,
+  sequences, as PostgreSQL renders them (what `pg_dump --schema-only` says of them).
+  Anything else is **refused**: `SchemaAdoptionRefusedError` lists every missing and
+  unexpected line, logs it, and fails the boot; nothing is written (no stamp, no probe). A
+  stamp is a promise about the schema that every later migration builds on: stamping a
+  database that breaks it would make the next migrations fail, or succeed on a schema they
+  were not written for. A refused dev or E2E database is dropped
+  (`docker compose -f e2e/docker-compose.e2e.yml down -v`, or `--delete` then `--create-db`);
+  a refused server is brought to the baseline by hand after a `pg_dump`, or stamped by hand
+  (`alembic stamp 0001_baseline`) when the difference is known and wanted. A server booted
+  before WP-21 still carries `ix_game_live_state_gin` or `ix_roomuserlink_room_id` and is
+  refused for it: drop the index, boot again.
+
+The adoption logs a WARNING (`Schema: adopted a database created before migrations`), a
+migration an INFO (`Schema: migrated from X to Y`); a boot with nothing to do logs nothing.
+
+**The baseline** (`migrations/versions/20261101_0001_baseline_production_schema.py`) is
+production's schema on 2026-11-01 (PostgreSQL 16.15: 33 tables, 8 enum types): a
+`pg_dump --schema-only` of a database it builds equals production's dump line for line,
+`alembic_version` aside. That dump, schema only, is
+`tests/fixtures/production_schema_2026-11-01.sql`, and
+`test_the_baseline_builds_exactly_the_production_schema` compares the two on every
+PostgreSQL run. Autogenerated, then completed by hand: `fk_room_active_game_id` after both
+tables (room and game reference each other; `create_table` leaves a `use_alter` key out),
+the three `POSTGRES_ONLY_INDEXES` the old startup DDL created (unique `ix_user_username_lower`
+on `lower(username)`, the backstop behind `username_claim_lock`; unique `ix_user_email_lower`
+on `lower(email_address)`, one account per mailbox, SEC-F14;
+`ix_userstats_total_games_won_desc` for the leaderboard), and the enum types in the
+downgrade. `ix_chatmessage_user_id` (account purge), which the old startup DDL created too,
+is declared by `ChatMessage.user_id` now. Types are plain SQLAlchemy (`sa.String`, not
+sqlmodel's `AutoString`): a frozen revision depends on nothing that can move.
+
+**Production is adopted by its first boot of this release**: 33 tables and no
+`alembic_version`, its schema the baseline's (proven before the merge against a restore of
+its schema dump: identical, `alembic check` clean afterwards), stamped `0001_baseline`.
+Nothing is run by hand. (Adopted on: write the deploy date here.)
+
+**What autogenerate compares** (`schema.include_object`, used by `env.py`): everything, but
+the `POSTGRES_ONLY_INDEXES` (no model declares them) and a model's UNIQUE that repeats its
+primary key (`unique=True` on most `id` fields): PostgreSQL drops such a constraint inside
+its CREATE TABLE, so no database has it, production included, and every autogenerate would
+otherwise offer to add thirteen of them. `compare_type` is on.
+
+**The drift guard.** CI's backend job runs `alembic upgrade head && alembic check` against
+a PostgreSQL service: a model changed without its migration fails it. Tests:
+`tests/api/test_migrations.py` (postgres-marked; each test creates databases of its own in
+the session's container, so the unique `lower()` indexes never reach the shared test
+database): baseline == production, downgrade to empty and back, head == the models with
+every enum value, a model changed without a migration fails the check, the CLI, a fresh
+database, four worker processes on a fresh and on an unversioned database (one migrates or
+adopts), the direct URL, the indexes, the case-variant refusals, adoption with its data,
+an extension, the refusals (an index missing or extra, a column, a table, a type, an enum
+value), `--delete`, the lock timeout. `tests/api/test_migrations_offline.py`: SQLite's
+`create_all`, the CLI's refusal of SQLite, the models' registration.
+
 **Anything that inserts users on PostgreSQL meets the unique indexes**: the dev/E2E seed
 draws its random users with `fake.unique` (Faker repeats a name in ~0.14 % of 15-user
 seeds, which would crash the reseed; `tests/scripts/test_wp21_seed_unique_users.py`).
@@ -649,7 +731,7 @@ given; the path must be a `pg_dump -Fc` archive (starts with `PGDMP`) written le
 hour ago (`PRODUCTION_DUMP_MAX_AGE_SECONDS`), readable inside the container (`docker cp`
 it in). This sequence ran on production once: every real account was dropped and 31 fake
 ones, 16 with this repo's public passwords, took their place, with no backup (audit
-PD-02). Prefer additive schema changes (a new table through `create_all`) over a drop.
+PD-02). A schema change is a migration ("Migrations (Alembic)" above), never a drop.
 Tests: `tests/scripts/test_generate_fake_data_guard.py`.
 
 **Seed residue on a server is removed by `scripts/purge_seed_data.py`**, a dry run unless
@@ -786,7 +868,8 @@ the same listener on its test engine.
   value (each test starts at 1, `roomuserlink.id` included), may not keep a transaction
   open past its own fixtures (the cleanup then fails at that test's teardown, naming it,
   instead of hanging the run), and may not DROP or ALTER the shared schema — it creates a
-  database of its own, as `test_database_ddl.py` does.
+  database of its own, as `test_migrations.py` does. The shared schema is `create_all`'s,
+  not the migrations': `test_migrations.py` holds the two equal.
 
 ### Host-supplied settings are bounded
 
@@ -880,8 +963,8 @@ undercover could blend in perfectly. Requiring a login does **not** fix that; ev
 player has one. And the POST/DELETE routes took only *a* login, so any player could
 delete every word in the database and break Undercover globally.
 
-There is no `is_admin` column and no migration mechanism, so admin membership is
-configuration, not data. It **fails closed**: `ADMIN_EMAILS` unset means nobody is
+There is no `is_admin` column: admin membership is configuration, not data (chosen when
+there were no migrations; it stays so because no API path can grant it). It **fails closed**: `ADMIN_EMAILS` unset means nobody is
 an admin, which costs nothing because content is loaded by
 `scripts/generate_fake_data.py` and no client calls these routes. Tests use the
 autouse `_admin_auth` fixture in the two route test modules.
@@ -1213,8 +1296,8 @@ Getting to zero was mostly two changes, and they still hold:
 - Primary keys declared `id: UUID | None` with `default_factory=uuid4` became `UUID`.
   They are generated in Python and never None; the `| None` was cargo-culted from
   SQLModel's autoincrement examples. **The generated DDL is byte-identical** — verified
-  by diffing `CreateTable` output before and after, which matters because there are no
-  migrations.
+  by diffing `CreateTable` output before and after, which mattered because there were
+  no migrations then (the baseline came later, from these models).
 
 **`--error-on-warning` is load-bearing, not decoration.** ty reports `deprecated`,
 `possibly-missing-submodule` and `unused-type-ignore-comment` as *warnings*, which do
@@ -1663,9 +1746,9 @@ without mocking Google itself: `SocialAuthService(settings, transport=httpx.Mock
 forgot-password, resend-verification and the Google lookup; new rows are stored normalised.
 `get_user_by_email` compares `lower(email_address)`, so a mixed-case row from before is still
 found (exact spelling first if a mailbox still has two rows). `User.email_address`'s own
-constraint compares exactly; on PostgreSQL the startup DDL adds the unique
-`ix_user_email_lower` on `lower(email_address)` (WP-21, "There are no migrations"), a
-backstop that is skipped, with a log, while a case-variant duplicate is still stored.
+constraint compares exactly; on PostgreSQL the baseline migration has the unique
+`ix_user_email_lower` on `lower(email_address)` (WP-21, "Migrations (Alembic)"), the
+backstop.
 
 ### Reset and verification tokens: hashed at rest, aware comparisons
 
@@ -1715,11 +1798,10 @@ string, unique) → `ar` (as normally written, no harakat: "صبر", "الفات
 `ar_vocalized` (conventional harakat: "صَبْر"; **null when not certain** — a missing
 vowel beats a wrong one on a prophet's or a place's name).
 
-**Why a separate table, not columns on `word` / `codenames_word`:** there are no
-migrations. `create_all` creates a missing table on startup but never ALTERs an
-existing one, so a new column would simply never appear on production. A new
-table is additive. It also gives one row per term even where the same Latin word
-appears in both games or in two Codenames packs.
+**Why a separate table, not columns on `word` / `codenames_word`:** when it was added
+there were no migrations, and `create_all` never ALTERs an existing table, so a new
+column would never have reached production. It also gives one row per term even where
+the same Latin word appears in both games or in two Codenames packs.
 
 **Where it is read** — always ONE batched `TermScriptController.get_forms(...)` per
 request, never per card (tests pin the statement count with `count_statements`):
@@ -1809,19 +1891,17 @@ file (`git show HEAD:<file>` into a temp path, never `git stash`) to see what it
 word_quiz — the `GameType` values; MCQ has no words — plus **daily_word**, the word of
 the day: a QuizWord resolved exactly like a word_quiz one, kept with
 `source_game_id` null, through `POST /daily-word/keep` only), `source_game_id`,
-`kept_at` (UTC-aware). A new table, not columns anywhere: no migrations. Registered in
+`kept_at` (UTC-aware). A new table, not columns anywhere (added before migrations existed). Registered in
 `models/table.py` like every other model, so `--delete`'s `drop_all` drops it
 before `user` and `game` (it holds FKs to both).
 
 **`game_type` is a native PostgreSQL ENUM** (`notebookgametype`, which stores the
-member NAMES: `UNDERCOVER`, `CODENAMES`, `WORD_QUIZ`, `DAILY_WORD`). `create_all`
-creates the type with the table and never alters it. Adding `DAILY_WORD` was safe
-only because `notebook_entry` is new in the same release and not yet on production,
-so the type is created with all four values (a dev or E2E database created before it
-is fixed by `--delete` + `--create-db`, which drops the type with the table). **Once
-this ships, a new member needs `ALTER TYPE notebookgametype ADD VALUE IF NOT EXISTS
-'<NAME>'` run on the server, after a `pg_dump`, before the code that writes it** —
-without it the insert answers "invalid input value for enum".
+member NAMES: `UNDERCOVER`, `CODENAMES`, `WORD_QUIZ`, `DAILY_WORD`), created with all
+four by the baseline migration. **A new member needs a migration that runs `ALTER TYPE
+notebookgametype ADD VALUE IF NOT EXISTS '<NAME>'`**, written by hand (autogenerate does
+not see enum labels; `test_a_database_at_head_is_what_the_models_declare` fails without
+it), deployed with or before the code that writes it — without it the insert answers
+"invalid input value for enum".
 
 Endpoints (`routes/notebook.py`; handler names are what the Kubb hooks are named
 after, so they all say "notebook"):
@@ -1911,7 +1991,7 @@ everyone, found from its six-rung ladder and typed in any language or script.
   capped at `DEFAULT_WORD_QUIZ_MAX_HINTS`, at least 1), `solved_score` (Kalimat's
   `max_hints - hints_revealed + 1`) and `compute_streaks`. The production image has the
   zone database (`python:3.12-slim` installs `tzdata`; checked in `e2e-backend`).
-- **Tables** (new, so `create_all` makes them; registered in `models/table.py`):
+- **Tables** (in the baseline migration; registered in `models/table.py`):
   `daily_word` (`day` DATE PK → `quiz_word_id`, `created_at`) and `daily_word_play`
   (`UniqueConstraint(user_id, day)`; `hints_revealed` from 1, `attempts`, `last_guess`,
   `guesses` — the most recent `DAILY_WORD_GUESSES_KEPT`, for the "your tries" list —
@@ -2181,12 +2261,11 @@ the pause, or the anchor reads as set during the pause and is capped),
 
 ### Usernames are unique — by a locked check, not by constraint
 
-`user.username` carries **no unique constraint in the model**. On PostgreSQL the startup
-DDL adds the unique `ix_user_username_lower` on `lower(username)` (WP-21, "There are no
-migrations" above) — a backstop that turns a bypassed check into an `IntegrityError`, and
-what the `lower()` lookup reads — but it is optional (skipped, with a log, while a
-case-variant duplicate is stored) and SQLite has none, so the check below stays the
-rule. `controllers/user.username_is_taken(session, name, exclude_user_id=)` asks
+`user.username` carries **no unique constraint in the model**. On PostgreSQL the baseline
+migration has the unique `ix_user_username_lower` on `lower(username)` (WP-21,
+"Migrations (Alembic)" above) — a backstop that turns a bypassed check into an
+`IntegrityError`, and what the `lower()` lookup reads — but SQLite (dev, the default test
+run) has none, so the check below stays the rule. `controllers/user.username_is_taken(session, name, exclude_user_id=)` asks
 first, case-insensitively (`lower()` on both sides: ASCII on SQLite, full Unicode on
 PostgreSQL; Arabic has no case), always inside `username_claim_lock` (below), and
 three paths use it (four with the internal `UserController.create_user`):
@@ -2485,7 +2564,7 @@ Declared once so every later change uses the same rule. Tests:
 - **Shared `live_state` keys** (constants.py, shape documented next to each):
   `LEFT_PLAYER_IDS_KEY`, `WINNER_IDS_KEY` (list of ids, every game), `MR_WHITE_GUESS_RESULT_KEY`,
   `CODENAMES_REVEAL_LOG_KEY`, `UNDERCOVER_READY_PLAYERS_KEY` (on the current turn).
-- **Two new tables** (additive, `create_all`; no migration tool yet): `room_ban`
+- **Two new tables** (additive, through `create_all` at the time; in the baseline migration since): `room_ban`
   (`RoomBan`, unique per room and user) and `auth_session` (`AuthSession`, plus
   `revoke_user_sessions(session, user_id, *, except_session_id=None) -> int`, one UPDATE of the
   live rows, no commit). `_purge_user_references` deletes the user's sessions and the bans OF the

@@ -34,11 +34,14 @@ dependencies = [
     "resend>=2.0.0",
     "jinja2>=3.1.0",
     "logfire[fastapi]>=3.0.0",
-    # Runtime dependency, not a test-only one: scripts/generate_fake_data.py is the
-    # project's schema-migration mechanism (there is no Alembic — a model change is
-    # applied by dropping and reseeding), and it must therefore run on the
-    # production image. As a dev extra it was absent there, so --create-db died with
-    # ModuleNotFoundError right after --delete had already emptied the database.
+    # Runtime dependency: the app runs the migrations (backend/migrations/) at boot, on
+    # PostgreSQL (majlisna/schema.py).
+    "alembic>=1.20.1",
+    # Runtime dependency, not a test-only one: scripts/generate_fake_data.py --create-db
+    # runs on the E2E image, built like the production one. As a dev extra faker was
+    # absent from the production image, so --create-db died with ModuleNotFoundError
+    # right after --delete had already emptied the database (when drop-and-reseed was
+    # still the schema-change procedure; migrations replaced it).
     "faker>=40.4.0",
 ]
 
@@ -77,6 +80,10 @@ target-version = "py312"
 select = ["E", "W", "F", "I", "UP", "B", "SIM", "C90", "N", "PL", "ARG"]
 ignore = ["E501", "PLR0913", "PLR2004", "ARG002", "B008"]
 
+[tool.ruff.lint.per-file-ignores]
+# A revision is a list of operations: the baseline alone creates 33 tables.
+"migrations/versions/*.py" = ["PLR0915"]
+
 [tool.ruff.lint.isort]
 known-first-party = ["majlisna"]
 
@@ -104,8 +111,8 @@ omit = [
 
 [tool.poe.tasks]
 # Check commands (CI mode)
-lint = "ruff check majlisna/ tests/"
-format-check = "ruff format --check majlisna/ tests/"
+lint = "ruff check majlisna/ migrations/ tests/"
+format-check = "ruff format --check majlisna/ migrations/ tests/"
 # Type checking is part of `check` — and of the CI backend job — because a type checker
 # that nobody runs is worse than none: .pre-commit-config.yaml claimed one for months
 # while the hook was not installed and the package had 311 errors. Scope is majlisna/
@@ -119,8 +126,8 @@ typecheck = "ty check majlisna/ --error-on-warning"
 check = ["lint", "format-check", "typecheck"]
 
 # Fix commands
-lint-fix = "ruff check --fix majlisna/ tests/"
-format = "ruff format majlisna/ tests/"
+lint-fix = "ruff check --fix majlisna/ migrations/ tests/"
+format = "ruff format majlisna/ migrations/ tests/"
 fix = ["format", "lint-fix"]
 
 # Pre-commit

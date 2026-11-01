@@ -147,8 +147,8 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://majlisna:${DB_PASSWORD}@pgbouncer:6432/majlisna
       # Bypasses PgBouncer. Used ONLY for DDL: scripts/generate_fake_data.py and the
-      # app's startup DDL (database.create_schema, each worker in turn under an
-      # advisory lock). asyncpg's per-connection type cache goes stale after a
+      # app's migrations at boot (database.create_schema → schema.migrate_to_head, each
+      # worker in turn under an advisory lock). asyncpg's per-connection type cache goes stale after a
       # drop/create of every table, and under PgBouncer's transaction pooling the
       # following bulk inserts then fail with "could not resolve query result and/or
       # argument types in N attempts" (reproducible every run). Requests keep using

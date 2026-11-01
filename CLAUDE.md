@@ -22,10 +22,12 @@ Majlisna/
 │   │   │   ├── constants.py   # All magic values
 │   │   │   └── middleware.py  # Security, request ID, logging
 │   │   ├── app.py             # FastAPI app factory
-│   │   ├── database.py        # Async SQLAlchemy engine
+│   │   ├── database.py        # Async SQLAlchemy engine, the schema at boot
+│   │   ├── schema.py          # Alembic at boot: migrate to head, adopt, refuse
 │   │   ├── dependencies.py    # DI with Annotated + Depends
 │   │   ├── settings.py        # Multi-env pydantic-settings
 │   │   └── logger_config.py   # Structured Loguru logging
+│   ├── migrations/            # Alembic (PostgreSQL): env.py, versions/ (alembic.ini beside)
 │   ├── tests/
 │   ├── scripts/               # Content seed (--seed), dev/E2E fake data, purge_seed_data.py
 │   ├── main.py                # Entry point
@@ -86,6 +88,11 @@ PYTHONPATH=. uv run python scripts/generate_fake_data.py --seed
 # Infrastructure → "Production data rules"
 PYTHONPATH=. uv run python scripts/generate_fake_data.py --create-db
 PYTHONPATH=. uv run python scripts/generate_fake_data.py --delete
+
+# Migrations (PostgreSQL only; the app runs them at boot). backend/CLAUDE.md, "Migrations (Alembic)"
+export DATABASE_URL=postgresql+asyncpg://...     # a throwaway PostgreSQL 16
+uv run alembic revision --autogenerate -m "add x to y"
+uv run alembic upgrade head && uv run alembic check
 ```
 
 ### Frontend
@@ -133,6 +140,7 @@ docker compose -f docker-compose.dokploy.yml up -d
 |-------|-----------|
 | Backend | FastAPI, SQLModel, SQLAlchemy (async) |
 | Database | PostgreSQL (prod), SQLite (dev) |
+| Migrations | Alembic, PostgreSQL only, run by the app at boot (SQLite keeps `create_all`); see `backend/CLAUDE.md`, "Migrations (Alembic)" |
 | Game State | PostgreSQL JSON column (`Game.live_state`) |
 | Auth | JWT (python-jose, bcrypt) |
 | Frontend | React 19, TanStack Router/Query, Tailwind v4, Samar design system on Radix (`DESIGN.md`), self-hosted @fontsource fonts |
@@ -473,7 +481,7 @@ When a test fails, the goal is NEVER to make the test pass — it's to have a wo
 
 **Player counts are bounded on both ends** — `MAX_PLAYERS_UNDERCOVER` (12), `MAX_PLAYERS_CODENAMES` (10). Only the minimums used to be checked.
 
-**Usernames are unique case-insensitively, by a locked controller check.** `user.username` has no unique constraint in the model (on PostgreSQL a unique `lower(username)` index, created at boot, is only the backstop), so `username_is_taken` guards registration (409 `errors.api.usernameAlreadyTaken`), profile renames and Google sign-up — always inside `username_claim_lock`, a blocking transaction-level `pg_advisory_xact_lock(hashtext('username:' || lower(name)))` (an in-process `asyncio.Lock` on SQLite) held from the check until the insert's single commit. **The race where two simultaneous claims of one new name both won the check is closed, twice over**: by `username_claim_lock`, and on PostgreSQL by the unique index `ix_user_username_lower` that the startup DDL adds (WP-21; skipped with a log while a case-variant duplicate is stored, which production has none of). Tests: `test_two_concurrent_registrations_of_one_new_username_admit_exactly_one`, `test_two_concurrent_renames_to_one_new_username_admit_exactly_one` (postgres, each fails with the lock replaced by a no-op), `test_database_ddl.py::test_two_usernames_differing_only_in_case_cannot_both_be_stored`; see `backend/CLAUDE.md`.
+**Usernames are unique case-insensitively, by a locked controller check.** `user.username` has no unique constraint in the model (on PostgreSQL a unique `lower(username)` index, created by the baseline migration, is only the backstop), so `username_is_taken` guards registration (409 `errors.api.usernameAlreadyTaken`), profile renames and Google sign-up — always inside `username_claim_lock`, a blocking transaction-level `pg_advisory_xact_lock(hashtext('username:' || lower(name)))` (an in-process `asyncio.Lock` on SQLite) held from the check until the insert's single commit. **The race where two simultaneous claims of one new name both won the check is closed, twice over**: by `username_claim_lock`, and on PostgreSQL by the unique index `ix_user_username_lower` that the startup DDL adds (WP-21; skipped with a log while a case-variant duplicate is stored, which production has none of). Tests: `test_two_concurrent_registrations_of_one_new_username_admit_exactly_one`, `test_two_concurrent_renames_to_one_new_username_admit_exactly_one` (postgres, each fails with the lock replaced by a no-op), `test_database_ddl.py::test_two_usernames_differing_only_in_case_cannot_both_be_stored`; see `backend/CLAUDE.md`.
 
 **A quiz departure that completes the round sends it to results at once.** When the last player still owing an answer (MCQ) or the word (Word Quiz) leaves, is kicked or is swept, the disconnect handler moves the round to results under the game lock (`quiz_rules.settle_round_if_everyone_answered`) instead of leaving it to the timer. Never while paused: the resume settles it. See `backend/CLAUDE.md`.
 
@@ -485,7 +493,7 @@ When a test fails, the goal is NEVER to make the test pass — it's to have a wo
 
 **`GET /users` and `DELETE /users/{user_id}` were removed.** The first returned the entire unpaginated user table to any caller; the second deleted an account on nothing but a valid session, while `/users/me/account` does the same and requires the password.
 
-**Game content endpoints (undercover words/term pairs, codenames word packs) are admin-only — reads included.** `ADMIN_EMAILS` + `get_current_admin_user`, fail-closed. The GETs took no auth at all and `GET /undercover/termpair` reveals the opposing word to any player; the writes took only *a* login, so any player could delete all game content. There is no `is_admin` column (no migrations), so admin membership is configuration — matched case-insensitively, and the account must have a **verified** email, because naming an address in config turns that address into a credential anyone could register. See `backend/CLAUDE.md`.
+**Game content endpoints (undercover words/term pairs, codenames word packs) are admin-only — reads included.** `ADMIN_EMAILS` + `get_current_admin_user`, fail-closed. The GETs took no auth at all and `GET /undercover/termpair` reveals the opposing word to any player; the writes took only *a* login, so any player could delete all game content. There is no `is_admin` column (chosen before migrations existed, kept because no API path can grant it), so admin membership is configuration — matched case-insensitively, and the account must have a **verified** email, because naming an address in config turns that address into a credential anyone could register. See `backend/CLAUDE.md`.
 
 **The frontend CSP is ENFORCED.** The API, Umami and Sentry origins (and the API's `ws(s)://` origin) are substituted into `security-headers.conf` from the same build args the bundle is compiled with. `script-src` has no `'unsafe-inline'`: each inline `<script>` of the built `index.html` is allowed by its sha256 (`front/scripts/csp-inline-hashes.mjs`), and an inline event handler or a `javascript:` URL fails the image build. Fonts are self-hosted (`front/src/fonts.ts`), so `style-src`/`font-src` allow no font CDN. `'self'` does not cover a different port or subdomain, so a split-origin API needs its own entry. `e2e/tests/smoke/csp.spec.ts` fails on any violation, and `front/scripts/csp-inline-hashes.test.mjs` pins the hashing. See `front/CLAUDE.md`.
 
@@ -786,12 +794,13 @@ until the variable is on, look at `https://majlisna.app/health` (or Dokploy's de
 list) after a promote.
 
 **Run-once work must not run unguarded in every uvicorn worker.** Production runs 4 workers,
-and each one runs the lifespan. The startup DDL runs under the blocking
+and each one runs the lifespan. The migrations at boot run under the blocking
 `pg_advisory_xact_lock(SCHEMA_DDL_LOCK_KEY)` (the four raced on `CREATE TYPE` on the deploy
 that added `notebook_entry`, INFRA-13), and the disconnect sweep elects one worker per tick
 with `pg_try_advisory_xact_lock(DISCONNECT_SWEEP_LOCK_KEY)` (four loops swept the same links,
 PD-12); only what is per process (each worker's own sockets) runs everywhere. Tests:
-`tests/api/test_database_ddl.py::test_four_workers_booting_on_a_fresh_schema_all_succeed`,
+`tests/api/test_migrations.py::test_four_workers_booting_on_a_fresh_database_all_succeed` (four
+processes: Alembic's `context` is process-global),
 `test_disconnect_lock_postgres.py::test_four_workers_sweeping_at_once_handle_each_link_once`.
 
 **E2E docker-compose is separate from production.** `docker-compose.e2e.yml` runs the backend with `MAJLISNA_ENV=development` and a dedicated PostgreSQL. Never mix E2E and production compose files.
@@ -837,7 +846,7 @@ Cloudflare handles DNS (proxied/orange cloud) and reaches the origin over HTTPS 
 **Production data rules** (PD-02, PD-03: a documented "migration" dropped every table on production once and refilled it with 31 fake accounts, 16 of them with this repo's public passwords, with no backup):
 - never run `generate_fake_data.py --delete` or `--create-db` on production: the script exits 2 there unless given `--i-know-this-is-production` AND `--dump-taken <a pg_dump -Fc written in the last hour>` (`tests/scripts/test_generate_fake_data_guard.py`);
 - a fresh `pg_dump` before any destructive or schema operation (`docs/operations/backups.md`);
-- schema changes are additive and idempotent: new tables through `create_all`, `CREATE INDEX IF NOT EXISTS`, guarded unique indexes; never an ALTER by drop-and-reseed (`backend/CLAUDE.md`, "There are no migrations");
+- schema changes are Alembic migrations, which the app runs at boot (one worker at a time, in one transaction; a failed migration fails the boot): additive first, reviewed, never an edit of a revision that has run, never a drop-and-reseed (`backend/CLAUDE.md`, "Migrations (Alembic)"). Production (created by `create_all`, no `alembic_version`) is adopted by its first boot with Alembic: stamped at the baseline only if its schema is exactly the baseline's, else the boot fails and nothing is written;
 - production receives game content only through `--seed` (upserts, effective on the next game, no restart);
 - seed residue (the test and Faker accounts, orphan games and rooms) is removed by `scripts/purge_seed_data.py`, run by the operator after a verified dump, never by an agent (`tests/scripts/test_purge_seed_data.py`).
 

@@ -134,15 +134,39 @@ DISCONNECT_CHECK_INTERVAL_SECONDS = 5  # How often the checker loop runs
 # hash to 32 bits (game_lock._game_id_to_lock_key) and the username locks to int4, so
 # this key can never collide with either.
 DISCONNECT_SWEEP_LOCK_KEY = 0x4D414A4C53575045  # "MAJLSWPE"
-# Startup DDL (database.create_db_and_tables) runs in every uvicorn worker's lifespan.
-# pg_advisory_xact_lock(SCHEMA_DDL_LOCK_KEY) makes them take turns: the first creates
-# what is missing, the others find it there (INFRA-13: 3 of 4 workers crashed on
-# CREATE TYPE). Above 2**32 like the sweep key, so it collides with no other lock.
+# The schema at boot (schema.migrate_to_head on PostgreSQL) runs in every uvicorn worker's
+# lifespan, and `alembic` from the CLI takes the same lock (migrations/env.py).
+# pg_advisory_xact_lock(SCHEMA_DDL_LOCK_KEY) makes them take turns: the first migrates,
+# the others find the database at head (INFRA-13: 3 of 4 workers crashed on CREATE TYPE
+# when they raced). Above 2**32 like the sweep key, so it collides with no other lock.
 SCHEMA_DDL_LOCK_KEY = 0x4D414A4C53434841  # "MAJLSCHA"
-# How long one optional index statement may wait for its table lock before it is skipped
-# (logged, retried at the next boot) — a CREATE/DROP INDEX queued behind a long
-# transaction would otherwise hold every query on that table behind it.
+# How long a migration statement may wait for a table lock, once the schema lock is held
+# (the wait for that one is unbounded): a DDL statement queued behind a long transaction
+# would otherwise hold every query on its table behind it. Past it the migration fails,
+# the boot with it, and the next boot tries again.
 SCHEMA_DDL_LOCK_TIMEOUT = "5s"
+# Alembic (backend/migrations/, backend/CLAUDE.md "Migrations (Alembic)"). The baseline
+# is the schema production had when migrations were set up (2026-11-01, built by
+# create_all); a database created before then has no alembic_version and is stamped at
+# it, once, if its schema is exactly what the baseline creates.
+ALEMBIC_BASELINE_REVISION = "0001_baseline"
+ALEMBIC_VERSION_TABLE = "alembic_version"
+# Where adoption builds the baseline to compare a database without alembic_version with,
+# inside a savepoint that is always rolled back: nothing of it is ever committed.
+SCHEMA_ADOPTION_PROBE_SCHEMA = "majlisna_baseline_probe"
+# The PostgreSQL-only indexes, which the models do not declare: two on an expression, one
+# with a sort order. The migrations create them (the baseline: these three); autogenerate
+# must not offer to drop them, so migrations/env.py leaves them out of the comparison. Add
+# the name of every such index a later migration creates; a plain index is declared in its
+# model instead. The two unique lower() ones must stay out of the models: the test
+# databases (create_all) store case variants of usernames and addresses on purpose.
+POSTGRES_ONLY_INDEXES = frozenset(
+    {
+        "ix_user_username_lower",
+        "ix_user_email_lower",
+        "ix_userstats_total_games_won_desc",
+    }
+)
 # Every how many ticks the elected sweeper also cancels orphaned running games (an
 # IN_PROGRESS game whose room is INACTIVE or points at another game). Nothing is waiting
 # on an orphan, and the lookup reads the game table, so once a minute is enough.

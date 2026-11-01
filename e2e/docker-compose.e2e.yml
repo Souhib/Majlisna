@@ -115,7 +115,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://majlisna:majlisna@pgbouncer:6432/majlisna
       # Bypasses PgBouncer for what runs DDL: scripts/generate_fake_data.py and the
-      # app's startup DDL (database.create_schema). See
+      # app's migrations at boot (database.create_schema). See
       # the note in docker-compose.dokploy.yml — without it the E2E seed step dies
       # at "[3/12] Creating rooms" with an asyncpg type-resolution error.
       DIRECT_DATABASE_URL: postgresql+asyncpg://majlisna:majlisna@db:5432/majlisna
