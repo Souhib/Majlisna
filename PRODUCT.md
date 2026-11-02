@@ -122,8 +122,9 @@ next hint, so it costs what a hint costs: typing every word of the theme at hint
 streaks, a home-page card, a share line that never names the word, and
 the word kept in the Kunnash. Signed-out visitors see hint 1; playing needs an account.
 
-**Rooms and social:** lobby with roster, settings and chat (newest 50 messages); host kick (a
-ban from that room for its lifetime, which the host can lift; the PIN changes at every kick)
+**Rooms and social:** lobby with roster, settings and chat (newest 50 messages); host kick (Remove:
+the seat goes, the player may come back with the code and PIN or an invite) and ban (kept out
+of that room, invites included, until the host lifts it; the PIN changes at every ban)
 and automatic host transfer (a player is preferred over a spectator); one room at a time; friend requests and in-room
 invites; share links; public player profiles with head-to-head records; a public leaderboard.
 
