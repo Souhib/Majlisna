@@ -233,7 +233,19 @@ HINT_VIEW_RATE_LIMIT = "60/minute"
 TIMER_EXPIRED_RATE_LIMIT = "30/minute"
 ROOM_JOIN_RATE_LIMIT = "10/minute"
 ROOM_INVITE_RATE_LIMIT = "20/minute"
+# A friend's room invite (RoomInvite) opens the room without the PIN for this long after it
+# was sent or last re-sent; then it answers RoomInviteExpiredError (410).
+ROOM_INVITE_LIFETIME_MINUTES = 30
+# GET /rooms/invites: the caller's live invites, newest first (the strip shows the first).
+ROOM_INVITE_LIST_LIMIT = 20
+# POST /rooms/invites/{id}/accept counts ROOM_JOIN_RATE_LIMIT in this one bucket per user.
+# slowapi's default bucket is the request path, which holds the invite id: without a fixed
+# scope each made-up id bought a fresh budget.
+ROOM_INVITE_ACCEPT_RATE_LIMIT_SCOPE = "room-invite-accept"
 FRIEND_REQUEST_RATE_LIMIT = "20/minute"
+# PATCH /users/{id}/password, per user: each try is a bcrypt check or a call to Google,
+# and without it a stolen session could guess the current password at will.
+PASSWORD_CHANGE_RATE_LIMIT = "5/minute"
 
 # Auth constants
 # NOTE: token lifetimes live in settings.py (access_token_expire_minutes /
@@ -346,7 +358,9 @@ LEADERBOARD_SORT_FIELDS = (
     "longest_win_streak",
 )
 
-# Auth providers
+# Auth providers. AUTH_PROVIDER_EMAIL means "the account has a password of its own" (the
+# login refuses any other); a Google-only account (GOOGLE, a random sentinel password)
+# becomes EMAIL once it sets a password, its google_sub kept (controllers/user.py).
 AUTH_PROVIDER_EMAIL = "email"
 AUTH_PROVIDER_GOOGLE = "google"
 

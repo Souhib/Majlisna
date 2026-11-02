@@ -16,7 +16,6 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from majlisna.api.constants import (
-    AUTH_PROVIDER_EMAIL,
     AUTH_PROVIDER_GOOGLE,
     EMAIL_VERIFICATION_TOKEN_EXPIRE_HOURS,
     PASSWORD_RESET_TOKEN_EXPIRE_HOURS,
@@ -32,7 +31,12 @@ from majlisna.api.controllers.shared import (
     get_password_hash,
     verify_password,
 )
-from majlisna.api.controllers.user import username_claim_lock, username_is_taken
+from majlisna.api.controllers.user import (
+    has_own_password,
+    set_own_password,
+    username_claim_lock,
+    username_is_taken,
+)
 from majlisna.api.models.auth_session import AuthSession, revoke_user_sessions
 from majlisna.api.models.table import User
 from majlisna.api.models.token import EmailVerificationToken, PasswordResetToken
@@ -543,7 +547,9 @@ class AuthController:
         """
         email = normalize_email(email)
         user = await self.get_user_by_email(email)
-        if user is None or user.auth_provider != AUTH_PROVIDER_EMAIL:
+        if user is None or not has_own_password(user):
+            # A Google-only account's password is a sentinel: never a credential until
+            # its owner sets one (`set_own_password`).
             # Run a bcrypt verify against a dummy hash so the response time for
             # an unknown / non-password account matches the wrong-password path,
             # preventing account enumeration by timing.
@@ -702,6 +708,11 @@ class AuthController:
         A reset is the "my account was stolen" path: whoever held a session (a stolen
         refresh token included) is signed out with it, on every device (SEC F01). The
         token is redeemed by its digest.
+
+        The password set is the account's own (``set_own_password``), a Google-only
+        account's included: the link reached the address Google verified, so the password
+        now opens the account at login, and Google sign-in still does. It used to be stored
+        and then refused by the login (``auth_provider`` stayed google).
         """
         result = await self.session.exec(
             select(PasswordResetToken)
@@ -716,7 +727,7 @@ class AuthController:
         if not user:
             raise UserNotFoundError(user_id=reset_token.user_id)
 
-        user.password = await async_get_password_hash(new_password)
+        await set_own_password(user, new_password)
         self.session.add(user)
         await revoke_user_sessions(self.session, user.id)
         # Single-use: consume this token and drop any others for the user.

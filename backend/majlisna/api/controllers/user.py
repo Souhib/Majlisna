@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError, NoResultFound
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from majlisna.api.constants import USERNAME_LOCK_PREFIX
+from majlisna.api.constants import AUTH_PROVIDER_EMAIL, USERNAME_LOCK_PREFIX
 from majlisna.api.controllers.disconnect import _handle_permanent_disconnect
 from majlisna.api.controllers.shared import (
     async_get_password_hash,
@@ -25,11 +25,17 @@ from majlisna.api.models.notebook import NotebookEntry
 from majlisna.api.models.relationship import RoomUserLink, UserGameLink
 from majlisna.api.models.room import RoomType
 from majlisna.api.models.room_ban import RoomBan
+from majlisna.api.models.room_invite import RoomInvite
 from majlisna.api.models.stats import UserAchievement, UserStats
 from majlisna.api.models.table import Activity, Event, Game, Room, User
 from majlisna.api.models.token import EmailVerificationToken, PasswordResetToken
 from majlisna.api.models.user import UserCreate, UserUpdate
-from majlisna.api.schemas.error import GoogleAccountMismatchError, InvalidCredentialsError
+from majlisna.api.schemas.error import (
+    CurrentPasswordRequiredError,
+    GoogleAccountMismatchError,
+    GoogleConfirmationRequiredError,
+    InvalidCredentialsError,
+)
 from majlisna.api.schemas.user import DepartedRoom
 from majlisna.api.services.social_auth import SocialAuthService
 
@@ -97,6 +103,33 @@ async def username_is_taken(session: AsyncSession, username: str, *, exclude_use
     if exclude_user_id is not None:
         statement = statement.where(User.id != exclude_user_id)
     return (await session.exec(statement.limit(1))).first() is not None
+
+
+def has_own_password(user: User) -> bool:
+    """Whether the stored password is one the account's owner chose: ``auth_provider`` email.
+
+    A Google-only account (``auth_provider`` google) holds a random sentinel nobody ever
+    saw, and the login refuses it. There is no "has a password" column, and none is needed:
+    ``auth_provider`` already is that flag — ``AuthController.login`` reads it so — and
+    ``set_own_password`` moves it to email. An email account that later used "Continue
+    with Google" keeps email and gains a ``google_sub``: both doors open it.
+    """
+    return user.auth_provider == AUTH_PROVIDER_EMAIL
+
+
+async def set_own_password(user: User, new_password: str) -> None:
+    """Store ``new_password`` (hashed) as the account's own, so it opens the account at login.
+
+    A Google-only account becomes ``auth_provider`` email with its ``google_sub`` kept —
+    the state of an email account linked to Google: its password and Google sign-in both
+    open it. Used by the change (confirmed with Google for such an account) and by the reset
+    (the link reached the address Google verified). Not committed: the caller commits, with
+    its session revocation.
+
+    :raises PasswordTooLongError: over bcrypt's 72 bytes.
+    """
+    user.password = await async_get_password_hash(new_password)
+    user.auth_provider = AUTH_PROVIDER_EMAIL
 
 
 class UserController:
@@ -246,6 +279,8 @@ class UserController:
             select(AuthSession).where(AuthSession.user_id == user_id),
             # The bans OF this user go; the bans BY them stay (banned_by nulled below).
             select(RoomBan).where(RoomBan.user_id == user_id),
+            # The room invites the user sent or received.
+            select(RoomInvite).where(or_(RoomInvite.inviter_id == user_id, RoomInvite.invitee_id == user_id)),  # ty: ignore[invalid-argument-type]
         ):
             for row in (await self.session.exec(statement)).all():
                 await self.session.delete(row)
@@ -317,6 +352,32 @@ class UserController:
         if db_user.google_sub is None or token_payload.sub != db_user.google_sub:
             raise GoogleAccountMismatchError()
 
+    @staticmethod
+    async def _confirm_password_change(
+        db_user: User,
+        current_password: str | None,
+        google_access_token: str | None,
+        social_auth_service: SocialAuthService | None,
+    ) -> None:
+        """A password change is confirmed by the credential the account signs in with.
+
+        - An account with a password (``has_own_password``) confirms with it. Not with
+          Google, even when linked: on a shared computer Google's session is often still
+          open, and the password is the stronger proof (``CurrentPasswordRequiredError``).
+        - A Google-only account confirms with Google, verified like a deletion: its stored
+          password is a sentinel the login refuses, so it is never a confirmation
+          (``GoogleConfirmationRequiredError``).
+        """
+        if has_own_password(db_user):
+            if google_access_token is not None:
+                raise CurrentPasswordRequiredError()
+            if current_password is None or not await async_verify_password(current_password, db_user.password):
+                raise InvalidCredentialsError()
+            return
+        if google_access_token is None:
+            raise GoogleConfirmationRequiredError()
+        await UserController._confirm_with_google(db_user, google_access_token, social_auth_service)
+
     async def _delete_account(self, db_user: User) -> list[DepartedRoom]:
         """Leave every room (the departure commits per room), then purge and delete in one commit."""
         user_id = db_user.id
@@ -328,29 +389,44 @@ class UserController:
         return departed
 
     async def update_user_password(
-        self, user_id: UUID, current_password: str, new_password: str, *, keep_session_id: UUID | None = None
+        self,
+        user_id: UUID,
+        current_password: str | None,
+        new_password: str,
+        *,
+        google_access_token: str | None = None,
+        social_auth_service: SocialAuthService | None = None,
+        keep_session_id: UUID | None = None,
     ) -> User:
         """
-        Update a user's password after verifying their current one, and sign out every
+        Set the account's password once its owner has confirmed, and sign out every
         OTHER session of the account (SEC F01).
 
+        The confirmation is the account's own credential (``_confirm_password_change``):
+        the current password of an account that has one, Google for a Google-only account,
+        which thereby gets a password that opens it at login (``set_own_password``).
+
         :param user_id: The id of the user to update.
-        :param current_password: The user's current password (must match).
+        :param current_password: The user's current password (an account with a password).
         :param new_password: The new password to set.
+        :param google_access_token: a fresh Google access token instead (a Google-only
+            account), verified by ``social_auth_service`` exactly like a deletion's.
         :param keep_session_id: the caller's own session (``request.state.session_id``),
             which stays signed in. None (a legacy token names no session) revokes them all.
         :return: The updated user.
-        :raises InvalidCredentialsError: If the current password is wrong.
+        :raises InvalidCredentialsError: a wrong current password, or an invalid Google token.
+        :raises GoogleAccountMismatchError: a valid Google token of another Google account.
+        :raises GoogleConfirmationRequiredError: a Google-only account confirming with a password.
+        :raises CurrentPasswordRequiredError: an account with a password confirming with Google.
         :raises PasswordTooLongError: the new password is over bcrypt's 72 bytes.
         """
         db_user = await self.get_user_by_id(user_id)
 
-        # Require the current password so a hijacked session can't silently
-        # change it (consistent with account deletion, which also re-checks).
-        if not await async_verify_password(current_password, db_user.password):
-            raise InvalidCredentialsError()
+        # Require a confirmation so a hijacked session can't silently change it
+        # (consistent with account deletion, which also re-checks).
+        await self._confirm_password_change(db_user, current_password, google_access_token, social_auth_service)
 
-        db_user.password = await async_get_password_hash(new_password)
+        await set_own_password(db_user, new_password)
         self.session.add(db_user)
         # Whoever else held a session (a stolen token included) is signed out with the
         # old password, in the same commit.

@@ -6,6 +6,7 @@ connection, so the limit counts per signed-in user, never per address.
 """
 
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
@@ -162,7 +163,11 @@ def test_riddles_are_capped_per_day_as_well(client: TestClient, controller: Mock
     # Prepare
     per_minute = int(ROOM_RIDDLE_RATE_LIMIT.split("/")[0])
     per_day = int(ROOM_RIDDLE_DAILY_LIMIT.split("/")[0])
-    with freeze_time("2026-11-01 08:00:00") as frozen:
+    # Frozen at the REAL now, never a fixed date: the in-memory storage expires keys from a
+    # threading.Timer thread, which freezegun leaves on the real clock (it ignores
+    # `threading` frames). Frozen at 2026-11-01 08:00, the day's key "expired" in that
+    # thread from 2026-11-02 08:00 UTC on, and the 31st riddle was served.
+    with freeze_time(datetime.now(UTC)) as frozen:
         served = 0
         while served < per_day:
             for _ in range(min(per_minute, per_day - served)):

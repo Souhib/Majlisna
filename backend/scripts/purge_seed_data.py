@@ -19,8 +19,8 @@ What it removes (and only that):
 - the seeded games: no room (``room_id IS NULL``), ``live_state`` null, nobody linked
   to them, and no room pointing at them;
 - the seeded rooms: no settings, no member, no game, no active game, and OWNED by a
-  seeded user (a real player's old room may have no settings either); with their bans
-  and their chat.
+  seeded user (a real player's old room may have no settings either); with their bans,
+  their invites and their chat.
 
 A dry run by default: it lists every account and room it would delete (and the accounts
 at a seed domain it keeps) and changes nothing. ``--apply`` is refused while a seeded
@@ -66,6 +66,7 @@ from majlisna.api.models.game import GameStatus
 from majlisna.api.models.relationship import RoomGameLink, RoomUserLink, UserGameLink
 from majlisna.api.models.room import RoomType
 from majlisna.api.models.room_ban import RoomBan
+from majlisna.api.models.room_invite import RoomInvite
 from majlisna.api.models.table import Game, Room, User
 from majlisna.api.schemas.shared import BaseModel
 from majlisna.database import create_app_engine
@@ -304,8 +305,8 @@ async def purge_seed_data(session: AsyncSession, keep: Collection[str] = ()) -> 
     Order matters for the foreign keys (none declares ON DELETE): every reference to a
     seeded user first (``_purge_user_references``, which also orphans the rooms they own
     and nulls ``Game.user_id`` on the games they made), then the users; then the games,
-    which nothing references any more; then the seeded rooms' bans and chat, then the
-    rooms. Any other row still pointing at one of them raises, and the caller's rollback
+    which nothing references any more; then the seeded rooms' bans, invites and chat, then
+    the rooms. Any other row still pointing at one of them raises, and the caller's rollback
     undoes every delete before it.
 
     :return: what was removed.
@@ -323,6 +324,7 @@ async def purge_seed_data(session: AsyncSession, keep: Collection[str] = ()) -> 
         await session.exec(delete(Game).where(col(Game.id).in_(selection.game_ids)))
     if selection.room_ids:
         await session.exec(delete(RoomBan).where(col(RoomBan.room_id).in_(selection.room_ids)))
+        await session.exec(delete(RoomInvite).where(col(RoomInvite.room_id).in_(selection.room_ids)))
         await session.exec(delete(ChatMessage).where(col(ChatMessage.room_id).in_(selection.room_ids)))
         await session.exec(delete(Room).where(col(Room.id).in_(selection.room_ids)))
     await session.commit()

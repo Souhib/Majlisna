@@ -1,4 +1,5 @@
 import re
+from typing import Self
 from urllib.parse import urlsplit
 
 import pycountry
@@ -182,11 +183,28 @@ class UserUpdate(DBModel):
 
 
 class UserUpdatePassword(DBModel):
-    """A password change: both passwords are checked in bytes (SEC F10)."""
+    """A password change, confirmed by EXACTLY one of the account's own credentials.
 
-    current_password: str
+    - ``current_password``: an account that has a password (``auth_provider`` email);
+    - ``google_access_token``: a Google-only account, whose stored password is a random
+      sentinel its owner never saw; a fresh Google token verified like a deletion's.
+
+    Every password is checked in bytes (SEC F10).
+    """
+
+    current_password: str | None = None
+    google_access_token: str | None = None
     new_password: str = Field(min_length=PASSWORD_MIN_LENGTH, max_length=PASSWORD_MAX_LENGTH)
 
     _passwords_fit_bcrypt = pydantic.field_validator("current_password", "new_password", mode="before")(
         refuse_password_over_bcrypt_limit
     )
+
+    @pydantic.model_validator(mode="after")
+    def exactly_one_confirmation(self) -> Self:
+        """Neither or both: a 422 (a ``PydanticCustomError``, as ``DeleteAccountRequest`` explains)."""
+        if (self.current_password is None) == (self.google_access_token is None):
+            raise PydanticCustomError(
+                "confirmation_required", "Confirm the change with either current_password or google_access_token"
+            )
+        return self

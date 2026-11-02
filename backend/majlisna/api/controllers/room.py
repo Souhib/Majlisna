@@ -2,17 +2,25 @@ import secrets
 import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 from loguru import logger
+from sqlalchemy import delete
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.orm import selectinload
 from sqlalchemy.orm.attributes import flag_modified
-from sqlmodel import select
+from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from majlisna.api.constants import HEARTBEAT_THROTTLE_SECONDS, PUBLIC_ID_GENERATION_ATTEMPTS, ROOM_PASSWORD_LENGTH
+from majlisna.api.constants import (
+    HEARTBEAT_THROTTLE_SECONDS,
+    PUBLIC_ID_GENERATION_ATTEMPTS,
+    ROOM_INVITE_LIFETIME_MINUTES,
+    ROOM_INVITE_LIST_LIMIT,
+    ROOM_PASSWORD_LENGTH,
+)
+from majlisna.api.controllers.auth import utc_instant
 from majlisna.api.controllers.disconnect import (
     _handle_permanent_disconnect,
     announce_presence_restored,
@@ -36,6 +44,7 @@ from majlisna.api.models.game import GameType
 from majlisna.api.models.relationship import RoomUserLink
 from majlisna.api.models.room import RoomCreate, RoomJoin, RoomStatus, RoomType
 from majlisna.api.models.room_ban import RoomBan
+from majlisna.api.models.room_invite import RoomInvite
 from majlisna.api.models.table import Game, Room, User
 from majlisna.api.schemas.common import StatusResponse
 from majlisna.api.schemas.error import (
@@ -48,6 +57,8 @@ from majlisna.api.schemas.error import (
     RoomBannedError,
     RoomBanNotFoundError,
     RoomCodeUnavailableError,
+    RoomInviteExpiredError,
+    RoomInviteNotFoundError,
 )
 from majlisna.api.schemas.room import (
     ActiveRoomResponse,
@@ -55,6 +66,7 @@ from majlisna.api.schemas.room import (
     RematchResponse,
     RoomBanView,
     RoomInviteResponse,
+    RoomInviteView,
     RoomPlayerState,
     RoomSettings,
     RoomState,
@@ -269,6 +281,12 @@ class RoomController:
             links = (await self.session.exec(select(RoomUserLink).where(RoomUserLink.room_id == room_id))).all()
             for link in links:
                 await self.session.delete(link)
+            # Its invites go with it (no foreign key declares ON DELETE).
+            await self.session.exec(
+                delete(RoomInvite)
+                .where(col(RoomInvite.room_id) == room_id)
+                .execution_options(synchronize_session=False)
+            )
             db_room.type = RoomType.INACTIVE
             db_room.active_game_id = None
             self.session.add(db_room)
@@ -339,13 +357,30 @@ class RoomController:
         if not _passwords_match(db_room.password, room_join.password):
             raise WrongRoomPasswordError(room_id=db_room.id)
         await self._ensure_not_seated_elsewhere(db_user.id, db_room.id)
+        room = await self._take_seat(db_room.id, db_user.id)
+        logger.info("Room join: user={} room={}", user_id, db_room.id)
+        return room
 
+    async def _take_seat(self, room_id: UUID, user_id: UUID) -> Room:
+        """Seat ``user_id`` as a player in ``room_id``, in ONE commit, once the door's checks
+        passed (``join_room``: ban, PIN, one room at a time; ``accept_invite``: the invite,
+        ban, one room at a time). Re-uses their link when they have one (a reconnection).
+
+        A seat taken through either door spends the invites the player holds to that room:
+        the accepted one, or one made moot by a join with the code and PIN.
+        """
+        await self.session.exec(
+            delete(RoomInvite)
+            .where(col(RoomInvite.room_id) == room_id)
+            .where(col(RoomInvite.invitee_id) == user_id)
+            .execution_options(synchronize_session=False)
+        )
         # Check for existing connected link
         existing_link = (
             await self.session.exec(
                 select(RoomUserLink).where(
-                    RoomUserLink.room_id == db_room.id,
-                    RoomUserLink.user_id == db_user.id,
+                    RoomUserLink.room_id == room_id,
+                    RoomUserLink.user_id == user_id,
                     RoomUserLink.connected == True,  # noqa: E712
                 )
             )
@@ -355,14 +390,14 @@ class RoomController:
             existing_link.last_seen_at = datetime.now()
             self.session.add(existing_link)
             await self.session.commit()
-            return await self._load_room_for_view(db_room.id)
+            return await self._load_room_for_view(room_id)
 
         # Check for disconnected link (reconnection)
         disconnected_link = (
             await self.session.exec(
                 select(RoomUserLink).where(
-                    RoomUserLink.room_id == db_room.id,
-                    RoomUserLink.user_id == db_user.id,
+                    RoomUserLink.room_id == room_id,
+                    RoomUserLink.user_id == user_id,
                     RoomUserLink.connected == False,  # noqa: E712
                 )
             )
@@ -372,19 +407,10 @@ class RoomController:
             disconnected_link.last_seen_at = datetime.now()
             disconnected_link.disconnected_at = None
             self.session.add(disconnected_link)
-            await self.session.commit()
         else:
-            user_room_link = RoomUserLink(
-                room_id=db_room.id,
-                user_id=db_user.id,
-                last_seen_at=datetime.now(),
-            )
-            self.session.add(user_room_link)
-            await self.session.commit()
-
-        room = await self._load_room_for_view(db_room.id)
-        logger.info("Room join: user={} room={}", user_id, db_room.id)
-        return room
+            self.session.add(RoomUserLink(room_id=room_id, user_id=user_id, last_seen_at=datetime.now()))
+        await self.session.commit()
+        return await self._load_room_for_view(room_id)
 
     async def leave_room(self, room_id: UUID, user_id: UUID) -> Room:
         """Remove a user from a room.
@@ -584,11 +610,15 @@ class RoomController:
 
         A kick is a ban for the room's lifetime, not a removal the player undoes a second
         later with the same code and PIN (BR-20, SEC F04). Together, so that the first
-        commit carries all three:
+        commit carries all four:
 
         - a ``RoomBan`` (room, target, banned_by=host) — idempotent on the unique pair;
         - a new PIN, different from the old one: the kicked player holds the share link,
           and so does anyone they forwarded it to;
+        - the invites to this room the kicked player sent, deleted: an invite opens the
+          room without the PIN, so it is the other thing they handed out (their friend's
+          strip then answers 404). An invite a member sent stands, even one to the kicked
+          player, whom the ban refuses at accept;
         - ``_handle_permanent_disconnect``, which removes the seat and plays the
           departure into a running game. The kicked player is a leaver there: neither a
           win nor a loss (owner rule (b), ``mark_player_left``).
@@ -613,11 +643,25 @@ class RoomController:
             raise UserNotInRoomError(user_id=target_id, room_id=room_id)
 
         await self._insert_ban(room_id, target_id, banned_by=host_id)
+        # Before the PIN is staged: a statement autoflushes, and the room's UPDATE flushed
+        # before the game lock deadlocks with a move that holds that lock and finishes the
+        # game, which writes the room row (``_handle_permanent_disconnect``, "Lock order").
+        await self.session.exec(
+            delete(RoomInvite)
+            .where(col(RoomInvite.room_id) == room_id)
+            .where(col(RoomInvite.inviter_id) == target_id)
+            .execution_options(synchronize_session=False)
+        )
         room.password = _new_room_pin(room.password)
         self.session.add(room)
-        # Commits (the ban and the PIN with the departure).
+        # Commits (the ban, the revoked invites and the PIN with the departure).
         await _handle_permanent_disconnect(self.session, link)
-        logger.info("Room kick: user={} room={} by host={} (banned, PIN rotated)", target_id, room_id, host_id)
+        logger.info(
+            "Room kick: user={} room={} by host={} (banned, their invites revoked, PIN rotated)",
+            target_id,
+            room_id,
+            host_id,
+        )
         return KickPlayerResponse(message="Player kicked")
 
     async def _insert_ban(self, room_id: UUID, user_id: UUID, *, banned_by: UUID) -> None:
@@ -733,13 +777,19 @@ class RoomController:
         )
 
     async def invite_friend_to_room(self, room_id: UUID, inviter_id: UUID, friend_user_id: UUID) -> RoomInviteResponse:
-        """Invite a friend to join the room. Validates friendship and room membership.
+        """Invite a friend to the room: store the invite (``RoomInvite``) and return it.
 
-        The Socket.IO `room_invite` event is emitted by the route via
-        ``notify_room_invite`` after this validation passes — controllers do not
-        touch the Socket.IO server directly.
+        The inviter must be seated (connected) in the room, the invitee a friend not
+        seated (connected) in it. One live invite per (room, invitee): inviting again
+        refreshes it — the same id, the latest inviter, a full
+        ``ROOM_INVITE_LIFETIME_MINUTES`` again — and every expired invite is purged.
+
+        The invite carries no PIN: it is accepted by its id (``accept_invite``), so a kick
+        that rotates the PIN after it was sent does not stop it. The Socket.IO
+        ``room_invite`` push is the route's (``notify_room_invite`` with ``invite``):
+        controllers do not touch the Socket.IO server.
         """
-        await self.get_room_without_relations(room_id)
+        room = await self.get_room_without_relations(room_id)
 
         # Verify the inviter is in the room
         inviter_link = (
@@ -774,11 +824,127 @@ class RoomController:
         if existing:
             raise FriendAlreadyInRoomError()
 
+        inviter = (await self.session.exec(select(User).where(User.id == inviter_id))).one()
+        invite_id, expires_at = await self._store_invite(room_id, inviter_id, friend_user_id)
+        await self.session.commit()
+        logger.info("Room invite: user={} room={} by user={} invite={}", friend_user_id, room_id, inviter_id, invite_id)
         return RoomInviteResponse(
             room_id=str(room_id),
             invited_user_id=str(friend_user_id),
             message="Invite sent",
+            invite=RoomInviteView(
+                id=invite_id,
+                room_id=room_id,
+                public_id=room.public_id,
+                invited_by=inviter.username,
+                expires_at=expires_at,
+            ),
         )
+
+    async def _store_invite(self, room_id: UUID, inviter_id: UUID, invitee_id: UUID) -> tuple[UUID, datetime]:
+        """Create or refresh the (room, invitee) invite; its id and ``expires_at``. Does not commit.
+
+        An upsert on the unique pair (``INSERT … ON CONFLICT DO UPDATE``), so two members
+        inviting one friend at once leave one row, never an IntegrityError. The expired
+        invites, anyone's, are deleted first (``synchronize_session=False``: the ORM's
+        in-Python ``expires_at < now`` would compare SQLite's naive values with an aware
+        ``now``).
+        """
+        now = datetime.now(UTC)
+        expires_at = now + timedelta(minutes=ROOM_INVITE_LIFETIME_MINUTES)
+        await self.session.exec(
+            delete(RoomInvite).where(col(RoomInvite.expires_at) < now).execution_options(synchronize_session=False)
+        )
+        insert = dialect_insert(self.session, RoomInvite).values(
+            id=uuid4(),
+            room_id=room_id,
+            inviter_id=inviter_id,
+            invitee_id=invitee_id,
+            created_at=now,
+            updated_at=now,
+            expires_at=expires_at,
+        )
+        upsert = insert.on_conflict_do_update(
+            index_elements=["room_id", "invitee_id"],
+            set_={
+                "inviter_id": insert.excluded.inviter_id,
+                "updated_at": insert.excluded.updated_at,
+                "expires_at": insert.excluded.expires_at,
+            },
+        ).returning(col(RoomInvite.id))
+        invite_id = (await self.session.exec(upsert)).scalar_one()
+        return invite_id, expires_at
+
+    async def accept_invite(self, invite_id: UUID, user_id: UUID) -> Room:
+        """Seat the invitee in the invite's room, without the PIN; the seat spends the invite.
+
+        The doors of ``join_room`` but the PIN, in this order:
+
+        - the invite is the caller's (anyone else's, or one used up, is
+          ``RoomInviteNotFoundError``, 404: nobody learns of another's invite);
+        - not past ``expires_at`` (``RoomInviteExpiredError``, 410);
+        - the room is ACTIVE (``RoomNotFoundError``, 404, as for a join);
+        - the caller is not banned from it (``RoomBannedError``, 403): a kick after the
+          invite was sent closes it like any door;
+        - not seated in another live room (``UserAlreadyInRoomError``, 409, naming it): the
+          invite stays, so the client can offer "Leave it and join" and accept again.
+
+        The invite row is locked first (``SELECT … FOR UPDATE``; SQLite has no row locks):
+        two tabs accepting at once take turns, and the second finds it spent (404), never
+        a second insert of the seat's unique pair.
+        """
+        invite = (
+            await self.session.exec(
+                select(RoomInvite)
+                .where(RoomInvite.id == invite_id)
+                .where(RoomInvite.invitee_id == user_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        ).first()
+        if invite is None:
+            raise RoomInviteNotFoundError(invite_id=invite_id)
+        if utc_instant(invite.expires_at) <= datetime.now(UTC):
+            raise RoomInviteExpiredError(invite_id=invite_id)
+        room = (
+            await self.session.exec(select(Room).where(Room.id == invite.room_id).where(Room.type == RoomType.ACTIVE))
+        ).first()
+        if room is None:
+            raise RoomNotFoundError(room_id=invite.room_id)
+        await self._ensure_not_banned(room.id, user_id)
+        await self._ensure_not_seated_elsewhere(user_id, room.id)
+        seated = await self._take_seat(room.id, user_id)
+        logger.info("Room invite accepted: user={} room={} invite={}", user_id, room.id, invite_id)
+        return seated
+
+    async def list_invites(self, user_id: UUID) -> list[RoomInviteView]:
+        """The caller's live invites, newest first: not expired, to an ACTIVE room.
+
+        What the app shell shows when it opens (an invite sent while the page was closed);
+        the strip takes the first. At most ``ROOM_INVITE_LIST_LIMIT``. Never the PIN.
+        """
+        rows = (
+            await self.session.exec(
+                select(RoomInvite, Room.public_id, User.username)
+                .join(Room, Room.id == RoomInvite.room_id)  # ty: ignore[invalid-argument-type]
+                .join(User, User.id == RoomInvite.inviter_id)  # ty: ignore[invalid-argument-type]
+                .where(RoomInvite.invitee_id == user_id)
+                .where(col(RoomInvite.expires_at) > datetime.now(UTC))
+                .where(Room.type == RoomType.ACTIVE)
+                .order_by(col(RoomInvite.expires_at).desc(), col(RoomInvite.id))
+                .limit(ROOM_INVITE_LIST_LIMIT)
+            )
+        ).all()
+        return [
+            RoomInviteView(
+                id=invite.id,
+                room_id=invite.room_id,
+                public_id=public_id,
+                invited_by=username,
+                expires_at=utc_instant(invite.expires_at),
+            )
+            for invite, public_id, username in rows
+        ]
 
     async def get_share_link(self, room_id: UUID, user_id: UUID) -> ShareLinkResponse:
         """Generate a share link for the room. Only room members can get the link."""

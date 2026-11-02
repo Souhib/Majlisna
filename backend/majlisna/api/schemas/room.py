@@ -144,10 +144,29 @@ class RoomInviteRequest(BaseModel):
     friend_user_id: UUID
 
 
+class RoomInviteView(BaseModel):
+    """A friend's invite to a room, as the invitee sees it: the ``room_invite`` push to
+    their personal channel and ``GET /rooms/invites``. Never the room's PIN: the invite
+    is accepted by its id (``POST /rooms/invites/{id}/accept``), so a PIN rotated by a
+    kick after it was sent does not stop it.
+
+    ``public_id`` is the room's code and ``invited_by`` the inviter's username (what the
+    strip shows); ``expires_at`` is UTC.
+    """
+
+    id: UUID
+    room_id: UUID
+    public_id: str
+    invited_by: str
+    expires_at: datetime
+
+
 class RoomInviteResponse(BaseModel):
     room_id: str
     invited_user_id: str
     message: str
+    # The stored invite, as pushed to the friend (the route hands it to notify_room_invite).
+    invite: RoomInviteView
 
 
 class ShareLinkResponse(BaseModel):

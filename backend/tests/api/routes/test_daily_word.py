@@ -41,10 +41,19 @@ TODAY = date(2026, 11, 10)
 
 
 @pytest.fixture(autouse=True)
-def _frozen_clock(test_app: FastAPI):  # noqa: ARG001 — build (and import) the app before the clock freezes
+def _frozen_clock(request: pytest.FixtureRequest, test_app: FastAPI):  # noqa: ARG001 — build (and import) the app before the clock freezes
     """Every test runs at noon in Makkah. The app is built first: freezegun swaps `date`
-    for a fake one, and a module importing `date` subclasses meanwhile (pydantic.v1) breaks."""
-    with freeze_time(NOW):
+    for a fake one, and a module importing `date` subclasses meanwhile (pydantic.v1) breaks.
+
+    Except a test through the limiter (``per_user_client``, whose controller is a mock
+    and reads no date): it runs frozen at the REAL now. The limiter's in-memory storage
+    expires keys from a ``threading.Timer`` thread, which freezegun leaves on the real
+    clock (it ignores ``threading`` frames): frozen at the fixed NOW, every key would
+    "expire" in that thread as soon as the real clock passed NOW + 1 minute
+    (2026-11-10 09:01 UTC), and the 31st guess would be served.
+    """
+    instant = datetime.now(UTC) if "per_user_client" in request.fixturenames else NOW
+    with freeze_time(instant):
         yield
 
 

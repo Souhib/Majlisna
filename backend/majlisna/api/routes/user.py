@@ -3,10 +3,12 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
 
+from majlisna.api.constants import PASSWORD_CHANGE_RATE_LIMIT
 from majlisna.api.controllers.user import UserController
 from majlisna.api.models.table import User
 from majlisna.api.models.user import UserUpdate, UserUpdatePassword
 from majlisna.api.models.view import PublicUserView, UserView
+from majlisna.api.rate_limit import limiter, user_or_ip_key
 from majlisna.api.schemas.error import ForbiddenError
 from majlisna.api.schemas.user import DeleteAccountRequest
 from majlisna.api.services.social_auth import SocialAuthService
@@ -54,6 +56,7 @@ async def update_user(
 
 
 @router.patch("/{user_id}/password", response_model=UserView)
+@limiter.limit(PASSWORD_CHANGE_RATE_LIMIT, key_func=user_or_ip_key)
 async def update_user_password(
     request: Request,
     *,
@@ -61,8 +64,13 @@ async def update_user_password(
     user_update_password: UserUpdatePassword,
     current_user: Annotated[User, Depends(get_current_user)],
     user_controller: Annotated[UserController, Depends(get_user_controller)],
+    social_auth_service: Annotated[SocialAuthService, Depends(get_social_auth_service)],
 ) -> UserView:
-    """Change the password; every OTHER session of the account is signed out (SEC F01)."""
+    """Set the password, confirmed by the current one or, for a Google-only account, by a
+    fresh Google access token naming it; every OTHER session is signed out (SEC F01).
+
+    A Google-only account that sets one can then sign in with it, and still with Google.
+    """
     if current_user.id != user_id:
         raise ForbiddenError("You can only change your own password")
     return UserView.model_validate(
@@ -70,6 +78,8 @@ async def update_user_password(
             user_id,
             user_update_password.current_password,
             user_update_password.new_password,
+            google_access_token=user_update_password.google_access_token,
+            social_auth_service=social_auth_service,
             # The caller's session, recorded by get_current_user (None for a legacy token).
             keep_session_id=getattr(request.state, "session_id", None),
         )

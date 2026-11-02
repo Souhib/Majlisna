@@ -1287,6 +1287,31 @@ class RoomBanNotFoundError(BaseError):
         )
 
 
+class RoomInviteNotFoundError(BaseError):
+    """Accepting a room invite that does not exist, is someone else's, or was used up
+    (a seat taken in the room, the room closed, an account deleted)."""
+
+    def __init__(self, invite_id: UUID | str):
+        super().__init__(
+            message=f"Room invite {invite_id} not found for this user",
+            frontend_message="This invitation is no longer valid.",
+            status_code=status.HTTP_404_NOT_FOUND,
+            details={"invite_id": str(invite_id)},
+        )
+
+
+class RoomInviteExpiredError(BaseError):
+    """Accepting a room invite after its ``expires_at`` (ROOM_INVITE_LIFETIME_MINUTES)."""
+
+    def __init__(self, invite_id: UUID | str):
+        super().__init__(
+            message=f"Room invite {invite_id} has expired",
+            frontend_message="This invitation has expired. Ask your friend to invite you again.",
+            status_code=status.HTTP_410_GONE,
+            details={"invite_id": str(invite_id)},
+        )
+
+
 class PasswordTooLongError(BaseError):
     """A password longer than bcrypt can hash (BCRYPT_MAX_PASSWORD_BYTES of UTF-8)."""
 
@@ -1340,6 +1365,31 @@ class GoogleAccountMismatchError(BaseError):
         super().__init__(
             message="Google account does not match this user",
             frontend_message="That Google account is not the one linked to this profile.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
+
+
+class GoogleConfirmationRequiredError(BaseError):
+    """A password change of a Google-only account confirmed with a typed password.
+
+    Its stored password is a random sentinel the login refuses: only Google confirms it.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            message="This account signs in with Google: confirm with a Google access token",
+            frontend_message="This account signs in with Google: confirm with Google.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
+
+
+class CurrentPasswordRequiredError(BaseError):
+    """A password change of an account that has a password, confirmed with Google instead."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            message="This account has a password: confirm with the current password",
+            frontend_message="Confirm with your current password.",
             status_code=status.HTTP_403_FORBIDDEN,
         )
 

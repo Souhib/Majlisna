@@ -1,5 +1,6 @@
 """Tests for Socket.IO notification functions."""
 
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID
 
@@ -9,6 +10,7 @@ from loguru import logger
 from majlisna.api.models.game import GameType
 from majlisna.api.schemas.common import TimerExpiredAction
 from majlisna.api.schemas.error import PlayerRemovedFromGameError
+from majlisna.api.schemas.room import RoomInviteView
 from majlisna.api.ws.notify import (
     NO_OP_TIMER_ACTIONS,
     _get_room_id_for_game,
@@ -16,6 +18,7 @@ from majlisna.api.ws.notify import (
     notify_game_changed,
     notify_member_removed,
     notify_room_changed,
+    notify_room_invite,
     notify_timer_outcome,
     notify_user_kicked,
 )
@@ -153,6 +156,38 @@ async def test_notify_user_kicked_emits_event(mock_sio):
     await notify_user_kicked("user-42", "room-1")
 
     mock_sio.emit.assert_called_once_with("you_were_kicked", {"room_id": "room-1"}, to="user:user-42")
+
+
+# ========== notify_room_invite ==========
+
+
+async def test_notify_room_invite_names_the_stored_invite_and_never_the_pin(mock_sio):
+    """The friend's strip gets the invite's id, the room's code and the inviter: the PIN
+    stays on the server (a kick rotates it, and an invite sent before then still works)."""
+    # Prepare
+    invite = RoomInviteView(
+        id=UUID("00000000-0000-0000-0000-0000000000a1"),
+        room_id=UUID("00000000-0000-0000-0000-0000000000b2"),
+        public_id="LULIM",
+        invited_by="Yusuf",
+        expires_at=datetime(2026, 11, 2, 12, 30, tzinfo=UTC),
+    )
+
+    # Act
+    await notify_room_invite("user-42", invite)
+
+    # Assert
+    mock_sio.emit.assert_called_once_with(
+        "room_invite",
+        {
+            "id": "00000000-0000-0000-0000-0000000000a1",
+            "room_id": "00000000-0000-0000-0000-0000000000b2",
+            "public_id": "LULIM",
+            "invited_by": "Yusuf",
+            "expires_at": "2026-11-02T12:30:00Z",
+        },
+        to="user:user-42",
+    )
 
 
 # ========== fetch_room_state ==========

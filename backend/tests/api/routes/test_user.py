@@ -1,17 +1,28 @@
 """Route-level tests for /api/v1/users endpoints."""
 
+from collections.abc import Iterator
 from unittest.mock import AsyncMock, Mock, call, patch
 from uuid import uuid4
 
+import pytest
 from fastapi import FastAPI
 from starlette.requests import Request
 from starlette.testclient import TestClient
 
 from majlisna.api.controllers.user import UserController
 from majlisna.api.models.table import User
+from majlisna.api.rate_limit import limiter
 from majlisna.api.schemas.error import UserNotFoundError
 from majlisna.api.schemas.user import DepartedRoom
 from majlisna.dependencies import get_current_user, get_social_auth_service, get_user_controller
+
+
+@pytest.fixture(autouse=True)
+def fresh_rate_limits() -> Iterator[None]:
+    """The password change is rate-limited, and these calls all come from one test client."""
+    limiter.reset()
+    yield
+    limiter.reset()
 
 
 def _make_user(user_id=None, username="JohnDoe", email="john.doe@test.com", country="FRA"):
@@ -385,7 +396,9 @@ def test_update_user_password_keeps_only_the_callers_session(test_app: FastAPI, 
     user = _make_user(user_id)
     mock_controller = Mock(spec=UserController)
     mock_controller.update_user_password = AsyncMock(return_value=_make_user(user_id))
+    social_auth_service = Mock()
     test_app.dependency_overrides[get_user_controller] = lambda: mock_controller
+    test_app.dependency_overrides[get_social_auth_service] = lambda: social_auth_service
 
     def _authenticated(request: Request) -> User:
         request.state.session_id = session_id
@@ -403,7 +416,45 @@ def test_update_user_password_keeps_only_the_callers_session(test_app: FastAPI, 
         # Assert
         assert response.status_code == 200
         mock_controller.update_user_password.assert_awaited_once_with(
-            user_id, "oldpassword", "newsecurepassword", keep_session_id=session_id
+            user_id,
+            "oldpassword",
+            "newsecurepassword",
+            google_access_token=None,
+            social_auth_service=social_auth_service,
+            keep_session_id=session_id,
+        )
+    finally:
+        test_app.dependency_overrides.clear()
+
+
+def test_update_user_password_passes_the_google_confirmation_through(test_app: FastAPI, client: TestClient):
+    """A Google-only account confirms its new password with a Google access token instead."""
+    # Arrange
+    user_id = uuid4()
+    user = _make_user(user_id)
+    mock_controller = Mock(spec=UserController)
+    mock_controller.update_user_password = AsyncMock(return_value=_make_user(user_id))
+    social_auth_service = Mock()
+    test_app.dependency_overrides[get_user_controller] = lambda: mock_controller
+    test_app.dependency_overrides[get_social_auth_service] = lambda: social_auth_service
+    _override_auth(test_app, user)
+
+    try:
+        # Act
+        response = client.patch(
+            f"/api/v1/users/{user_id}/password",
+            json={"google_access_token": "ya29.token", "new_password": "newsecurepassword"},
+        )
+
+        # Assert
+        assert response.status_code == 200
+        mock_controller.update_user_password.assert_awaited_once_with(
+            user_id,
+            None,
+            "newsecurepassword",
+            google_access_token="ya29.token",
+            social_auth_service=social_auth_service,
+            keep_session_id=None,
         )
     finally:
         test_app.dependency_overrides.clear()

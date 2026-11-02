@@ -19,12 +19,13 @@ from majlisna.api.schemas.error import (
     NotRoomHostError,
     RoomBannedError,
     RoomBanNotFoundError,
+    RoomInviteExpiredError,
     RoomNotFoundError,
     UserAlreadyInRoomError,
     UserNotInRoomError,
     WrongRoomPasswordError,
 )
-from majlisna.api.schemas.room import KickPlayerResponse, RoomBanView, RoomInviteResponse
+from majlisna.api.schemas.room import KickPlayerResponse, RoomBanView, RoomInviteResponse, RoomInviteView
 from majlisna.dependencies import get_current_user, get_room_controller
 
 BASE_URL = "/api/v1/rooms"
@@ -853,6 +854,23 @@ def _room(public_id: str = "BAN11") -> Room:
     return room
 
 
+def _invite_view(room_id=None) -> RoomInviteView:
+    return RoomInviteView(
+        id=uuid4(),
+        room_id=room_id or uuid4(),
+        public_id="BAN11",
+        invited_by="host",
+        expires_at=datetime.now(UTC),
+    )
+
+
+def _invite_response(invite: RoomInviteView | None = None) -> RoomInviteResponse:
+    invite = invite or _invite_view()
+    return RoomInviteResponse(
+        room_id=str(invite.room_id), invited_user_id=str(uuid4()), message="Invite sent", invite=invite
+    )
+
+
 class _HeaderAuthenticator:
     """A stand-in for get_current_user: the user named by ``X-Test-User``, recorded on
     the request exactly as the real dependency records it (``request.state.user_id``)."""
@@ -874,9 +892,8 @@ def get_per_user_client(test_app: FastAPI):
     controller = Mock(spec=RoomController)
     controller.join_room = AsyncMock(return_value=_room())
     controller.join_room_as_spectator = AsyncMock(return_value=_room())
-    controller.invite_friend_to_room = AsyncMock(
-        return_value=RoomInviteResponse(room_id=str(uuid4()), invited_user_id=str(uuid4()), message="Invite sent")
-    )
+    controller.invite_friend_to_room = AsyncMock(return_value=_invite_response())
+    controller.accept_invite = AsyncMock(return_value=_room())
     test_app.dependency_overrides[get_current_user] = _HeaderAuthenticator(users)
     test_app.dependency_overrides[get_room_controller] = lambda: controller
     limiter.reset()
@@ -943,6 +960,30 @@ def test_the_invite_limit_is_counted_per_user(per_user_client: TestClient) -> No
 
     # Assert
     assert limited.status_code == 429
+    assert other.status_code == 200
+
+
+def _accept_url() -> str:
+    """A new invite id each call: the id is in the path."""
+    return f"{BASE_URL}/invites/{uuid4()}/accept"
+
+
+def test_the_invite_accept_limit_is_counted_per_user(per_user_client: TestClient) -> None:
+    """Accepting an invite seats a player like a join: the join's budget, per user,
+    whatever invite each call names. slowapi's default bucket is the request path, and
+    the path holds the invite id: a fresh id per call bought a fresh budget, so a
+    stream of made-up ids was never limited."""
+    # Prepare
+    for _ in range(_limit_count(ROOM_JOIN_RATE_LIMIT)):
+        assert per_user_client.post(_accept_url(), headers={"X-Test-User": "first"}).status_code == 200
+
+    # Act
+    limited = per_user_client.post(_accept_url(), headers={"X-Test-User": "first"})
+    other = per_user_client.post(_accept_url(), headers={"X-Test-User": "second"})
+
+    # Assert
+    assert limited.status_code == 429
+    assert limited.json()["error_key"] == "errors.api.rateLimitExceeded"
     assert other.status_code == 200
 
 
@@ -1090,5 +1131,112 @@ def test_a_kick_detaches_the_socket_before_the_new_pin_is_pushed(test_app: FastA
         # Assert
         assert response.status_code == 200
         assert order == ["kick", "told", "detached", "room_state"]
+    finally:
+        test_app.dependency_overrides.clear()
+
+
+# ========== Stored invites (POST /rooms/{id}/invite, GET /rooms/invites, POST /rooms/invites/{id}/accept) ==========
+
+
+def test_the_invite_route_pushes_the_stored_invite_to_the_friend(test_app: FastAPI, client: TestClient) -> None:
+    """What reaches the friend's personal channel is the controller's invite view (its id,
+    the code, the inviter), never a room read with its PIN."""
+    # Prepare
+    room_id, friend_id, host_id = uuid4(), uuid4(), uuid4()
+    invite = _invite_view(room_id)
+    controller = Mock(spec=RoomController)
+    controller.invite_friend_to_room = AsyncMock(return_value=_invite_response(invite))
+    test_app.dependency_overrides[get_current_user] = lambda: User(id=host_id, username="h", email_address="h@test.com")
+    test_app.dependency_overrides[get_room_controller] = lambda: controller
+
+    try:
+        with patch("majlisna.api.routes.room.notify_room_invite", new_callable=AsyncMock) as notify:
+            # Act
+            response = client.post(f"{BASE_URL}/{room_id}/invite", json={"friend_user_id": str(friend_id)})
+
+        # Assert
+        assert response.status_code == 200
+        assert response.json()["invite"]["id"] == str(invite.id)
+        controller.invite_friend_to_room.assert_awaited_once_with(room_id, host_id, friend_id)
+        notify.assert_awaited_once_with(str(friend_id), invite)
+    finally:
+        test_app.dependency_overrides.clear()
+
+
+def test_accepting_an_invite_seats_the_caller_and_tells_the_room(test_app: FastAPI, client: TestClient) -> None:
+    """POST /rooms/invites/{id}/accept: the caller from the JWT, no PIN, the room pushed like a join."""
+    # Prepare
+    invite_id, user_id = uuid4(), uuid4()
+    room = _room()
+    controller = Mock(spec=RoomController)
+    controller.accept_invite = AsyncMock(return_value=room)
+    test_app.dependency_overrides[get_current_user] = lambda: User(id=user_id, username="f", email_address="f@test.com")
+    test_app.dependency_overrides[get_room_controller] = lambda: controller
+
+    try:
+        with patch("majlisna.api.routes.room.notify_room_changed", new_callable=AsyncMock) as notify:
+            # Act
+            response = client.post(f"{BASE_URL}/invites/{invite_id}/accept")
+
+        # Assert
+        assert response.status_code == 200
+        assert response.json()["id"] == str(room.id)
+        assert "password" not in response.json()
+        controller.accept_invite.assert_awaited_once_with(invite_id, user_id)
+        notify.assert_awaited_once_with(str(room.id))
+    finally:
+        test_app.dependency_overrides.clear()
+
+
+@pytest.mark.parametrize(
+    ("error", "status", "key"),
+    [
+        (RoomInviteExpiredError(invite_id=uuid4()), 410, "errors.api.roomInviteExpired"),
+        (RoomBannedError(room_id=uuid4()), 403, "errors.api.roomBanned"),
+        (UserAlreadyInRoomError(user_id=uuid4(), room_id=uuid4()), 409, "errors.api.userAlreadyInRoom"),
+    ],
+)
+def test_a_refused_accept_answers_the_error_the_strip_reads(
+    test_app: FastAPI, client: TestClient, error: Exception, status: int, key: str
+) -> None:
+    """The strip picks its line by error_key; a refused accept notifies nobody."""
+    # Prepare
+    controller = Mock(spec=RoomController)
+    controller.accept_invite = AsyncMock(side_effect=error)
+    test_app.dependency_overrides[get_current_user] = lambda: User(id=uuid4(), username="f", email_address="f@test.com")
+    test_app.dependency_overrides[get_room_controller] = lambda: controller
+
+    try:
+        with patch("majlisna.api.routes.room.notify_room_changed", new_callable=AsyncMock) as notify:
+            # Act
+            response = client.post(f"{BASE_URL}/invites/{uuid4()}/accept")
+
+        # Assert
+        assert response.status_code == status
+        assert response.json()["error_key"] == key
+        notify.assert_not_awaited()
+    finally:
+        test_app.dependency_overrides.clear()
+
+
+def test_the_caller_reads_their_live_invites(test_app: FastAPI, client: TestClient) -> None:
+    """GET /rooms/invites is its own route, not GET /rooms/{room_id} with "invites" for an id."""
+    # Prepare
+    user_id = uuid4()
+    invite = _invite_view()
+    controller = Mock(spec=RoomController)
+    controller.list_invites = AsyncMock(return_value=[invite])
+    test_app.dependency_overrides[get_current_user] = lambda: User(id=user_id, username="f", email_address="f@test.com")
+    test_app.dependency_overrides[get_room_controller] = lambda: controller
+
+    try:
+        # Act
+        response = client.get(f"{BASE_URL}/invites")
+
+        # Assert
+        assert response.status_code == 200
+        assert [row["id"] for row in response.json()] == [str(invite.id)]
+        assert "password" not in response.json()[0]
+        controller.list_invites.assert_awaited_once_with(user_id)
     finally:
         test_app.dependency_overrides.clear()

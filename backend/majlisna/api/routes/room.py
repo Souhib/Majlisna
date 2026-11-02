@@ -4,7 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Request
 from starlette.status import HTTP_201_CREATED, HTTP_204_NO_CONTENT
 
-from majlisna.api.constants import ROOM_INVITE_RATE_LIMIT, ROOM_JOIN_RATE_LIMIT
+from majlisna.api.constants import ROOM_INVITE_ACCEPT_RATE_LIMIT_SCOPE, ROOM_INVITE_RATE_LIMIT, ROOM_JOIN_RATE_LIMIT
 from majlisna.api.controllers.room import RoomController
 from majlisna.api.models.error import UserNotInRoomError
 from majlisna.api.models.room import RoomCreateRequest, RoomJoin, RoomLeave
@@ -21,6 +21,7 @@ from majlisna.api.schemas.room import (
     RoomBanView,
     RoomInviteRequest,
     RoomInviteResponse,
+    RoomInviteView,
     RoomSettings,
     RoomSettingsRequest,
     RoomState,
@@ -72,6 +73,16 @@ async def get_active_room(
 ) -> ActiveRoomResponse | None:
     """Get the user's active room, if any."""
     return await room_controller.get_active_room_for_user(current_user.id)
+
+
+# Before GET /{room_id}, which would otherwise read "invites" as a room id.
+@router.get("/invites")
+async def list_room_invites(
+    current_user: Annotated[User, Depends(get_current_user)],
+    room_controller: RoomController = Depends(get_room_controller),
+) -> list[RoomInviteView]:
+    """The caller's live room invites, newest first (sent while the page was closed, too). Never the PIN."""
+    return await room_controller.list_invites(current_user.id)
 
 
 @router.get("/{room_id}", response_model=RoomView)
@@ -237,10 +248,28 @@ async def invite_friend_to_room(
     current_user: Annotated[User, Depends(get_current_user)],
     room_controller: RoomController = Depends(get_room_controller),
 ) -> RoomInviteResponse:
-    """Invite a friend to join the room."""
+    """Invite a friend to the room: the invite is stored and pushed to them, without the PIN."""
     result = await room_controller.invite_friend_to_room(room_id, current_user.id, body.friend_user_id)
-    await notify_room_invite(str(body.friend_user_id), str(room_id), current_user.username)
+    await notify_room_invite(str(body.friend_user_id), result.invite)
     return result
+
+
+# A seat like a join, so the join's per-user budget (ROOM_JOIN_RATE_LIMIT, its own bucket).
+# A shared limit with a fixed scope: a plain limit is counted per path, and the path names
+# the invite, so every made-up invite id would have bought a fresh budget.
+@router.post("/invites/{invite_id}/accept", response_model=RoomView)
+@limiter.shared_limit(ROOM_JOIN_RATE_LIMIT, scope=ROOM_INVITE_ACCEPT_RATE_LIMIT_SCOPE, key_func=user_or_ip_key)
+async def accept_room_invite(
+    request: Request,  # noqa: ARG001 — required by limiter
+    invite_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    room_controller: RoomController = Depends(get_room_controller),
+) -> RoomView:
+    """Accept a friend's invite: join its room without the PIN (the invite must be the caller's, live, and the
+    caller not banned from the room nor seated in another one)."""
+    result = await room_controller.accept_invite(invite_id, current_user.id)
+    await notify_room_changed(str(result.id))
+    return RoomView.model_validate(result)
 
 
 @router.delete("/{room_id}", status_code=HTTP_204_NO_CONTENT)
