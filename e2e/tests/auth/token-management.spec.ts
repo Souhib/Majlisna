@@ -1,7 +1,7 @@
 import { test, expect, type Page, type Response } from "@playwright/test";
 import { test as authTest, createPlayerPage } from "../../fixtures/auth.fixture";
 import { generateTestAccounts } from "../../helpers/test-setup";
-import { expectApiError, rawGetMe } from "../../helpers/api-client";
+import { expectApiError, NO_SOCKET_REUSE, rawGetMe } from "../../helpers/api-client";
 import { API_URL, STORAGE_KEYS, ROUTES } from "../../helpers/constants";
 
 /**
@@ -115,7 +115,7 @@ test.describe("Auth — Logout and several tabs", () => {
     await expectApiError(await rawGetMe(accessToken!), 401, "errors.api.sessionRevoked");
     // ...and the refresh cookie is gone, so nothing can renew the session
     expect((await page.context().cookies()).find((c) => c.name === "majlisna-refresh-token")).toBeUndefined();
-    const refresh = await page.context().request.post(`${API_URL}/api/v1/auth/refresh`, { data: {} });
+    const refresh = await page.context().request.post(`${API_URL}/api/v1/auth/refresh`, { data: {}, headers: NO_SOCKET_REUSE });
     expect(refresh.status()).toBe(401);
 
     // ...the page forgot it and sends the player to the login page from a protected one

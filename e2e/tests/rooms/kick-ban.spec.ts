@@ -159,7 +159,7 @@ test.describe("Kick, ban and lift", () => {
     await friend.goto(`${FRONTEND_URL}/rooms/join?code=${code}&pin=${oldPin}`);
 
     // Assert — refused for the PIN, and told why it may have changed and what to do: a link
-    // or an invite keeps the PIN it was made with (review F1)
+    // keeps the PIN it was made with (review F1; a friend's invite needs no PIN)
     await expect(friend.getByTestId("join-error")).toHaveText("Incorrect room password.", { timeout: 15_000 });
     await expect(friend.getByText("The room’s PIN may have changed since this link was made")).toBeVisible();
     await expect(friend.getByRole("link", { name: "Type the code yourself" })).toBeVisible();

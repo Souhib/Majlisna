@@ -1,13 +1,26 @@
 import { test, expect } from "@playwright/test";
+import { randomInt } from "crypto";
 import { generateTestAccounts } from "../../helpers/test-setup";
 import { createPlayerPage } from "../../fixtures/auth.fixture";
 import {
   apiLogin,
   apiCreateRoom,
   apiGetRoom,
+  apiGetRoomState,
   apiGetShareLink,
 } from "../../helpers/api-client";
 import { ROUTES, FRONTEND_URL } from "../../helpers/constants";
+import { dbSetRoomCode } from "../../helpers/db";
+
+/**
+ * A room code JSON reads as a number: digits, E, digits (3E182 is 3e+182). The rooms and
+ * mobile-rooms projects run this file at the same time, so each draws from its own half
+ * of them, and a clash cannot fail the other's test (codes are unique).
+ */
+function numberLikeRoomCode(projectName: string): string {
+  const lead = projectName.startsWith("mobile") ? randomInt(5, 10) : randomInt(1, 5);
+  return `${lead}E${String(randomInt(0, 1000)).padStart(3, "0")}`;
+}
 
 test.describe("Room Share Link", () => {
   test("share link contains room code and password", async ({ browser }) => {
@@ -86,6 +99,34 @@ test.describe("Room Share Link", () => {
 
     // Verify player count shows 2 (host + joiner)
     await expect(joinerPage.locator("text=Players (2)")).toBeVisible({ timeout: 15_000 });
+
+    await joinerPage.context().close();
+  });
+
+  test("a share link whose room code reads as a number still joins", async ({ browser }, testInfo) => {
+    // The router read such a code as JSON (3E182 became 3e+182), so its link opened no
+    // room: about one room in 2,000, which this suite's random codes met once.
+    // Prepare — a room whose code has that shape, and its link written by hand, as shared
+    const accounts = await generateTestAccounts(2);
+    const hostLogin = await apiLogin(accounts[0].email, accounts[0].password);
+    const joinerLogin = await apiLogin(accounts[1].email, accounts[1].password);
+    const room = await apiCreateRoom(hostLogin.access_token);
+    const code = numberLikeRoomCode(testInfo.project.name);
+    dbSetRoomCode(room.id, code);
+    const shareData = await apiGetShareLink(room.id, hostLogin.access_token);
+    expect(shareData.public_id).toBe(code);
+    const joinerPage = await createPlayerPage(browser, accounts[1].email, accounts[1].password);
+    const joined = joinerPage.waitForResponse((r) => new URL(r.url()).pathname === "/api/v1/rooms/join" && r.request().method() === "PATCH");
+
+    // Act
+    await joinerPage.goto(`${FRONTEND_URL}/rooms/join?code=${code}&pin=${shareData.password}`);
+
+    // Assert — the join found the room (it answered 404 for "3e+182"), and the joiner is in the lobby
+    expect((await joined).status()).toBe(200);
+    await expect(joinerPage).toHaveURL(new RegExp(`/rooms/${room.id}$`), { timeout: 15_000 });
+    await expect(joinerPage.locator("text=Players (2)")).toBeVisible({ timeout: 15_000 });
+    const state = await apiGetRoomState(room.id, hostLogin.access_token);
+    expect(state.players.map((p) => p.user_id).sort()).toEqual([hostLogin.user.id, joinerLogin.user.id].sort());
 
     await joinerPage.context().close();
   });

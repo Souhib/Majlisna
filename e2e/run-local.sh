@@ -16,6 +16,7 @@
 #   ./run-local.sh -n 3           # the pre-push gate: 3 consecutive clean runs
 #   ./run-local.sh -n 1 --down    # run once, then tear the stack down
 #   ./run-local.sh --no-build     # reuse the images already built
+#   ./run-local.sh -w 4           # 4 Playwright workers (= E2E_WORKERS=4; default 2)
 #   ./run-local.sh -- --grep @x   # everything after `--` goes to playwright
 #
 # Exits non-zero on ANY failure. Retries are OFF, locally and in CI
@@ -39,8 +40,9 @@ while [ $# -gt 0 ]; do
     -n) RUNS="${2:?-n needs a count}"; shift 2 ;;
     --no-build) BUILD=0; shift ;;
     --down) TEARDOWN=1; shift ;;
+    -w) E2E_WORKERS="${2:?-w needs a count}"; export E2E_WORKERS; shift 2 ;;
     --) shift; PW_ARGS=("$@"); break ;;
-    -h|--help) sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -94,12 +96,16 @@ curl -sf "$FRONTEND_URL" >/dev/null 2>&1 || fail "frontend never became reachabl
 
 failed_runs=()
 for run in $(seq 1 "$RUNS"); do
-  step "Playwright run $run/$RUNS"
+  # E2E_WORKERS reaches playwright.config.ts through the environment (unset = its default, 2)
+  step "Playwright run $run/$RUNS (workers: ${E2E_WORKERS:-2})"
   out=$(mktemp)
+  started=$(date +%s)
   "${PW[@]}" test "${PW_ARGS[@]+"${PW_ARGS[@]}"}" 2>&1 | tee "$out"
   # Capture immediately: an enclosing `if` overwrites PIPESTATUS and can turn
   # failed Playwright runs into a green deployment gate.
   status=${PIPESTATUS[0]}
+  elapsed=$(( $(date +%s) - started ))
+  took="$(( elapsed / 60 ))m$(( elapsed % 60 ))s"
 
   # Belt and braces: `flaky` only appears when retries are enabled, which
   # playwright.config.ts never does; if someone turns them on, a rescued test
@@ -111,9 +117,9 @@ for run in $(seq 1 "$RUNS"); do
 
   if [ "$status" -ne 0 ]; then
     failed_runs+=("$run")
-    echo "  run $run FAILED"
+    echo "  run $run FAILED (${took})"
   else
-    echo "  run $run clean"
+    echo "  run $run clean (${took})"
   fi
   rm -f "$out"
 done

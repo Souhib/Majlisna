@@ -9,8 +9,10 @@ import { execFileSync } from "child_process";
  * already knew the word would type it.
  *
  * `execFileSync` with an argument list, not a shell string, so the SQL needs no shell
- * quoting. Use it for SELECTs; mutations go through the API like a player. The one
- * exception, `dbPlantPasswordResetToken`, stands in for the mail the stack never sends.
+ * quoting. Use it for SELECTs; mutations go through the API like a player. The three
+ * exceptions stand in for what the stack cannot do on demand: `dbPlantPasswordResetToken`
+ * for the mail it never sends, `dbMakeGoogleOnly` for a sign-in with Google, `dbSetRoomCode`
+ * for a room code the draw hands out once in a while.
  */
 
 const DB_CONTAINER = "majlisna-e2e-db";
@@ -138,6 +140,50 @@ export function dbMcqCorrectIndex(gameId: string): number {
 /** Whether an account row still exists. */
 export function dbUserExists(userId: string): boolean {
   return dbQuery(`SELECT count(*) FROM "user" WHERE id = ${sqlUuid(userId)}`) === "1";
+}
+
+/** How an account signs in, as stored: `auth_provider` ("email" = it has a password of its own) and its Google subject. */
+export function dbUserSignIn(userId: string): { auth_provider: string; google_sub: string | null } | null {
+  return dbQueryJson(`SELECT json_build_object('auth_provider', auth_provider, 'google_sub', google_sub) FROM "user" WHERE id = ${sqlUuid(userId)}`);
+}
+
+const GOOGLE_SUB = /^[0-9]{10,32}$/;
+
+/**
+ * The bcrypt hash of a random value thrown away when it was made: the password of an account
+ * created by "Continue with Google" is such a sentinel, one nobody ever saw.
+ */
+const SENTINEL_PASSWORD_HASH = "$2b$12$QeY7s.TjTWTQqmSiZ23gReE5NfNvrtVzpcTAU2m321zgNOqSTgTUO";
+
+/**
+ * Turn a freshly registered account into a Google-only one, the state "Continue with Google"
+ * creates: `auth_provider` google, a `google_sub`, a sentinel password. The second write this
+ * module makes: the stack's Google client id is a placeholder, so no sign-in with Google can
+ * complete here. Its sessions stay signed in, as a Google sign-in's would.
+ */
+export function dbMakeGoogleOnly(userId: string, googleSub: string): void {
+  if (!GOOGLE_SUB.test(googleSub)) throw new Error(`not a Google subject: ${googleSub}`);
+  const updated = dbQuery(`
+    UPDATE "user"
+    SET auth_provider = 'google', google_sub = '${googleSub}', password = '${SENTINEL_PASSWORD_HASH}'
+    WHERE id = ${sqlUuid(userId)}
+    RETURNING id`);
+  if (updated.split("\n").filter((line) => UUID.test(line)).length !== 1) throw new Error(`expected one account ${userId}, got: ${updated}`);
+}
+
+// ─── Rooms ──────────────────────────────────────────────────
+
+const ROOM_CODE = /^[0-9A-Z]{5}$/;
+
+/**
+ * Give a fresh room a code the server's draw could have given it (five of A-Z0-9), for a
+ * spec about a code of a rare shape: one that reads as a number, like 3E182, comes about
+ * once in 2,000 rooms. Fails loudly when another room holds the code (it is unique).
+ */
+export function dbSetRoomCode(roomId: string, code: string): void {
+  if (!ROOM_CODE.test(code)) throw new Error(`not a room code: ${code}`);
+  const updated = dbQuery(`UPDATE room SET public_id = '${code}' WHERE id = ${sqlUuid(roomId)} RETURNING id`);
+  if (updated.split("\n").filter((line) => UUID.test(line)).length !== 1) throw new Error(`expected one room ${roomId}, got: ${updated}`);
 }
 
 /** A user's password-reset tokens as stored: the sha256 digest of the link's token, never the token. */

@@ -1,10 +1,11 @@
 import { test, expect } from "@playwright/test";
 import { test as authTest } from "../../fixtures/auth.fixture";
+import { NO_SOCKET_REUSE } from "../../helpers/api-client";
 import { API_URL, ROUTES } from "../../helpers/constants";
 
 test.describe("Smoke Tests — Health", () => {
   test("backend health endpoint returns 200", async ({ request }) => {
-    const response = await request.get(`${API_URL}/health`);
+    const response = await request.get(`${API_URL}/health`, { headers: NO_SOCKET_REUSE });
     expect(response.ok()).toBeTruthy();
 
     const body = await response.json();

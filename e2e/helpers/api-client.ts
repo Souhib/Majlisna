@@ -13,6 +13,15 @@ export function apiFetch(input: string, init: RequestInit = {}): Promise<Respons
   return fetch(input, { ...init, keepalive: false });
 }
 
+/**
+ * The same rule for Playwright's own request client (`context.request`, `page.request`,
+ * the `request` fixture) when it calls the API: all of a worker's requests share one
+ * keep-alive agent, and a sign-in sent on a pooled socket uvicorn had just closed failed
+ * with "socket hang up" (8 workers, 2026-11-02). With this header the socket is closed
+ * after the answer instead of going back to the pool, so no later request can pick it up.
+ */
+export const NO_SOCKET_REUSE = { Connection: "close" } as const;
+
 // ─── Types ──────────────────────────────────────────────────
 
 export interface LoginResponse {

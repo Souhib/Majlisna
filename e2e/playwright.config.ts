@@ -6,6 +6,19 @@ dotenv.config({ path: path.resolve(__dirname, ".env.e2e") });
 
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3049";
 
+/**
+ * How many browsers run specs at once: E2E_WORKERS (`run-local.sh -w N`, and the CI job's
+ * `vars.E2E_WORKERS`), 2 when unset, which the one-core VPS runner needs. Anything but a
+ * positive integer stops the run: a typo silently falling back to 2 would make a timing
+ * comparison meaningless.
+ */
+function workerCount(): number {
+  const raw = process.env.E2E_WORKERS?.trim();
+  if (!raw) return 2;
+  if (!/^[1-9][0-9]*$/.test(raw)) throw new Error(`E2E_WORKERS must be a positive integer, got "${raw}"`);
+  return Number(raw);
+}
+
 export default defineConfig({
   testDir: "./tests",
   fullyParallel: true,
@@ -14,7 +27,7 @@ export default defineConfig({
   // so a retry could never turn a verdict green and only spent time. A flaky test is a
   // failing test.
   retries: 0,
-  workers: 2,
+  workers: workerCount(),
   globalTimeout: 3_600_000, // 60 minutes for full suite
   reporter: process.env.CI
     ? [["html", { open: "never" }], ["github"]]
@@ -49,6 +62,15 @@ export default defineConfig({
   globalSetup: "./global-setup.ts",
   globalTeardown: "./global-teardown.ts",
   projects: [
+    {
+      // FIRST, on purpose: Playwright hands tests out in this list's order, and the two
+      // disconnect-during-game tests wait out the real in-game grace (about 190 s each).
+      // Seventh in the list, they started 2.5 min into a 6-worker run, and every other
+      // worker sat idle for their last 1.7 min; started first, they run beside the rest.
+      name: "websocket",
+      testMatch: ["**/websocket/**"],
+      timeout: 120_000,
+    },
     {
       name: "non-game",
       testMatch: [
@@ -85,11 +107,6 @@ export default defineConfig({
     {
       name: "mcqquiz",
       testMatch: ["**/mcqquiz/**"],
-      timeout: 120_000,
-    },
-    {
-      name: "websocket",
-      testMatch: ["**/websocket/**"],
       timeout: 120_000,
     },
     {

@@ -82,6 +82,7 @@ api/
 │   ├── notebook.py    # NotebookEntry + NotebookGameType (the Kunnash)
 │   ├── daily_word.py  # DailyWord (one QuizWord per Makkah day) + DailyWordPlay (one per user per day)
 │   ├── room_ban.py    # RoomBan: a kicked player may not come back to that room (owner rule (c))
+│   ├── room_invite.py # RoomInvite: a friend's invite, stored, accepted by id without the PIN
 │   ├── auth_session.py # AuthSession (the tokens' `sid`) + revoke_user_sessions (SEC F01)
 │   ├── stats.py       # UserStats, AchievementDefinition, UserAchievement
 │   ├── error.py       # Game-specific error classes
@@ -188,7 +189,8 @@ Socket.IO is a **notification layer**, not a game engine. The flow is:
   has none), and every worker's tick (`audit_local_socket_memberships`) cuts, in ONE query,
   each local socket whose session is revoked, past `expires_at` or gone — off every channel
   first, then disconnected. The session was checked at connect only, so after a reset the
-  thief's open personal socket kept receiving the victim's invites (code and PIN). Test:
+  thief's open personal socket kept receiving the victim's invites (then code and PIN; an
+  invite is now its id, the code and the inviter). Test:
   `test_wp17_sessions.py::test_a_socket_opened_before_its_session_ended_is_cut_by_the_next_tick`.
 - Socket.IO `disconnect` marks the user as disconnected in DB (starts grace period). A background `disconnect_checker_loop` runs every 5s (`DISCONNECT_CHECK_INTERVAL_SECONDS`) to mark stale heartbeats (`HEARTBEAT_STALE_SECONDS`, 20 s) and permanently remove users past their grace period (`GRACE_PERIOD_SECONDS`, 180 s, in a running game; `LOBBY_GRACE_PERIOD_SECONDS`, 600 s, in the lobby; 45 min while the game is paused). Multi-tab connections are deduplicated via `_user_sids` dict; `connect` records the new SID BEFORE closing the old one, and a `disconnect` whose SID has been replaced does not mark the player away (a reload used to flash "away" until the next heartbeat). `join_game` validates user membership in the room and game ownership via DB queries. `you_were_kicked` event is emitted to `user:{user_id}` when the host kicks a player.
 - **Presence, the sweep and the sockets (WP-04, 2026-10 audit).** See "Departures, the sweep and the sockets" below: a return is announced to the room, one worker sweeps per tick, and every worker cuts its own sockets whose seat is gone.
@@ -296,9 +298,20 @@ async def submit_vote(self, game_id: UUID, ...):
   PIN (`notify_member_removed`); the lift route pushes `notify_room_changed`. That push is
   addressed to the members still listed (`notify.member_channel`), so a kicked socket held by
   another worker never hears the new PIN (review R2).
-- A friend invite carries the PIN of the moment it was sent (invites are not stored): an
-  invite sent before a kick names the old PIN, and the join page says the PIN may have
-  changed and asks for a new invite (review F1).
+- A friend invite is stored and carries no PIN ("Room invites: stored, accepted without the
+  PIN" below), so an invite sent before a kick still opens the room for anyone else, and the
+  kicked player's own invite answers 403 `roomBanned` (the ban is checked on accept). The
+  invites the kicked player SENT to the room are deleted in the kick's commit: an invite
+  opens the room without the PIN, so rotating the PIN alone left their friends a way in
+  (and the new PIN, read from the room state once seated). Their friend's strip answers 404
+  `roomInviteNotFound`. A member's invite stands, even one re-sent over the kicked player's
+  (the upsert takes the latest inviter). That DELETE runs BEFORE the new PIN is staged: a
+  statement autoflushes, and the room's UPDATE flushed before the game lock deadlocked with
+  the deciding vote (`test_disconnect_lock_postgres.py::test_a_kick_waiting_behind_the_deciding_vote_keeps_the_result`
+  caught it; see `_handle_permanent_disconnect`, "Lock order"). Any statement added to the
+  kick goes before the PIN too. A share LINK still carries the PIN of the moment it
+  was made: the join page says the PIN may have changed and asks for a new link or invite
+  (review F1).
 - Reuses `_handle_permanent_disconnect` from `disconnect.py` for game cleanup: the
   kicked player of a running game is a leaver (owner rule (b))
 - No auto-disconnect — players are only removed by explicit kick or leaving
@@ -693,6 +706,11 @@ sqlmodel's `AutoString`): a frozen revision depends on nothing that can move.
 `alembic_version`, its schema the baseline's (proven before the merge against a restore of
 its schema dump: identical, `alembic check` clean afterwards), stamped `0001_baseline`.
 Nothing is run by hand. (Adopted on 2026-11-01 at 23:57 UTC, deploy of 87998e4: one boot log line "Schema: adopted a database created before migrations … stamped at 0001_baseline", `alembic_version` = `0001_baseline`, data untouched.)
+
+**Revisions since the baseline**: `0002_room_invite` (`20261102_0002_room_invite.py`): the
+`room_invite` table ("Room invites: stored, accepted without the PIN"), additive only (a new
+empty table no earlier release reads). Its first production boot runs it: take the
+`pg_dump` first, as for every migration.
 
 **What autogenerate compares** (`schema.include_object`, used by `env.py`): everything, but
 the `POSTGRES_ONLY_INDEXES` (no model declares them) and a model's UNIQUE that repeats its
@@ -1212,6 +1230,25 @@ Tests: `tests/api/controllers/test_wp27_account_lifecycle.py`,
   `update_user_password(..., keep_session_id=request.state.session_id)` calls
   `revoke_user_sessions(..., except_session_id=)` in the change's commit; a caller on a
   legacy token (no `sid`) keeps none.
+- **"Change password" works for every account; `auth_provider` email means "has a password
+  of its own"** (2026-11-02, no schema change). `UserUpdatePassword` takes EXACTLY one of
+  `current_password` / `google_access_token` (neither or both: 422), and
+  `UserController._confirm_password_change` asks for the credential the account signs in
+  with: an account with a password (`has_own_password`) confirms with it, and a Google
+  token for it is `CurrentPasswordRequiredError` (403: on a shared computer Google's session
+  is often still open, the password is the stronger proof); a Google-only account confirms
+  with Google, verified as deletion does (`_confirm_with_google`: the audience check, 401
+  `invalidCredentials`; `sub` == `google_sub`, else 403 `GoogleAccountMismatchError`), and a
+  typed password for it is `GoogleConfirmationRequiredError` (403). `set_own_password`
+  hashes the password AND sets `auth_provider` email, `google_sub` kept: the very state of
+  an email account linked to Google, so `AuthController.login` (which refuses any account
+  `has_own_password` says no to) takes the password, and Google sign-in (found by
+  `google_sub`) still works. The reset uses it too: a Google-only account's "Forgot
+  password?" now sets a password the login accepts (it used to be stored, then refused). An
+  account reset before this keeps `auth_provider` google until it sets a password again.
+  `PATCH /users/{id}/password` is limited per user (`PASSWORD_CHANGE_RATE_LIMIT`,
+  `user_or_ip_key`): every try is a bcrypt check or a call to Google. Tests:
+  `tests/api/controllers/test_password_for_every_account.py`.
 - **`profile_picture_url` is Google's avatar CDN, bounded** (SEC F15):
   `models/user.avatar_url_is_allowed` — https, no userinfo, no explicit port, no
   backslash or whitespace, a plain-DNS host ending in `ALLOWED_AVATAR_HOST_SUFFIXES`, at
@@ -1774,10 +1811,65 @@ answered 500 (TQ-03). Tests: `test_auth.py::test_the_reset_token_is_stored_as_it
   otherwise). Tests: `tests/api/routes/test_stats.py::test_anonymous_stats_read_writes_nothing`,
   `::test_anonymous_stats_read_for_an_unknown_user_is_a_404`.
 
+### Room invites: stored, accepted without the PIN
+
+A friend's invite used to be a Socket.IO push carrying the room's code AND PIN, stored
+nowhere; a kick rotates the PIN (owner rule (c)), so an invite sent before a kick opened a
+join that was refused. It is now a row, `RoomInvite` (`models/room_invite.py`, table
+`room_invite`, migration `0002_room_invite`): `room_id`, `inviter_id`, `invitee_id`,
+`created_at` / `updated_at`, `expires_at` (all UTC-aware; SQLite reads them back naive,
+compare through `controllers/auth.utc_instant`).
+
+- **Inviting** (`RoomController.invite_friend_to_room`, same checks as before: the inviter
+  connected in the room, the invitee a friend not connected in it) upserts on the unique
+  pair `uq_room_invite_room_invitee` (`INSERT … ON CONFLICT DO UPDATE`): one live invite per
+  (room, invitee), a re-invite keeps the id and takes the latest inviter and a full
+  `ROOM_INVITE_LIFETIME_MINUTES` (30) again, so a strip already on the friend's screen still
+  opens it. It first deletes every expired invite (anyone's). `RoomInviteResponse.invite`
+  is the `RoomInviteView` `{id, room_id, public_id, invited_by, expires_at}` the route hands to
+  `notify_room_invite`, which emits exactly that (no room read, never the PIN).
+- **Accepting** (`POST /rooms/invites/{invite_id}/accept` → `accept_invite`, RoomView, then
+  `notify_room_changed` like a join; `ROOM_JOIN_RATE_LIMIT` per user, its own bucket — a
+  `shared_limit` with the fixed scope `ROOM_INVITE_ACCEPT_RATE_LIMIT_SCOPE`, because a plain
+  limit counts per path and the path names the invite: each made-up id bought a fresh
+  budget): the invite row is read `FOR UPDATE` for the caller (someone else's, unknown,
+  spent or revoked by a kick → `RoomInviteNotFoundError` 404), then `expires_at`
+  (`RoomInviteExpiredError` 410), the room
+  ACTIVE (`RoomNotFoundError`), `_ensure_not_banned` (403), `_ensure_not_seated_elsewhere`
+  (409, the invite stays so the client can leave and accept again), then `_take_seat` — the
+  same seat code as `join_room` (reconnection included), which deletes the invites the
+  player holds to that room in the seat's commit. A join with the code and PIN spends them
+  too. The row lock is what makes two tabs accepting at once seat the player once (the
+  second answers 404); without it the second insert of the seat's unique pair was a 500.
+  There is no room capacity at join (game starts bound the player count), so none here.
+- **Reading**: `GET /rooms/invites` (`list_invites`, declared before `GET /rooms/{room_id}`)
+  → the caller's live invites (not expired, ACTIVE room), newest `expires_at` first, at
+  most `ROOM_INVITE_LIST_LIMIT`: the app shell's strip shows an invite sent while the page
+  was closed, and re-reads it after a socket reconnect.
+- **Purges** (no FK declares ON DELETE): `_purge_user_references` deletes the invites a user
+  sent or received; `delete_room` deletes the room's; `kick_player` deletes the invites the
+  kicked player sent to that room (in the kick's commit, with the ban and the new PIN);
+  `scripts/purge_seed_data.py` deletes those of the rooms it removes. A room deactivated
+  otherwise (its last member left) keeps its rows until they expire: accepting answers
+  `RoomNotFoundError`, `list_invites` leaves them out, and the next invite issued purges
+  them once expired. An expired invite likewise stays in the table until then: the list's
+  `expires_at` filter is what hides it.
+- A ban is not checked when inviting (a member may not know of it); it is on accepting. A
+  lifted ban makes a still-live invite usable again, like the room's current PIN.
+- Tests: `tests/api/controllers/test_room_invites.py` (stored without the PIN, refresh,
+  expired purge, accept after a kick, the kicked player's sent invites revoked, a kicked
+  player's old invite, someone else's, expired, closed and deactivated rooms, seated
+  elsewhere then leave and accept, a link join spends it, the live list (its expiry and
+  ACTIVE filters each tested with the rows still present), account deletion both ways, and
+  two concurrent accepts, postgres), `tests/api/routes/test_room.py` (routes, error keys,
+  the per-user accept limit, a new invite id per call),
+  `tests/api/ws/test_notify.py::test_notify_room_invite_names_the_stored_invite_and_never_the_pin`,
+  `tests/scripts/test_purge_seed_data.py`.
+
 ### One live room at a time, and only a live room blocks
 
 `RoomController._ensure_not_seated_elsewhere` is the one rule, called by `create_room`,
-`join_room` and `join_room_as_spectator`: a user CONNECTED in another ACTIVE room gets
+`join_room`, `join_room_as_spectator` and `accept_invite`: a user CONNECTED in another ACTIVE room gets
 `UserAlreadyInRoomError` (409, `details.room_id` = that room, so the client can offer
 "leave it and join"). Only `create_room` used to check it, so a share link seated a
 player in room B while room A's host could still deal them into a game they never saw
@@ -2159,6 +2251,14 @@ as often as they liked). A client fires timer-expired once per timer window and 
 after 15 s at most (`PhaseTimer`), and treats a failed call as best-effort, so the limits
 never bind on an honest page. Tests: `tests/api/routes/test_wp11_game_route_limits.py`. There is deliberately no per-room failed-PIN counter: rotating the PIN on
 failures would let anyone break a room's share link.
+
+**A plain `@limiter.limit` is counted per request PATH, not per route.** slowapi's
+`key_style` defaults to `"url"`, so the bucket is (key, path): a path parameter splits the
+budget, one per value. That is harmless where the value is pinned (a game id the caller
+plays in, their own user id) and a hole where the caller names any value at will: the
+invite accept (`/rooms/invites/{invite_id}/accept`) gave a fresh budget to every made-up
+id. Such a route takes `@limiter.shared_limit(..., scope=<a constant>)`
+(`ROOM_INVITE_ACCEPT_RATE_LIMIT_SCOPE`), and its test sends a different path each call.
 
 ### The prayer pause (وقفة الصلاة): no move, no clock, nothing lost
 

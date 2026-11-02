@@ -369,6 +369,11 @@ jobs:
         run: ./run-local.sh -n 1
         env:
           CI: true
+          # Playwright workers (playwright.config.ts): the repository variable E2E_WORKERS on
+          # the x86_64 home runner, 2 otherwise. The one-core ARM64 VPS runner keeps 2 even
+          # while the variable is set, so deleting E2E_RUNS_ON (the home server is down) is
+          # enough to fall back safely; unset, every runner runs 2.
+          E2E_WORKERS: ${{ runner.arch == 'X64' && vars.E2E_WORKERS || 2 }}
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@v4

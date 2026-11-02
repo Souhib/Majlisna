@@ -894,6 +894,11 @@ the page sat on "Joining room…". The promise from `mutateAsync` always settles
   initializer), then `history.replaceState` drops them, keeping the router's history state,
   before the join is sent: the PIN used to stay in the browser history and in every analytics
   page view (SEC F06).
+- **The code arrives as the link wrote it.** A share link is written by hand, so nothing quotes
+  its values, and the router's default parser (JSON) read a code like 3E182 as the number
+  3e+182 (about one room in 2,000: digits, E, digits): the link opened no room. The router's
+  `parseSearch` (`lib/search-params.ts`, set in `main.tsx`) keeps any number that would not
+  come back as written as its text; what the router writes itself reads back as before.
 - **One room at a time.** A player seated in another room gets a 409
   (`errors.api.userAlreadyInRoom`): the page says `room.joinPage.alreadyInRoom` and offers
   "Leave {{room}} and join" (`components/rooms/use-join-room.ts`, shared with the lobby's
@@ -905,9 +910,26 @@ the page sat on "Joining room…". The promise from `mutateAsync` always settles
   "Check the code and PIN with your host" for a ban and a seat elsewhere (review F2). One
   rule picks the repair: `components/rooms/errors.joinRepairFor(errorKey)` (`useJoinRoom`
   exposes `errorKey`).
-- **A refused PIN may be an old one.** Every kick rotates the PIN, and a link or a friend's
-  invite keeps the PIN it was made with: `errors.api.wrongRoomPassword` is followed by
-  `room.joinPage.pinChangedRepair` ("ask the host for a new link or invite", review F1).
+- **A refused PIN may be an old one.** Every kick rotates the PIN, and a share link keeps the
+  PIN it was made with: `errors.api.wrongRoomPassword` is followed by
+  `room.joinPage.pinChangedRepair` ("ask the host for a new link or invite", review F1). A
+  friend's invite no longer goes through this page: it is stored on the server and accepted
+  by id, without the PIN ("Friend invites" below).
+- **Friend invites** (`components/rooms/RoomInviteStrip.tsx`, `use-room-invites.ts`,
+  `useAcceptInvite` in `use-join-room.ts`). The strip accepts the invite itself (`POST
+  /rooms/invites/{id}/accept`, no code, no PIN in any URL), then the shell opens the lobby. A
+  refusal that holds is said on the strip in the server's words (403 `roomBanned`, 410
+  `roomInviteExpired`, 404 `roomInviteNotFound` — spent, or its sender was kicked — 404
+  `roomNotFound`, `data-testid="room-invite-error"`) and then only Close is offered: that list
+  is `errors.isFinalInviteRefusal`, an allow-list, because every error answer carries an
+  `error_key`, a 429 or a 500 too, and Close hides the invite for good (review F3); 409
+  `userAlreadyInRoom` offers "Leave {{room}} and join" (the same `useSeatRequest` as the join
+  page); any other failure (429, 5xx, no answer) is said and keeps Join. The shell shows the
+  latest pushed invite (`room_invite` = `RoomInviteView`), else the newest of `GET
+  /rooms/invites` (keyed by viewer; re-read after the personal socket reconnects). An
+  answered invite (Not now, Close, seated) is remembered by id with its `expires_at`: a
+  re-invite keeps the id and moves the expiry, so it shows again. The strip is keyed by
+  `id@expires_at`, so a new invite starts with a fresh Join.
 - **`useJoinRoom` tracks its own in-flight join** (`busy`), never `joinMutation.isPending`:
   StrictMode's mount, unmount, mount detaches the mutation observer of the join sent at
   mount, and the "Leave {{room}} and join" offer stayed busy for ever under `bun dev`
@@ -946,10 +968,11 @@ changes its text**, in the three languages, with a new "updated" date:
   a game (`majlisna-riddle:<room>:<scope>`, `privacy.sections[3].body[2]`);
 - Google: sign-in only; Google's script loads on the sign-in and sign-up pages (the
   provider is mounted by `GoogleLoginButton`, see "Google sign-in" below) and in the open
-  deletion dialog of a Google account, where it confirms the deletion, and profile pictures
-  come from Google's servers (`privacy.sections[6].body[0]`); deletion is confirmed with the
-  password or with Google (`privacy.sections[8].body[0]`), so Google accounts no longer write in
-  to delete;
+  deletion dialog and password form of a Google account, where it confirms the deletion or the
+  new password, and profile pictures come from Google's servers (`privacy.sections[6].body[0]`);
+  a Google-created account has no password until it sets one, confirmed with Google, then signs
+  in either way (`privacy.sections[0].body[1]`); deletion is confirmed with the password or with
+  Google (`privacy.sections[8].body[0]`), so Google accounts no longer write in to delete;
 - Umami events carry no identifier, and page views no query string (`data-exclude-search` in
   index.html's bootstrap: the URLs carry reset and verification tokens and a room's code and
   PIN, SEC F06); error reports go only to the self-hosted error tracker,
@@ -1332,7 +1355,8 @@ answer of the room's running quiz, 409 while another game is played: backend/CLA
 - **Sockets read the token at each (re)connect** (`auth: (cb) => cb({ token: … })`) and,
   refused, connect again when `onTokenStored` fires (AuthProvider's refresh): socket.io-client
   never retries a refused handshake. The app shell's personal socket (`_auth.tsx`) carries
-  no `room_id` and receives friends' invites (`RoomInviteStrip`).
+  no `room_id` and receives friends' invites (`RoomInviteStrip`): the stored invite's id,
+  code and inviter, never the PIN.
 - **No `/auth/me` probe without a stored session** (`hasStoredSession`): a logged-out
   visitor's page load spent a 401 on it.
 - **The host's game pick is the room's**: the lobby's tabs call `PATCH /rooms/{id}/settings
@@ -1380,6 +1404,20 @@ only, and is removed when they unmount.
   `profile.deleteAccountGoogleFailed`; a closed popup says nothing. `GoogleIcon` is exported for
   such buttons. Test: `components/profile/__tests__/DeleteAccount.test.tsx` (the real
   `@react-oauth/google` over a stand-in `window.google`).
+- **"Change password" works for every account** (`components/profile/ChangePassword.tsx`,
+  mounted in the profile's Account panel): the form reads `/auth/me` once "Change password"
+  is pressed. An account with a password types its current one. A Google-only account
+  (`auth_provider` "google") reads `profile.passwordGoogleIntro`, chooses a password, and the
+  form's submit is "Confirm with Google" (the password is checked first, then Google is asked),
+  sending `{ new_password, google_access_token }`; the provider sits inside the open form only.
+  Both forms ask Google through `useGoogleConfirmation` (`components/profile/use-google-confirmation.ts`,
+  with `GOOGLE_PROVIDER`). The PATCH answers the account, written into the `/auth/me` query
+  (`auth_provider` is "email" from then on: the account signs in with the password AND with
+  Google), so this form and the deletion dialog ask for the password afterwards; the toast says
+  `profile.passwordSet`. A build without a client id offers the emailed reset link
+  (`profile.passwordSetByEmail` → /auth/forgot-password), which sets a usable password too.
+  `escapeTo` and `FormActions` live in `components/profile/form-parts.tsx`. Test:
+  `components/profile/__tests__/ChangePassword.test.tsx`.
 - Tests: `components/auth/__tests__/auth.test.tsx` renders the real pages with and without an
   id (no button mock), and `i18n/__tests__/detection.test.tsx` checks the shell on /, /about
   and a game page loads no Google script.

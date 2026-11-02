@@ -1,5 +1,5 @@
 import { test as base, expect, type Browser, type BrowserContext, type Page } from "@playwright/test";
-import { type LoginResponse } from "../helpers/api-client";
+import { NO_SOCKET_REUSE, type LoginResponse } from "../helpers/api-client";
 import { API_URL, TEST_ADMIN, TEST_USER, STORAGE_KEYS, FRONTEND_URL } from "../helpers/constants";
 
 /** The first-visit language picker, dismissed for every context. */
@@ -20,7 +20,7 @@ export const FIRST_VISIT_STORAGE = {
  * session.
  */
 export async function signInContext(context: BrowserContext, email: string, password: string): Promise<LoginResponse> {
-  const response = await context.request.post(`${API_URL}/api/v1/auth/login`, { data: { email, password } });
+  const response = await context.request.post(`${API_URL}/api/v1/auth/login`, { data: { email, password }, headers: NO_SOCKET_REUSE });
   expect(response.status(), await response.text()).toBe(200);
   return (await response.json()) as LoginResponse;
 }
