@@ -564,9 +564,9 @@ class _Removal(NamedTuple):
 async def _handle_permanent_disconnect(session: AsyncSession, link: RoomUserLink) -> None:
     """A member leaves the room for good: the leave, kick and grace-sweep path, and account deletion.
 
-    Signature kept on purpose: ``RoomController.kick_player`` / ``leave_room`` and the
-    account deletion (``UserController``) call it. It commits ONCE, the caller's staged
-    writes included (the kick's ban and new PIN).
+    Signature kept on purpose: ``RoomController.kick_player`` / ``ban_player`` /
+    ``leave_room`` and the account deletion (``UserController``) call it. It commits ONCE,
+    the caller's staged writes included (the ban's RoomBan, deleted invites and new PIN).
 
     **Lock order.** It takes the lock of the room's active game BEFORE reading the
     game (BR-04), and nothing else. A caller may hold the room lock (``room:{id}``,

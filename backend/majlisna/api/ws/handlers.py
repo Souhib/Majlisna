@@ -68,8 +68,8 @@ async def _connect_personal(sid: str, token: str) -> None:
 async def _seated_members(session: AsyncSession, pairs: Collection[tuple[UUID, UUID]]) -> set[tuple[UUID, UUID]]:
     """Which of these (user, room) pairs hold a seat and no ban — ONE statement for all of them.
 
-    A seat is a ``RoomUserLink``; a ``RoomBan`` (owner rule (c): a kick bans for the
-    room's lifetime) voids it. The query reads the cross product of the users and rooms
+    A seat is a ``RoomUserLink``; a ``RoomBan`` (the host's ban, not a plain kick) voids
+    it. The query reads the cross product of the users and rooms
     asked about and keeps the asked pairs only.
     """
     if not pairs:

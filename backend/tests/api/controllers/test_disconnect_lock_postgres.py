@@ -94,14 +94,21 @@ async def _hold_the_game_lock(session: AsyncSession, game_id: str) -> None:
     await session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": _game_id_to_lock_key(game_id)})  # ty: ignore[deprecated]
 
 
-async def _kick_in_its_own_request(engine: AsyncEngine, room_id: UUID, host_id: UUID, kicked_id: str) -> None:
-    """The kick as one request: its own session, closed (rolled back) if it fails.
+async def _kick_in_its_own_request(
+    engine: AsyncEngine, room_id: UUID, host_id: UUID, kicked_id: str, how: str = "kick"
+) -> None:
+    """The kick (or the ban, ``how="ban"``) as one request: its own session, closed (rolled
+    back) if it fails.
 
-    A failing kick must end its transaction like a request does, or a row lock it took
+    A failing removal must end its transaction like a request does, or a row lock it took
     would hold the vote below forever instead of making the test fail.
     """
     async with AsyncSession(engine, expire_on_commit=False) as kick_session:
-        await RoomController(kick_session).kick_player(room_id, host_id, UUID(kicked_id))
+        controller = RoomController(kick_session)
+        if how == "kick":
+            await controller.kick_player(room_id, host_id, UUID(kicked_id))
+        else:
+            await controller.ban_player(room_id, host_id, UUID(kicked_id))
 
 
 # ─── BR-04: a departure never overwrites a move committed while it waited ──
@@ -136,10 +143,16 @@ async def test_a_kick_waiting_for_the_lock_keeps_the_vote_committed_meanwhile(en
 
 
 @pytest.mark.asyncio
-async def test_a_kick_waiting_behind_the_deciding_vote_keeps_the_result(engine: AsyncEngine):
-    """The vote that decides the game commits while a kick waits: the game stays FINISHED with its winner."""
+@pytest.mark.parametrize("how", ["kick", "ban"])
+async def test_a_kick_waiting_behind_the_deciding_vote_keeps_the_result(engine: AsyncEngine, how: str):
+    """The vote that decides the game commits while a kick (or a ban) waits: the game stays FINISHED with its winner.
+
+    The ban's own statements (the RoomBan, the invites) and its new PIN are staged before the
+    departure; the room's UPDATE must not be flushed before the game lock, or it deadlocks
+    with this vote, which finishes the game and writes the room row.
+    """
     # Prepare — 1 undercover, 3 civilians; everyone but one voter has voted the undercover out
-    users, room, game_id = await _undercover_at_the_vote(engine, "fin", num_players=4)
+    users, room, game_id = await _undercover_at_the_vote(engine, f"fin{how}", num_players=4)
     host = users[0]
     players = (await _fresh_game(engine, game_id)).live_state["players"]
     undercover = next(p for p in players if p["role"] == "undercover")
@@ -157,7 +170,7 @@ async def test_a_kick_waiting_behind_the_deciding_vote_keeps_the_result(engine: 
     # Act
     async with AsyncSession(engine, expire_on_commit=False) as vote_session:
         await _hold_the_game_lock(vote_session, game_id)
-        kick = asyncio.create_task(_kick_in_its_own_request(engine, room.id, host.id, kicked["user_id"]))
+        kick = asyncio.create_task(_kick_in_its_own_request(engine, room.id, host.id, kicked["user_id"], how))
         await asyncio.sleep(LOCK_WAIT_SECONDS)
         assert not kick.done(), "the kick must be waiting for the game lock"
         decided = await UndercoverGameController(vote_session).submit_vote(

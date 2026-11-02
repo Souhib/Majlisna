@@ -16,6 +16,8 @@ from majlisna.api.models.table import Room, User
 from majlisna.api.rate_limit import limiter
 from majlisna.api.schemas.common import StatusResponse
 from majlisna.api.schemas.error import (
+    CannotBanYourselfError,
+    InviteeBannedError,
     NotRoomHostError,
     RoomBannedError,
     RoomBanNotFoundError,
@@ -1097,8 +1099,9 @@ def test_lifting_an_absent_ban_answers_404(test_app: FastAPI, client: TestClient
         test_app.dependency_overrides.clear()
 
 
-def test_a_kick_detaches_the_socket_before_the_new_pin_is_pushed(test_app: FastAPI, client: TestClient) -> None:
-    """The kicked player is told and detached BEFORE the room_state carrying the new PIN goes out."""
+def test_a_kick_tells_the_player_it_was_no_ban_then_detaches_then_pushes(test_app: FastAPI, client: TestClient) -> None:
+    """The kicked player is told (``banned`` false: they may come back) and detached; then the
+    other members are told it was a kick (their activity line), and only then the room_state."""
     # Prepare
     room_id, target_id = uuid4(), uuid4()
     order: list[str] = []
@@ -1108,18 +1111,18 @@ def test_a_kick_detaches_the_socket_before_the_new_pin_is_pushed(test_app: FastA
     )
     test_app.dependency_overrides[get_current_user] = lambda: User(id=uuid4(), username="h", email_address="h@test.com")
     test_app.dependency_overrides[get_room_controller] = lambda: controller
+    told = AsyncMock(side_effect=lambda *_, **__: order.append("told"))
+    room_told = AsyncMock(side_effect=lambda *_, **__: order.append("room_told"))
 
     try:
         with (
             patch("majlisna.api.routes.room.get_active_game_id", AsyncMock(return_value=None)),
-            patch(
-                "majlisna.api.routes.room.notify_user_kicked",
-                AsyncMock(side_effect=lambda *_: order.append("told")),
-            ),
+            patch("majlisna.api.routes.room.notify_user_kicked", told),
             patch(
                 "majlisna.api.routes.room.remove_user_from_room_socket",
                 AsyncMock(side_effect=lambda *_: order.append("detached")),
             ),
+            patch("majlisna.api.routes.room.notify_member_removed_by_host", room_told),
             patch(
                 "majlisna.api.routes.room.notify_member_removed",
                 AsyncMock(side_effect=lambda *_: order.append("room_state")),
@@ -1130,7 +1133,103 @@ def test_a_kick_detaches_the_socket_before_the_new_pin_is_pushed(test_app: FastA
 
         # Assert
         assert response.status_code == 200
-        assert order == ["kick", "told", "detached", "room_state"]
+        assert order == ["kick", "told", "detached", "room_told", "room_state"]
+        told.assert_awaited_once_with(str(target_id), str(room_id), banned=False)
+        room_told.assert_awaited_once_with(str(room_id), str(target_id), banned=False)
+    finally:
+        test_app.dependency_overrides.clear()
+
+
+# ========== POST /rooms/{id}/bans ==========
+
+
+def test_a_ban_answers_201_with_the_ban_and_detaches_before_the_new_pin_is_pushed(
+    test_app: FastAPI, client: TestClient
+) -> None:
+    """POST /rooms/{id}/bans: the game read first, the ban, the player told it is a ban and
+    detached, the other members told it was a ban, and only then the room_state carrying the
+    new PIN. The answer is the ban."""
+    # Prepare
+    room_id, host_id, target_id = uuid4(), uuid4(), uuid4()
+    banned_at = datetime.now(UTC)
+    order: list[str] = []
+    controller = Mock(spec=RoomController)
+    controller.ban_player = AsyncMock(
+        side_effect=lambda *_: (
+            order.append("ban") or RoomBanView(user_id=target_id, username="troll", banned_at=banned_at)
+        )
+    )
+    test_app.dependency_overrides[get_current_user] = lambda: User(id=host_id, username="h", email_address="h@test.com")
+    test_app.dependency_overrides[get_room_controller] = lambda: controller
+    told = AsyncMock(side_effect=lambda *_, **__: order.append("told"))
+    room_told = AsyncMock(side_effect=lambda *_, **__: order.append("room_told"))
+    pushed = AsyncMock(side_effect=lambda *_: order.append("room_state"))
+
+    try:
+        with (
+            patch(
+                "majlisna.api.routes.room.get_active_game_id",
+                AsyncMock(side_effect=lambda _room_id: order.append("lookup") or "game-1"),
+            ),
+            patch("majlisna.api.routes.room.notify_user_kicked", told),
+            patch(
+                "majlisna.api.routes.room.remove_user_from_room_socket",
+                AsyncMock(side_effect=lambda *_: order.append("detached")),
+            ),
+            patch("majlisna.api.routes.room.notify_member_removed_by_host", room_told),
+            patch("majlisna.api.routes.room.notify_member_removed", pushed),
+        ):
+            # Act
+            response = client.post(f"{BASE_URL}/{room_id}/bans", json={"user_id": str(target_id)})
+
+        # Assert
+        assert response.status_code == 201
+        body = response.json()
+        assert (body["user_id"], body["username"]) == (str(target_id), "troll")
+        assert datetime.fromisoformat(body["banned_at"]) == banned_at
+        assert order == ["lookup", "ban", "told", "detached", "room_told", "room_state"]
+        controller.ban_player.assert_awaited_once_with(room_id, host_id, target_id)
+        told.assert_awaited_once_with(str(target_id), str(room_id), banned=True)
+        room_told.assert_awaited_once_with(str(room_id), str(target_id), banned=True)
+        pushed.assert_awaited_once_with(str(room_id), "game-1")
+    finally:
+        test_app.dependency_overrides.clear()
+
+
+@pytest.mark.parametrize(
+    ("error", "status", "key"),
+    [
+        (NotRoomHostError(), 403, "errors.api.notRoomHost"),
+        (CannotBanYourselfError(), 400, "errors.api.cannotBanYourself"),
+        (UserNotInRoomError(user_id=uuid4(), room_id=uuid4()), 404, "errors.api.userNotInRoom"),
+    ],
+)
+def test_a_refused_ban_answers_its_error_and_notifies_nobody(
+    test_app: FastAPI, client: TestClient, error: Exception, status: int, key: str
+) -> None:
+    """Host only, never yourself, a seated player only: nothing told, nothing pushed."""
+    # Prepare
+    controller = Mock(spec=RoomController)
+    controller.ban_player = AsyncMock(side_effect=error)
+    test_app.dependency_overrides[get_current_user] = lambda: User(id=uuid4(), username="m", email_address="m@test.com")
+    test_app.dependency_overrides[get_room_controller] = lambda: controller
+
+    try:
+        with (
+            patch("majlisna.api.routes.room.get_active_game_id", AsyncMock(return_value=None)),
+            patch("majlisna.api.routes.room.notify_user_kicked", new_callable=AsyncMock) as told,
+            patch("majlisna.api.routes.room.notify_member_removed_by_host", new_callable=AsyncMock) as room_told,
+            patch("majlisna.api.routes.room.notify_member_removed", new_callable=AsyncMock) as pushed,
+        ):
+            # Act
+            response = client.post(f"{BASE_URL}/{uuid4()}/bans", json={"user_id": str(uuid4())})
+
+        # Assert
+        assert response.status_code == status
+        assert response.json()["error_key"] == key
+        told.assert_not_awaited()
+        room_told.assert_not_awaited()
+        pushed.assert_not_awaited()
     finally:
         test_app.dependency_overrides.clear()
 
@@ -1159,6 +1258,28 @@ def test_the_invite_route_pushes_the_stored_invite_to_the_friend(test_app: FastA
         assert response.json()["invite"]["id"] == str(invite.id)
         controller.invite_friend_to_room.assert_awaited_once_with(room_id, host_id, friend_id)
         notify.assert_awaited_once_with(str(friend_id), invite)
+    finally:
+        test_app.dependency_overrides.clear()
+
+
+def test_inviting_a_banned_friend_answers_403_and_pushes_nothing(test_app: FastAPI, client: TestClient) -> None:
+    """InviteeBannedError → 403 errors.api.inviteeBanned (the inviter's dialog says why); no push."""
+    # Prepare
+    room_id, friend_id = uuid4(), uuid4()
+    controller = Mock(spec=RoomController)
+    controller.invite_friend_to_room = AsyncMock(side_effect=InviteeBannedError(room_id=room_id, user_id=friend_id))
+    test_app.dependency_overrides[get_current_user] = lambda: User(id=uuid4(), username="m", email_address="m@test.com")
+    test_app.dependency_overrides[get_room_controller] = lambda: controller
+
+    try:
+        with patch("majlisna.api.routes.room.notify_room_invite", new_callable=AsyncMock) as notify:
+            # Act
+            response = client.post(f"{BASE_URL}/{room_id}/invite", json={"friend_user_id": str(friend_id)})
+
+        # Assert
+        assert response.status_code == 403
+        assert response.json()["error_key"] == "errors.api.inviteeBanned"
+        notify.assert_not_awaited()
     finally:
         test_app.dependency_overrides.clear()
 

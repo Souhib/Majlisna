@@ -28,8 +28,8 @@ def mock_fetch_room_state():
 async def test_notify_room_changed_emits_to_room(mock_sio, mock_fetch_room_state):  # noqa: ARG001
     """Room state goes to the channel of each member the state lists, in one emit — never to room:{id}.
 
-    room:{id} still holds a kicked member's socket on another worker until that worker's
-    audit tick, and the room state carries the PIN the kick has just rotated.
+    room:{id} still holds a removed member's socket on another worker until that worker's
+    audit tick, and the room state carries the PIN a ban has just rotated.
     """
     await notify_room_changed("room-abc")
 

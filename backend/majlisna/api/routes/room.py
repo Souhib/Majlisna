@@ -14,6 +14,7 @@ from majlisna.api.rate_limit import limiter, user_or_ip_key
 from majlisna.api.schemas.common import StatusResponse
 from majlisna.api.schemas.room import (
     ActiveRoomResponse,
+    BanPlayerRequest,
     JoinSpectatorRequest,
     KickPlayerRequest,
     KickPlayerResponse,
@@ -32,6 +33,7 @@ from majlisna.api.ws.handlers import remove_user_from_room_socket
 from majlisna.api.ws.notify import (
     get_active_game_id,
     notify_member_removed,
+    notify_member_removed_by_host,
     notify_room_changed,
     notify_room_invite,
     notify_user_kicked,
@@ -178,14 +180,41 @@ async def kick_player(
     current_user: Annotated[User, Depends(get_current_user)],
     room_controller: RoomController = Depends(get_room_controller),
 ) -> KickPlayerResponse:
-    """Kick a player from the room. Host only. Bans them from the room and rotates the PIN."""
+    """Remove a player who left without quitting. Host only. No ban and no new PIN: they may
+    come back with the code and PIN, or through an invite (the ban is ``POST /{room_id}/bans``)."""
     # read before the kick, which can end the game (see notify_member_removed)
     game_id = await get_active_game_id(str(room_id))
     result = await room_controller.kick_player(room_id, current_user.id, body.user_id)
-    await notify_user_kicked(str(body.user_id), str(room_id))
+    await notify_user_kicked(str(body.user_id), str(room_id), banned=False)
+    await remove_user_from_room_socket(str(body.user_id), str(room_id))
+    # before the room state: the members' activity line says "removed", not "left"
+    await notify_member_removed_by_host(str(room_id), str(body.user_id), banned=False)
+    # the room, and its game: a kicked player is eliminated from it
+    await notify_member_removed(str(room_id), game_id)
+    return result
+
+
+# The ban is a resource of the room's bans, beside their list (GET) and their lift
+# (DELETE /{room_id}/bans/{user_id}): creating one is a POST to the collection.
+@router.post("/{room_id}/bans", status_code=HTTP_201_CREATED)
+async def ban_player(
+    room_id: UUID,
+    body: BanPlayerRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+    room_controller: RoomController = Depends(get_room_controller),
+) -> RoomBanView:
+    """Ban a seated player. Host only. Removes them like a kick, keeps them out until lifted
+    (join, spectate, invites), deletes the room's invites they sent or were sent, and rotates
+    the PIN."""
+    # read before the ban, which can end the game (see notify_member_removed)
+    game_id = await get_active_game_id(str(room_id))
+    result = await room_controller.ban_player(room_id, current_user.id, body.user_id)
+    await notify_user_kicked(str(body.user_id), str(room_id), banned=True)
     # Detached BEFORE the push below: that room_state carries the new PIN.
     await remove_user_from_room_socket(str(body.user_id), str(room_id))
-    # the room (the new PIN at once in the host's lobby), and its game: a kicked
+    # before the room state: the members' activity line says "banned", not "left"
+    await notify_member_removed_by_host(str(room_id), str(body.user_id), banned=True)
+    # the room (the new PIN at once in the host's lobby), and its game: a banned
     # player is eliminated from it
     await notify_member_removed(str(room_id), game_id)
     return result
@@ -197,7 +226,7 @@ async def list_room_bans(
     current_user: Annotated[User, Depends(get_current_user)],
     room_controller: RoomController = Depends(get_room_controller),
 ) -> list[RoomBanView]:
-    """The players the host kicked from this room (banned for its lifetime). Host only."""
+    """The players the host banned from this room (a kick is not listed). Host only."""
     return await room_controller.list_bans(room_id, current_user.id)
 
 
@@ -248,7 +277,8 @@ async def invite_friend_to_room(
     current_user: Annotated[User, Depends(get_current_user)],
     room_controller: RoomController = Depends(get_room_controller),
 ) -> RoomInviteResponse:
-    """Invite a friend to the room: the invite is stored and pushed to them, without the PIN."""
+    """Invite a friend to the room: the invite is stored and pushed to them, without the PIN.
+    A friend the host banned from the room is refused (403 ``inviteeBanned``)."""
     result = await room_controller.invite_friend_to_room(room_id, current_user.id, body.friend_user_id)
     await notify_room_invite(str(body.friend_user_id), result.invite)
     return result

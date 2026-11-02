@@ -1,9 +1,13 @@
 """A friend's invite to a room, kept on the server so that it needs no PIN.
 
-The invite used to be a Socket.IO push carrying the room's code AND PIN, stored nowhere: a
-kick rotates the PIN (owner rule (c)), so an invite sent before a kick opened a join that
-was refused. Now the push names this row, and ``RoomController.accept_invite`` seats the
-invitee without the PIN, through the join path (ban, one room at a time).
+The invite used to be a Socket.IO push carrying the room's code AND PIN, stored nowhere:
+the PIN rotates (then on a kick, now on a ban), so an invite sent before it opened a join
+that was refused. Now the push names this row, and ``RoomController.accept_invite`` seats
+the invitee without the PIN, through the join path (ban, one room at a time).
+
+A kick leaves the invites alone (the player may come back through one). A ban deletes the
+room's invites the banned player sent and those sent to them, and no member may invite
+them until the host lifts it (``InviteeBannedError``).
 
 One live invite per (room, invitee): inviting again refreshes the row (same id, the latest
 inviter, a new ``expires_at``). Taking a player's seat in the room consumes it, through
@@ -13,7 +17,7 @@ too and reads back naive on SQLite (compare it through ``controllers/auth.utc_in
 
 No foreign key declares ON DELETE: account deletion deletes the invites the user sent and
 received (``UserController._purge_user_references``), closing a room deletes its invites
-(``RoomController.delete_room``), and ``scripts/purge_seed_data.py`` deletes those of the
+(``RoomController.delete_room``), a ban deletes the banned player's (``ban_player``), and ``scripts/purge_seed_data.py`` deletes those of the
 rooms it removes. Issuing an invite purges every expired one.
 """
 

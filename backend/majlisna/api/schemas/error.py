@@ -885,7 +885,7 @@ class RoomHasActiveGameError(BaseError):
 
 
 class NotRoomHostError(BaseError):
-    """A host-only action (start, kick, settings, rematch, delete) by someone else."""
+    """A host-only action (start, kick, ban, settings, rematch, delete) by someone else."""
 
     def __init__(self, message: str = "Only the host can do this.", frontend_message: str | None = None):
         super().__init__(
@@ -1086,6 +1086,17 @@ class CannotKickYourselfError(BaseError):
         )
 
 
+class CannotBanYourselfError(BaseError):
+    """The host tries to ban themself."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            message="You cannot ban yourself.",
+            frontend_message="You cannot ban yourself.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+
 class InviterNotInRoomError(BaseError):
     """A room invite from someone not (connected) in the room."""
 
@@ -1264,14 +1275,31 @@ class AnswerAttemptsExhaustedError(BaseError):
 
 
 class RoomBannedError(BaseError):
-    """Joining or spectating a room whose host removed the caller (owner rule (c))."""
+    """Joining, spectating or accepting an invite to a room whose host banned the caller
+    (a kick writes no ban: owner decision, 2 November 2026)."""
 
     def __init__(self, room_id: UUID | str):
         super().__init__(
             message=f"User is banned from room {room_id}",
-            frontend_message="The host removed you from this room.",
+            frontend_message="The host banned you from this room.",
             status_code=status.HTTP_403_FORBIDDEN,
             details={"room_id": str(room_id)},
+        )
+
+
+class InviteeBannedError(BaseError):
+    """A room invite to a friend the host banned from that room (owner decision, 2 November 2026).
+
+    Checked once the invitee is known to be the inviter's friend, so a member learns of a
+    ban only for a friend they are trying to bring in.
+    """
+
+    def __init__(self, room_id: UUID | str, user_id: UUID | str):
+        super().__init__(
+            message=f"User {user_id} is banned from room {room_id}",
+            frontend_message="This friend is banned from this room.",
+            status_code=status.HTTP_403_FORBIDDEN,
+            details={"room_id": str(room_id), "user_id": str(user_id)},
         )
 
 

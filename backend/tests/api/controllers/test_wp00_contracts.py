@@ -34,10 +34,12 @@ from majlisna.api.models.table import Game, Room, User
 from majlisna.api.schemas.error import (
     AnswerAttemptsExhaustedError,
     BaseError,
+    CannotBanYourselfError,
     ClueMustBeOneWordError,
     DescriptionRevealsWordError,
     GoogleAccountMismatchError,
     InvalidAvatarUrlError,
+    InviteeBannedError,
     NotAGameParticipantError,
     NotAnAlivePlayerError,
     PasswordTooLongError,
@@ -426,6 +428,8 @@ async def test_revoke_user_sessions_without_exception_revokes_every_live_row(ses
         (AnswerAttemptsExhaustedError(max_attempts=5), 409, "errors.api.answerAttemptsExhausted"),
         (RoomBannedError(room_id=uuid4()), 403, "errors.api.roomBanned"),
         (RoomBanNotFoundError(room_id=uuid4(), user_id=uuid4()), 404, "errors.api.roomBanNotFound"),
+        (InviteeBannedError(room_id=uuid4(), user_id=uuid4()), 403, "errors.api.inviteeBanned"),
+        (CannotBanYourselfError(), 400, "errors.api.cannotBanYourself"),
         (PasswordTooLongError(max_bytes=72), 400, "errors.api.passwordTooLong"),
         (SessionRevokedError(), 401, "errors.api.sessionRevoked"),
         (NotAnAlivePlayerError(user_id=uuid4(), game_id=uuid4()), 400, "errors.api.notAnAlivePlayer"),
@@ -440,10 +444,14 @@ def test_the_new_errors_answer_their_status_and_key(error: BaseError, status_cod
     assert error.error_key == key
 
 
-def test_the_banned_message_says_the_host_removed_you():
-    """The two user-facing lines the owner wrote."""
+def test_the_banned_message_says_the_host_banned_you():
+    """The user-facing lines the owner wrote (a ban is no longer called a removal: a kick is
+    one, and leaves the door open; owner decision, 2 November 2026)."""
     # Assert
-    assert RoomBannedError(room_id=uuid4()).frontend_message == "The host removed you from this room."
+    assert RoomBannedError(room_id=uuid4()).frontend_message == "The host banned you from this room."
+    assert (
+        InviteeBannedError(room_id=uuid4(), user_id=uuid4()).frontend_message == "This friend is banned from this room."
+    )
     assert SessionRevokedError().frontend_message == "You were signed out. Sign in again."
 
 

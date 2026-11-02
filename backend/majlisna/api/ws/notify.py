@@ -71,12 +71,39 @@ async def get_active_game_id(room_id: str) -> str | None:
         return None
 
 
-async def notify_user_kicked(user_id: str, room_id: str) -> None:
-    """Send 'you_were_kicked' event to the user's personal Socket.IO room."""
+async def notify_user_kicked(user_id: str, room_id: str, *, banned: bool = False) -> None:
+    """Send 'you_were_kicked' to the user's personal Socket.IO room: ``{room_id, banned}``.
+
+    The one event for both of the host's removals: ``banned`` false for a kick (the player
+    may come back with the code and PIN, or an invite), true for a ban. Their pages say
+    which on /rooms.
+    """
     try:
-        await sio.emit("you_were_kicked", {"room_id": room_id}, to=f"user:{user_id}")
+        await sio.emit("you_were_kicked", {"room_id": room_id, "banned": banned}, to=f"user:{user_id}")
     except Exception:
         logger.opt(exception=True).error("Failed to notify kicked user={} room={}", user_id, room_id)
+
+
+async def notify_member_removed_by_host(room_id: str, user_id: str, *, banned: bool) -> None:
+    """Tell the room WHICH of the host's removals took a seat: ``member_removed_by_host``
+    ``{room_id, user_id, banned}`` on ``room:{room_id}``.
+
+    The room state that follows only shows the seat gone, so every lobby but the acting
+    host's read it as a leave. With this, each member's activity line says "removed" (a
+    kick) or "banned" (owner decision, 2 November 2026). Emitted by the kick and ban routes
+    after the player's socket is detached and BEFORE ``notify_member_removed``: one emitter,
+    so each lobby has it when that room state lands. It carries no PIN, so the room's
+    channel is enough; a removed socket another worker still holds there learns only what
+    ``you_were_kicked`` told it. Best-effort: logs on failure.
+    """
+    try:
+        await sio.emit(
+            "member_removed_by_host",
+            {"room_id": room_id, "user_id": user_id, "banned": banned},
+            to=f"room:{room_id}",
+        )
+    except Exception:
+        logger.opt(exception=True).error("Failed to tell room={} of the removal of user={}", room_id, user_id)
 
 
 async def notify_room_invite(friend_user_id: str, invite: RoomInviteView) -> None:
@@ -84,7 +111,7 @@ async def notify_room_invite(friend_user_id: str, invite: RoomInviteView) -> Non
 
     ``invite`` is the controller's ``RoomInviteView``: its id (accepted by
     ``POST /rooms/invites/{id}/accept``), the room's code and the inviter. Never the PIN:
-    it used to carry it, and a kick after the invite rotated it, so the invite opened a
+    it used to carry it, and a ban after the invite rotated it, so the invite opened a
     join that was refused. Awaited in the route after the controller stored the invite.
     Best-effort: logs on failure.
     """
@@ -98,10 +125,10 @@ def member_channel(room_id: str, user_id: str) -> str:
     """The Socket.IO room of ONE member's sockets in one room (``connect`` enters it).
 
     The room state is addressed through these, never through ``room:{id}``: it carries
-    the room PIN, and a kicked member's socket held by another uvicorn worker stays in
+    the room PIN, and a removed member's socket held by another uvicorn worker stays in
     ``room:{id}`` until that worker's next audit tick (``audit_local_socket_memberships``,
-    up to ``DISCONNECT_CHECK_INTERVAL_SECONDS``) — after the kick route's own push of the
-    NEW PIN, which owner rule (c) rotates precisely so the kicked player cannot come back.
+    up to ``DISCONNECT_CHECK_INTERVAL_SECONDS``) — after the ban route's own push of the
+    NEW PIN, which a ban rotates precisely so the banned player cannot come back.
     """
     return f"member:{room_id}:{user_id}"
 
@@ -126,7 +153,7 @@ async def notify_room_changed(room_id: str) -> None:
 
 
 async def notify_member_removed(room_id: str, game_id: str | None) -> None:
-    """After a member left or was kicked: the room, and the game they were in, if any.
+    """After a member left, was kicked or was banned: the room, and the game they were in, if any.
 
     A departure mid-game changes the game too — the leaver is eliminated, the turn
     moves on, the game may end (``_handle_permanent_disconnect``) — but only

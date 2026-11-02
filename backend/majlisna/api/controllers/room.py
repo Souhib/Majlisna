@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 from loguru import logger
-from sqlalchemy import delete
+from sqlalchemy import delete, exists, or_
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.orm import selectinload
 from sqlalchemy.orm.attributes import flag_modified
@@ -48,9 +48,11 @@ from majlisna.api.models.room_invite import RoomInvite
 from majlisna.api.models.table import Game, Room, User
 from majlisna.api.schemas.common import StatusResponse
 from majlisna.api.schemas.error import (
+    CannotBanYourselfError,
     CannotKickYourselfError,
     CanOnlyInviteFriendsError,
     FriendAlreadyInRoomError,
+    InviteeBannedError,
     InviterNotInRoomError,
     NotRoomHostError,
     PlayerCannotSpectateError,
@@ -82,9 +84,9 @@ BAN_LIFTED_STATUS = "lifted"
 def _new_room_pin(previous: str | None = None) -> str:
     """A random room PIN of ROOM_PASSWORD_LENGTH digits (``secrets``), never ``previous``.
 
-    A kick rotates the PIN (owner rule (c)): the kicked player holds the share link, and
-    a "rotation" that drew the same PIN one time in ten thousand would leave it working.
-    Drawing from the other 9 999 values keeps the draw uniform over what remains.
+    A ban rotates the PIN: the banned player holds the share link, and a "rotation" that
+    drew the same PIN one time in ten thousand would leave it working. Drawing from the
+    other 9 999 values keeps the draw uniform over what remains.
     """
     space = 10**ROOM_PASSWORD_LENGTH
     if previous is None or not previous.isdigit() or len(previous) != ROOM_PASSWORD_LENGTH:
@@ -182,17 +184,21 @@ class RoomController:
         if seated:
             raise UserAlreadyInRoomError(user_id=user_id, room_id=seated.room_id)
 
-    async def _ensure_not_banned(self, room_id: UUID, user_id: UUID) -> None:
-        """Refuse (``RoomBannedError``, 403) a user the host kicked from this room.
-
-        Checked before the PIN, so a banned player learns nothing from trying PINs.
-        """
+    async def _is_banned(self, room_id: UUID, user_id: UUID) -> bool:
+        """Whether the host banned ``user_id`` from this room (a ``RoomBan``; a kick writes none)."""
         ban = (
             await self.session.exec(
                 select(RoomBan.id).where(RoomBan.room_id == room_id).where(RoomBan.user_id == user_id)
             )
         ).first()
-        if ban is not None:
+        return ban is not None
+
+    async def _ensure_not_banned(self, room_id: UUID, user_id: UUID) -> None:
+        """Refuse (``RoomBannedError``, 403) a user the host banned from this room.
+
+        Checked before the PIN, so a banned player learns nothing from trying PINs.
+        """
+        if await self._is_banned(room_id, user_id):
             raise RoomBannedError(room_id=room_id)
 
     @staticmethod
@@ -605,32 +611,8 @@ class RoomController:
             as_of_ms=as_of_ms,
         )
 
-    async def kick_player(self, room_id: UUID, host_id: UUID, target_id: UUID) -> KickPlayerResponse:
-        """Kick a player from the room: host only, never yourself (owner rule (c)).
-
-        A kick is a ban for the room's lifetime, not a removal the player undoes a second
-        later with the same code and PIN (BR-20, SEC F04). Together, so that the first
-        commit carries all four:
-
-        - a ``RoomBan`` (room, target, banned_by=host) — idempotent on the unique pair;
-        - a new PIN, different from the old one: the kicked player holds the share link,
-          and so does anyone they forwarded it to;
-        - the invites to this room the kicked player sent, deleted: an invite opens the
-          room without the PIN, so it is the other thing they handed out (their friend's
-          strip then answers 404). An invite a member sent stands, even one to the kicked
-          player, whom the ban refuses at accept;
-        - ``_handle_permanent_disconnect``, which removes the seat and plays the
-          departure into a running game. The kicked player is a leaver there: neither a
-          win nor a loss (owner rule (b), ``mark_player_left``).
-
-        The route then tells the player (``you_were_kicked``), detaches their socket, and
-        only then pushes the room state that carries the new PIN.
-        """
-        room = await self.get_room_without_relations(room_id)
-        self._require_host(room, host_id, "kick players")
-        if target_id == host_id:
-            raise CannotKickYourselfError()
-
+    async def _seat_to_remove(self, room_id: UUID, target_id: UUID) -> RoomUserLink:
+        """The seat a kick or a ban takes; ``UserNotInRoomError`` (404) when the target has none."""
         link = (
             await self.session.exec(
                 select(RoomUserLink).where(
@@ -641,28 +623,94 @@ class RoomController:
         ).first()
         if not link:
             raise UserNotInRoomError(user_id=target_id, room_id=room_id)
+        return link
+
+    async def kick_player(self, room_id: UUID, host_id: UUID, target_id: UUID) -> KickPlayerResponse:
+        """Remove a player from the room ("Remove"): host only, never yourself.
+
+        For someone who left without quitting (owner decision, 2 November 2026; it replaced
+        owner rule (c), under which a kick banned): ``_handle_permanent_disconnect`` removes
+        the seat and plays the departure into a running game, where the player is a leaver
+        (neither a win nor a loss, owner rule (b), ``mark_player_left``). That is all — no
+        ``RoomBan``, the PIN unchanged, the invites they sent or hold left as they are — so
+        they may come back with the same code and PIN, or through an invite. ``ban_player``
+        is the one that keeps them out.
+
+        The route then tells the player (``you_were_kicked``, ``banned`` false), detaches
+        their socket, tells the other members it was a kick (``member_removed_by_host``) and
+        pushes the room state.
+        """
+        room = await self.get_room_without_relations(room_id)
+        self._require_host(room, host_id, "remove players")
+        if target_id == host_id:
+            raise CannotKickYourselfError()
+        link = await self._seat_to_remove(room_id, target_id)
+        # Commits (the departure).
+        await _handle_permanent_disconnect(self.session, link)
+        logger.info("Room kick: user={} room={} by host={} (no ban)", target_id, room_id, host_id)
+        return KickPlayerResponse(message="Player kicked")
+
+    async def ban_player(self, room_id: UUID, host_id: UUID, target_id: UUID) -> RoomBanView:
+        """Ban a player ("Ban"): host only, never yourself; the answer is the ban.
+
+        Everything a kick does, and the door stays shut until the host lifts it (owner
+        decision, 2 November 2026). Together, so that the departure's single commit
+        carries all four:
+
+        - a ``RoomBan`` (room, target, banned_by=host) — idempotent on the unique pair. Join,
+          spectate and accept then answer ``RoomBannedError`` (403), and no member may invite
+          the player (``InviteeBannedError``, 403);
+        - the room's invites the player SENT, deleted: an invite opens the room without the
+          PIN, so it is the other thing they handed out (their friend's strip answers 404);
+          and the room's invites addressed TO them, deleted too, so their list never shows
+          the room again;
+        - a new PIN, different from the old one: the banned player holds the share link,
+          and could come back with it under another account;
+        - ``_handle_permanent_disconnect``, as for a kick: the seat goes, and in a running
+          game the player is a leaver.
+
+        Once committed, the player's invites to the room are swept once more (an invite that
+        raced the ban, ``_take_back_if_banned_meanwhile``).
+
+        The route then tells the player (``you_were_kicked``, ``banned`` true), detaches their
+        socket, tells the other members it was a ban (``member_removed_by_host``), and only
+        then pushes the room state that carries the new PIN.
+        """
+        room = await self.get_room_without_relations(room_id)
+        self._require_host(room, host_id, "ban players")
+        if target_id == host_id:
+            raise CannotBanYourselfError()
+        link = await self._seat_to_remove(room_id, target_id)
 
         await self._insert_ban(room_id, target_id, banned_by=host_id)
         # Before the PIN is staged: a statement autoflushes, and the room's UPDATE flushed
         # before the game lock deadlocks with a move that holds that lock and finishes the
         # game, which writes the room row (``_handle_permanent_disconnect``, "Lock order").
+        await self._delete_invites_involving(room_id, target_id)
+        room.password = _new_room_pin(room.password)
+        self.session.add(room)
+        # Commits (the ban, the deleted invites and the PIN with the departure).
+        await _handle_permanent_disconnect(self.session, link)
+        # Swept again once the ban is committed, in a transaction of its own that holds
+        # nothing: an invite whose ban check ran before that commit, and whose row was
+        # committed after the purge above (READ COMMITTED), would otherwise outlive the ban
+        # (and come back with an unban). One committed after this sweep is taken back by
+        # ``invite_friend_to_room`` itself, which asks again once its row is committed.
+        await self._delete_invites_involving(room_id, target_id)
+        await self.session.commit()
+        logger.info(
+            "Room ban: user={} room={} by host={} (their invites deleted, PIN rotated)", target_id, room_id, host_id
+        )
+        return (await self._ban_views(room_id, user_id=target_id))[0]
+
+    async def _delete_invites_involving(self, room_id: UUID, user_id: UUID) -> None:
+        """Delete the room's invites ``user_id`` sent or was sent. Does not commit."""
         await self.session.exec(
             delete(RoomInvite)
             .where(col(RoomInvite.room_id) == room_id)
-            .where(col(RoomInvite.inviter_id) == target_id)
+            .where(or_(col(RoomInvite.inviter_id) == user_id, col(RoomInvite.invitee_id) == user_id))
             .execution_options(synchronize_session=False)
         )
-        room.password = _new_room_pin(room.password)
-        self.session.add(room)
-        # Commits (the ban, the revoked invites and the PIN with the departure).
-        await _handle_permanent_disconnect(self.session, link)
-        logger.info(
-            "Room kick: user={} room={} by host={} (banned, their invites revoked, PIN rotated)",
-            target_id,
-            room_id,
-            host_id,
-        )
-        return KickPlayerResponse(message="Player kicked")
 
     async def _insert_ban(self, room_id: UUID, user_id: UUID, *, banned_by: UUID) -> None:
         """``INSERT … ON CONFLICT DO NOTHING`` on (room, user): a second ban is a no-op,
@@ -683,17 +731,22 @@ class RoomController:
         await self.session.exec(statement)
 
     async def list_bans(self, room_id: UUID, user_id: UUID) -> list[RoomBanView]:
-        """The players banned from the room, oldest ban first. Host only."""
+        """The players banned from the room, oldest ban first. Host only. A kick is not listed."""
         room = await self.get_room_without_relations(room_id)
         self._require_host(room, user_id, "see who is banned")
-        rows = (
-            await self.session.exec(
-                select(RoomBan, User)
-                .join(User, User.id == RoomBan.user_id)  # ty: ignore[invalid-argument-type]
-                .where(RoomBan.room_id == room_id)
-                .order_by(RoomBan.created_at, RoomBan.user_id)  # ty: ignore[invalid-argument-type]
-            )
-        ).all()
+        return await self._ban_views(room_id)
+
+    async def _ban_views(self, room_id: UUID, *, user_id: UUID | None = None) -> list[RoomBanView]:
+        """The room's bans with the banned player's username, oldest first (one player's with ``user_id``)."""
+        statement = (
+            select(RoomBan, User)
+            .join(User, User.id == RoomBan.user_id)  # ty: ignore[invalid-argument-type]
+            .where(RoomBan.room_id == room_id)
+            .order_by(RoomBan.created_at, RoomBan.user_id)  # ty: ignore[invalid-argument-type]
+        )
+        if user_id is not None:
+            statement = statement.where(RoomBan.user_id == user_id)
+        rows = (await self.session.exec(statement)).all()
         return [RoomBanView(user_id=user.id, username=user.username, banned_at=ban.created_at) for ban, user in rows]
 
     async def lift_ban(self, room_id: UUID, host_id: UUID, user_id: UUID) -> StatusResponse:
@@ -779,12 +832,17 @@ class RoomController:
     async def invite_friend_to_room(self, room_id: UUID, inviter_id: UUID, friend_user_id: UUID) -> RoomInviteResponse:
         """Invite a friend to the room: store the invite (``RoomInvite``) and return it.
 
-        The inviter must be seated (connected) in the room, the invitee a friend not
-        seated (connected) in it. One live invite per (room, invitee): inviting again
-        refreshes it — the same id, the latest inviter, a full
-        ``ROOM_INVITE_LIFETIME_MINUTES`` again — and every expired invite is purged.
+        The inviter must be seated (connected) in the room, the invitee a friend not banned
+        from it (``InviteeBannedError``, 403) and not seated (connected) in it. One live
+        invite per (room, invitee): inviting again refreshes it — the same id, the latest
+        inviter, a full ``ROOM_INVITE_LIFETIME_MINUTES`` again — and every expired invite is
+        purged.
 
-        The invite carries no PIN: it is accepted by its id (``accept_invite``), so a kick
+        A ban that commits while the invite is stored (of the friend, or of the inviter) is
+        seen once the invite is committed: the invite is taken back and the request refused
+        (``_take_back_if_banned_meanwhile``), so no push reaches a banned player.
+
+        The invite carries no PIN: it is accepted by its id (``accept_invite``), so a ban
         that rotates the PIN after it was sent does not stop it. The Socket.IO
         ``room_invite`` push is the route's (``notify_room_invite`` with ``invite``):
         controllers do not touch the Socket.IO server.
@@ -811,6 +869,11 @@ class RoomController:
         if not is_friend:
             raise CanOnlyInviteFriendsError()
 
+        # A banned friend may not be brought back by anyone (owner decision, 2 November 2026);
+        # a kicked one may. Asked only once they are known to be the inviter's friend.
+        if await self._is_banned(room_id, friend_user_id):
+            raise InviteeBannedError(room_id=room_id, user_id=friend_user_id)
+
         # Check if the friend is already in the room
         existing = (
             await self.session.exec(
@@ -827,6 +890,7 @@ class RoomController:
         inviter = (await self.session.exec(select(User).where(User.id == inviter_id))).one()
         invite_id, expires_at = await self._store_invite(room_id, inviter_id, friend_user_id)
         await self.session.commit()
+        await self._take_back_if_banned_meanwhile(room_id, invite_id, inviter_id, friend_user_id)
         logger.info("Room invite: user={} room={} by user={} invite={}", friend_user_id, room_id, inviter_id, invite_id)
         return RoomInviteResponse(
             room_id=str(room_id),
@@ -840,6 +904,44 @@ class RoomController:
                 expires_at=expires_at,
             ),
         )
+
+    async def _take_back_if_banned_meanwhile(
+        self, room_id: UUID, invite_id: UUID, inviter_id: UUID, invitee_id: UUID
+    ) -> None:
+        """Asked again once the invite is committed: a ban of the invitee or the inviter
+        that committed meanwhile deletes it, and the request is refused, so the route
+        pushes nothing (owner decision: a banned player's pushes never show that room).
+
+        Under READ COMMITTED the ban check above and a concurrent ``ban_player`` do not see
+        each other's uncommitted rows: the check can pass before the ban commits while the
+        ban's purge runs before this row is committed. Whichever commits last sees the
+        other here (this read) or in the ban's sweep after its commit. The row is deleted
+        only while it still involves a banned player (another member may have re-invited
+        the same friend into the same row meanwhile). ``InviteeBannedError`` (403) for a
+        banned friend; ``InviterNotInRoomError`` for a banned inviter, who has no seat.
+        """
+        banned = list(
+            (
+                await self.session.exec(
+                    select(RoomBan.user_id)
+                    .where(RoomBan.room_id == room_id)
+                    .where(col(RoomBan.user_id).in_([inviter_id, invitee_id]))
+                )
+            ).all()
+        )
+        if not banned:
+            return
+        await self.session.exec(
+            delete(RoomInvite)
+            .where(col(RoomInvite.id) == invite_id)
+            .where(or_(col(RoomInvite.inviter_id).in_(banned), col(RoomInvite.invitee_id).in_(banned)))
+            .execution_options(synchronize_session=False)
+        )
+        await self.session.commit()
+        logger.info("Room invite taken back: invite={} room={} (a ban committed meanwhile)", invite_id, room_id)
+        if invitee_id in banned:
+            raise InviteeBannedError(room_id=room_id, user_id=invitee_id)
+        raise InviterNotInRoomError()
 
     async def _store_invite(self, room_id: UUID, inviter_id: UUID, invitee_id: UUID) -> tuple[UUID, datetime]:
         """Create or refresh the (room, invitee) invite; its id and ``expires_at``. Does not commit.
@@ -884,8 +986,8 @@ class RoomController:
           ``RoomInviteNotFoundError``, 404: nobody learns of another's invite);
         - not past ``expires_at`` (``RoomInviteExpiredError``, 410);
         - the room is ACTIVE (``RoomNotFoundError``, 404, as for a join);
-        - the caller is not banned from it (``RoomBannedError``, 403): a kick after the
-          invite was sent closes it like any door;
+        - the caller is not banned from it (``RoomBannedError``, 403). A ban deletes the
+          invites addressed to the banned player, so this answers the one that raced it;
         - not seated in another live room (``UserAlreadyInRoomError``, 409, naming it): the
           invite stays, so the client can offer "Leave it and join" and accept again.
 
@@ -918,11 +1020,17 @@ class RoomController:
         return seated
 
     async def list_invites(self, user_id: UUID) -> list[RoomInviteView]:
-        """The caller's live invites, newest first: not expired, to an ACTIVE room.
+        """The caller's live invites, newest first: not expired, to an ACTIVE room that has
+        not banned them.
 
         What the app shell shows when it opens (an invite sent while the page was closed);
-        the strip takes the first. At most ``ROOM_INVITE_LIST_LIMIT``. Never the PIN.
+        the strip takes the first. At most ``ROOM_INVITE_LIST_LIMIT``. Never the PIN. A ban
+        deletes the invites to the banned player; the ban filter answers one that raced it.
         """
+        banned_from_the_room = exists().where(
+            col(RoomBan.room_id) == col(RoomInvite.room_id),
+            col(RoomBan.user_id) == col(RoomInvite.invitee_id),
+        )
         rows = (
             await self.session.exec(
                 select(RoomInvite, Room.public_id, User.username)
@@ -931,6 +1039,7 @@ class RoomController:
                 .where(RoomInvite.invitee_id == user_id)
                 .where(col(RoomInvite.expires_at) > datetime.now(UTC))
                 .where(Room.type == RoomType.ACTIVE)
+                .where(~banned_from_the_room)
                 .order_by(col(RoomInvite.expires_at).desc(), col(RoomInvite.id))
                 .limit(ROOM_INVITE_LIST_LIMIT)
             )

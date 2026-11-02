@@ -10,6 +10,8 @@ socket is up.
 served the kick (``_user_sids`` is per process): on any other worker it stayed in
 ``room:{id}`` (whose broadcasts carry the PIN) and ``game:{id}``. Every worker now
 audits its own sockets each tick, and ``join_game`` / ``heartbeat`` re-check the seat.
+A kick (no ban) and a ban both take the seat, so both cut the socket; only a ban also
+rotates the PIN (owner decision, 2 November 2026).
 
 The server is a real python-socketio ``AsyncServer`` running the real handlers on
 uvicorn, inside the test's event loop and against the test database. It uses the
@@ -278,24 +280,30 @@ async def test_a_heartbeat_of_a_present_player_broadcasts_nothing(seated: dict):
 # ─── SEC F04: a removed seat cuts the socket, whichever worker holds it ──
 
 
-async def _kick_elsewhere(session: AsyncSession, room_id: UUID, host_id: UUID, user_id: UUID) -> None:
-    """A kick served by ANOTHER worker: the seat and the game go, a ban is written, and
-    this worker's socket of the player is never told (its ``_user_sids`` is not that
-    worker's)."""
+async def _kick_elsewhere(
+    session: AsyncSession, room_id: UUID, host_id: UUID, user_id: UUID, *, banned: bool = True
+) -> None:
+    """A kick (``banned=False``) or a ban served by ANOTHER worker: the seat and the game
+    go, a ban is written for a ban, and this worker's socket of the player is never told
+    (its ``_user_sids`` is not that worker's)."""
     link = await _link(session, room_id, user_id)
     assert link is not None
-    session.add(RoomBan(room_id=room_id, user_id=user_id, banned_by=host_id))
+    if banned:
+        session.add(RoomBan(room_id=room_id, user_id=user_id, banned_by=host_id))
     await _handle_permanent_disconnect(session, link)
 
 
 @pytest.mark.asyncio
-async def test_the_next_audit_tick_cuts_a_socket_kicked_on_another_worker(seated: dict, session: AsyncSession):
+@pytest.mark.parametrize("banned", [False, True], ids=["kick", "ban"])
+async def test_the_next_audit_tick_cuts_a_socket_kicked_on_another_worker(
+    seated: dict, session: AsyncSession, banned: bool
+):
     """The kicked socket leaves room:{id} and is disconnected by this worker's next tick; it hears nothing more."""
     # Prepare
     a: Phone = seated["a"]
     b: Phone = seated["b"]
     room_id: UUID = seated["room"].id
-    await _kick_elsewhere(session, room_id, a.user.id, b.user.id)
+    await _kick_elsewhere(session, room_id, a.user.id, b.user.id, banned=banned)
     assert b.client.connected
 
     # Act — this worker's tick
@@ -312,12 +320,12 @@ async def test_the_next_audit_tick_cuts_a_socket_kicked_on_another_worker(seated
 
 
 @pytest.mark.asyncio
-async def test_the_kick_routes_own_push_never_hands_the_new_pin_to_a_socket_held_elsewhere(
+async def test_the_ban_routes_own_push_never_hands_the_new_pin_to_a_socket_held_elsewhere(
     seated: dict, session: AsyncSession
 ):
-    """Owner rule (c) rotates the PIN so the kicked player cannot come back; their socket must not hear it.
+    """A ban rotates the PIN so the banned player cannot come back; their socket must not hear it.
 
-    The kick route detaches the kicked socket on ITS worker only; one held by another
+    The ban route detaches the banned socket on ITS worker only; one held by another
     worker is cut by that worker's next audit tick, up to 5 s later — after the route's
     own room_state push, which carries the new PIN. The push is addressed to the
     members the state lists, so a socket whose seat is gone is never among them.
@@ -332,9 +340,9 @@ async def test_the_kick_routes_own_push_never_hands_the_new_pin_to_a_socket_held
     handlers._user_sids.pop(f"{b.user.id}:{room_id}", None)
     heard_by_b = len(b.room_states())
 
-    # Act — the kick route, step by step (routes/room.py::kick_player)
-    await RoomController(session).kick_player(room_id, a.user.id, b.user.id)
-    await notify.notify_user_kicked(str(b.user.id), str(room_id))
+    # Act — the ban route, step by step (routes/room.py::ban_player)
+    await RoomController(session).ban_player(room_id, a.user.id, b.user.id)
+    await notify.notify_user_kicked(str(b.user.id), str(room_id), banned=True)
     await handlers.remove_user_from_room_socket(str(b.user.id), str(room_id))
     await notify.notify_member_removed(str(room_id), None)
 
@@ -368,13 +376,15 @@ async def test_join_game_after_a_kick_is_refused_and_cut(seated: dict, session: 
 
 
 @pytest.mark.asyncio
-async def test_a_kicked_player_cannot_reconnect_to_the_room(seated: dict, session: AsyncSession):
-    """The socket half of SEC F04's re-join: a new handshake of the banned, unseated player is refused."""
+@pytest.mark.parametrize("banned", [False, True], ids=["kick", "ban"])
+async def test_a_kicked_player_cannot_reconnect_to_the_room(seated: dict, session: AsyncSession, banned: bool):
+    """A new handshake of the unseated player is refused, banned or not: the socket follows the
+    seat (a kicked player who joins again with the code and PIN has a seat, then a socket)."""
     # Prepare
     a: Phone = seated["a"]
     b: Phone = seated["b"]
     room_id: UUID = seated["room"].id
-    await _kick_elsewhere(session, room_id, a.user.id, b.user.id)
+    await _kick_elsewhere(session, room_id, a.user.id, b.user.id, banned=banned)
     retry = Phone(b.user, b.token)
 
     # Act / Assert
@@ -403,8 +413,8 @@ async def test_the_audit_leaves_a_seated_member_alone(seated: dict, session: Asy
 
 @pytest.mark.asyncio
 async def test_a_banned_player_cannot_connect_even_with_a_seat_row(seated: dict, session: AsyncSession):
-    """A ban voids the seat at the handshake too (owner rule (c)): the row alone is not membership."""
-    # Prepare — C still has a seat row, and a ban (a kick whose departure is still in flight)
+    """A ban voids the seat at the handshake too: the row alone is not membership."""
+    # Prepare — C still has a seat row, and a ban (a ban whose departure is still in flight)
     a: Phone = seated["a"]
     c: Phone = seated["c"]
     session.add(RoomBan(room_id=seated["room"].id, user_id=c.user.id, banned_by=a.user.id))

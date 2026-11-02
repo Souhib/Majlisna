@@ -1,9 +1,12 @@
-"""A player the host removed from a room, and may not come back (owner rule (c)).
+"""A player the host BANNED from a room, who may not come back until the host lifts it.
 
-Kick used to have no lasting effect: ``kick_player`` deleted the ``RoomUserLink`` and
-``join_room`` simply inserted a new one, so the kicked player was back in the lobby
-with the code and PIN a second later (BR-20). A ban lasts for the room's lifetime; the
-host can lift it.
+Kick and ban are two host actions (owner decision, 2 November 2026). A kick
+(``kick_player``) only takes the seat, for someone who left without quitting: no row
+here, and the player may come back with the code and PIN. A ban (``ban_player``) takes
+the seat AND writes this row: join, spectate and accepting an invite answer
+``RoomBannedError``, no member may invite them (``InviteeBannedError``), and the PIN
+rotates. It lasts for the room's lifetime unless the host lifts it. (Before that
+decision every kick wrote one: the kick of BR-20 had no lasting effect at all.)
 
 A table of its own, like ``NotebookEntry`` (added when ``create_all`` was the schema and
 never ALTERed a table; in the baseline migration since). ``created_at`` (UTC-aware) is
@@ -20,7 +23,7 @@ from majlisna.api.schemas.shared import BaseTable
 
 
 class RoomBan(BaseTable, table=True):
-    """``user_id`` may not join or spectate ``room_id`` while the room lives."""
+    """``user_id`` may not join, spectate or be invited into ``room_id`` while the room lives."""
 
     __tablename__ = "room_ban"
     __table_args__ = (

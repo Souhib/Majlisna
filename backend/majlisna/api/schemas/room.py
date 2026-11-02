@@ -102,6 +102,14 @@ class JoinSpectatorRequest(BaseModel):
 
 
 class KickPlayerRequest(BaseModel):
+    """``PATCH /rooms/{id}/kick``: the player to remove (no ban, they may come back)."""
+
+    user_id: UUID
+
+
+class BanPlayerRequest(BaseModel):
+    """``POST /rooms/{id}/bans``: the seated player to remove and keep out until the host lifts it."""
+
     user_id: UUID
 
 
@@ -148,7 +156,7 @@ class RoomInviteView(BaseModel):
     """A friend's invite to a room, as the invitee sees it: the ``room_invite`` push to
     their personal channel and ``GET /rooms/invites``. Never the room's PIN: the invite
     is accepted by its id (``POST /rooms/invites/{id}/accept``), so a PIN rotated by a
-    kick after it was sent does not stop it.
+    ban after it was sent does not stop it.
 
     ``public_id`` is the room's code and ``invited_by`` the inviter's username (what the
     strip shows); ``expires_at`` is UTC.
@@ -175,10 +183,11 @@ class ShareLinkResponse(BaseModel):
 
 
 class RoomBanView(BaseModel):
-    """A player the host kicked from the room, who may not come back until lifted.
+    """A player the host banned from the room, who may not come back until lifted (a kick
+    is no ban, and is not listed).
 
-    Served to the host only (``GET /rooms/{id}/bans``). ``banned_at`` is the ban's
-    ``created_at`` (UTC).
+    Served to the host only: ``GET /rooms/{id}/bans``, and the answer of
+    ``POST /rooms/{id}/bans``. ``banned_at`` is the ban's ``created_at`` (UTC).
     """
 
     user_id: UUID

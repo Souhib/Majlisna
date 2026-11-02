@@ -17,6 +17,7 @@ from majlisna.api.ws.notify import (
     notify_chat_message,
     notify_game_changed,
     notify_member_removed,
+    notify_member_removed_by_host,
     notify_room_changed,
     notify_room_invite,
     notify_timer_outcome,
@@ -152,10 +153,35 @@ async def test_notify_chat_message_emits_event(mock_sio):
 
 
 async def test_notify_user_kicked_emits_event(mock_sio):
-    """notify_user_kicked emits to personal user room."""
+    """A kick: to the player's personal channel, saying it was not a ban (they may come back)."""
     await notify_user_kicked("user-42", "room-1")
 
-    mock_sio.emit.assert_called_once_with("you_were_kicked", {"room_id": "room-1"}, to="user:user-42")
+    mock_sio.emit.assert_called_once_with("you_were_kicked", {"room_id": "room-1", "banned": False}, to="user:user-42")
+
+
+async def test_notify_user_kicked_says_when_it_is_a_ban(mock_sio):
+    """A ban: the same event, ``banned`` true, so the player's /rooms says they are banned."""
+    await notify_user_kicked("user-42", "room-1", banned=True)
+
+    mock_sio.emit.assert_called_once_with("you_were_kicked", {"room_id": "room-1", "banned": True}, to="user:user-42")
+
+
+@pytest.mark.parametrize("banned", [False, True])
+async def test_the_room_is_told_which_of_the_hosts_removals_took_a_seat(mock_sio, banned):
+    """Every member's activity line says "removed" or "banned", not "left": the event goes to
+    the room's channel (it carries no PIN), with the seat and the kind of removal."""
+    await notify_member_removed_by_host("room-1", "user-42", banned=banned)
+
+    mock_sio.emit.assert_called_once_with(
+        "member_removed_by_host", {"room_id": "room-1", "user_id": "user-42", "banned": banned}, to="room:room-1"
+    )
+
+
+async def test_telling_the_room_of_a_removal_does_not_raise_on_failure(mock_sio):
+    """Best effort, like every notify: the removal stands, the lines read "left"."""
+    mock_sio.emit.side_effect = RuntimeError("redis down")
+
+    await notify_member_removed_by_host("room-1", "user-42", banned=True)
 
 
 # ========== notify_room_invite ==========
@@ -163,7 +189,7 @@ async def test_notify_user_kicked_emits_event(mock_sio):
 
 async def test_notify_room_invite_names_the_stored_invite_and_never_the_pin(mock_sio):
     """The friend's strip gets the invite's id, the room's code and the inviter: the PIN
-    stays on the server (a kick rotates it, and an invite sent before then still works)."""
+    stays on the server (a ban rotates it, and an invite sent before then still works)."""
     # Prepare
     invite = RoomInviteView(
         id=UUID("00000000-0000-0000-0000-0000000000a1"),

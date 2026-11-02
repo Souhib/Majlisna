@@ -62,7 +62,7 @@ api/
 │   ├── mcqquiz.py         # McqQuestion CRUD (get_random_questions)
 │   ├── mcqquiz_game.py    # MCQ Quiz game logic (extends BaseGameController)
 │   ├── game_lock.py   # PostgreSQL advisory locks per game_id (asyncio.Lock fallback for SQLite)
-│   ├── disconnect.py  # Disconnect/kick handlers (used by kick_player, includes _handle_mcqquiz_disconnect)
+│   ├── disconnect.py  # Disconnect/departure handlers (used by kick_player, ban_player, leave_room; includes _handle_mcqquiz_disconnect)
 │   ├── game_cancel.py # cancel_running_game / detach_room_if_current (models only: no room/disconnect import)
 │   ├── token_auth.py  # authenticate_caller / authenticate_access_token: the ONE place an access token (and its session) becomes a User (HTTP + Socket.IO)
 │   ├── quiz_rules.py  # Quiz round rules shared with disconnect: everyone_has_answered, results transitions, settle
@@ -81,7 +81,7 @@ api/
 │   ├── term_script.py # TermScript (Latin term → ar, ar_vocalized)
 │   ├── notebook.py    # NotebookEntry + NotebookGameType (the Kunnash)
 │   ├── daily_word.py  # DailyWord (one QuizWord per Makkah day) + DailyWordPlay (one per user per day)
-│   ├── room_ban.py    # RoomBan: a kicked player may not come back to that room (owner rule (c))
+│   ├── room_ban.py    # RoomBan: a BANNED player may not come back to that room until lifted (a kick writes none)
 │   ├── room_invite.py # RoomInvite: a friend's invite, stored, accepted by id without the PIN
 │   ├── auth_session.py # AuthSession (the tokens' `sid`) + revoke_user_sessions (SEC F01)
 │   ├── stats.py       # UserStats, AchievementDefinition, UserAchievement
@@ -178,12 +178,12 @@ Socket.IO is a **notification layer**, not a game engine. The flow is:
 - **The room state goes to each member's own channel, never to `room:{room_id}`** (review R2):
   `notify_room_changed` emits once to `[member_channel(room_id, user_id) for each player and
   spectator the state lists]` (`member:{room_id}:{user_id}`, entered by `connect`). It carries
-  the PIN, which a kick rotates so the kicked player cannot come back, and a kicked socket held
+  the PIN, which a ban rotates so the banned player cannot come back, and a removed socket held
   by ANOTHER worker stays in `room:{room_id}` until that worker's audit tick, up to 5 s after
-  the kick route's own push of the new PIN. A socket whose seat is gone is never listed, so
-  never addressed, whichever worker holds it. Chat and `game_updated` still go to
-  `room:{room_id}` (neither carries the PIN). Test:
-  `tests/api/ws/test_wp04_reconnect_and_detach.py::test_the_kick_routes_own_push_never_hands_the_new_pin_to_a_socket_held_elsewhere`.
+  the ban route's own push of the new PIN. A socket whose seat is gone is never listed, so
+  never addressed, whichever worker holds it. Chat, `game_updated` and `member_removed_by_host`
+  still go to `room:{room_id}` (none carries the PIN). Test:
+  `tests/api/ws/test_wp04_reconnect_and_detach.py::test_the_ban_routes_own_push_never_hands_the_new_pin_to_a_socket_held_elsewhere`.
 - **A socket lives no longer than its session** (review R5): every socket's `AuthSession` id
   is kept per process (`handlers._socket_sessions`, personal and room sockets; a legacy token
   has none), and every worker's tick (`audit_local_socket_memberships`) cuts, in ONE query,
@@ -192,7 +192,7 @@ Socket.IO is a **notification layer**, not a game engine. The flow is:
   thief's open personal socket kept receiving the victim's invites (then code and PIN; an
   invite is now its id, the code and the inviter). Test:
   `test_wp17_sessions.py::test_a_socket_opened_before_its_session_ended_is_cut_by_the_next_tick`.
-- Socket.IO `disconnect` marks the user as disconnected in DB (starts grace period). A background `disconnect_checker_loop` runs every 5s (`DISCONNECT_CHECK_INTERVAL_SECONDS`) to mark stale heartbeats (`HEARTBEAT_STALE_SECONDS`, 20 s) and permanently remove users past their grace period (`GRACE_PERIOD_SECONDS`, 180 s, in a running game; `LOBBY_GRACE_PERIOD_SECONDS`, 600 s, in the lobby; 45 min while the game is paused). Multi-tab connections are deduplicated via `_user_sids` dict; `connect` records the new SID BEFORE closing the old one, and a `disconnect` whose SID has been replaced does not mark the player away (a reload used to flash "away" until the next heartbeat). `join_game` validates user membership in the room and game ownership via DB queries. `you_were_kicked` event is emitted to `user:{user_id}` when the host kicks a player.
+- Socket.IO `disconnect` marks the user as disconnected in DB (starts grace period). A background `disconnect_checker_loop` runs every 5s (`DISCONNECT_CHECK_INTERVAL_SECONDS`) to mark stale heartbeats (`HEARTBEAT_STALE_SECONDS`, 20 s) and permanently remove users past their grace period (`GRACE_PERIOD_SECONDS`, 180 s, in a running game; `LOBBY_GRACE_PERIOD_SECONDS`, 600 s, in the lobby; 45 min while the game is paused). Multi-tab connections are deduplicated via `_user_sids` dict; `connect` records the new SID BEFORE closing the old one, and a `disconnect` whose SID has been replaced does not mark the player away (a reload used to flash "away" until the next heartbeat). `join_game` validates user membership in the room and game ownership via DB queries. The `you_were_kicked` event (`{room_id, banned}`) is emitted to `user:{user_id}` when the host kicks (`banned: false`) or bans (`banned: true`) a player.
 - **Presence, the sweep and the sockets (WP-04, 2026-10 audit).** See "Departures, the sweep and the sockets" below: a return is announced to the room, one worker sweeps per tick, and every worker cuts its own sockets whose seat is gone.
 
 ### Game State in PostgreSQL
@@ -261,11 +261,11 @@ async def submit_vote(self, game_id: UUID, ...):
   shell keeps one open on every signed-in page. It used to be refused ("Missing auth
   token or room_id"); socket.io-client never retries a refused handshake, so every invite
   answered "Invite sent" and never arrived. `join_game` ignores a personal connection.
-- `PATCH /rooms/leave` and `PATCH /rooms/{id}/kick` call `notify_member_removed(room_id,
-  game_id)`: `notify_game_changed` (which also re-sends the room state) when the room had
+- `PATCH /rooms/leave`, `PATCH /rooms/{id}/kick` and `POST /rooms/{id}/bans` call
+  `notify_member_removed(room_id, game_id)`: `notify_game_changed` (which also re-sends the room state) when the room had
   a running game, else `notify_room_changed`. A departure mid-game eliminates the player
   and can move the turn or end the game, while game pages refetch on `game_updated` only.
-  **`game_id` is read BEFORE the removal** (`get_active_game_id`, first line of both
+  **`game_id` is read BEFORE the removal** (`get_active_game_id`, first line of the three
   routes): a departure that decides the game (the last Undercover kicked) clears
   `Room.active_game_id`, and the lookup used to run after it — it found no game, sent only
   `room_state`, and the rest of the table sat on a finished game with the leaver still
@@ -277,50 +277,81 @@ async def submit_vote(self, game_id: UUID, ...):
   in `Room.settings["game_type"]`, which `get_room_state` already reads while no game
   runs: every member's lobby follows it. The route dumps the request in JSON mode.
 
-### Kick Player
+### Kick and ban (owner decision, 2 November 2026)
 
-- Host can kick players via `PATCH /api/v1/rooms/{room_id}/kick` with `{ user_id }`
-  (host only, never yourself: `NotRoomHostError`, `CannotKickYourselfError`)
-- **A kick is a ban for the room's lifetime, and it rotates the PIN** (owner rule (c);
-  BR-20, SEC F04 — the kicked player used to be back a second later with the same code
-  and PIN). `kick_player` inserts a `RoomBan` (`ON CONFLICT DO NOTHING` on the pair,
-  `banned_by` = the host), sets `room.password` to a new random PIN that differs from
-  the old one (`_new_room_pin`), then runs `_handle_permanent_disconnect`, whose first
-  commit carries all three. `join_room` and `join_room_as_spectator` answer
-  `RoomBannedError` (403) for a ban, checked BEFORE the PIN.
+Two host actions; the decision replaced owner rule (c), under which every kick banned for the
+room's lifetime and rotated the PIN (BR-20, SEC F04: the kick used to be undone a second later,
+so it had become a ban; the owner wants both).
+
+- **Kick** ("Remove"): `PATCH /api/v1/rooms/{room_id}/kick` `{user_id}` →
+  `KickPlayerResponse`. For someone who left without quitting. `kick_player` checks host only
+  (`NotRoomHostError`), never yourself (`CannotKickYourselfError`), a seat
+  (`UserNotInRoomError`), then runs `_handle_permanent_disconnect` — and that is all: no
+  `RoomBan`, the PIN unchanged, every invite left as it was (theirs, and those to them). They
+  come back with the same code and PIN, or through an invite, and members may invite them.
+- **Ban**: `POST /api/v1/rooms/{room_id}/bans` `{user_id}` (`BanPlayerRequest`) → 201
+  `RoomBanView` (a resource of the bans collection, beside its `GET` and the lift's
+  `DELETE /{room_id}/bans/{user_id}`). Same checks (`CannotBanYourselfError`, 400). Everything a
+  kick does, plus, staged before the departure so its single commit carries them: a `RoomBan`
+  (`_insert_ban`, `ON CONFLICT DO NOTHING` on the pair, `banned_by` = the host), the room's
+  invites the player SENT or was SENT deleted, and a new random PIN that differs from the old
+  one (`_new_room_pin`; the banned player holds the share link and could come back under
+  another account). `join_room`, `join_room_as_spectator` and `accept_invite` answer
+  `RoomBannedError` (403) for a ban, checked BEFORE the PIN; `invite_friend_to_room` answers
+  `InviteeBannedError` (403, `errors.api.inviteeBanned`), asked once the invitee is known to be
+  the inviter's friend; `list_invites` leaves out a room that banned the caller.
+- **An invite racing the ban** (READ COMMITTED: the invite's ban check and the ban's purge do
+  not see each other's uncommitted rows) is closed from both ends. `invite_friend_to_room` asks
+  again once its row is committed (`_take_back_if_banned_meanwhile`): a ban of the invitee or of
+  the inviter committed meanwhile deletes the row and refuses the request
+  (`InviteeBannedError` / `InviterNotInRoomError`), so the route pushes nothing. `ban_player`
+  sweeps the player's invites to the room once more after its commit
+  (`_delete_invites_involving`, a transaction of its own that holds nothing), so a row
+  committed between its purge and its commit does not outlive the ban (an unban would bring it
+  back). Whichever commits last sees the other.
+- **Ordering inside the ban**: the `RoomBan` INSERT and the invites DELETE run BEFORE the new
+  PIN is staged: a statement autoflushes, and the room's UPDATE flushed before the game lock
+  deadlocked with the deciding vote
+  (`test_disconnect_lock_postgres.py::test_a_kick_waiting_behind_the_deciding_vote_keeps_the_result`,
+  parametrized kick and ban; see `_handle_permanent_disconnect`, "Lock order"). Any statement
+  added to the ban goes before the PIN too (the sweep after the commit is no exception: it
+  runs in a new transaction, with no lock held).
 - `GET /rooms/{id}/bans` → `list[RoomBanView {user_id, username, banned_at}]` and
   `DELETE /rooms/{id}/bans/{user_id}` → `StatusResponse {status: "lifted"}`
-  (`RoomBanNotFoundError`, 404, when absent), host only through the controller. Lifting
-  neither re-seats the player nor restores the old PIN. The rows live as long as the
-  room (an INACTIVE room accepts no join anyway) and go with the user's account.
-- The kick route tells the player (`notify_user_kicked`), detaches the socket
-  (`remove_user_from_room_socket`), and only THEN pushes the room state carrying the new
-  PIN (`notify_member_removed`); the lift route pushes `notify_room_changed`. That push is
-  addressed to the members still listed (`notify.member_channel`), so a kicked socket held by
-  another worker never hears the new PIN (review R2).
+  (`RoomBanNotFoundError`, 404, when absent — a kicked player has none), host only through the
+  controller. Lifting neither re-seats the player nor restores the old PIN; after it, invites
+  and joins work again. The rows live as long as the room (an INACTIVE room accepts no join
+  anyway) and go with the user's account.
+- **The routes**: both tell the player (`notify_user_kicked(user_id, room_id, banned=...)`, the
+  `you_were_kicked` event `{room_id, banned}` on `user:{id}`), detach the socket
+  (`remove_user_from_room_socket`), tell the room which removal it was
+  (`notify_member_removed_by_host(room_id, user_id, banned=...)`, the `member_removed_by_host`
+  event `{room_id, user_id, banned}` on `room:{id}`, no PIN: every member's activity line says
+  "removed" or "banned", not "left"), and only THEN push the room state
+  (`notify_member_removed`) — for a ban, the push carrying the new PIN; the lift route pushes
+  `notify_room_changed`. That push is addressed to the members still listed
+  (`notify.member_channel`), so a removed socket held by another worker never hears the new PIN
+  (review R2), and every worker's audit tick cuts a socket whose seat is gone (kick) or banned.
 - A friend invite is stored and carries no PIN ("Room invites: stored, accepted without the
-  PIN" below), so an invite sent before a kick still opens the room for anyone else, and the
-  kicked player's own invite answers 403 `roomBanned` (the ban is checked on accept). The
-  invites the kicked player SENT to the room are deleted in the kick's commit: an invite
-  opens the room without the PIN, so rotating the PIN alone left their friends a way in
-  (and the new PIN, read from the room state once seated). Their friend's strip answers 404
-  `roomInviteNotFound`. A member's invite stands, even one re-sent over the kicked player's
-  (the upsert takes the latest inviter). That DELETE runs BEFORE the new PIN is staged: a
-  statement autoflushes, and the room's UPDATE flushed before the game lock deadlocked with
-  the deciding vote (`test_disconnect_lock_postgres.py::test_a_kick_waiting_behind_the_deciding_vote_keeps_the_result`
-  caught it; see `_handle_permanent_disconnect`, "Lock order"). Any statement added to the
-  kick goes before the PIN too. A share LINK still carries the PIN of the moment it
-  was made: the join page says the PIN may have changed and asks for a new link or invite
-  (review F1).
-- Reuses `_handle_permanent_disconnect` from `disconnect.py` for game cleanup: the
-  kicked player of a running game is a leaver (owner rule (b))
-- No auto-disconnect — players are only removed by explicit kick or leaving
-- The kicked player's pages (the lobby AND the four game pages) go to /rooms on
-  `you_were_kicked` (`useLeaveAfterKick` in the front): they are out of the room's socket
-  rooms, so no `game_updated` reaches them any more.
-- Tests: `tests/api/controllers/test_wp07_room_bans.py` (ban, PIN rotation, join and spectate
-  refused, list and lift), `test_host_only_rules.py` (a non-host's kick is refused),
-  `tests/api/ws/test_wp04_reconnect_and_detach.py` (the kicked socket is cut on every worker).
+  PIN" below), so an invite sent before a ban still opens the room for anyone else. A share
+  LINK still carries the PIN of the moment it was made: the join page says the PIN may have
+  changed and asks for a new link or invite (review F1).
+- Both reuse `_handle_permanent_disconnect` from `disconnect.py` for game cleanup: the removed
+  player of a running game is a leaver (owner rule (b)).
+- No auto-disconnect — players are only removed by explicit kick, ban or leaving (and the
+  grace sweep).
+- The removed player's pages (the lobby AND the four game pages) go to /rooms on
+  `you_were_kicked` (`useLeaveAfterKick` in the front, which notes "kicked" or "banned" for the
+  notice there; "removed", which promises nothing, on the lobby's polling fallback): they are out of the room's socket rooms, so no `game_updated` reaches them any
+  more.
+- Tests: `tests/api/controllers/test_wp07_room_bans.py` (kick vs ban: the seat, no ban and the
+  same PIN for a kick, the ban and the new PIN for a ban, join and spectate, host only and never
+  yourself for both, list and lift, mid-game leavers), `test_room_invites.py` (what each does to
+  the invites, `InviteeBannedError`, a raced invite answers 403, an invite racing the ban taken
+  back or swept, the list's ban filter), `test_host_only_rules.py`,
+  `tests/api/routes/test_room.py` (the ban route's 201, both routes' notify order),
+  `tests/api/ws/test_notify.py` (`member_removed_by_host`), `tests/api/ws/test_wp04_reconnect_and_detach.py` (the removed socket is cut on
+  every worker, kick and ban).
 
 ### Leaderboard
 
@@ -444,7 +475,7 @@ from majlisna.api.constants import MIN_PLAYERS_FOR_GAME, ROOM_PASSWORD_LENGTH
 | NotebookEntry | notebook_entry | The Kunnash: one row per (user, game type, term) a player kept from a finished game (`term` column; the API calls it `word`) |
 | DailyWord | daily_word | The word of the day: `day` (Makkah date, PK) → `quiz_word_id` |
 | DailyWordPlay | daily_word_play | One player's go at one day's word: one row per (`user_id`, `day`) |
-| RoomBan | room_ban | A player the host removed from a room: one row per (`room_id`, `user_id`), `banned_by` nullable |
+| RoomBan | room_ban | A player the host banned from a room (a kick writes none): one row per (`room_id`, `user_id`), `banned_by` nullable |
 | AuthSession | auth_session | One signed-in device (`id` = the `sid` claim): refresh jti rotation, absolute `expires_at`, `revoked_at` |
 | QuizWord | quiz_word | Word Quiz words (multilingual hints, accepted answers) |
 | McqQuestion | mcq_question | MCQ Quiz questions (trilingual questions, JSON choices/explanations) |
@@ -511,8 +542,10 @@ Each rule is spelled out in its own section below; this is the index.
   contracts", "Kalimat".
 - **(b) Leavers get neither a win nor a loss, in all four games** (`mark_player_left` on every
   departure, `scorable_players`, `did_user_win` → None). → "Shared contracts", "Departures".
-- **(c) A kick bans the player from that room for its lifetime**; the host lists and lifts bans;
-  the PIN rotates on every kick. → "Kick Player".
+- **(c) Kick and ban are two host actions** (owner decision, 2 November 2026, replacing "a kick
+  bans for the room's lifetime and rotates the PIN"): a kick only takes the seat (the player may
+  come back); a ban also keeps them out until the host lifts it (joins, spectating, invites),
+  deletes their room invites and rotates the PIN. → "Kick and ban".
 - **(d) Undercover's ready quorum between rounds**: every alive player but the host (every alive
   player without a host); the host can still force it. → "Undercover between rounds".
 - **(e) Kalimat: a wrong try costs one rung, at most 5 tries a round**
@@ -1814,14 +1847,15 @@ answered 500 (TQ-03). Tests: `test_auth.py::test_the_reset_token_is_stored_as_it
 ### Room invites: stored, accepted without the PIN
 
 A friend's invite used to be a Socket.IO push carrying the room's code AND PIN, stored
-nowhere; a kick rotates the PIN (owner rule (c)), so an invite sent before a kick opened a
-join that was refused. It is now a row, `RoomInvite` (`models/room_invite.py`, table
+nowhere; the PIN rotates (then on every kick, now on a ban), so an invite sent before it opened
+a join that was refused. It is now a row, `RoomInvite` (`models/room_invite.py`, table
 `room_invite`, migration `0002_room_invite`): `room_id`, `inviter_id`, `invitee_id`,
 `created_at` / `updated_at`, `expires_at` (all UTC-aware; SQLite reads them back naive,
 compare through `controllers/auth.utc_instant`).
 
-- **Inviting** (`RoomController.invite_friend_to_room`, same checks as before: the inviter
-  connected in the room, the invitee a friend not connected in it) upserts on the unique
+- **Inviting** (`RoomController.invite_friend_to_room`: the inviter connected in the room, the
+  invitee a friend, not banned from the room — `InviteeBannedError`, 403 — and not connected in
+  it) upserts on the unique
   pair `uq_room_invite_room_invitee` (`INSERT … ON CONFLICT DO UPDATE`): one live invite per
   (room, invitee), a re-invite keeps the id and takes the latest inviter and a full
   `ROOM_INVITE_LIFETIME_MINUTES` (30) again, so a strip already on the friend's screen still
@@ -1833,7 +1867,7 @@ compare through `controllers/auth.utc_instant`).
   `shared_limit` with the fixed scope `ROOM_INVITE_ACCEPT_RATE_LIMIT_SCOPE`, because a plain
   limit counts per path and the path names the invite: each made-up id bought a fresh
   budget): the invite row is read `FOR UPDATE` for the caller (someone else's, unknown,
-  spent or revoked by a kick → `RoomInviteNotFoundError` 404), then `expires_at`
+  spent or deleted by a ban → `RoomInviteNotFoundError` 404), then `expires_at`
   (`RoomInviteExpiredError` 410), the room
   ACTIVE (`RoomNotFoundError`), `_ensure_not_banned` (403), `_ensure_not_seated_elsewhere`
   (409, the invite stays so the client can leave and accept again), then `_take_seat` — the
@@ -1843,22 +1877,27 @@ compare through `controllers/auth.utc_instant`).
   second answers 404); without it the second insert of the seat's unique pair was a 500.
   There is no room capacity at join (game starts bound the player count), so none here.
 - **Reading**: `GET /rooms/invites` (`list_invites`, declared before `GET /rooms/{room_id}`)
-  → the caller's live invites (not expired, ACTIVE room), newest `expires_at` first, at
+  → the caller's live invites (not expired, ACTIVE room, no ban of the caller from it), newest `expires_at` first, at
   most `ROOM_INVITE_LIST_LIMIT`: the app shell's strip shows an invite sent while the page
   was closed, and re-reads it after a socket reconnect.
 - **Purges** (no FK declares ON DELETE): `_purge_user_references` deletes the invites a user
-  sent or received; `delete_room` deletes the room's; `kick_player` deletes the invites the
-  kicked player sent to that room (in the kick's commit, with the ban and the new PIN);
+  sent or received; `delete_room` deletes the room's; `ban_player` deletes the room's invites
+  the banned player sent or was sent (in the ban's commit, with the ban and the new PIN; a kick
+  deletes none);
   `scripts/purge_seed_data.py` deletes those of the rooms it removes. A room deactivated
   otherwise (its last member left) keeps its rows until they expire: accepting answers
   `RoomNotFoundError`, `list_invites` leaves them out, and the next invite issued purges
   them once expired. An expired invite likewise stays in the table until then: the list's
   `expires_at` filter is what hides it.
-- A ban is not checked when inviting (a member may not know of it); it is on accepting. A
-  lifted ban makes a still-live invite usable again, like the room's current PIN.
+- A ban is checked when inviting (403 `inviteeBanned`: the inviter's dialog says the friend is
+  banned from this room), again once the invite is committed (a ban that committed meanwhile
+  takes it back: 403, no push), by the ban's sweep after its commit, and on accepting (403
+  `roomBanned`, the last door for a row that slipped past both). A lift makes new invites
+  possible again.
 - Tests: `tests/api/controllers/test_room_invites.py` (stored without the PIN, refresh,
-  expired purge, accept after a kick, the kicked player's sent invites revoked, a kicked
-  player's old invite, someone else's, expired, closed and deactivated rooms, seated
+  expired purge, accept after a ban, a kicked player's sent and received invites kept, a
+  banned player's deleted, a raced invite refused, inviting a banned or a kicked friend, the
+  lift, someone else's, expired, closed and deactivated rooms, seated
   elsewhere then leave and accept, a link join spends it, the live list (its expiry and
   ACTIVE filters each tested with the rows still present), account deletion both ways, and
   two concurrent accepts, postgres), `tests/api/routes/test_room.py` (routes, error keys,
@@ -2562,7 +2601,7 @@ translations.
 python-socketio clients against the real handlers on uvicorn).
 
 - **A departure takes the game lock BEFORE it reads the game** (BR-04).
-  `_handle_permanent_disconnect(session, link)` (signature fixed: kick, leave, account
+  `_handle_permanent_disconnect(session, link)` (signature fixed: kick, ban, leave, account
   deletion and the sweep call it) reads only `Room.active_game_id` (a column, autoflush
   off), takes `get_game_lock`, then re-reads the room and the game with
   `populate_existing`. It read the Game first and "re-read" it under the lock from the
@@ -2576,7 +2615,7 @@ python-socketio clients against the real handlers on uvicorn).
   lock or commit themselves when called from there (`commit=False`); room deactivation
   and ownership transfer happen inside the same locked block. **Lock order: room lock,
   then game lock**; a caller may hold the room lock, never a game lock (the SQLite
-  fallback is not reentrant). A caller's staged writes (the kick's ban and new PIN) are
+  fallback is not reentrant). A caller's staged writes (the ban's RoomBan, deleted invites and new PIN) are
   flushed only after the game lock is held: flushed before, a room-row UPDATE would wait
   on a move that finishes the game (it writes that row) while this waits on its lock.
 - **Every departure marks the leaver** (`mark_player_left`, owner rule (b)) in all four
@@ -2614,7 +2653,7 @@ python-socketio clients against the real handlers on uvicorn).
   `on_room_changed`, registered for as long as the loop runs (`presence_listener`); no
   loop (tests, scripts), no announcement. `mark_user_disconnected` returns whether it
   flipped the link, and only a flip is broadcast.
-- **A removed seat cuts the socket, on every worker** (SEC F04, owner rule (c)).
+- **A removed seat cuts the socket, on every worker** (SEC F04; a kick and a ban alike).
   `remove_user_from_room_socket` leaves `room:{id}` and every `game:*` channel, then
   disconnects the local SID. `_user_sids` is per process, so every worker also runs
   `audit_local_socket_memberships` on every tick (`on_worker_tick`, outside the
