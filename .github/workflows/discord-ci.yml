@@ -1,0 +1,40 @@
+name: Discord CI alerts
+
+# A failed CI run on main alerts #majlisna-deployments; the next green run reports the
+# recovery; routine green runs are quiet (.github/scripts/ci_alert.py, from LaTabdhir).
+# workflow_run executes this file as it is on main, never a pull request's version.
+
+on:
+  workflow_run:
+    # Keep in sync with WORKFLOWS in .github/scripts/ci_alert.py.
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Completed run ID for a clearly labelled delivery test
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  notify:
+    # GitHub-hosted: free on this public repository, and nothing here needs the home
+    # server. Trusted code only (the default branch), no artifact is loaded.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      - name: Notify failures and recoveries
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DISCORD_CI_WEBHOOK: ${{ secrets.DISCORD_CI_WEBHOOK }}
+        run: python3 .github/scripts/ci_alert.py

@@ -325,7 +325,12 @@ jobs:
     # target; the last step warns from 35 min on.
     timeout-minutes: 55
     needs: changes
-    if: needs.changes.outputs.e2e == 'true' || github.event_name == 'workflow_dispatch'
+    # Never a fork's code on a self-hosted runner (this repository is public, and the
+    # runners live on the VPS and the owner's home server). Fork PRs also need the owner's
+    # approval (approval_policy: all_external_contributors); this is the second lock.
+    if: >-
+      (needs.changes.outputs.e2e == 'true' || github.event_name == 'workflow_dispatch')
+      && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     defaults:
       run:
         working-directory: e2e
