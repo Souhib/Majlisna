@@ -28,7 +28,9 @@ export type UpdateUserPasswordApiV1UsersUserIdPasswordPatchMutationKey =
   ReturnType<typeof updateUserPasswordApiV1UsersUserIdPasswordPatchMutationKey>;
 
 /**
- * @description Change the password; every OTHER session of the account is signed out (SEC F01).
+ * @description Set the password, confirmed by the current one or, for a Google-only account, by a
+ * fresh Google access token naming it; every OTHER session is signed out (SEC F01).
+ * A Google-only account that sets one can then sign in with it, and still with Google.
  * @summary Update User Password
  * {@link /api/v1/users/:user_id/password}
  */
@@ -96,7 +98,9 @@ export function updateUserPasswordApiV1UsersUserIdPasswordPatchMutationOptions<
 }
 
 /**
- * @description Change the password; every OTHER session of the account is signed out (SEC F01).
+ * @description Set the password, confirmed by the current one or, for a Google-only account, by a
+ * fresh Google access token naming it; every OTHER session is signed out (SEC F01).
+ * A Google-only account that sets one can then sign in with it, and still with Google.
  * @summary Update User Password
  * {@link /api/v1/users/:user_id/password}
  */

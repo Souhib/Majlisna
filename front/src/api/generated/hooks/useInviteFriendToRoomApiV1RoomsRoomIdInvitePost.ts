@@ -28,7 +28,7 @@ export type InviteFriendToRoomApiV1RoomsRoomIdInvitePostMutationKey =
   ReturnType<typeof inviteFriendToRoomApiV1RoomsRoomIdInvitePostMutationKey>;
 
 /**
- * @description Invite a friend to join the room.
+ * @description Invite a friend to the room: the invite is stored and pushed to them, without the PIN.
  * @summary Invite Friend To Room
  * {@link /api/v1/rooms/:room_id/invite}
  */
@@ -95,7 +95,7 @@ export function inviteFriendToRoomApiV1RoomsRoomIdInvitePostMutationOptions<
 }
 
 /**
- * @description Invite a friend to join the room.
+ * @description Invite a friend to the room: the invite is stored and pushed to them, without the PIN.
  * @summary Invite Friend To Room
  * {@link /api/v1/rooms/:room_id/invite}
  */

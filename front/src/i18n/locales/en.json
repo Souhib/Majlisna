@@ -1060,6 +1060,12 @@
     "deleteAccountConfirmWithGoogle": "Confirm with Google",
     "deleteAccountWarningGoogle": "This will permanently delete your account. Confirm with the Google account you sign in with.",
     "deleteAccountGoogleFailed": "Google did not confirm. Try again.",
+    "passwordGoogleIntro": "Your account signs in with Google and has no password yet. Choose one, then confirm with Google: you will also be able to sign in with your email and this password.",
+    "passwordConfirmWithGoogle": "Confirm with Google",
+    "passwordGoogleFailed": "Google did not confirm. Try again.",
+    "passwordSet": "Password set. You can now sign in with your email and this password, or with Google.",
+    "passwordSetByEmail": "Your account signs in with Google and has no password yet. We can email you a link to set one.",
+    "passwordSetByEmailLink": "Email me a link",
     "accountDeleted": "Your account has been deleted",
     "yourPlay": "Your play",
     "viewChallenges": "Today’s and this week’s challenges",
@@ -1368,11 +1374,15 @@
       "answerAttemptsExhausted": "You have used your {{max}} tries for this round.",
       "roomBanned": "The host removed you from this room.",
       "roomBanNotFound": "This player is not banned from the room.",
+      "roomInviteNotFound": "This invitation is no longer valid.",
+      "roomInviteExpired": "This invitation has expired. Ask your friend to invite you again.",
       "passwordTooLong": "This password is too long. Choose a shorter one.",
       "sessionRevoked": "You were signed out. Sign in again.",
       "notAnAlivePlayer": "Only a player still in the game can do this.",
       "invalidAvatarUrl": "This picture address cannot be used.",
       "googleAccountMismatch": "That Google account is not the one linked to this profile.",
+      "googleConfirmationRequired": "This account signs in with Google: confirm with Google.",
+      "currentPasswordRequired": "Confirm with your current password.",
       "roomMembersOnly": "Only the people in this room can see this.",
       "riddleNotDuringGame": "Riddles wait until this game is over."
     }
@@ -1443,14 +1453,14 @@
   "privacy": {
     "link": "Privacy policy",
     "title": "Privacy policy",
-    "updated": "Last updated: 1 November 2026",
+    "updated": "Last updated: 2 November 2026",
     "intro": "Majlisna (majlisna.app) is a free online platform for Islamic party games, run by Souhib Trabelsi. This page explains what data we collect, why, and how you can control it.",
     "sections": [
       {
         "title": "Data we collect",
         "body": [
           "<b>Account:</b> your username, email address and password (stored only as a hash). Optionally, your country and a short bio.",
-          "<b>Google sign-in:</b> if you choose “Continue with Google”, we receive your Google account identifier, email address, name and profile picture. Your name is used only to suggest your username, and the picture becomes your profile picture. We never receive your Google password.",
+          "<b>Google sign-in:</b> if you choose “Continue with Google”, we receive your Google account identifier, email address, name and profile picture. Your name is used only to suggest your username, and the picture becomes your profile picture. We never receive your Google password. An account created this way has no password until you set one in your profile, confirmed with Google; you can then also sign in with your email and that password.",
           "<b>Technical data:</b> server logs (such as IP address and browser type) for security and troubleshooting, and error reports when the app crashes."
         ]
       },
@@ -1500,7 +1510,7 @@
       {
         "title": "Service providers",
         "body": [
-          "<b>Google:</b> sign-in with Google, and nothing else. Google’s sign-in script is loaded from Google only on the sign-in and sign-up pages, where its button is, and in the deletion dialog of an account that signs in with Google, where it confirms the deletion; our server checks each Google sign-in, and each such confirmation, with Google, and the profile pictures of Google accounts are loaded from Google’s servers.",
+          "<b>Google:</b> sign-in with Google, and nothing else. Google’s sign-in script is loaded from Google only on the sign-in and sign-up pages, where its button is, and, for an account that signs in with Google, in its profile’s deletion dialog and password form, where it confirms the deletion or the new password; our server checks each Google sign-in, and each such confirmation, with Google, and the profile pictures of Google accounts are loaded from Google’s servers.",
           "<b>Resend:</b> sends the account emails (email verification and password reset). It receives your email address and username.",
           "<b>Cloudflare:</b> every request to Majlisna passes through Cloudflare, which provides the network, HTTPS and protection against attacks. It sees your IP address and the pages you request.",
           "<b>Oracle Cloud:</b> hosts our server and database.",

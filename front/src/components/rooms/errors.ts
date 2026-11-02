@@ -10,15 +10,39 @@ export const ROOM_ERROR_KEYS = {
   notInRoom: "errors.api.userNotInRoom",
   /** 403 on join: not the room's PIN — which a kick rotates (owner rule (c)). */
   wrongPin: "errors.api.wrongRoomPassword",
+  /** 410 on an invite's accept: past its lifetime. */
+  inviteExpired: "errors.api.roomInviteExpired",
+  /** 404 on an invite's accept: spent, revoked by a kick of its sender, or never the caller's. */
+  inviteNotFound: "errors.api.roomInviteNotFound",
+  /** 404 on a join or an invite's accept: the room closed. */
+  roomNotFound: "errors.api.roomNotFound",
 } as const
+
+/**
+ * The answers to an invite's accept that hold however often it is pressed: a ban, an
+ * expired invite, one no longer valid, a closed room. The strip then offers only Close.
+ * Anything else — a 429, a 5xx, no answer at all — leaves the invite standing, and Join
+ * stays (review F3: every error answer carries an `error_key`, a passing one too).
+ */
+const FINAL_INVITE_REFUSALS: ReadonlySet<string> = new Set([
+  ROOM_ERROR_KEYS.banned,
+  ROOM_ERROR_KEYS.inviteExpired,
+  ROOM_ERROR_KEYS.inviteNotFound,
+  ROOM_ERROR_KEYS.roomNotFound,
+])
+
+export function isFinalInviteRefusal(errorKey: string | null): boolean {
+  return errorKey !== null && FINAL_INVITE_REFUSALS.has(errorKey)
+}
 
 /**
  * What follows a refused join: how to repair it, or nothing when nothing would.
  *
  * - `none`: a ban (it holds whatever the code and PIN; review F2) and a seat in another
  *   room (its own offer, "Leave {{room}} and join", is the repair);
- * - `pinChanged`: the PIN was refused. A link or an invite keeps the PIN it was made
- *   with, and every kick rotates it (review F1): the repair is a new link or invite;
+ * - `pinChanged`: the PIN was refused. A share link keeps the PIN it was made with, and
+ *   every kick rotates it (review F1): the repair is a new link or invite (an invite is
+ *   stored on the server and needs no PIN);
  * - `generic`: anything else (the room closed, a code that names no room).
  */
 export type JoinRepair = "none" | "pinChanged" | "generic"

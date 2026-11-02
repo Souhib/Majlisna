@@ -5,6 +5,8 @@
  * Do not edit manually.
  */
 
+import type { RoomInviteView } from "./RoomInviteView.ts";
+
 /**
  * RoomInviteResponse
  */
@@ -21,4 +23,9 @@ export type RoomInviteResponse = {
    * @type string
    */
   message: string;
+  /**
+   * @description A friend\'s invite to a room, as the invitee sees it: the ``room_invite`` push to\ntheir personal channel and ``GET /rooms/invites``. Never the room\'s PIN: the invite\nis accepted by its id (``POST /rooms/invites/{id}/accept``), so a PIN rotated by a\nkick after it was sent does not stop it.\n\n``public_id`` is the room\'s code and ``invited_by`` the inviter\'s username (what the\nstrip shows); ``expires_at`` is UTC.
+   * @type object
+   */
+  invite: RoomInviteView;
 };

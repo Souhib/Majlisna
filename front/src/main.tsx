@@ -6,6 +6,7 @@ import { createRouter, RouterProvider } from "@tanstack/react-router"
 import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
 import { startErrorReporting } from "./lib/report-error"
+import { parseSearch } from "./lib/search-params"
 import { routeTree } from "./routeTree.gen"
 import "./index.css"
 import "./i18n"
@@ -19,6 +20,8 @@ const router = createRouter({
   defaultPreload: "intent",
   defaultPreloadStaleTime: 0,
   scrollRestoration: true,
+  // a hand-written share link's room code as written, even one that reads as a number (3E182)
+  parseSearch,
 })
 
 declare module "@tanstack/react-router" {

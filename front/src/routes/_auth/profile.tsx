@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Link } from "@tanstack/react-router"
-import { KeyRound, Pencil } from "lucide-react"
-import { type FormEvent, type KeyboardEvent, type ReactNode, useMemo, useState } from "react"
+import { Pencil } from "lucide-react"
+import { type FormEvent, type ReactNode, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import { getApiErrorMessage } from "@/api/client"
@@ -10,13 +10,13 @@ import {
   getUserByIdApiV1UsersUserIdGetQueryKey,
   useGetUserByIdApiV1UsersUserIdGet,
   useUpdateUserApiV1UsersUserIdPatch,
-  useUpdateUserPasswordApiV1UsersUserIdPasswordPatch,
 } from "@/api/generated"
 import type { PublicUserView, UserView } from "@/api/generated"
 import { currentLanguage } from "@/components/layout/language-switch"
 import { countryName, countryOptions } from "@/components/profile/countries"
+import { ChangePassword } from "@/components/profile/ChangePassword"
 import { DeleteAccount } from "@/components/profile/DeleteAccount"
-import { passwordErrorMessage } from "@/components/profile/password-error"
+import { escapeTo, FormActions } from "@/components/profile/form-parts"
 import { LoadFailed } from "@/components/stats/LoadFailed"
 import { PlayLinks } from "@/components/stats/PlayLinks"
 import { Avatar } from "@/components/ui/avatar"
@@ -33,11 +33,10 @@ export const Route = createFileRoute("/_auth/profile")({
   component: ProfilePage,
 })
 
-// Backend limits (USERNAME_MIN/MAX_LENGTH, UserUpdate.bio, PASSWORD_MIN_LENGTH)
+// Backend limits (USERNAME_MIN/MAX_LENGTH, UserUpdate.bio)
 const USERNAME_MIN = 3
 const USERNAME_MAX = 30
 const BIO_MAX = 200
-const PASSWORD_MIN = 8
 const NO_COUNTRY = "none"
 
 type Editing = null | "name" | "details"
@@ -298,116 +297,18 @@ function DetailsForm({ details, onDone }: { details: PublicUserView | undefined;
   )
 }
 
-/**
- * Escape leaves the form without saving. A key pressed in a portalled layer of the form
- * (the country list) bubbles here through React, but that Escape only closes the list.
- */
-function escapeTo(cancel: () => void) {
-  return (e: KeyboardEvent<HTMLFormElement>) => {
-    if (e.key !== "Escape" || e.defaultPrevented) return
-    if (!e.currentTarget.contains(e.target as Node)) return
-    e.stopPropagation()
-    cancel()
-  }
-}
-
-function FormActions({ busy, onCancel }: { busy: boolean; onCancel: () => void }) {
-  const { t } = useTranslation()
-  return (
-    <div className="flex flex-wrap gap-2.5">
-      <Button type="submit" size="sm" loading={busy}>
-        {t("common.save")}
-      </Button>
-      <Button variant="secondary" size="sm" onClick={onCancel}>
-        {t("common.cancel")}
-      </Button>
-    </div>
-  )
-}
-
 function AccountPanel() {
   const { t } = useTranslation()
-  const [changing, setChanging] = useState(false)
 
   return (
     <Panel aria-labelledby="account-title">
       <PanelHeader title={<span id="account-title">{t("profile.account")}</span>} />
 
-      <section aria-labelledby="password-title" className="grid gap-3">
-        <h3 id="password-title" className="type-label">
-          {t("profile.password")}
-        </h3>
-        {changing ? (
-          <PasswordForm onDone={() => setChanging(false)} />
-        ) : (
-          <div>
-            <Button variant="secondary" size="sm" iconStart={<KeyRound aria-hidden="true" />} onClick={() => setChanging(true)}>
-              {t("profile.changePassword")}
-            </Button>
-          </div>
-        )}
-      </section>
+      <ChangePassword />
 
       <Separator variant="line" className="my-6" />
 
       <DeleteAccount />
     </Panel>
-  )
-}
-
-function PasswordForm({ onDone }: { onDone: () => void }) {
-  const { t } = useTranslation()
-  const { user } = useAuth()
-  const changePasswordMutation = useUpdateUserPasswordApiV1UsersUserIdPasswordPatch()
-  const [currentPassword, setCurrentPassword] = useState("")
-  const [newPassword, setNewPassword] = useState("")
-  const [errors, setErrors] = useState<{ current?: string; next?: string }>({})
-
-  const submit = async (e: FormEvent) => {
-    e.preventDefault()
-    if (!user) return
-    const found: typeof errors = {}
-    if (!currentPassword) found.current = t("profile.currentPasswordRequired")
-    // Must match the backend's PASSWORD_MIN_LENGTH (8): the form used to accept 5.
-    if (newPassword.length < PASSWORD_MIN) found.next = t("profile.passwordTooShort", { min: PASSWORD_MIN })
-    setErrors(found)
-    if (found.current || found.next) return
-    try {
-      await changePasswordMutation.mutateAsync({
-        user_id: user.id,
-        data: { current_password: currentPassword, new_password: newPassword },
-      })
-      toast.success(t("profile.passwordChanged"))
-      onDone()
-    } catch (err) {
-      // a wrong current password is the login's 401: said as a wrong password (F6)
-      setErrors({ current: passwordErrorMessage(err, t) })
-    }
-  }
-
-  return (
-    <form onSubmit={submit} onKeyDown={escapeTo(onDone)} className="grid gap-3.5" noValidate>
-      <Field label={t("profile.currentPasswordLabel")} error={errors.current}>
-        <Input
-          type="password"
-          value={currentPassword}
-          onChange={(e) => setCurrentPassword(e.target.value)}
-          placeholder={t("profile.currentPassword")}
-          autoComplete="current-password"
-          autoFocus
-        />
-      </Field>
-      <Field label={t("profile.newPasswordLabel")} hint={t("profile.passwordHint", { min: PASSWORD_MIN })} error={errors.next}>
-        <Input
-          type="password"
-          value={newPassword}
-          onChange={(e) => setNewPassword(e.target.value)}
-          placeholder={t("profile.newPassword")}
-          autoComplete="new-password"
-          minLength={PASSWORD_MIN}
-        />
-      </Field>
-      <FormActions busy={changePasswordMutation.isPending} onCancel={onDone} />
-    </form>
   )
 }

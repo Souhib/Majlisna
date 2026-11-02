@@ -31,8 +31,9 @@ function scrubShareLinkFromAddress() {
 }
 
 /**
- * The share link (/rooms/join?code=…&pin=…), also used by the home's join row and by
- * friend invites: it joins, then opens the lobby. While it works it says so quietly over
+ * The share link (/rooms/join?code=…&pin=…), also used by the home's join row (a friend's
+ * invite does not come here: its strip accepts it by id, without the PIN): it joins, then
+ * opens the lobby. While it works it says so quietly over
  * the code it is using; when the server refuses, it stays here and names the repair
  * (ask for a fresh link, or type the code). The refusal is said once, on the page
  * (`data-testid="join-error"`): no toast on top of it, which at 390 px hid the title.
@@ -41,14 +42,14 @@ function scrubShareLinkFromAddress() {
  * A player already seated in another room (409) is offered "Leave {{room}} and join"
  * (`useJoinRoom`); a ban (403 `roomBanned`) is said in the server's words, and that is all:
  * no repair, no "type the code" — a ban holds whatever the code and PIN (review F2). A
- * refused PIN says the PIN may have changed since the link or invite was made: every kick
+ * refused PIN says the PIN may have changed since the link was made: every kick
  * rotates it (review F1).
  */
 function JoinByLink() {
   const search = Route.useSearch()
   // Read once per link: the address is cleaned right after (the router then reads no code
   // and no PIN), so the page keeps what the link said. A new link opened while the page is
-  // open (a friend's invite) takes its place, and is tried once in turn.
+  // open takes its place, and is tried once in turn.
   const [link, setLink] = useState(() => ({ code: search.code, pin: search.pin }))
   if (search.code && search.pin && (search.code !== link.code || search.pin !== link.pin)) {
     setLink({ code: search.code, pin: search.pin })

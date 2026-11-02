@@ -1081,6 +1081,12 @@
     "deleteAccountConfirmWithGoogle": "Confirmer avec Google",
     "deleteAccountWarningGoogle": "Votre compte sera définitivement supprimé. Confirmez avec le compte Google qui vous sert à vous connecter.",
     "deleteAccountGoogleFailed": "Google n’a pas confirmé. Réessayez.",
+    "passwordGoogleIntro": "Votre compte se connecte avec Google et n’a pas encore de mot de passe. Choisissez-en un, puis confirmez avec Google : vous pourrez aussi vous connecter avec votre adresse e-mail et ce mot de passe.",
+    "passwordConfirmWithGoogle": "Confirmer avec Google",
+    "passwordGoogleFailed": "Google n’a pas confirmé. Réessayez.",
+    "passwordSet": "Mot de passe enregistré. Vous pouvez désormais vous connecter avec votre adresse e-mail et ce mot de passe, ou avec Google.",
+    "passwordSetByEmail": "Votre compte se connecte avec Google et n’a pas encore de mot de passe. Nous pouvons vous envoyer par e-mail un lien pour en choisir un.",
+    "passwordSetByEmailLink": "Recevoir le lien par e-mail",
     "accountDeleted": "Votre compte a été supprimé",
     "yourPlay": "Votre activité",
     "viewChallenges": "Les défis du jour et de la semaine",
@@ -1341,11 +1347,15 @@
       "answerAttemptsExhausted": "Vous avez utilisé vos {{max}} essais pour cette manche.",
       "roomBanned": "L’hôte vous a retiré de ce salon.",
       "roomBanNotFound": "Ce joueur n’est pas banni du salon.",
+      "roomInviteNotFound": "Cette invitation n’est plus valable.",
+      "roomInviteExpired": "Cette invitation a expiré. Demandez à votre ami de vous inviter à nouveau.",
       "passwordTooLong": "Ce mot de passe est trop long. Choisissez-en un plus court.",
       "sessionRevoked": "Vous avez été déconnecté. Reconnectez-vous.",
       "notAnAlivePlayer": "Seul un joueur encore en jeu peut faire cela.",
       "invalidAvatarUrl": "Cette adresse d’image ne peut pas être utilisée.",
       "googleAccountMismatch": "Ce compte Google n’est pas celui qui est lié à ce profil.",
+      "googleConfirmationRequired": "Ce compte se connecte avec Google : confirmez avec Google.",
+      "currentPasswordRequired": "Confirmez avec votre mot de passe actuel.",
       "roomMembersOnly": "Seules les personnes de ce salon peuvent voir ceci.",
       "riddleNotDuringGame": "Les énigmes attendent la fin de cette partie."
     }
@@ -1464,14 +1474,14 @@
   "privacy": {
     "link": "Politique de confidentialité",
     "title": "Politique de confidentialité",
-    "updated": "Dernière mise à jour : 1er novembre 2026",
+    "updated": "Dernière mise à jour : 2 novembre 2026",
     "intro": "Majlisna (majlisna.app) est une plateforme gratuite de jeux de société islamiques en ligne, éditée par Souhib Trabelsi. Cette page explique quelles données nous collectons, pourquoi, et comment vous pouvez les contrôler.",
     "sections": [
       {
         "title": "Données collectées",
         "body": [
           "<b>Compte :</b> votre pseudo, votre adresse e-mail et votre mot de passe (conservé uniquement sous forme hachée). En option : votre pays et une courte bio.",
-          "<b>Connexion Google :</b> si vous choisissez « Continuer avec Google », nous recevons l’identifiant de votre compte Google, votre adresse e-mail, votre nom et votre photo de profil. Votre nom sert seulement à proposer votre pseudo, et la photo devient votre photo de profil. Nous ne recevons jamais votre mot de passe Google.",
+          "<b>Connexion Google :</b> si vous choisissez « Continuer avec Google », nous recevons l’identifiant de votre compte Google, votre adresse e-mail, votre nom et votre photo de profil. Votre nom sert seulement à proposer votre pseudo, et la photo devient votre photo de profil. Nous ne recevons jamais votre mot de passe Google. Un compte créé ainsi n’a pas de mot de passe tant que vous n’en choisissez pas un dans votre profil, confirmé avec Google ; vous pouvez ensuite vous connecter aussi avec votre adresse e-mail et ce mot de passe.",
           "<b>Données techniques :</b> journaux du serveur (adresse IP, type de navigateur) pour la sécurité et le dépannage, et rapports d’erreur en cas de plantage."
         ]
       },
@@ -1521,7 +1531,7 @@
       {
         "title": "Prestataires",
         "body": [
-          "<b>Google :</b> la connexion avec Google, rien d’autre. Le script de connexion de Google n’est chargé depuis Google que sur les pages de connexion et d’inscription, là où se trouve son bouton, et dans la fenêtre de suppression d’un compte qui se connecte avec Google, où il confirme la suppression ; notre serveur vérifie auprès de Google chaque connexion Google et chacune de ces confirmations, et les photos de profil des comptes Google sont chargées depuis les serveurs de Google.",
+          "<b>Google :</b> la connexion avec Google, rien d’autre. Le script de connexion de Google n’est chargé depuis Google que sur les pages de connexion et d’inscription, là où se trouve son bouton, et, pour un compte qui se connecte avec Google, dans la fenêtre de suppression et le formulaire de mot de passe de son profil, où il confirme la suppression ou le nouveau mot de passe ; notre serveur vérifie auprès de Google chaque connexion Google et chacune de ces confirmations, et les photos de profil des comptes Google sont chargées depuis les serveurs de Google.",
           "<b>Resend :</b> envoie les e-mails du compte (vérification de l’adresse, réinitialisation du mot de passe). Il reçoit votre adresse e-mail et votre pseudo.",
           "<b>Cloudflare :</b> chaque requête vers Majlisna passe par Cloudflare, qui assure le réseau, le HTTPS et la protection contre les attaques. Il voit votre adresse IP et les pages demandées.",
           "<b>Oracle Cloud :</b> héberge notre serveur et notre base de données.",

@@ -6,6 +6,14 @@ export type {
   AcceptFriendRequestApiV1FriendsFriendshipIdAcceptPostMutationResponse,
   AcceptFriendRequestApiV1FriendsFriendshipIdAcceptPostMutation,
 } from "./AcceptFriendRequestApiV1FriendsFriendshipIdAcceptPost.ts";
+export type {
+  AcceptRoomInviteApiV1RoomsInvitesInviteIdAcceptPostPathParams,
+  AcceptRoomInviteApiV1RoomsInvitesInviteIdAcceptPost200,
+  AcceptRoomInviteApiV1RoomsInvitesInviteIdAcceptPost404,
+  AcceptRoomInviteApiV1RoomsInvitesInviteIdAcceptPost422,
+  AcceptRoomInviteApiV1RoomsInvitesInviteIdAcceptPostMutationResponse,
+  AcceptRoomInviteApiV1RoomsInvitesInviteIdAcceptPostMutation,
+} from "./AcceptRoomInviteApiV1RoomsInvitesInviteIdAcceptPost.ts";
 export type { AccessTokenResponse } from "./AccessTokenResponse.ts";
 export type { AchievementWithProgress } from "./AchievementWithProgress.ts";
 export type { ActiveChallenge } from "./ActiveChallenge.ts";
@@ -602,6 +610,12 @@ export type {
   ListRoomBansApiV1RoomsRoomIdBansGetQuery,
 } from "./ListRoomBansApiV1RoomsRoomIdBansGet.ts";
 export type {
+  ListRoomInvitesApiV1RoomsInvitesGet200,
+  ListRoomInvitesApiV1RoomsInvitesGet404,
+  ListRoomInvitesApiV1RoomsInvitesGetQueryResponse,
+  ListRoomInvitesApiV1RoomsInvitesGetQuery,
+} from "./ListRoomInvitesApiV1RoomsInvitesGet.ts";
+export type {
   LoginApiV1AuthLoginPost200,
   LoginApiV1AuthLoginPost422,
   LoginApiV1AuthLoginPostMutationRequest,
@@ -821,6 +835,7 @@ export type { RoomBanView } from "./RoomBanView.ts";
 export type { RoomCreateRequest } from "./RoomCreateRequest.ts";
 export type { RoomInviteRequest } from "./RoomInviteRequest.ts";
 export type { RoomInviteResponse } from "./RoomInviteResponse.ts";
+export type { RoomInviteView } from "./RoomInviteView.ts";
 export type { RoomJoin } from "./RoomJoin.ts";
 export type { RoomLeave } from "./RoomLeave.ts";
 export type { RoomPlayerState } from "./RoomPlayerState.ts";

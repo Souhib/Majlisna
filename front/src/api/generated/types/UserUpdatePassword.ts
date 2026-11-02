@@ -7,13 +7,11 @@
 
 /**
  * UserUpdatePassword
- * @description A password change: both passwords are checked in bytes (SEC F10).
+ * @description A password change, confirmed by EXACTLY one of the account\'s own credentials.\n\n- ``current_password``: an account that has a password (``auth_provider`` email);\n- ``google_access_token``: a Google-only account, whose stored password is a random\n  sentinel its owner never saw; a fresh Google token verified like a deletion\'s.\n\nEvery password is checked in bytes (SEC F10).
  */
 export type UserUpdatePassword = {
-  /**
-   * @type string
-   */
-  current_password: string;
+  current_password?: string | null;
+  google_access_token?: string | null;
   /**
    * @minLength 8
    * @maxLength 72

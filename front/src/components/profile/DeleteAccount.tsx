@@ -1,4 +1,3 @@
-import { useGoogleLogin, useGoogleOAuth } from "@react-oauth/google"
 import { useNavigate } from "@tanstack/react-router"
 import { type FormEvent, useState } from "react"
 import { useTranslation } from "react-i18next"
@@ -6,6 +5,7 @@ import { toast } from "sonner"
 import { type DeleteAccountRequest, useDeleteAccountApiV1UsersMeAccountDelete, useGetMeApiV1AuthMeGet } from "@/api/generated"
 import { GoogleIcon, googleClientId, WithGoogleOAuth } from "@/components/auth/GoogleLoginButton"
 import { passwordErrorMessage } from "@/components/profile/password-error"
+import { GOOGLE_PROVIDER, useGoogleConfirmation } from "@/components/profile/use-google-confirmation"
 import { LoadFailed } from "@/components/stats/LoadFailed"
 import { Alert } from "@/components/ui/alert"
 import {
@@ -22,12 +22,6 @@ import { Button } from "@/components/ui/button"
 import { Field, Input } from "@/components/ui/field"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useAuth } from "@/providers/AuthProvider"
-
-/** `UserView.auth_provider` of an account opened with "Continue with Google" (the backend's AUTH_PROVIDER_GOOGLE). */
-const GOOGLE_PROVIDER = "google"
-
-/** Google's window closed by the player: their own choice, not an error to say. */
-const GOOGLE_POPUP_CLOSED = "popup_closed"
 
 /**
  * Account deletion, behind the confirmation the server asks for (SEC F14):
@@ -160,10 +154,10 @@ export function DeleteAccount() {
 }
 
 /**
- * "Confirm with Google": asks Google for a fresh access token for the account's address
- * (`hint`), with the account chooser shown (`prompt: "select_account"`): an irreversible
- * act is confirmed by a choice the player makes, never by a silent token. Busy until
- * Google's script is there. Lives under `WithGoogleOAuth` (its hooks need the provider).
+ * "Confirm with Google" (`useGoogleConfirmation`): a fresh access token for the account's
+ * address, the account chooser shown: an irreversible act is confirmed by a choice the
+ * player makes, never by a silent token. Busy until Google's script is there. Lives under
+ * `WithGoogleOAuth` (its hooks need the provider).
  */
 function ConfirmWithGoogle({
   email,
@@ -179,24 +173,15 @@ function ConfirmWithGoogle({
   onAsk: () => void
 }) {
   const { t } = useTranslation()
-  const { scriptLoadedSuccessfully } = useGoogleOAuth()
-  const askGoogle = useGoogleLogin({
-    hint: email,
-    prompt: "select_account",
-    onSuccess: (response) => onToken(response.access_token),
-    onError: () => onRefused(),
-    onNonOAuthError: (nonOAuthError) => {
-      if (nonOAuthError.type !== GOOGLE_POPUP_CLOSED) onRefused()
-    },
-  })
+  const google = useGoogleConfirmation({ email, onToken, onRefused })
   return (
     <Button
       variant="danger"
-      loading={busy || !scriptLoadedSuccessfully}
+      loading={busy || !google.ready}
       iconStart={<GoogleIcon />}
       onClick={() => {
         onAsk()
-        askGoogle()
+        google.ask()
       }}
     >
       {t("profile.deleteAccountConfirmWithGoogle")}

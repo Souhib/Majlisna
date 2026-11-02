@@ -1,4 +1,5 @@
 export type { AcceptFriendRequestApiV1FriendsFriendshipIdAcceptPostMutationKey } from "./hooks/useAcceptFriendRequestApiV1FriendsFriendshipIdAcceptPost.ts";
+export type { AcceptRoomInviteApiV1RoomsInvitesInviteIdAcceptPostMutationKey } from "./hooks/useAcceptRoomInviteApiV1RoomsInvitesInviteIdAcceptPost.ts";
 export type { AddWordToPackApiV1CodenamesWordPacksPackIdWordsPostMutationKey } from "./hooks/useAddWordToPackApiV1CodenamesWordPacksPackIdWordsPost.ts";
 export type { CreateRoomApiV1RoomsPostMutationKey } from "./hooks/useCreateRoomApiV1RoomsPost.ts";
 export type { CreateTermPairApiV1UndercoverTermpairPostMutationKey } from "./hooks/useCreateTermPairApiV1UndercoverTermpairPost.ts";
@@ -104,6 +105,8 @@ export type { ListNotebookEntriesApiV1NotebookGetQueryKey } from "./hooks/useLis
 export type { ListNotebookEntriesApiV1NotebookGetSuspenseQueryKey } from "./hooks/useListNotebookEntriesApiV1NotebookGetSuspense.ts";
 export type { ListRoomBansApiV1RoomsRoomIdBansGetQueryKey } from "./hooks/useListRoomBansApiV1RoomsRoomIdBansGet.ts";
 export type { ListRoomBansApiV1RoomsRoomIdBansGetSuspenseQueryKey } from "./hooks/useListRoomBansApiV1RoomsRoomIdBansGetSuspense.ts";
+export type { ListRoomInvitesApiV1RoomsInvitesGetQueryKey } from "./hooks/useListRoomInvitesApiV1RoomsInvitesGet.ts";
+export type { ListRoomInvitesApiV1RoomsInvitesGetSuspenseQueryKey } from "./hooks/useListRoomInvitesApiV1RoomsInvitesGetSuspense.ts";
 export type { LoginApiV1AuthLoginPostMutationKey } from "./hooks/useLoginApiV1AuthLoginPost.ts";
 export type { LogoutApiV1AuthLogoutPostMutationKey } from "./hooks/useLogoutApiV1AuthLogoutPost.ts";
 export type { MrWhiteGuessApiV1UndercoverGamesGameIdMrWhiteGuessPostMutationKey } from "./hooks/useMrWhiteGuessApiV1UndercoverGamesGameIdMrWhiteGuessPost.ts";
@@ -158,6 +161,14 @@ export type {
   AcceptFriendRequestApiV1FriendsFriendshipIdAcceptPostMutationResponse,
   AcceptFriendRequestApiV1FriendsFriendshipIdAcceptPostMutation,
 } from "./types/AcceptFriendRequestApiV1FriendsFriendshipIdAcceptPost.ts";
+export type {
+  AcceptRoomInviteApiV1RoomsInvitesInviteIdAcceptPostPathParams,
+  AcceptRoomInviteApiV1RoomsInvitesInviteIdAcceptPost200,
+  AcceptRoomInviteApiV1RoomsInvitesInviteIdAcceptPost404,
+  AcceptRoomInviteApiV1RoomsInvitesInviteIdAcceptPost422,
+  AcceptRoomInviteApiV1RoomsInvitesInviteIdAcceptPostMutationResponse,
+  AcceptRoomInviteApiV1RoomsInvitesInviteIdAcceptPostMutation,
+} from "./types/AcceptRoomInviteApiV1RoomsInvitesInviteIdAcceptPost.ts";
 export type { AccessTokenResponse } from "./types/AccessTokenResponse.ts";
 export type { AchievementWithProgress } from "./types/AchievementWithProgress.ts";
 export type { ActiveChallenge } from "./types/ActiveChallenge.ts";
@@ -754,6 +765,12 @@ export type {
   ListRoomBansApiV1RoomsRoomIdBansGetQuery,
 } from "./types/ListRoomBansApiV1RoomsRoomIdBansGet.ts";
 export type {
+  ListRoomInvitesApiV1RoomsInvitesGet200,
+  ListRoomInvitesApiV1RoomsInvitesGet404,
+  ListRoomInvitesApiV1RoomsInvitesGetQueryResponse,
+  ListRoomInvitesApiV1RoomsInvitesGetQuery,
+} from "./types/ListRoomInvitesApiV1RoomsInvitesGet.ts";
+export type {
   LoginApiV1AuthLoginPost200,
   LoginApiV1AuthLoginPost422,
   LoginApiV1AuthLoginPostMutationRequest,
@@ -973,6 +990,7 @@ export type { RoomBanView } from "./types/RoomBanView.ts";
 export type { RoomCreateRequest } from "./types/RoomCreateRequest.ts";
 export type { RoomInviteRequest } from "./types/RoomInviteRequest.ts";
 export type { RoomInviteResponse } from "./types/RoomInviteResponse.ts";
+export type { RoomInviteView } from "./types/RoomInviteView.ts";
 export type { RoomJoin } from "./types/RoomJoin.ts";
 export type { RoomLeave } from "./types/RoomLeave.ts";
 export type { RoomPlayerState } from "./types/RoomPlayerState.ts";
@@ -1220,6 +1238,10 @@ export { acceptFriendRequestApiV1FriendsFriendshipIdAcceptPostMutationKey } from
 export { acceptFriendRequestApiV1FriendsFriendshipIdAcceptPost } from "./hooks/useAcceptFriendRequestApiV1FriendsFriendshipIdAcceptPost.ts";
 export { acceptFriendRequestApiV1FriendsFriendshipIdAcceptPostMutationOptions } from "./hooks/useAcceptFriendRequestApiV1FriendsFriendshipIdAcceptPost.ts";
 export { useAcceptFriendRequestApiV1FriendsFriendshipIdAcceptPost } from "./hooks/useAcceptFriendRequestApiV1FriendsFriendshipIdAcceptPost.ts";
+export { acceptRoomInviteApiV1RoomsInvitesInviteIdAcceptPostMutationKey } from "./hooks/useAcceptRoomInviteApiV1RoomsInvitesInviteIdAcceptPost.ts";
+export { acceptRoomInviteApiV1RoomsInvitesInviteIdAcceptPost } from "./hooks/useAcceptRoomInviteApiV1RoomsInvitesInviteIdAcceptPost.ts";
+export { acceptRoomInviteApiV1RoomsInvitesInviteIdAcceptPostMutationOptions } from "./hooks/useAcceptRoomInviteApiV1RoomsInvitesInviteIdAcceptPost.ts";
+export { useAcceptRoomInviteApiV1RoomsInvitesInviteIdAcceptPost } from "./hooks/useAcceptRoomInviteApiV1RoomsInvitesInviteIdAcceptPost.ts";
 export { addWordToPackApiV1CodenamesWordPacksPackIdWordsPostMutationKey } from "./hooks/useAddWordToPackApiV1CodenamesWordPacksPackIdWordsPost.ts";
 export { addWordToPackApiV1CodenamesWordPacksPackIdWordsPost } from "./hooks/useAddWordToPackApiV1CodenamesWordPacksPackIdWordsPost.ts";
 export { addWordToPackApiV1CodenamesWordPacksPackIdWordsPostMutationOptions } from "./hooks/useAddWordToPackApiV1CodenamesWordPacksPackIdWordsPost.ts";
@@ -1640,6 +1662,14 @@ export { listRoomBansApiV1RoomsRoomIdBansGetSuspenseQueryKey } from "./hooks/use
 export { listRoomBansApiV1RoomsRoomIdBansGetSuspense } from "./hooks/useListRoomBansApiV1RoomsRoomIdBansGetSuspense.ts";
 export { listRoomBansApiV1RoomsRoomIdBansGetSuspenseQueryOptions } from "./hooks/useListRoomBansApiV1RoomsRoomIdBansGetSuspense.ts";
 export { useListRoomBansApiV1RoomsRoomIdBansGetSuspense } from "./hooks/useListRoomBansApiV1RoomsRoomIdBansGetSuspense.ts";
+export { listRoomInvitesApiV1RoomsInvitesGetQueryKey } from "./hooks/useListRoomInvitesApiV1RoomsInvitesGet.ts";
+export { listRoomInvitesApiV1RoomsInvitesGet } from "./hooks/useListRoomInvitesApiV1RoomsInvitesGet.ts";
+export { listRoomInvitesApiV1RoomsInvitesGetQueryOptions } from "./hooks/useListRoomInvitesApiV1RoomsInvitesGet.ts";
+export { useListRoomInvitesApiV1RoomsInvitesGet } from "./hooks/useListRoomInvitesApiV1RoomsInvitesGet.ts";
+export { listRoomInvitesApiV1RoomsInvitesGetSuspenseQueryKey } from "./hooks/useListRoomInvitesApiV1RoomsInvitesGetSuspense.ts";
+export { listRoomInvitesApiV1RoomsInvitesGetSuspense } from "./hooks/useListRoomInvitesApiV1RoomsInvitesGetSuspense.ts";
+export { listRoomInvitesApiV1RoomsInvitesGetSuspenseQueryOptions } from "./hooks/useListRoomInvitesApiV1RoomsInvitesGetSuspense.ts";
+export { useListRoomInvitesApiV1RoomsInvitesGetSuspense } from "./hooks/useListRoomInvitesApiV1RoomsInvitesGetSuspense.ts";
 export { loginApiV1AuthLoginPostMutationKey } from "./hooks/useLoginApiV1AuthLoginPost.ts";
 export { loginApiV1AuthLoginPost } from "./hooks/useLoginApiV1AuthLoginPost.ts";
 export { loginApiV1AuthLoginPostMutationOptions } from "./hooks/useLoginApiV1AuthLoginPost.ts";
