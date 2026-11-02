@@ -250,14 +250,34 @@ describe("useSocket", () => {
     })
   })
 
-  it("you_were_kicked handler fires onKicked callback", () => {
+  it("you_were_kicked handler fires onKicked callback, saying whether it was a ban", () => {
     const onKicked = vi.fn()
     renderHook(() => useSocket({ roomId: "room-1", enabled: true, onKicked }))
     const kickHandler = mockOn.mock.calls.find((c: unknown[]) => c[0] === "you_were_kicked")?.[1]
 
+    kickHandler({ room_id: "room-1", banned: false })
+    kickHandler({ room_id: "room-1", banned: true })
+    // a server from before the ban had its own action sends no `banned`: a kick
     kickHandler({ room_id: "room-1" })
 
-    expect(onKicked).toHaveBeenCalledWith("room-1")
+    expect(onKicked.mock.calls).toEqual([
+      ["room-1", false],
+      ["room-1", true],
+      ["room-1", false],
+    ])
+  })
+
+  it("member_removed_by_host tells the page which of the host's removals took a seat", () => {
+    const onMemberRemoved = vi.fn()
+    renderHook(() => useSocket({ roomId: "room-1", enabled: true, onMemberRemoved }))
+
+    handlerFor("member_removed_by_host")({ room_id: "room-1", user_id: "u2", banned: false })
+    handlerFor("member_removed_by_host")({ room_id: "room-1", user_id: "u3", banned: true })
+
+    expect(onMemberRemoved.mock.calls).toEqual([
+      ["u2", false],
+      ["u3", true],
+    ])
   })
 
   it("disconnect event sets connected to false", async () => {

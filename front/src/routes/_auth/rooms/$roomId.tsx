@@ -51,6 +51,8 @@ const ACTIVITY_KEY: Record<LobbyEvent["kind"], string> = {
   away: "room.lobbyPage.activityAway",
   back: "room.lobbyPage.activityBack",
   host: "room.lobbyPage.activityHost",
+  removed: "room.lobbyPage.activityRemoved",
+  banned: "room.lobbyPage.activityBanned",
 }
 
 /**
@@ -58,16 +60,19 @@ const ACTIVITY_KEY: Record<LobbyEvent["kind"], string> = {
  * as tiles to read aloud, the host's game picker, and the HALQA: the ring of seats with
  * the host at the ṣadr, which closes when enough players are seated and wakes Start.
  * Spectators are named under the ring, never seated. Under the buttons, one quiet line
- * says what just happened (who sat down, who left): roster changes are not toasts.
+ * says what just happened (who sat down, who left, whom the host removed or banned):
+ * roster changes are not toasts.
  *
  * The ring is a picture; the real list (PlayerRoster, "Players (N)") sits beside it on
- * wide screens and under it on phones, with the host's Remove buttons, then the settings
- * and the chat.
+ * wide screens and under it on phones, with the host's Remove and Ban on each row, then
+ * the settings and the chat.
  *
  * The client logic (reading the room and its socket, polling while the socket is down,
- * following the table into a game, start, pick, kick, leave, share) is `useRoomLobby`
- * (hooks/use-room-lobby.ts); this page draws it. The host also gets the removed players
- * under the roster (`RoomBans`, owner rule (c)); removing asks first (PlayerRoster).
+ * following the table into a game, start, pick, kick, ban, leave, share) is `useRoomLobby`
+ * (hooks/use-room-lobby.ts); this page draws it. The host also gets the banned players
+ * under the roster (`RoomBans`); Remove and Ban each ask first (PlayerRoster). A kick
+ * (Remove) only takes the seat; a ban keeps the player out and rotates the PIN (owner
+ * decision, 2 November 2026).
  *
  * A refused room state with nothing on screen (no such room, or no seat in it) is final:
  * not retried, not polled, and said once (`LobbyRefusal`), with "Join this room" (code
@@ -119,10 +124,10 @@ function RoomLobbyPage() {
   // What just happened, for the activity line (and its polite live region).
   useEffect(() => {
     if (!room) return
-    const events = rosterEvents(previousMembersRef.current, members, user?.id)
+    const events = rosterEvents(previousMembersRef.current, members, user?.id, lobby.removals)
     if (events.length > 0) setActivity(events[events.length - 1])
     previousMembersRef.current = members
-  }, [room, members, user?.id])
+  }, [room, members, user?.id, lobby.removals])
 
   const handleStartGame = () => {
     if (table.kind !== "ready") return
@@ -263,6 +268,7 @@ function RoomLobbyPage() {
 
       <p
         role="status"
+        data-testid="lobby-activity"
         className="flex w-full max-w-[420px] items-baseline gap-2.5 border-t border-line pt-3 text-[13.5px] leading-normal text-muted-foreground [&_b]:font-medium [&_b]:text-foreground"
       >
         <Lozenge state="brass" size={5} className="-translate-y-0.5" />
@@ -366,8 +372,9 @@ function RoomLobbyPage() {
             players={players}
             myId={user?.id}
             canKick={isHost}
-            kickingId={lobby.kickingId}
+            removingId={lobby.removingId}
             onKick={(member) => void lobby.kickPlayer(member)}
+            onBan={(member) => void lobby.banPlayer(member)}
             awayLeft={awayLeft}
           />
           {/* keyed by room, as the chat: another room's lobby starts its own list. Each key

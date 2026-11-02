@@ -13,6 +13,12 @@ import { useRoomLobby } from "./use-room-lobby"
  * The lobby's client logic (TQ-12): the real generated hooks over the fake client, a
  * socket whose state the test sets, and fake timers where the clock matters.
  */
+interface SocketOptions {
+  enabled?: boolean
+  onKicked?: (roomId: string, banned: boolean) => void
+  onMemberRemoved?: (userId: string, banned: boolean) => void
+}
+
 const router = vi.hoisted(() => ({ navigate: vi.fn() }))
 const toasts = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }))
 const notices = vi.hoisted(() => ({ note: vi.fn() }))
@@ -22,7 +28,7 @@ const socket = vi.hoisted(() => {
   let connected = false
   const listeners = new Set<() => void>()
   return {
-    options: [] as { enabled?: boolean; onKicked?: (roomId: string) => void }[],
+    options: [] as SocketOptions[],
     get connected() {
       return connected
     },
@@ -47,7 +53,7 @@ vi.mock("@/providers/AuthProvider", () => ({ useAuth: () => ({ user: { id: "u1" 
 vi.mock("@/hooks/use-socket", async () => {
   const { useSyncExternalStore } = await import("react")
   return {
-    useSocket: (options: { enabled?: boolean; onKicked?: (roomId: string) => void }) => {
+    useSocket: (options: SocketOptions) => {
       socket.options.push(options)
       const connected = useSyncExternalStore(
         (listener) => socket.subscribe(listener),
@@ -65,6 +71,7 @@ const STATE = "GET /api/v1/rooms/room-1/state"
 const BANS = "GET /api/v1/rooms/room-1/bans"
 const SHARE = "GET /api/v1/rooms/room-1/share-link"
 const KICK = "PATCH /api/v1/rooms/room-1/kick"
+const BAN = "POST /api/v1/rooms/room-1/bans"
 const LEAVE = "PATCH /api/v1/rooms/leave"
 
 const player = (user_id: string, username: string) => ({ user_id, username, is_spectator: false, is_disconnected: false, away_seconds_left: null })
@@ -90,7 +97,7 @@ const RIDDLE = {
 
 const maryam: LobbyMember = { id: "u2", username: "Maryam", isHost: false, isSpectator: false, isAway: false, awaySecondsLeft: null }
 
-/** The lobby, plus the two reads a kick makes stale (the host's bans panel, a share link). */
+/** The lobby, plus the two reads a ban makes stale (the host's bans panel, a share link). */
 function useLobbyAndItsReads() {
   const lobby = useRoomLobby("room-1")
   const bans = useListRoomBansApiV1RoomsRoomIdBansGet({ room_id: "room-1" })
@@ -230,67 +237,100 @@ describe("useRoomLobby: reading the room", () => {
   })
 })
 
-describe("useRoomLobby: the host removes a player (owner rule c)", () => {
-  it("a kick that went through re-reads the room state, the share link and the bans list", async () => {
+describe("useRoomLobby: the host removes or bans a player", () => {
+  it("a kick that went through re-reads the room state, and neither the share link nor the bans (it changes neither)", async () => {
     // Prepare
     answer(STATE, () => roomState())
     answer(BANS, () => [])
     answer(SHARE, () => ({ public_id: "QX7PA", password: "4821" }))
-    answer(KICK, () => ({ status: "kicked" }))
+    answer(KICK, () => ({ message: "Player kicked" }))
     const { result } = renderLobbyAndReads()
     await waitFor(() => expect(result.current.share.data).toBeDefined())
     await waitFor(() => expect(result.current.bans.data).toBeDefined())
     const before = { state: requestsTo(STATE).length, bans: requestsTo(BANS).length, share: requestsTo(SHARE).length }
-    answer(BANS, () => [{ user_id: "u2", username: "Maryam", banned_at: "2026-10-31T18:00:00Z" }])
-    answer(SHARE, () => ({ public_id: "QX7PA", password: "9034" }))
 
     // Act
     await act(async () => {
       await result.current.lobby.kickPlayer(maryam)
     })
 
-    // Assert: the kick was sent once, and every read holding the old PIN or the old list is re-read
+    // Assert: the kick was sent once, no ban asked for, and only the seats are re-read
     expect(requestsTo(KICK).map((r) => r.data)).toEqual([{ user_id: "u2" }])
+    expect(requestsTo(BAN)).toHaveLength(0)
+    await waitFor(() => expect(requestsTo(STATE).length).toBeGreaterThan(before.state))
+    expect(requestsTo(BANS)).toHaveLength(before.bans)
+    expect(requestsTo(SHARE)).toHaveLength(before.share)
+    expect(result.current.lobby.removingId).toBeNull()
+    expect(toasts.error).not.toHaveBeenCalled()
+  })
+
+  it("a ban that went through re-reads the room state, the share link and the bans list", async () => {
+    // Prepare
+    answer(STATE, () => roomState())
+    answer(BANS, () => [])
+    answer(SHARE, () => ({ public_id: "QX7PA", password: "4821" }))
+    answer(BAN, () => ({ user_id: "u2", username: "Maryam", banned_at: "2026-11-02T18:00:00Z" }))
+    const { result } = renderLobbyAndReads()
+    await waitFor(() => expect(result.current.share.data).toBeDefined())
+    await waitFor(() => expect(result.current.bans.data).toBeDefined())
+    const before = { state: requestsTo(STATE).length, bans: requestsTo(BANS).length, share: requestsTo(SHARE).length }
+    answer(BANS, () => [{ user_id: "u2", username: "Maryam", banned_at: "2026-11-02T18:00:00Z" }])
+    answer(SHARE, () => ({ public_id: "QX7PA", password: "9034" }))
+
+    // Act
+    await act(async () => {
+      await result.current.lobby.banPlayer(maryam)
+    })
+
+    // Assert: the ban was sent once (never a kick), and every read holding the old PIN or the old list is re-read
+    expect(requestsTo(BAN).map((r) => r.data)).toEqual([{ user_id: "u2" }])
+    expect(requestsTo(KICK)).toHaveLength(0)
     await waitFor(() => expect(result.current.bans.data).toHaveLength(1))
     await waitFor(() => expect(result.current.share.data?.password).toBe("9034"))
     expect(requestsTo(STATE).length).toBeGreaterThan(before.state)
     expect(requestsTo(BANS)).toHaveLength(before.bans + 1)
     expect(requestsTo(SHARE)).toHaveLength(before.share + 1)
-    expect(result.current.lobby.kickingId).toBeNull()
+    expect(result.current.lobby.removingId).toBeNull()
     expect(toasts.error).not.toHaveBeenCalled()
   })
 
-  it("marks the player being removed until the kick has settled", async () => {
+  it.each([
+    ["kick", KICK],
+    ["ban", BAN],
+  ] as const)("marks the player being removed until the %s has settled", async (how, endpoint) => {
     // Prepare
     answer(STATE, () => roomState())
     let release!: () => void
-    answer(KICK, () => new Promise((resolve) => (release = () => resolve({ status: "kicked" }))))
+    answer(endpoint, () => new Promise((resolve) => (release = () => resolve({ user_id: "u2", username: "Maryam", banned_at: "2026-11-02T18:00:00Z" }))))
     const { result } = renderLobby()
     await waitFor(() => expect(result.current.room).toBeDefined())
 
     // Act
-    let kicked!: Promise<void>
+    let removed!: Promise<void>
     act(() => {
-      kicked = result.current.kickPlayer(maryam)
+      removed = how === "kick" ? result.current.kickPlayer(maryam) : result.current.banPlayer(maryam)
     })
 
     // Assert
-    expect(result.current.kickingId).toBe("u2")
-    await waitFor(() => expect(requestsTo(KICK)).toHaveLength(1))
-    expect(result.current.kickingId).toBe("u2")
+    expect(result.current.removingId).toBe("u2")
+    await waitFor(() => expect(requestsTo(endpoint)).toHaveLength(1))
+    expect(result.current.removingId).toBe("u2")
     await act(async () => {
       release()
-      await kicked
+      await removed
     })
-    expect(result.current.kickingId).toBeNull()
+    expect(result.current.removingId).toBeNull()
   })
 
-  it("a kick that failed says so and re-reads nothing", async () => {
+  it.each([
+    ["kick", KICK],
+    ["ban", BAN],
+  ] as const)("a %s that failed says so in the server's words and re-reads nothing", async (how, endpoint) => {
     // Prepare
     answer(STATE, () => roomState())
     answer(BANS, () => [])
     answer(SHARE, () => ({ public_id: "QX7PA", password: "4821" }))
-    answer(KICK, () => {
+    answer(endpoint, () => {
       throw httpError(403, { error_key: "errors.api.notRoomHost" })
     })
     const { result } = renderLobbyAndReads()
@@ -300,17 +340,93 @@ describe("useRoomLobby: the host removes a player (owner rule c)", () => {
 
     // Act
     await act(async () => {
-      await result.current.lobby.kickPlayer(maryam)
+      await (how === "kick" ? result.current.lobby.kickPlayer(maryam) : result.current.lobby.banPlayer(maryam))
     })
 
     // Assert
     expect(toasts.error).toHaveBeenCalledWith("errors.api.notRoomHost")
     expect(requestsTo(BANS)).toHaveLength(before.bans)
     expect(requestsTo(SHARE)).toHaveLength(before.share)
-    expect(result.current.lobby.kickingId).toBeNull()
+    expect(result.current.lobby.removingId).toBeNull()
   })
 
-  it("a new PIN in the room state re-reads the share link and the bans list (a kick from the host's other device)", async () => {
+  it("names the departure the host caused (removed, banned) for the activity line, and forgets a failed one", async () => {
+    // Prepare
+    answer(STATE, () => roomState({ players: [player("u1", "Yusuf"), player("u2", "Maryam"), player("u3", "Ali"), player("u4", "Bilal")] }))
+    answer(KICK, () => {
+      answer(STATE, () => roomState({ players: [player("u1", "Yusuf"), player("u3", "Ali"), player("u4", "Bilal")] }))
+      return { message: "Player kicked" }
+    })
+    answer(BAN, () => {
+      throw httpError(404, { error_key: "errors.api.userNotInRoom" })
+    })
+    const { result } = renderLobby()
+    await waitFor(() => expect(result.current.room).toBeDefined())
+    const ali: LobbyMember = { ...maryam, id: "u3", username: "Ali" }
+
+    // Act: Maryam removed, Ali's ban refused
+    await act(async () => {
+      await result.current.kickPlayer(maryam)
+    })
+    await act(async () => {
+      await result.current.banPlayer(ali)
+    })
+
+    // Assert
+    await waitFor(() => expect(result.current.members.map((m) => m.id)).toEqual(["u1", "u3", "u4"]))
+    expect(result.current.removals.get("u2")).toBe("removed")
+    expect(result.current.removals.has("u3")).toBe(false)
+  })
+
+  it("forgets a removal once the player is back at the table: their next departure is a leave", async () => {
+    // Prepare: Maryam removed
+    answer(STATE, () => roomState())
+    answer(KICK, () => {
+      answer(STATE, () => roomState({ players: [player("u1", "Yusuf"), player("u3", "Ali")] }))
+      return { message: "Player kicked" }
+    })
+    const { result, queryClient } = renderLobby()
+    await waitFor(() => expect(result.current.room).toBeDefined())
+    await act(async () => {
+      await result.current.kickPlayer(maryam)
+    })
+    await waitFor(() => expect(result.current.members).toHaveLength(2))
+    expect(result.current.removals.get("u2")).toBe("removed")
+
+    // Act: she joins again with the same code and PIN
+    act(() => {
+      queryClient.setQueryData(queryKeys.room.state("room-1"), roomState())
+    })
+
+    // Assert
+    await waitFor(() => expect(result.current.members).toHaveLength(3))
+    expect(result.current.removals.has("u2")).toBe(false)
+  })
+
+  it.each([
+    [false, "removed"],
+    [true, "banned"],
+  ] as const)("names a departure the room says the host caused (banned: %s) as %s, on a member's screen too", async (banned, kind) => {
+    // Every member's activity line, not only the acting host's: the server tells the room
+    // which removal took the seat (member_removed_by_host) before the room state that drops it
+    // Prepare: u1 is a guest here; Ali hosts
+    answer(STATE, () => roomState({ owner_id: "u3" }))
+    const { result, queryClient } = renderLobby()
+    await waitFor(() => expect(result.current.room).toBeDefined())
+    expect(result.current.isHost).toBe(false)
+
+    // Act: the room is told, then its state no longer seats Maryam
+    act(() => socket.options.at(-1)?.onMemberRemoved?.("u2", banned))
+    act(() => {
+      queryClient.setQueryData(queryKeys.room.state("room-1"), roomState({ owner_id: "u3", players: [player("u1", "Yusuf"), player("u3", "Ali")] }))
+    })
+
+    // Assert
+    await waitFor(() => expect(result.current.members).toHaveLength(2))
+    expect(result.current.removals.get("u2")).toBe(kind)
+  })
+
+  it("a new PIN in the room state re-reads the share link and the bans list (a ban from the host's other device)", async () => {
     // Prepare
     answer(STATE, () => roomState())
     answer(BANS, () => [])
@@ -320,7 +436,7 @@ describe("useRoomLobby: the host removes a player (owner rule c)", () => {
     await waitFor(() => expect(result.current.bans.data).toBeDefined())
     const before = { bans: requestsTo(BANS).length, share: requestsTo(SHARE).length }
 
-    // Act: a push with the same PIN, then one with a new PIN
+    // Act: a push with the same PIN (a kick), then one with a new PIN (a ban)
     act(() => {
       queryClient.setQueryData(queryKeys.room.state("room-1"), roomState({ players: [player("u1", "Yusuf"), player("u3", "Ali")] }))
     })
@@ -328,7 +444,7 @@ describe("useRoomLobby: the host removes a player (owner rule c)", () => {
     expect(requestsTo(BANS)).toHaveLength(before.bans)
     expect(requestsTo(SHARE)).toHaveLength(before.share)
     act(() => {
-      queryClient.setQueryData(queryKeys.room.state("room-1"), roomState({ password: "9034", players: [player("u1", "Yusuf"), player("u3", "Ali")] }))
+      queryClient.setQueryData(queryKeys.room.state("room-1"), roomState({ password: "9034", players: [player("u1", "Yusuf")] }))
     })
 
     // Assert
@@ -350,12 +466,32 @@ describe("useRoomLobby: leaving, and being removed", () => {
       queryClient.setQueryData(queryKeys.room.state("room-1"), roomState({ players: [player("u2", "Maryam"), player("u3", "Ali")], owner_id: "u2" }))
     })
     await waitFor(() => expect(router.navigate).toHaveBeenCalled())
-    act(() => socket.options.at(-1)?.onKicked?.("room-1"))
+    act(() => socket.options.at(-1)?.onKicked?.("room-1", false))
 
-    // Assert
+    // Assert: with no event to say which removal it was, the notice makes no promise
+    // ("removed", not "kicked": it may have been a ban, and "kicked" says they may come back)
     expect(router.navigate).toHaveBeenCalledOnce()
     expect(router.navigate).toHaveBeenCalledWith({ to: "/rooms" })
-    expect(notices.note).toHaveBeenCalledWith("kicked")
+    expect(notices.note).toHaveBeenCalledOnce()
+    expect(notices.note).toHaveBeenCalledWith("removed")
+  })
+
+  it.each([
+    [false, "kicked"],
+    [true, "banned"],
+  ] as const)("on you_were_kicked (banned: %s), leaves for /rooms with the %s notice", async (banned, notice) => {
+    // Prepare
+    answer(STATE, () => roomState())
+    const { result } = renderLobby()
+    await waitFor(() => expect(result.current.room).toBeDefined())
+
+    // Act
+    act(() => socket.options.at(-1)?.onKicked?.("room-1", banned))
+
+    // Assert
+    expect(router.navigate).toHaveBeenCalledWith({ to: "/rooms" })
+    expect(notices.note).toHaveBeenCalledOnce()
+    expect(notices.note).toHaveBeenCalledWith(notice)
   })
 
   it("leaving is not being removed: the leave is sent, said, and no removal notice follows", async () => {

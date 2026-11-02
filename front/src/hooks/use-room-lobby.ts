@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import {
+  useBanPlayerApiV1RoomsRoomIdBansPost,
   useGetRoomStateApiV1RoomsRoomIdStateGet,
   useKickPlayerApiV1RoomsRoomIdKickPatch,
   useLeaveRoomApiV1RoomsLeavePatch,
@@ -16,7 +17,7 @@ import {
 import { queryKeys } from "@/api/queryKeys"
 import type { ChatMessage } from "@/components/rooms/ChatPanel"
 import { ROOM_ERROR_KEYS, retryUnlessRefused, roomErrorKey, roomErrorMessage } from "@/components/rooms/errors"
-import { type GameType, isGameType, type LobbyMember, toMembers } from "@/components/rooms/lobby"
+import { type GameType, isGameType, type LobbyMember, type RemovalKind, toMembers } from "@/components/rooms/lobby"
 import { answerRoomRiddle } from "@/components/rooms/samar-riddle"
 import { useLeaveAfterKick } from "@/hooks/use-leave-after-kick"
 import { useSocket } from "@/hooks/use-socket"
@@ -43,7 +44,7 @@ export interface LobbyRoom {
   id: string
   publicId: string
   ownerId: string
-  /** The PIN. It changes when the host removes a player (owner rule (c)). */
+  /** The PIN. It changes when the host bans a player (a kick keeps it). */
   password: string
   activeGameId: string | null
   gameType: string | null
@@ -77,9 +78,14 @@ export interface RoomLobby {
   startGame: (playerCount: number) => void
   isStartingGame: boolean
   pickGame: (next: GameType) => Promise<void>
-  /** The host removes a player: a ban for the room's lifetime and a new PIN (owner rule (c)). */
+  /** The host removes a player who left without quitting: no ban, the same PIN; they may come back. */
   kickPlayer: (member: LobbyMember) => Promise<void>
-  kickingId: string | null
+  /** The host bans a player: removed, kept out (joins, invites) until lifted, and a new PIN. */
+  banPlayer: (member: LobbyMember) => Promise<void>
+  /** The seat being removed (a kick or a ban) until its request has settled. */
+  removingId: string | null
+  /** The host's removals, by seat (from this screen, or told by the room): the activity line says "removed" or "banned". */
+  removals: ReadonlyMap<string, RemovalKind>
   leaveRoom: () => Promise<void>
   isLeaving: boolean
   /** Copy the share link, built from the PIN the room state carries now. */
@@ -133,12 +139,16 @@ function readRoom(raw: unknown): LobbyRoom | undefined {
  *   not polled, and held while asked again (a refocus), so no skeleton between two errors.
  *   For `userNotInRoom` the socket stays closed: the server refuses a non-member's socket,
  *   and socket.io-client never retries a refused one.
- * - Removed by the host: the `you_were_kicked` event, or (on the polling fallback, where no
- *   event arrives) the player's seat gone from the state without having left.
- * - The host's kick (owner rule (c)) bans the player for the room's lifetime and rotates the
- *   PIN. On success the room state, the bans list (RoomBans) and the share link are read
- *   again; a new PIN in the room state does the same, so a kick from the host's other
- *   device reaches this screen's list too.
+ * - Removed by the host: the `you_were_kicked` event (`banned` says a ban from a kick, for
+ *   the notice on /rooms), or (on the polling fallback, where no event arrives) the
+ *   player's seat gone from the state without having left: a "removed" notice then, which
+ *   promises nothing. Another member removed: `member_removed_by_host` names it for the
+ *   activity line.
+ * - The host's two removals (owner decision, 2 November 2026). A kick (Remove) only takes
+ *   the seat: the room state is read again, and nothing else changed. A ban also keeps the
+ *   player out and rotates the PIN: the room state, the bans list (RoomBans) and the share
+ *   link are read again; a new PIN in the room state does the same, so a ban from the
+ *   host's other device reaches this screen's list too.
  */
 export function useRoomLobby(roomId: string): RoomLobby {
   const { t } = useTranslation()
@@ -147,7 +157,14 @@ export function useRoomLobby(roomId: string): RoomLobby {
   const queryClient = useQueryClient()
   // The host's pick while it is on its way to the server (see `gameType` below).
   const [pendingPick, setPendingPick] = useState<GameType | null>(null)
-  const [kickingId, setKickingId] = useState<string | null>(null)
+  const [removingId, setRemovingId] = useState<string | null>(null)
+  // The host's removals, by seat, so the activity line says "removed" or "banned" rather
+  // than "left": from this screen, noted BEFORE the request (the route pushes the room
+  // state before it answers) and dropped when it fails; from the room
+  // (`member_removed_by_host`, every member's screen and the host's other devices). Dropped
+  // once the player is back.
+  const removalsRef = useRef(new Map<string, RemovalKind>())
+  const removingRef = useRef<string | null>(null)
   const [shareCopied, setShareCopied] = useState(false)
   const [lastChatMessage, setLastChatMessage] = useState<ChatMessage | null>(null)
   const navigatingToGameRef = useRef(false)
@@ -199,10 +216,17 @@ export function useRoomLobby(roomId: string): RoomLobby {
   const refusal = room ? null : refusalRef.current
   const notSeated = !!refusal && roomErrorKey(refusal) === ROOM_ERROR_KEYS.notInRoom
 
+  // Another member's seat taken by the host (from any device): the room is told which
+  // removal it was before the room state that drops the seat, so this line names it too.
+  const noteRemovalByHost = useCallback((userId: string, banned: boolean) => {
+    removalsRef.current.set(userId, banned ? "banned" : "removed")
+  }, [])
+
   const { connected: socketConnected } = useSocket({
     roomId,
     enabled: !!user && !notSeated,
     onKicked: leaveAfterKick,
+    onMemberRemoved: noteRemovalByHost,
     onChatMessage: handleChatMessage,
   })
   socketConnectedRef.current = socketConnected
@@ -226,15 +250,15 @@ export function useRoomLobby(roomId: string): RoomLobby {
   const roomGameType: GameType = isGameType(room?.gameType) ? room.gameType : "undercover"
   const gameType: GameType = (isHost && pendingPick) || roomGameType
 
-  // A new PIN means a player was removed (the PIN rotates on every kick, from any of the
-  // host's devices): the share link and the bans list on screen are stale.
+  // A new PIN means a player was banned (the PIN rotates on every ban, from any of the
+  // host's devices; a kick keeps it): the share link and the bans list on screen are stale.
   const pinRef = useRef<string | null>(null)
   const pin = room?.password || null
   useEffect(() => {
     const previous = pinRef.current
     pinRef.current = pin
     if (!previous || !pin || previous === pin) return
-    // a re-read already on its way (the kick's own, just below) is reused, not restarted
+    // a re-read already on its way (the ban's own, just below) is reused, not restarted
     void queryClient.invalidateQueries({ queryKey: queryKeys.room.shareLink(roomId) }, { cancelRefetch: false })
     void queryClient.invalidateQueries({ queryKey: queryKeys.room.bans(roomId) }, { cancelRefetch: false })
   }, [pin, queryClient, roomId])
@@ -254,6 +278,15 @@ export function useRoomLobby(roomId: string): RoomLobby {
     const gt = isGameType(room.gameType) ? room.gameType : gameType
     navigate({ to: GAME_ROUTE[gt], params: { gameId: room.activeGameId } })
   }, [room?.activeGameId, room?.gameType, room?.id, gameType, navigate])
+
+  // A seat the host took is back at the table (a kicked player joined again): the next
+  // departure of that player is theirs, a leave. Never the one whose request is in flight.
+  useEffect(() => {
+    const removals = removalsRef.current
+    for (const id of removals.keys()) {
+      if (id !== removingRef.current && members.some((m) => m.id === id)) removals.delete(id)
+    }
+  }, [members])
 
   // Removed: the player was in the list and is not any more, without having left. This
   // tracks membership in its OWN ref, so it works on the 2 s polling fallback too, where
@@ -329,21 +362,35 @@ export function useRoomLobby(roomId: string): RoomLobby {
   }
 
   const kickMutation = useKickPlayerApiV1RoomsRoomIdKickPatch()
-  const kickPlayer = async (member: LobbyMember) => {
+  const banMutation = useBanPlayerApiV1RoomsRoomIdBansPost()
+  const removePlayer = async (member: LobbyMember, kind: RemovalKind) => {
     if (!room) return
-    setKickingId(member.id)
+    removingRef.current = member.id
+    removalsRef.current.set(member.id, kind)
+    setRemovingId(member.id)
     try {
-      await kickMutation.mutateAsync({ room_id: room.id, data: { user_id: member.id } })
-      // the seat, the new PIN (the share link) and the new ban (the host's list)
-      void queryClient.invalidateQueries({ queryKey: queryKeys.room.state(roomId) })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.room.shareLink(roomId) })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.room.bans(roomId) })
+      const vars = { room_id: room.id, data: { user_id: member.id } }
+      if (kind === "banned") {
+        await banMutation.mutateAsync(vars)
+        // the seat, the new PIN (the share link) and the new ban (the host's list)
+        void queryClient.invalidateQueries({ queryKey: queryKeys.room.state(roomId) })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.room.shareLink(roomId) })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.room.bans(roomId) })
+      } else {
+        await kickMutation.mutateAsync(vars)
+        // the seat only: a kick changes neither the PIN nor the bans
+        void queryClient.invalidateQueries({ queryKey: queryKeys.room.state(roomId) })
+      }
     } catch (err) {
-      toast.error(roomErrorMessage(err, t("room.lobbyPage.kickFailed")))
+      removalsRef.current.delete(member.id)
+      toast.error(roomErrorMessage(err, t(kind === "banned" ? "room.lobbyPage.banFailed" : "room.lobbyPage.kickFailed")))
     } finally {
-      setKickingId(null)
+      removingRef.current = null
+      setRemovingId(null)
     }
   }
+  const kickPlayer = (member: LobbyMember) => removePlayer(member, "removed")
+  const banPlayer = (member: LobbyMember) => removePlayer(member, "banned")
 
   const leaveMutation = useLeaveRoomApiV1RoomsLeavePatch()
   const leaveRoom = async () => {
@@ -390,7 +437,9 @@ export function useRoomLobby(roomId: string): RoomLobby {
     isStartingGame,
     pickGame,
     kickPlayer,
-    kickingId,
+    banPlayer,
+    removingId,
+    removals: removalsRef.current,
     leaveRoom,
     isLeaving: leaveMutation.isPending,
     shareRoom,

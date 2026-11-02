@@ -35,7 +35,7 @@ export type ListRoomBansApiV1RoomsRoomIdBansGetQueryKey = ReturnType<
 >;
 
 /**
- * @description The players the host kicked from this room (banned for its lifetime). Host only.
+ * @description The players the host banned from this room (a kick is not listed). Host only.
  * @summary List Room Bans
  * {@link /api/v1/rooms/:room_id/bans}
  */
@@ -84,7 +84,7 @@ export function listRoomBansApiV1RoomsRoomIdBansGetQueryOptions(
 }
 
 /**
- * @description The players the host kicked from this room (banned for its lifetime). Host only.
+ * @description The players the host banned from this room (a kick is not listed). Host only.
  * @summary List Room Bans
  * {@link /api/v1/rooms/:room_id/bans}
  */

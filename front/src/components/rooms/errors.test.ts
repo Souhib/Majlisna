@@ -24,6 +24,7 @@ describe("roomErrorKey", () => {
   it("reads the server's error key", () => {
     expect(roomErrorKey(answered(409, { error_key: "errors.api.userAlreadyInRoom" }))).toBe(ROOM_ERROR_KEYS.alreadyInRoom)
     expect(roomErrorKey(answered(403, { error_key: "errors.api.roomBanned" }))).toBe(ROOM_ERROR_KEYS.banned)
+    expect(roomErrorKey(answered(403, { error_key: "errors.api.inviteeBanned" }))).toBe(ROOM_ERROR_KEYS.inviteeBanned)
   })
 
   it("has none for a transport error or a body without one", () => {

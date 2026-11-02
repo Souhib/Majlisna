@@ -29,6 +29,7 @@ export type InviteFriendToRoomApiV1RoomsRoomIdInvitePostMutationKey =
 
 /**
  * @description Invite a friend to the room: the invite is stored and pushed to them, without the PIN.
+ * A friend the host banned from the room is refused (403 ``inviteeBanned``).
  * @summary Invite Friend To Room
  * {@link /api/v1/rooms/:room_id/invite}
  */
@@ -96,6 +97,7 @@ export function inviteFriendToRoomApiV1RoomsRoomIdInvitePostMutationOptions<
 
 /**
  * @description Invite a friend to the room: the invite is stored and pushed to them, without the PIN.
+ * A friend the host banned from the room is refused (403 ``inviteeBanned``).
  * @summary Invite Friend To Room
  * {@link /api/v1/rooms/:room_id/invite}
  */

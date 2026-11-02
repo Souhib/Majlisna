@@ -42,8 +42,8 @@ function scrubShareLinkFromAddress() {
  * A player already seated in another room (409) is offered "Leave {{room}} and join"
  * (`useJoinRoom`); a ban (403 `roomBanned`) is said in the server's words, and that is all:
  * no repair, no "type the code" — a ban holds whatever the code and PIN (review F2). A
- * refused PIN says the PIN may have changed since the link was made: every kick
- * rotates it (review F1).
+ * refused PIN says the PIN may have changed since the link was made: every ban rotates
+ * it, a kick does not (review F1).
  */
 function JoinByLink() {
   const search = Route.useSearch()

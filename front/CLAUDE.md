@@ -150,9 +150,17 @@ Phase transitions detected by comparing refs to previous state (`previousPhaseRe
 - Socket.IO pushes real-time updates for room state
 - Auto-navigate when `active_game_id` appears (stores `roomId` in SessionStorage for game page)
 - Leave room via REST `PATCH /api/v1/rooms/leave`
-- The host's kick (owner rule (c): a ban for the room's lifetime and a new PIN) re-reads the
-  room state, the bans list (`queryKeys.room.bans`) and the share link (`queryKeys.room.shareLink`);
-  a new PIN in `room_state` re-reads the last two as well (a kick from the host's other device)
+- The host's two removals (owner decision, 2 November 2026; `useRoomLobby.kickPlayer` /
+  `banPlayer`). A kick (`PATCH /rooms/{id}/kick`) re-reads the room state only: it changes
+  neither the PIN nor the bans. A ban (`POST /rooms/{id}/bans`) re-reads the room state, the bans
+  list (`queryKeys.room.bans`) and the share link (`queryKeys.room.shareLink`); a new PIN in
+  `room_state` re-reads the last two as well (a ban from the host's other device). `removingId`
+  is the seat being removed (either kind); `removals` names the seats the host took
+  ("removed" / "banned"): from this screen, noted before the request (the route pushes the room
+  state before it answers) and dropped when it fails; from the room, `member_removed_by_host`
+  `{room_id, user_id, banned}` (`useSocket`'s `onMemberRemoved`, sent before the room state that
+  drops the seat), so every member's screen and the host's other devices know too. Dropped once
+  the player is back. The activity line says "{{name}} was removed / banned" instead of "left".
 
 ### File-Based Routing
 - `__root.tsx` - Root layout (double underscore)
@@ -910,7 +918,7 @@ the page sat on "Joining room…". The promise from `mutateAsync` always settles
   "Check the code and PIN with your host" for a ban and a seat elsewhere (review F2). One
   rule picks the repair: `components/rooms/errors.joinRepairFor(errorKey)` (`useJoinRoom`
   exposes `errorKey`).
-- **A refused PIN may be an old one.** Every kick rotates the PIN, and a share link keeps the
+- **A refused PIN may be an old one.** Every ban rotates the PIN (a kick does not), and a share link keeps the
   PIN it was made with: `errors.api.wrongRoomPassword` is followed by
   `room.joinPage.pinChangedRepair` ("ask the host for a new link or invite", review F1). A
   friend's invite no longer goes through this page: it is stored on the server and accepted
@@ -919,7 +927,7 @@ the page sat on "Joining room…". The promise from `mutateAsync` always settles
   `useAcceptInvite` in `use-join-room.ts`). The strip accepts the invite itself (`POST
   /rooms/invites/{id}/accept`, no code, no PIN in any URL), then the shell opens the lobby. A
   refusal that holds is said on the strip in the server's words (403 `roomBanned`, 410
-  `roomInviteExpired`, 404 `roomInviteNotFound` — spent, or its sender was kicked — 404
+  `roomInviteExpired`, 404 `roomInviteNotFound` — spent, or deleted by a ban of its sender or of the caller — 404
   `roomNotFound`, `data-testid="room-invite-error"`) and then only Close is offered: that list
   is `errors.isFinalInviteRefusal`, an allow-list, because every error answer carries an
   `error_key`, a 429 or a 500 too, and Close hides the invite for good (review F3); 409
@@ -997,10 +1005,15 @@ any reload `user.email` was `undefined` and the profile showed no address. It go
   `message`. `getApiErrorMessage` translates through `error_key`, so a "not found" test on the text
   the player sees never matched in Arabic or French and the redirect home never happened. All four
   games use it (Undercover was the last to test the translated text).
-- **A kicked player leaves the game page too.** The four game pages pass `onKicked:
+- **A kicked or banned player leaves the game page too.** The four game pages pass `onKicked:
   useLeaveAfterKick()` to `useSocket` (`hooks/use-leave-after-kick.ts`, the lobby's behaviour):
-  note the `room-notice` and go to /rooms. A kicked player is out of the room's socket rooms, so
-  no `game_updated` reaches them: without it they sat on a frozen game, still seated.
+  `you_were_kicked` is `{room_id, banned}`, `onKicked(roomId, banned)` notes the `room-notice`
+  ("kicked" or "banned", `lib/room-notice.ts`) and goes to /rooms. A removed player is out of the
+  room's socket rooms, so no `game_updated` reaches them: without it they sat on a frozen game,
+  still seated. The lobby's polling fallback (the seat gone from the state, no event) notes
+  "removed" (`room.youWereRemoved`, "the host removed you"): it cannot tell a kick from a ban,
+  so it promises nothing ("kicked" says they may join again, false for a ban). A ban then
+  shows on the next join as the server's 403.
 - **A page driven by `useViewTransitionValue` draws the shown phase from `useHeldForPhase`.** The
   transition value lags the server by one render (the browser snapshots the old phase), and in
   that render the page would otherwise draw the OLD phase with the NEW state: "The answer was"
@@ -1256,22 +1269,37 @@ PNG, from every game's colophon (`ColophonActions`) and the word of the day's re
 - **Seats keep their order.** The server lists a room's links by join time (it used to be heap
   order, which a heartbeat moved), and `stableOrder` (`components/rooms/lobby.ts`) keeps first-seen order and
   appends newcomers: the halqa never reshuffles under people's eyes.
-- **Arrivals and departures are not toasts.** A status line under the ring says who sat down or
-  left (`room.lobbyPage.activity*`); toasts stay for the player's own actions (copied link, start
-  failed). Being removed is an inline notice on /rooms.
+- **Arrivals and departures are not toasts.** A status line under the ring
+  (`data-testid="lobby-activity"`) says who sat down or left (`room.lobbyPage.activity*`), and on
+  every member's screen whom the host removed or banned (`activityRemoved`, `activityBanned`,
+  from `useRoomLobby.removals` through `rosterEvents`; the room is told by
+  `member_removed_by_host`, a lobby on the polling fallback reads "left"); toasts stay for the player's own actions
+  (copied link, start failed). Being removed or banned is an inline notice on /rooms.
 - **The roster is in the DOM.** The halqa is a picture; `PlayerRoster` is the real list ("Players
-  (N)", one row per seat, the host's Remove), and the E2E specs read its exact shape.
-- **Remove asks first, because it is a ban** (owner rule (c)). The row's Remove (still its last
-  button) opens an `AlertDialog` ("Remove {{name}}?", the player "cannot come back to it", the
-  host can lift it in the list of removed players); nothing is sent before its "Remove". E2E
-  clicks the row's button, then the dialog's "Remove".
-- **The removed players, for the host only** (`components/rooms/RoomBans.tsx`, under the
-  roster): `GET /rooms/{id}/bans`, each row with "Let {{name}} come back" (`DELETE`, one request
-  per tap, a 404 read as already lifted). No panel while nobody was removed; once shown it stays,
+  (N)", one row per seat, the host's Remove and Ban), and the E2E specs read its exact shape.
+- **Remove and Ban each ask first** (owner decision, 2 November 2026: two actions, it replaced
+  owner rule (c) under which Remove banned). Each row offers the host Remove (`UserMinus`, "Remove
+  {{name}} from the room", a kick) then Ban (`Ban`, "Ban {{name}} from the room"), each opening
+  its own `AlertDialog`: Remove's says the player may come back with the code and PIN, or an
+  invite; Ban's that they cannot, not even through an invite, until the host lifts the ban, and
+  that the PIN changes. Nothing is sent before the dialog's "Remove" or "Ban". After either, focus
+  goes to the same button of the next row (`data-remove` / `data-ban`). E2E clicks the row's
+  button by its name, then the dialog's action.
+- **The banned players, for the host only** (`components/rooms/RoomBans.tsx`, under the
+  roster, "Banned players"; a kick is not listed): `GET /rooms/{id}/bans`, each row with "Let
+  {{name}} come back" (`DELETE`, one request per tap, a 404 read as already lifted). No panel
+  while nobody was banned; once shown it stays,
   so lifting the last ban leaves `room.lobbyPage.bans.empty` with focus on its title. A failed
   read is `LoadFailed`, never the empty line. A guest renders nothing and asks nothing.
 - **The PIN on screen is the room state's.** The code tiles and the Share link read
-  `room_state.password`, which the kick rotates: a link copied before a kick no longer works.
+  `room_state.password`, which a ban rotates: a link copied before a ban no longer works (one
+  copied before a kick still does).
+- **A banned friend is said on the invite dialog's row.** `InviteFriendModal` reads 403
+  `errors.api.inviteeBanned` as "Banned from this room" (`room.invite.banned`, role=status) in
+  place of that friend's Invite, not as a toast; members cannot read the bans, so the row learns
+  it from the refusal. The app shell drops a room's invites, the pushed one and the stored
+  copies (at once, before the re-read lands), on `you_were_kicked` with `banned`
+  (`useRoomInvites.forgetRoom`): the server deleted them.
 - **An away seat counts down from the server's figure.** `RoomPlayerState.away_seconds_left` is
   the server's own grace rule; `awayCountdown(members, dataUpdatedAt, now)` (`rooms/lobby.ts`)
   counts it down from the moment that state arrived (the query's `dataUpdatedAt`, which a socket
@@ -1362,7 +1390,9 @@ answer of the room's running quiz, 409 while another game is played: backend/CLA
 - **The host's game pick is the room's**: the lobby's tabs call `PATCH /rooms/{id}/settings
   {game_type}` and every member derives `gameType` from the room state.
 - **A refused join is said once, on the page** (`data-testid="join-error"`, role=alert), never
-  also as a toast; the removed player reads `room.youWereKicked` on /rooms (`room-notice`).
+  also as a toast; the removed player reads `room.youWereKicked` (they may join again),
+  `room.youWereBanned`, or (the lobby's polling fallback, no event to say which)
+  `room.youWereRemoved` on /rooms (`room-notice`).
 - **Code then PIN, left to right, on every page** (home row, /rooms, the lobby, /rooms/join):
   the pair sits in a `dir="ltr"` container, labels stay translated.
 - **The document title names the page** (`lib/document-title`, `lib/route-title`,

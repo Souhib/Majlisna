@@ -1,6 +1,7 @@
 export type { AcceptFriendRequestApiV1FriendsFriendshipIdAcceptPostMutationKey } from "./hooks/useAcceptFriendRequestApiV1FriendsFriendshipIdAcceptPost.ts";
 export type { AcceptRoomInviteApiV1RoomsInvitesInviteIdAcceptPostMutationKey } from "./hooks/useAcceptRoomInviteApiV1RoomsInvitesInviteIdAcceptPost.ts";
 export type { AddWordToPackApiV1CodenamesWordPacksPackIdWordsPostMutationKey } from "./hooks/useAddWordToPackApiV1CodenamesWordPacksPackIdWordsPost.ts";
+export type { BanPlayerApiV1RoomsRoomIdBansPostMutationKey } from "./hooks/useBanPlayerApiV1RoomsRoomIdBansPost.ts";
 export type { CreateRoomApiV1RoomsPostMutationKey } from "./hooks/useCreateRoomApiV1RoomsPost.ts";
 export type { CreateTermPairApiV1UndercoverTermpairPostMutationKey } from "./hooks/useCreateTermPairApiV1UndercoverTermpairPost.ts";
 export type { CreateWordApiV1UndercoverWordsPostMutationKey } from "./hooks/useCreateWordApiV1UndercoverWordsPost.ts";
@@ -183,6 +184,16 @@ export type {
   AddWordToPackApiV1CodenamesWordPacksPackIdWordsPostMutation,
 } from "./types/AddWordToPackApiV1CodenamesWordPacksPackIdWordsPost.ts";
 export type { AdvanceRoundResponse } from "./types/AdvanceRoundResponse.ts";
+export type {
+  BanPlayerApiV1RoomsRoomIdBansPostPathParams,
+  BanPlayerApiV1RoomsRoomIdBansPost201,
+  BanPlayerApiV1RoomsRoomIdBansPost404,
+  BanPlayerApiV1RoomsRoomIdBansPost422,
+  BanPlayerApiV1RoomsRoomIdBansPostMutationRequest,
+  BanPlayerApiV1RoomsRoomIdBansPostMutationResponse,
+  BanPlayerApiV1RoomsRoomIdBansPostMutation,
+} from "./types/BanPlayerApiV1RoomsRoomIdBansPost.ts";
+export type { BanPlayerRequest } from "./types/BanPlayerRequest.ts";
 export type { BodyRefreshTokenApiV1AuthRefreshPost } from "./types/BodyRefreshTokenApiV1AuthRefreshPost.ts";
 export type { ChatMessageView } from "./types/ChatMessageView.ts";
 export type { ClueGuess } from "./types/ClueGuess.ts";
@@ -1246,6 +1257,10 @@ export { addWordToPackApiV1CodenamesWordPacksPackIdWordsPostMutationKey } from "
 export { addWordToPackApiV1CodenamesWordPacksPackIdWordsPost } from "./hooks/useAddWordToPackApiV1CodenamesWordPacksPackIdWordsPost.ts";
 export { addWordToPackApiV1CodenamesWordPacksPackIdWordsPostMutationOptions } from "./hooks/useAddWordToPackApiV1CodenamesWordPacksPackIdWordsPost.ts";
 export { useAddWordToPackApiV1CodenamesWordPacksPackIdWordsPost } from "./hooks/useAddWordToPackApiV1CodenamesWordPacksPackIdWordsPost.ts";
+export { banPlayerApiV1RoomsRoomIdBansPostMutationKey } from "./hooks/useBanPlayerApiV1RoomsRoomIdBansPost.ts";
+export { banPlayerApiV1RoomsRoomIdBansPost } from "./hooks/useBanPlayerApiV1RoomsRoomIdBansPost.ts";
+export { banPlayerApiV1RoomsRoomIdBansPostMutationOptions } from "./hooks/useBanPlayerApiV1RoomsRoomIdBansPost.ts";
+export { useBanPlayerApiV1RoomsRoomIdBansPost } from "./hooks/useBanPlayerApiV1RoomsRoomIdBansPost.ts";
 export { createRoomApiV1RoomsPostMutationKey } from "./hooks/useCreateRoomApiV1RoomsPost.ts";
 export { createRoomApiV1RoomsPost } from "./hooks/useCreateRoomApiV1RoomsPost.ts";
 export { createRoomApiV1RoomsPostMutationOptions } from "./hooks/useCreateRoomApiV1RoomsPost.ts";

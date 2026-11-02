@@ -171,7 +171,10 @@ export function tableState(seatedCount: number, gameType: GameType): TableState 
   return { kind: "ready" }
 }
 
-export type LobbyEventKind = "joined" | "watching" | "left" | "away" | "back" | "host"
+/** How the host took a seat: a kick ("Remove") or a ban. */
+export type RemovalKind = "removed" | "banned"
+
+export type LobbyEventKind = "joined" | "watching" | "left" | "away" | "back" | "host" | RemovalKind
 
 export interface LobbyEvent {
   kind: LobbyEventKind
@@ -181,9 +184,10 @@ export interface LobbyEvent {
 /**
  * What changed between two rosters, oldest first. Events about the viewer are left out
  * (they know), except a change of host. An empty `prev` is the first roster seen: it is
- * the baseline, not a wave of arrivals.
+ * the baseline, not a wave of arrivals. A departure the viewer caused (`removals`, the
+ * host's kicks and bans from this screen) is said as such, any other as a leave.
  */
-export function rosterEvents(prev: LobbyMember[], next: LobbyMember[], myId: string | undefined): LobbyEvent[] {
+export function rosterEvents(prev: LobbyMember[], next: LobbyMember[], myId: string | undefined, removals?: ReadonlyMap<string, RemovalKind>): LobbyEvent[] {
   if (prev.length === 0) return []
   const before = new Map(prev.map((m) => [m.id, m]))
   const after = new Map(next.map((m) => [m.id, m]))
@@ -198,7 +202,7 @@ export function rosterEvents(prev: LobbyMember[], next: LobbyMember[], myId: str
     else if (was.isAway && !m.isAway) events.push({ kind: "back", name: m.username })
   }
   for (const m of prev) {
-    if (m.id !== myId && !after.has(m.id)) events.push({ kind: "left", name: m.username })
+    if (m.id !== myId && !after.has(m.id)) events.push({ kind: removals?.get(m.id) ?? "left", name: m.username })
   }
   const oldHost = prev.find((m) => m.isHost)
   const newHost = next.find((m) => m.isHost)

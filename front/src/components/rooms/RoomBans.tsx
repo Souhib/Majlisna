@@ -22,16 +22,16 @@ interface RoomBansProps {
 }
 
 /**
- * The players the host removed from this room (owner rule (c): a kick bans for the room's
- * lifetime), each with "Let {{name}} come back" (`DELETE /rooms/{id}/bans/{user_id}`).
- * Lifting does not seat the player again nor bring the old PIN back: they rejoin with the
- * room's code and its current PIN.
+ * The players the host BANNED from this room (a kick is no ban, and is not listed: owner
+ * decision, 2 November 2026), each with "Let {{name}} come back"
+ * (`DELETE /rooms/{id}/bans/{user_id}`). Lifting does not seat the player again nor bring
+ * the old PIN back: they rejoin with the room's code and its current PIN, or an invite.
  *
- * It sits under the roster, for the host only, and only once someone has been removed: a
+ * It sits under the roster, for the host only, and only once someone has been banned: a
  * lobby where nobody was is not given an empty panel. Once shown it stays, so lifting the
- * last ban leaves "No one has been removed from this room." under the host's hand, with
- * focus on the panel's title. It is read again after a kick and after a lift, and on a
- * new PIN in the room state (a kick from the host's other device: `useRoomLobby`).
+ * last ban leaves "No one is banned from this room." under the host's hand, with focus on
+ * the panel's title. It is read again after a ban and after a lift, and on a new PIN in
+ * the room state (a ban from the host's other device: `useRoomLobby`).
  *
  * A failed read is said as such (LoadFailed), never as "no one removed" (FR-7). One lift
  * at a time: a synchronous in-flight ref, so a double tap sends one request (FR-4).

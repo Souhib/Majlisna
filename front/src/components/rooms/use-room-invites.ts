@@ -16,6 +16,8 @@ export interface RoomInvites {
   answer: (invite: RoomInviteView) => void
   /** Read the stored invites again (after the personal socket reconnects: pushes are not replayed). */
   refresh: () => void
+  /** Banned from this room: its invites, pushed or stored, show no more, and the stored ones are read again (the ban deleted them). */
+  forgetRoom: (roomId: string) => void
 }
 
 /**
@@ -27,6 +29,11 @@ export interface RoomInvites {
  * An answered invite is remembered by id with the expiry it had: a re-invite keeps the id
  * and moves `expires_at` later, so it shows again, while the stored copy of the one just
  * answered does not.
+ *
+ * A ban (`you_were_kicked` with `banned`, on the personal socket) deletes the invites to
+ * the banned player on the server; `forgetRoom` drops the one pushed before it and the
+ * stored copies of that room's, so the strip never shows that room again (a member cannot
+ * invite them any more, and the server takes back an invite that raced the ban).
  */
 export function useRoomInvites(viewer: string | null): RoomInvites {
   const queryClient = useQueryClient()
@@ -53,6 +60,16 @@ export function useRoomInvites(viewer: string | null): RoomInvites {
   const refresh = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: listRoomInvitesApiV1RoomsInvitesGetQueryKey() })
   }, [queryClient])
+  const forgetRoom = useCallback(
+    (roomId: string) => {
+      setPushed((current) => (current?.room_id === roomId ? null : current))
+      // the stored copy too, at once: the strip falls back on it while the re-read is on
+      // its way, and for good if that read fails
+      queryClient.setQueryData<RoomInviteView[]>(roomInvitesKey(viewer), (list) => list?.filter((stored) => stored.room_id !== roomId))
+      refresh()
+    },
+    [queryClient, refresh, viewer],
+  )
 
-  return { invite, receive, answer, refresh }
+  return { invite, receive, answer, refresh, forgetRoom }
 }

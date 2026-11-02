@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router"
-import { Check } from "lucide-react"
+import { Ban, Check } from "lucide-react"
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { EmptyState } from "@/components/ui/empty-state"
 import { Skeleton } from "@/components/ui/skeleton"
-import { roomErrorMessage } from "./errors"
+import { ROOM_ERROR_KEYS, roomErrorKey, roomErrorMessage } from "./errors"
 
 interface InviteFriendModalProps {
   roomId: string
@@ -20,7 +20,9 @@ interface InviteFriendModalProps {
 /**
  * Invite a friend into the room (Dialog: protected focus, Escape and the corner button
  * close it, focus returns to "Invite a friend"). Each friend gets one Invite button,
- * which turns into a quiet "Invited" once the notice has gone out.
+ * which turns into a quiet "Invited" once the notice has gone out, or into "Banned from
+ * this room" when the server refuses a friend the host banned (403 `inviteeBanned`): said
+ * on the row, where the inviter looks, not in a toast. A kicked friend is invited as anyone.
  */
 export function InviteFriendModal({ roomId, open, onOpenChange }: InviteFriendModalProps) {
   const { t } = useTranslation()
@@ -40,6 +42,8 @@ export function InviteFriendModal({ roomId, open, onOpenChange }: InviteFriendMo
 function FriendList({ roomId }: { roomId: string }) {
   const { t } = useTranslation()
   const [invitedIds, setInvitedIds] = useState<Set<string>>(new Set())
+  // friends the server said are banned from this room (members cannot read the bans)
+  const [bannedIds, setBannedIds] = useState<Set<string>>(new Set())
   const [invitingId, setInvitingId] = useState<string | null>(null)
   const { data: friends = [], isLoading } = useGetFriendsApiV1FriendsGet()
   const inviteMutation = useInviteFriendToRoomApiV1RoomsRoomIdInvitePost()
@@ -51,7 +55,8 @@ function FriendList({ roomId }: { roomId: string }) {
       setInvitedIds((prev) => new Set(prev).add(friendUserId))
       toast.success(t("room.inviteSent"))
     } catch (err) {
-      toast.error(roomErrorMessage(err, t("room.invite.failed")))
+      if (roomErrorKey(err) === ROOM_ERROR_KEYS.inviteeBanned) setBannedIds((prev) => new Set(prev).add(friendUserId))
+      else toast.error(roomErrorMessage(err, t("room.invite.failed")))
     } finally {
       setInvitingId(null)
     }
@@ -88,6 +93,7 @@ function FriendList({ roomId }: { roomId: string }) {
     <ul className="-mx-1 grid max-h-[50dvh] overflow-y-auto border-t border-line px-1">
       {friends.map((friend) => {
         const isInvited = invitedIds.has(friend.user_id)
+        const isBanned = bannedIds.has(friend.user_id)
         const isInviting = invitingId === friend.user_id
         return (
           <li key={friend.friendship_id} className="flex items-center gap-3 border-b border-line py-2.5">
@@ -95,7 +101,12 @@ function FriendList({ roomId }: { roomId: string }) {
             <span className="min-w-0 flex-1 truncate text-[15px] font-medium">
               <bdi>{friend.username}</bdi>
             </span>
-            {isInvited ? (
+            {isBanned ? (
+              <span className="inline-flex h-10 items-center gap-1.5 px-2 text-[14px] text-muted-foreground" role="status">
+                <Ban className="size-4 text-ember" aria-hidden="true" />
+                {t("room.invite.banned")}
+              </span>
+            ) : isInvited ? (
               <span className="inline-flex h-10 items-center gap-1.5 px-2 text-[14px] text-muted-foreground" role="status">
                 <Check className="size-4 text-brass" aria-hidden="true" />
                 {t("room.invite.sent")}

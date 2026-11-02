@@ -12,7 +12,7 @@ import { EmptyState } from "@/components/ui/empty-state"
 import { Panel } from "@/components/ui/panel"
 import { Skeleton } from "@/components/ui/skeleton"
 import { trackEvent } from "@/lib/analytics"
-import { takeRoomNotice } from "@/lib/room-notice"
+import { type RoomNotice, takeRoomNotice } from "@/lib/room-notice"
 import { useAuth } from "@/providers/AuthProvider"
 
 export const Route = createFileRoute("/_auth/rooms/")({
@@ -21,6 +21,13 @@ export const Route = createFileRoute("/_auth/rooms/")({
 
 const CODE_LENGTH = 5
 const PIN_LENGTH = 4
+
+/** What /rooms says of the host's removal (`lib/room-notice.ts`). */
+const NOTICE_KEY: Record<RoomNotice, string> = {
+  kicked: "room.youWereKicked",
+  banned: "room.youWereBanned",
+  removed: "room.youWereRemoved",
+}
 
 /**
  * Rooms: sit down at a friend's table with its code and PIN (the tiles, read aloud), see
@@ -41,8 +48,9 @@ function RoomsPage() {
   const [joinError, setJoinError] = useState<string | null>(null)
   // "Check the code and PIN with your host" is no repair for a ban or a seat elsewhere (review F2)
   const [joinErrorRepairs, setJoinErrorRepairs] = useState(true)
-  // "The host removed you" lands here as a line on the page, never a toast: the player
-  // did not cause it. Taken once, so a later visit does not repeat it.
+  // "The host removed you" (a kick: you may join again), "banned you", or (no event said
+  // which) a removal that promises nothing lands here as a line on the page, never a
+  // toast: the player did not cause it. Taken once, so a later visit does not repeat it.
   const [notice] = useState(takeRoomNotice)
 
   const joinMutation = useJoinRoomApiV1RoomsJoinPatch({
@@ -103,9 +111,9 @@ function RoomsPage() {
           <p className="type-lede mt-4">{t("room.indexPage.lede")}</p>
         </header>
 
-        {notice === "kicked" ? (
+        {notice ? (
           <Alert tone="info" data-testid="room-notice" className="mt-6 max-w-[44rem]">
-            {t("room.youWereKicked")}
+            {t(NOTICE_KEY[notice])}
           </Alert>
         ) : null}
 

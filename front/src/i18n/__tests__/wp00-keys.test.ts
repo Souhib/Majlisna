@@ -39,6 +39,20 @@ const CONTRACT_KEYS = [
   "room.lobbyPage.kickConfirmTitle",
   "room.lobbyPage.kickConfirmBody",
   "room.lobbyPage.kickConfirmAction",
+  // kick and ban, two host actions (owner decision, 2 November 2026)
+  "room.lobbyPage.ban",
+  "room.lobbyPage.banFailed",
+  "room.lobbyPage.banConfirmTitle",
+  "room.lobbyPage.banConfirmBody",
+  "room.lobbyPage.banConfirmAction",
+  "room.lobbyPage.activityRemoved",
+  "room.lobbyPage.activityBanned",
+  "room.youWereKicked",
+  "room.youWereBanned",
+  "room.youWereRemoved",
+  "room.invite.banned",
+  "errors.api.inviteeBanned",
+  "errors.api.cannotBanYourself",
   "room.lobbyPage.bans.title",
   "room.lobbyPage.bans.liftBan",
   "room.lobbyPage.bans.empty",
@@ -78,6 +92,15 @@ describe("the WP-00 locale contract", () => {
       expect(lookup(LOCALES[lang], "room.joinPage.leaveAndJoin"), lang).toContain("{{room}}")
       expect(lookup(LOCALES[lang], "room.lobbyPage.bans.liftBan"), lang).toContain("{{name}}")
       expect(lookup(LOCALES[lang], "room.lobbyPage.kickConfirmBody"), lang).toContain("{{name}}")
+      for (const key of [
+        "room.lobbyPage.ban",
+        "room.lobbyPage.banConfirmTitle",
+        "room.lobbyPage.banConfirmBody",
+        "room.lobbyPage.activityRemoved",
+        "room.lobbyPage.activityBanned",
+      ]) {
+        expect(lookup(LOCALES[lang], key), `${lang} ${key}`).toContain("{{name}}")
+      }
     }
   })
 

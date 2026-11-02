@@ -154,8 +154,8 @@ export function useJoinRoom(onJoined: (roomId: string) => void): JoinRoomFlow {
 
 /**
  * Accepting a friend's invite (`RoomInviteStrip`). The invite is stored on the server and
- * opens its room without the PIN, so a kick that rotated the PIN since it was sent does not
- * stop it. The same doors as a join otherwise (`useSeatRequest`): a seat elsewhere is
+ * opens its room without the PIN, so a ban (of someone else) that rotated the PIN since it
+ * was sent does not stop it. The same doors as a join otherwise (`useSeatRequest`): a seat elsewhere is
  * offered "Leave {{room}} and join"; a ban (403), an expired invite (410
  * `roomInviteExpired`) or one no longer valid (404) is said in the server's words.
  */

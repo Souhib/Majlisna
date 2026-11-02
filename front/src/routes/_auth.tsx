@@ -5,6 +5,7 @@ import { io } from "socket.io-client"
 import type { RoomInviteView } from "@/api/generated"
 import { RoomInviteStrip } from "@/components/rooms/RoomInviteStrip"
 import { useRoomInvites } from "@/components/rooms/use-room-invites"
+import type { YouWereKicked } from "@/hooks/use-socket"
 import { BusyLozenges } from "@/components/ui/button"
 import { getStoredToken, onTokenStored } from "@/lib/auth"
 import { useAuth } from "@/providers/AuthProvider"
@@ -22,7 +23,7 @@ function AuthLayout() {
   const location = useLocation()
   // The latest friend's invite, shown as a strip under the nav until answered: pushed on
   // the personal socket, or (sent while the page was closed) read from the server.
-  const { invite, receive: receiveInvite, answer: answerInvite, refresh: refreshInvites } = useRoomInvites(user?.id ?? null)
+  const { invite, receive: receiveInvite, answer: answerInvite, refresh: refreshInvites, forgetRoom: forgetInvitesTo } = useRoomInvites(user?.id ?? null)
 
   // Carry the page the visitor wanted through the login, so a shared
   // /rooms/join?code=…&pin=… link still joins the room after authenticating.
@@ -39,7 +40,8 @@ function AuthLayout() {
   // them on any signed-in page. The server used to refuse a connection without a room,
   // so no invite ever arrived. The push is the stored invite (its id, the code, who sent
   // it), never the PIN; a reconnect reads the stored invites again, since python-socketio
-  // replays nothing sent while the socket was away.
+  // replays nothing sent while the socket was away. A ban from a room (`you_were_kicked`
+  // with `banned`) drops that room's invite: the server deleted it.
   useEffect(() => {
     if (!user?.id || !getStoredToken()) return
 
@@ -51,6 +53,9 @@ function AuthLayout() {
     })
 
     socket.on("room_invite", (data: RoomInviteView) => receiveInvite(data))
+    socket.on("you_were_kicked", (data: YouWereKicked) => {
+      if (data.banned === true) forgetInvitesTo(data.room_id)
+    })
     let connectedBefore = false
     socket.on("connect", () => {
       if (connectedBefore) refreshInvites()
@@ -67,7 +72,7 @@ function AuthLayout() {
       offToken()
       socket.disconnect()
     }
-  }, [user?.id, receiveInvite, refreshInvites])
+  }, [user?.id, receiveInvite, refreshInvites, forgetInvitesTo])
 
   if (isLoading) {
     // Still: no spinner, no pulse (nothing loops but the visible clock).

@@ -55,10 +55,10 @@ afterEach(() => {
 describe("PlayerRoster: an away seat recedes", () => {
   it("erases the seat whose player drops: name and lozenge on the ink curve, the countdown faded in", () => {
     // Prepare
-    const { container, rerender } = render(<PlayerRoster players={table} myId="h" canKick={false} onKick={vi.fn()} />)
+    const { container, rerender } = render(<PlayerRoster players={table} myId="h" canKick={false} onKick={vi.fn()} onBan={vi.fn()} />)
 
     // Act
-    rerender(<PlayerRoster players={idrisAway} myId="h" canKick={false} onKick={vi.fn()} awayLeft={new Map([["b", 598]])} />)
+    rerender(<PlayerRoster players={idrisAway} myId="h" canKick={false} onKick={vi.fn()} onBan={vi.fn()} awayLeft={new Map([["b", 598]])} />)
 
     // Assert
     const idris = seatOf(container, "b")
@@ -74,11 +74,11 @@ describe("PlayerRoster: an away seat recedes", () => {
 
   it("restores a player who comes back, in the state time", () => {
     // Prepare
-    const { container, rerender } = render(<PlayerRoster players={idrisAway} myId="h" canKick={false} onKick={vi.fn()} />)
+    const { container, rerender } = render(<PlayerRoster players={idrisAway} myId="h" canKick={false} onKick={vi.fn()} onBan={vi.fn()} />)
     expect(calls).toHaveLength(0)
 
     // Act
-    rerender(<PlayerRoster players={table} myId="h" canKick={false} onKick={vi.fn()} />)
+    rerender(<PlayerRoster players={table} myId="h" canKick={false} onKick={vi.fn()} onBan={vi.fn()} />)
 
     // Assert
     const idris = seatOf(container, "b")
@@ -90,26 +90,28 @@ describe("PlayerRoster: an away seat recedes", () => {
 
   it("keeps the E2E row shape: the exact name in its own span, the row a flex justify-between", () => {
     // Prepare / Act
-    render(<PlayerRoster players={idrisAway} myId="h" canKick onKick={vi.fn()} />)
+    render(<PlayerRoster players={idrisAway} myId="h" canKick onKick={vi.fn()} onBan={vi.fn()} />)
 
     // Assert
     const name = screen.getByText("Idris")
     expect(name.tagName).toBe("SPAN")
     expect(name).toHaveAttribute("data-erase", "ink")
     const row = name.closest("div.flex.items-center.justify-between") as HTMLElement
-    expect(row.querySelectorAll("button")).toHaveLength(1)
-    expect(row.querySelector("button")).toHaveAccessibleName("Remove Idris from the room")
+    const buttons = row.querySelectorAll("button")
+    expect(buttons).toHaveLength(2)
+    expect(buttons[0]).toHaveAccessibleName("Remove Idris from the room")
+    expect(buttons[1]).toHaveAccessibleName("Ban Idris from the room")
   })
 
   it("moves nothing on load, nor for the host's own state, nor when a player leaves the room", () => {
     // Prepare
-    const { rerender } = render(<PlayerRoster players={idrisAway} myId="h" canKick={false} onKick={vi.fn()} />)
+    const { rerender } = render(<PlayerRoster players={idrisAway} myId="h" canKick={false} onKick={vi.fn()} onBan={vi.fn()} />)
     // the host's seat says "host", never "away", even when their connection drops
     const hostAway = idrisAway.map((m) => (m.id === "h" ? { ...m, isAway: true } : m))
 
     // Act
-    rerender(<PlayerRoster players={hostAway} myId="a" canKick={false} onKick={vi.fn()} />)
-    rerender(<PlayerRoster players={hostAway.filter((m) => m.id !== "a")} myId="b" canKick={false} onKick={vi.fn()} />)
+    rerender(<PlayerRoster players={hostAway} myId="a" canKick={false} onKick={vi.fn()} onBan={vi.fn()} />)
+    rerender(<PlayerRoster players={hostAway.filter((m) => m.id !== "a")} myId="b" canKick={false} onKick={vi.fn()} onBan={vi.fn()} />)
 
     // Assert
     expect(calls).toHaveLength(0)
@@ -119,10 +121,10 @@ describe("PlayerRoster: an away seat recedes", () => {
   it("under reduced motion, is a 180 ms opacity change", () => {
     // Prepare
     stubReducedMotion(true)
-    const { container, rerender } = render(<PlayerRoster players={table} myId="h" canKick={false} onKick={vi.fn()} />)
+    const { container, rerender } = render(<PlayerRoster players={table} myId="h" canKick={false} onKick={vi.fn()} onBan={vi.fn()} />)
 
     // Act
-    rerender(<PlayerRoster players={idrisAway} myId="h" canKick={false} onKick={vi.fn()} />)
+    rerender(<PlayerRoster players={idrisAway} myId="h" canKick={false} onKick={vi.fn()} onBan={vi.fn()} />)
 
     // Assert
     const parts = animationsOf(seatOf(container, "b"))

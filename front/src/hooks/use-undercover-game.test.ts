@@ -33,9 +33,9 @@ vi.mock("@/api/client", () => ({
 
 const mockSocketReturn = { connected: true }
 // What the page asked the socket for (the kick handler in particular).
-let lastSocketOptions: { onKicked?: (roomId: string) => void } | null = null
+let lastSocketOptions: { onKicked?: (roomId: string, banned?: boolean) => void } | null = null
 vi.mock("@/hooks/use-socket", () => ({
-  useSocket: (options: { onKicked?: (roomId: string) => void }) => {
+  useSocket: (options: { onKicked?: (roomId: string, banned?: boolean) => void }) => {
     lastSocketOptions = options
     return mockSocketReturn
   },
@@ -372,13 +372,24 @@ describe("useUndercoverGame: leaving a game you can no longer play", () => {
     expect(lastSocketOptions?.onKicked).toBeTypeOf("function")
 
     act(() => {
-      lastSocketOptions?.onKicked?.("room-123")
-      lastSocketOptions?.onKicked?.("room-123")
+      lastSocketOptions?.onKicked?.("room-123", false)
+      lastSocketOptions?.onKicked?.("room-123", false)
     })
 
     expect(mockNavigate).toHaveBeenCalledTimes(1)
     expect(mockNavigate).toHaveBeenCalledWith({ to: "/rooms" })
     expect(takeRoomNotice()).toBe("kicked")
+  })
+
+  it("sends a player the host banned to /rooms with the ban's notice", () => {
+    renderHook(() => useUndercoverGame("game-1"), { wrapper: createWrapper() })
+
+    act(() => {
+      lastSocketOptions?.onKicked?.("room-123", true)
+    })
+
+    expect(mockNavigate).toHaveBeenCalledWith({ to: "/rooms" })
+    expect(takeRoomNotice()).toBe("banned")
   })
 
   it("tells a removed player the game is gone by the status, whatever the language of the text", () => {

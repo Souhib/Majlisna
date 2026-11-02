@@ -7,7 +7,7 @@
 
 /**
  * RoomBanView
- * @description A player the host kicked from the room, who may not come back until lifted.\n\nServed to the host only (``GET /rooms/{id}/bans``). ``banned_at`` is the ban\'s\n``created_at`` (UTC).
+ * @description A player the host banned from the room, who may not come back until lifted (a kick\nis no ban, and is not listed).\n\nServed to the host only: ``GET /rooms/{id}/bans``, and the answer of\n``POST /rooms/{id}/bans``. ``banned_at`` is the ban\'s ``created_at`` (UTC).
  */
 export type RoomBanView = {
   /**

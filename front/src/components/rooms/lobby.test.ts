@@ -151,6 +151,26 @@ describe("rosterEvents", () => {
     expect(rosterEvents(prev, next, "me")).toEqual([])
   })
 
+  it("says a departure the host caused as a removal or a ban, and any other as a leave", () => {
+    // Prepare: the host removed B and banned C; D left by themself
+    const prev = [member("me", { isHost: true }), member("b"), member("c"), member("d")]
+    const next = [member("me", { isHost: true })]
+    const removals = new Map([
+      ["b", "removed" as const],
+      ["c", "banned" as const],
+    ])
+
+    // Act
+    const events = rosterEvents(prev, next, "me", removals)
+
+    // Assert
+    expect(events).toEqual([
+      { kind: "removed", name: "B" },
+      { kind: "banned", name: "C" },
+      { kind: "left", name: "D" },
+    ])
+  })
+
   it("reports a new host, even when it is the viewer", () => {
     const prev = [member("a", { isHost: true }), member("me")]
     const next = [member("me", { isHost: true })]

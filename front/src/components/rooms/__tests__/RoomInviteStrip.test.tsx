@@ -61,8 +61,8 @@ describe("RoomInviteStrip (a friend's invite, never a toast)", () => {
   })
 
   it("joins through the stored invite, with no code and no PIN, then opens the room", async () => {
-    // The invite used to carry the PIN, which a kick rotates: an invite sent before a kick
-    // opened a join that was refused (owner rule (c))
+    // The invite used to carry the PIN, which a ban rotates: an invite sent before the ban
+    // opened a join that was refused
     // Prepare
     answer(ACCEPT, () => ({ id: "room-b" }))
     const { onJoined } = await renderStrip()

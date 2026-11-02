@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { act, renderHook, waitFor } from "@testing-library/react"
 import type { ReactNode } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { answer, requestsTo, resetFakeApi } from "@/components/notebook/__tests__/fake-api"
+import { answer, httpError, requestsTo, resetFakeApi } from "@/components/notebook/__tests__/fake-api"
 
 vi.mock("@/api/client", async () => (await import("@/components/notebook/__tests__/fake-api")).clientModule)
 
@@ -86,5 +86,57 @@ describe("useRoomInvites (the invite the app shell shows)", () => {
     // Assert
     await waitFor(() => expect(result.current.invite?.id).toBe("d"))
     expect(requestsTo(LIST)).toHaveLength(2)
+  })
+
+  it("forgets the invites to a room the player was banned from, the pushed one included", async () => {
+    // A ban deletes the invites to the banned player on the server; the strip on screen
+    // must not keep showing the one pushed before it
+    // Prepare: invite a stored (room-a), then invite b pushed (room-b)
+    answer(LIST, () => [invite("a", "2026-11-02T12:30:00Z")])
+    const { result } = renderInvites()
+    await waitFor(() => expect(result.current.invite?.id).toBe("a"))
+    act(() => result.current.receive(invite("b", "2026-11-02T12:50:00Z", "Maryam")))
+    expect(result.current.invite?.id).toBe("b")
+
+    // Act: banned from room-b
+    act(() => result.current.forgetRoom("room-b"))
+
+    // Assert: b shows no more, and the stored list is read again
+    expect(result.current.invite?.id).toBe("a")
+    await waitFor(() => expect(requestsTo(LIST)).toHaveLength(2))
+  })
+
+  it("drops the stored invites to that room at once, and keeps them dropped when the re-read fails", async () => {
+    // The strip falls back on the stored list: until the re-read lands (or for good, when
+    // it fails) it must not show the room the player was just banned from
+    // Prepare: invite a stored (room-a); the re-read will fail
+    answer(LIST, () => [invite("a", "2026-11-02T12:30:00Z")])
+    const { result } = renderInvites()
+    await waitFor(() => expect(result.current.invite?.id).toBe("a"))
+    answer(LIST, () => {
+      throw httpError(503)
+    })
+
+    // Act: banned from room-a
+    act(() => result.current.forgetRoom("room-a"))
+
+    // Assert
+    expect(result.current.invite).toBeNull()
+    await waitFor(() => expect(requestsTo(LIST)).toHaveLength(2))
+    expect(result.current.invite).toBeNull()
+  })
+
+  it("keeps the pushed invite when the ban is from another room", async () => {
+    // Prepare
+    answer(LIST, () => [])
+    const { result } = renderInvites()
+    await waitFor(() => expect(requestsTo(LIST)).toHaveLength(1))
+    act(() => result.current.receive(invite("b", "2026-11-02T12:50:00Z")))
+
+    // Act
+    act(() => result.current.forgetRoom("room-z"))
+
+    // Assert
+    expect(result.current.invite?.id).toBe("b")
   })
 })

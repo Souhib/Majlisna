@@ -6,9 +6,11 @@ import { queryKeys } from "@/api/queryKeys"
 import { answer, requestsTo, resetFakeApi } from "@/components/notebook/__tests__/fake-api"
 
 /**
- * The lobby after a kick (owner rule (c), WP-29): the host confirms, the player is
- * banned and listed with a way back, and the PIN on screen and in the share link is the
- * new one. The real page and generated hooks over the fake client, the socket down.
+ * The lobby's two removals (owner decision, 2 November 2026; WP-29 before it): the host
+ * confirms either. A kick (Remove) only takes the seat: nobody is listed as banned and the
+ * PIN stays. A ban lists the player with a way back, and the PIN on screen and in the
+ * share link is the new one. The activity line says which. The real page and generated
+ * hooks over the fake client, the socket down.
  */
 const router = vi.hoisted(() => ({ navigate: vi.fn() }))
 const toasts = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }))
@@ -38,6 +40,7 @@ const Page = (Route as unknown as { options: { component: ComponentType } }).opt
 const STATE = "GET /api/v1/rooms/room-1/state"
 const BANS = "GET /api/v1/rooms/room-1/bans"
 const KICK = "PATCH /api/v1/rooms/room-1/kick"
+const BAN = "POST /api/v1/rooms/room-1/bans"
 const LIFT = "DELETE /api/v1/rooms/room-1/bans/u2"
 
 const player = (user_id: string, username: string) => ({ user_id, username, is_spectator: false, is_disconnected: false, away_seconds_left: null })
@@ -74,7 +77,7 @@ beforeEach(() => {
   Object.values(toasts).forEach((fn) => fn.mockReset())
 })
 
-describe("the lobby's PIN after a kick", () => {
+describe("the lobby's PIN after a ban", () => {
   it("shows the new PIN from room_state and copies it in the share link", async () => {
     // Prepare
     const writeText = vi.fn(async () => {})
@@ -84,7 +87,7 @@ describe("the lobby's PIN after a kick", () => {
     const queryClient = await renderPage()
     await waitFor(() => expect(pinTiles()).toHaveTextContent("4 8 2 1"))
 
-    // Act: the push that follows a kick carries the rotated PIN
+    // Act: the push that follows a ban carries the rotated PIN
     answer(STATE, () => roomState({ password: "9034", players: [player("u1", "Yusuf"), player("u3", "Ali")] }))
     act(() => {
       queryClient.setQueryData(queryKeys.room.state("room-1"), roomState({ password: "9034", players: [player("u1", "Yusuf"), player("u3", "Ali")] }))
@@ -99,27 +102,26 @@ describe("the lobby's PIN after a kick", () => {
   })
 })
 
-describe("the host removes a player", () => {
-  it("asks first, kicks once, then lists the player with a way back, which lifts the ban", async () => {
+/** Maryam's row in the roster (the E2E shape), for its two buttons. */
+function maryamRow(): HTMLElement {
+  const name = screen.getAllByText("Maryam").find((el) => el.closest("div.flex.items-center.justify-between"))
+  return name!.closest("div.flex.items-center.justify-between") as HTMLElement
+}
+
+const activityLine = () => screen.getByTestId("lobby-activity")
+
+describe("the host removes or bans a player", () => {
+  it("Remove asks first, kicks once, lists no ban, keeps the PIN, and the line says removed", async () => {
     // Prepare
-    let bans: { user_id: string; username: string; banned_at: string }[] = []
     answer(STATE, () => roomState())
-    answer(BANS, () => bans)
+    answer(BANS, () => [])
     answer(KICK, () => {
-      bans = [{ user_id: "u2", username: "Maryam", banned_at: "2026-10-31T18:00:00Z" }]
-      answer(STATE, () => roomState({ password: "9034", players: [player("u1", "Yusuf"), player("u3", "Ali")] }))
-      return { status: "kicked" }
-    })
-    answer(LIFT, () => {
-      bans = []
-      return { status: "lifted" }
+      answer(STATE, () => roomState({ players: [player("u1", "Yusuf"), player("u3", "Ali")] }))
+      return { message: "Player kicked" }
     })
     await renderPage()
     await waitFor(() => expect(requestsTo(BANS)).toHaveLength(1))
-    // nobody removed yet: no panel
-    expect(screen.queryByRole("heading", { name: /room\.lobbyPage\.bans\.title/ })).toBeNull()
-    const maryamRow = screen.getAllByText("Maryam").find((el) => el.closest("div.flex.items-center.justify-between"))
-    const remove = within(maryamRow!.closest("div.flex.items-center.justify-between") as HTMLElement).getByRole("button")
+    const remove = within(maryamRow()).getByRole("button", { name: "room.lobbyPage.kick" })
 
     // Act: Remove, then confirm
     fireEvent.click(remove)
@@ -128,10 +130,49 @@ describe("the host removes a player", () => {
     expect(requestsTo(KICK)).toHaveLength(0)
     fireEvent.click(within(confirm).getByRole("button", { name: "room.lobbyPage.kickConfirmAction" }))
 
-    // Assert: one kick; the removed player is listed, the PIN is the new one
-    await waitFor(() => expect(screen.getByRole("heading", { name: /room\.lobbyPage\.bans\.title/ })).toHaveTextContent("(1)"))
+    // Assert: one kick and no ban; nobody listed; the PIN is the same; the line says removed
+    await waitFor(() => expect(screen.queryAllByText("Maryam")).toHaveLength(0))
     expect(requestsTo(KICK).map((r) => r.data)).toEqual([{ user_id: "u2" }])
+    expect(requestsTo(BAN)).toHaveLength(0)
+    expect(screen.queryByRole("heading", { name: /room\.lobbyPage\.bans\.title/ })).toBeNull()
+    expect(pinTiles()).toHaveTextContent("4 8 2 1")
+    expect(activityLine()).toHaveTextContent("room.lobbyPage.activityRemoved")
+    expect(toasts.error).not.toHaveBeenCalled()
+  })
+
+  it("Ban asks first, bans once, then lists the player with a way back, which lifts the ban", async () => {
+    // Prepare
+    let bans: { user_id: string; username: string; banned_at: string }[] = []
+    answer(STATE, () => roomState())
+    answer(BANS, () => bans)
+    answer(BAN, () => {
+      bans = [{ user_id: "u2", username: "Maryam", banned_at: "2026-10-31T18:00:00Z" }]
+      answer(STATE, () => roomState({ password: "9034", players: [player("u1", "Yusuf"), player("u3", "Ali")] }))
+      return bans[0]
+    })
+    answer(LIFT, () => {
+      bans = []
+      return { status: "lifted" }
+    })
+    await renderPage()
+    await waitFor(() => expect(requestsTo(BANS)).toHaveLength(1))
+    // nobody banned yet: no panel
+    expect(screen.queryByRole("heading", { name: /room\.lobbyPage\.bans\.title/ })).toBeNull()
+    const ban = within(maryamRow()).getByRole("button", { name: "room.lobbyPage.ban" })
+
+    // Act: Ban, then confirm
+    fireEvent.click(ban)
+    const confirm = await screen.findByRole("alertdialog")
+    expect(within(confirm).getByText("room.lobbyPage.banConfirmBody")).toBeInTheDocument()
+    expect(requestsTo(BAN)).toHaveLength(0)
+    fireEvent.click(within(confirm).getByRole("button", { name: "room.lobbyPage.banConfirmAction" }))
+
+    // Assert: one ban (no kick); the banned player is listed, the PIN is the new one, the line says banned
+    await waitFor(() => expect(screen.getByRole("heading", { name: /room\.lobbyPage\.bans\.title/ })).toHaveTextContent("(1)"))
+    expect(requestsTo(BAN).map((r) => r.data)).toEqual([{ user_id: "u2" }])
+    expect(requestsTo(KICK)).toHaveLength(0)
     await waitFor(() => expect(pinTiles()).toHaveTextContent("9 0 3 4"))
+    expect(activityLine()).toHaveTextContent("room.lobbyPage.activityBanned")
 
     // Act: let Maryam come back
     fireEvent.click(screen.getByRole("button", { name: "room.lobbyPage.bans.liftBan" }))
@@ -142,7 +183,7 @@ describe("the host removes a player", () => {
     expect(toasts.error).not.toHaveBeenCalled()
   })
 
-  it("gives a guest no list of removed players, and asks for none", async () => {
+  it("gives a guest no list of banned players, nor any Remove or Ban, and asks for none", async () => {
     // Prepare
     answer(STATE, () => roomState({ owner_id: "u2" }))
     answer(BANS, () => [{ user_id: "u9", username: "Bilal", banned_at: "2026-10-31T18:00:00Z" }])
@@ -155,5 +196,6 @@ describe("the host removes a player", () => {
     expect(requestsTo(BANS)).toHaveLength(0)
     expect(screen.queryByText("Bilal")).toBeNull()
     expect(screen.queryAllByRole("button", { name: "room.lobbyPage.kick" })).toHaveLength(0)
+    expect(screen.queryAllByRole("button", { name: "room.lobbyPage.ban" })).toHaveLength(0)
   })
 })

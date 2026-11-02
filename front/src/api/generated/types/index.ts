@@ -28,6 +28,16 @@ export type {
   AddWordToPackApiV1CodenamesWordPacksPackIdWordsPostMutation,
 } from "./AddWordToPackApiV1CodenamesWordPacksPackIdWordsPost.ts";
 export type { AdvanceRoundResponse } from "./AdvanceRoundResponse.ts";
+export type {
+  BanPlayerApiV1RoomsRoomIdBansPostPathParams,
+  BanPlayerApiV1RoomsRoomIdBansPost201,
+  BanPlayerApiV1RoomsRoomIdBansPost404,
+  BanPlayerApiV1RoomsRoomIdBansPost422,
+  BanPlayerApiV1RoomsRoomIdBansPostMutationRequest,
+  BanPlayerApiV1RoomsRoomIdBansPostMutationResponse,
+  BanPlayerApiV1RoomsRoomIdBansPostMutation,
+} from "./BanPlayerApiV1RoomsRoomIdBansPost.ts";
+export type { BanPlayerRequest } from "./BanPlayerRequest.ts";
 export type { BodyRefreshTokenApiV1AuthRefreshPost } from "./BodyRefreshTokenApiV1AuthRefreshPost.ts";
 export type { ChatMessageView } from "./ChatMessageView.ts";
 export type { ClueGuess } from "./ClueGuess.ts";

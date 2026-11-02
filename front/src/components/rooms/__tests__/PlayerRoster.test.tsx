@@ -30,48 +30,70 @@ const member = (id: string, username: string, isHost = false): LobbyMember => ({
 
 const table = [member("h", "Yusuf", true), member("a", "Maryam"), member("b", "Idris"), member("c", "Hafsa")]
 const removeButtons = () => screen.getAllByRole("button", { name: /^Remove .+ from the room$/ })
+const banButtons = () => screen.getAllByRole("button", { name: /^Ban .+ from the room$/ })
 const dialog = () => screen.queryByRole("alertdialog")
 
-/** Remove → the confirmation → its "Remove": what a host does to take a seat away. */
-async function removeAndConfirm(button: HTMLElement) {
+/** A row's action → its confirmation → the confirmation's own action. */
+async function confirmWith(button: HTMLElement, action: "Remove" | "Ban") {
   fireEvent.click(button)
   const confirm = await screen.findByRole("alertdialog")
-  fireEvent.click(within(confirm).getByRole("button", { name: "Remove" }))
+  fireEvent.click(within(confirm).getByRole("button", { name: action }))
   await waitFor(() => expect(dialog()).toBeNull())
 }
 
+function renderRoster(overrides: Partial<Parameters<typeof PlayerRoster>[0]> = {}) {
+  const props = { players: table, myId: "h", canKick: true, onKick: vi.fn(), onBan: vi.fn(), ...overrides }
+  return { ...render(<PlayerRoster {...props} />), props }
+}
+
 describe("PlayerRoster", () => {
-  it("keeps the E2E row shape: the exact name in a span, Remove as the row's last button", () => {
-    render(<PlayerRoster players={table} myId="h" canKick onKick={vi.fn()} />)
+  it("keeps the E2E row shape: the exact name in a span, then Remove and Ban, the row's two buttons", () => {
+    renderRoster()
     const row = screen.getByText("Maryam").closest("div.flex.items-center.justify-between") as HTMLElement
     expect(row).not.toBeNull()
-    expect(row.querySelectorAll("button")).toHaveLength(1)
-    expect(row.querySelector("button")).toHaveAccessibleName("Remove Maryam from the room")
+    const buttons = row.querySelectorAll("button")
+    expect(buttons).toHaveLength(2)
+    expect(buttons[0]).toHaveAccessibleName("Remove Maryam from the room")
+    expect(buttons[1]).toHaveAccessibleName("Ban Maryam from the room")
     expect(screen.getByRole("heading", { name: /Players/ })).toHaveTextContent("(4)")
   })
 
-  it("asks before removing, and says the player cannot come back to this room (owner rule c)", async () => {
-    // A kick is a ban for the room's lifetime now: one tap used to remove the player at once
+  it("asks before removing, and says the player may come back (a kick is no ban)", async () => {
     // Prepare
-    const onKick = vi.fn()
-    render(<PlayerRoster players={table} myId="h" canKick onKick={onKick} />)
+    const { props } = renderRoster()
 
     // Act
     fireEvent.click(screen.getByRole("button", { name: "Remove Idris from the room" }))
 
-    // Assert: nothing is sent yet; the dialog names the player and says it is for good
+    // Assert: nothing is sent yet; the dialog names the player and leaves the door open
     const confirm = await screen.findByRole("alertdialog")
     expect(within(confirm).getByRole("heading", { name: "Remove Idris?" })).toBeInTheDocument()
-    expect(confirm).toHaveAccessibleDescription(/Idris leaves the room and cannot come back to it/)
-    expect(confirm).toHaveTextContent("You can lift this later, in the list of removed players.")
-    expect(onKick).not.toHaveBeenCalled()
+    expect(confirm).toHaveAccessibleDescription(/Idris leaves the room, and can come back with its code and PIN, or through an invite/)
+    expect(confirm).not.toHaveTextContent(/cannot come back/)
+    expect(props.onKick).not.toHaveBeenCalled()
+    expect(props.onBan).not.toHaveBeenCalled()
   })
 
-  it("keeps the player when the host cancels", async () => {
+  it("asks before banning, and says it holds until lifted and the PIN will change", async () => {
     // Prepare
-    const onKick = vi.fn()
-    render(<PlayerRoster players={table} myId="h" canKick onKick={onKick} />)
-    fireEvent.click(screen.getByRole("button", { name: "Remove Maryam from the room" }))
+    const { props } = renderRoster()
+
+    // Act
+    fireEvent.click(screen.getByRole("button", { name: "Ban Idris from the room" }))
+
+    // Assert
+    const confirm = await screen.findByRole("alertdialog")
+    expect(within(confirm).getByRole("heading", { name: "Ban Idris?" })).toBeInTheDocument()
+    expect(confirm).toHaveAccessibleDescription(/Idris leaves the room and cannot come back, not even through an invite, until you lift the ban/)
+    expect(confirm).toHaveTextContent(/The PIN changes too/)
+    expect(props.onKick).not.toHaveBeenCalled()
+    expect(props.onBan).not.toHaveBeenCalled()
+  })
+
+  it.each(["Remove", "Ban"] as const)("keeps the player when the host cancels the %s", async (action) => {
+    // Prepare
+    const { props } = renderRoster()
+    fireEvent.click(screen.getByRole("button", { name: `${action} Maryam from the room` }))
     const confirm = await screen.findByRole("alertdialog")
 
     // Act
@@ -79,59 +101,88 @@ describe("PlayerRoster", () => {
 
     // Assert
     await waitFor(() => expect(dialog()).toBeNull())
-    expect(onKick).not.toHaveBeenCalled()
+    expect(props.onKick).not.toHaveBeenCalled()
+    expect(props.onBan).not.toHaveBeenCalled()
   })
 
-  it("removes the player named in the dialog, once", async () => {
+  it("removes the player named in the dialog, once, and never bans them", async () => {
     // Prepare
-    const onKick = vi.fn()
-    render(<PlayerRoster players={table} myId="h" canKick onKick={onKick} />)
+    const { props } = renderRoster()
 
     // Act
-    await removeAndConfirm(screen.getByRole("button", { name: "Remove Hafsa from the room" }))
+    await confirmWith(screen.getByRole("button", { name: "Remove Hafsa from the room" }), "Remove")
 
     // Assert
-    expect(onKick).toHaveBeenCalledOnce()
-    expect(onKick).toHaveBeenCalledWith(table[3])
+    expect(props.onKick).toHaveBeenCalledOnce()
+    expect(props.onKick).toHaveBeenCalledWith(table[3])
+    expect(props.onBan).not.toHaveBeenCalled()
   })
 
-  it("never offers to remove yourself, and nothing to remove for a guest", () => {
+  it("bans the player named in the dialog, once, and does not also kick them", async () => {
+    // Prepare
+    const { props } = renderRoster()
+
+    // Act
+    await confirmWith(screen.getByRole("button", { name: "Ban Hafsa from the room" }), "Ban")
+
+    // Assert
+    expect(props.onBan).toHaveBeenCalledOnce()
+    expect(props.onBan).toHaveBeenCalledWith(table[3])
+    expect(props.onKick).not.toHaveBeenCalled()
+  })
+
+  it("never offers to remove or ban yourself, and nothing to a guest", () => {
     // Prepare / Act
-    const { rerender } = render(<PlayerRoster players={table} myId="h" canKick onKick={vi.fn()} />)
+    const { rerender, props } = renderRoster()
 
     // Assert
     expect(screen.queryByRole("button", { name: "Remove Yusuf from the room" })).toBeNull()
-    rerender(<PlayerRoster players={table} myId="a" canKick={false} onKick={vi.fn()} />)
-    expect(screen.queryAllByRole("button", { name: /^Remove / })).toHaveLength(0)
+    expect(screen.queryByRole("button", { name: "Ban Yusuf from the room" })).toBeNull()
+    rerender(<PlayerRoster {...props} myId="a" canKick={false} />)
+    expect(screen.queryAllByRole("button", { name: /^(Remove|Ban) / })).toHaveLength(0)
   })
 
   it("after a removal, puts focus on the next row's Remove instead of dropping it on <body>", async () => {
     // Prepare
-    const onKick = vi.fn()
-    const { rerender } = render(<PlayerRoster players={table} myId="h" canKick onKick={onKick} />)
+    const { rerender, props } = renderRoster()
     const idris = removeButtons()[1]
     idris.focus()
 
     // Act
-    await removeAndConfirm(idris)
-    expect(onKick).toHaveBeenCalledWith(table[2])
+    await confirmWith(idris, "Remove")
+    expect(props.onKick).toHaveBeenCalledWith(table[2])
     // the row (and its focused button) goes away with the next state
     idris.blur()
-    rerender(<PlayerRoster players={table.filter((p) => p.id !== "b")} myId="h" canKick onKick={onKick} />)
+    rerender(<PlayerRoster {...props} players={table.filter((p) => p.id !== "b")} />)
 
     // Assert
     expect(document.activeElement).toBe(removeButtons()[1]) // Hafsa's, now second
   })
 
+  it("after a ban, puts focus on the next row's Ban", async () => {
+    // Prepare
+    const { rerender, props } = renderRoster()
+    const idris = banButtons()[1]
+    idris.focus()
+
+    // Act
+    await confirmWith(idris, "Ban")
+    idris.blur()
+    rerender(<PlayerRoster {...props} players={table.filter((p) => p.id !== "b")} />)
+
+    // Assert
+    expect(document.activeElement).toBe(banButtons()[1]) // Hafsa's, now second
+  })
+
   it("falls back to the previous row, then to the heading when nobody is left to remove", async () => {
     // Prepare
-    const { rerender } = render(<PlayerRoster players={[table[0], table[1]]} myId="h" canKick onKick={vi.fn()} />)
+    const { rerender, props } = renderRoster({ players: [table[0], table[1]] })
     const maryam = removeButtons()[0]
 
     // Act
-    await removeAndConfirm(maryam)
+    await confirmWith(maryam, "Remove")
     maryam.blur()
-    rerender(<PlayerRoster players={[table[0]]} myId="h" canKick onKick={vi.fn()} />)
+    rerender(<PlayerRoster {...props} players={[table[0]]} />)
 
     // Assert
     expect(document.activeElement).toBe(screen.getByRole("heading", { name: /Players/ }))
@@ -139,20 +190,22 @@ describe("PlayerRoster", () => {
 
   it("never takes focus from where the host has moved it meanwhile", async () => {
     // Prepare
+    const onKick = vi.fn()
+    const onBan = vi.fn()
     const { rerender } = render(
       <>
-        <PlayerRoster players={table} myId="h" canKick onKick={vi.fn()} />
+        <PlayerRoster players={table} myId="h" canKick onKick={onKick} onBan={onBan} />
         <button type="button">elsewhere</button>
       </>,
     )
-    await removeAndConfirm(removeButtons()[0])
+    await confirmWith(removeButtons()[0], "Remove")
     const elsewhere = screen.getByRole("button", { name: "elsewhere" })
     elsewhere.focus()
 
     // Act
     rerender(
       <>
-        <PlayerRoster players={table.filter((p) => p.id !== "a")} myId="h" canKick onKick={vi.fn()} />
+        <PlayerRoster players={table.filter((p) => p.id !== "a")} myId="h" canKick onKick={onKick} onBan={onBan} />
         <button type="button">elsewhere</button>
       </>,
     )
@@ -161,31 +214,35 @@ describe("PlayerRoster", () => {
     expect(document.activeElement).toBe(elsewhere)
   })
 
-  it("waits for the removal to settle: the other Remove buttons are disabled while it runs", async () => {
+  it("waits for the removal to settle: the other rows' buttons are disabled while it runs", async () => {
     // Prepare
-    const { rerender } = render(<PlayerRoster players={table} myId="h" canKick kickingId={null} onKick={vi.fn()} />)
+    const { rerender, props } = renderRoster({ removingId: null })
     const maryam = removeButtons()[0]
-    await removeAndConfirm(maryam)
+    await confirmWith(maryam, "Remove")
     maryam.blur()
 
     // Act: the room state (socket push) can land before the request resolves
-    rerender(<PlayerRoster players={table.filter((p) => p.id !== "a")} myId="h" canKick kickingId="a" onKick={vi.fn()} />)
+    rerender(<PlayerRoster {...props} players={table.filter((p) => p.id !== "a")} removingId="a" />)
 
     // Assert
+    expect(removeButtons().every((button) => button.hasAttribute("disabled"))).toBe(true)
+    expect(banButtons().every((button) => button.hasAttribute("disabled"))).toBe(true)
     expect(document.activeElement).toBe(document.body)
-    rerender(<PlayerRoster players={table.filter((p) => p.id !== "a")} myId="h" canKick kickingId={null} onKick={vi.fn()} />)
+    rerender(<PlayerRoster {...props} players={table.filter((p) => p.id !== "a")} removingId={null} />)
     expect(document.activeElement).toBe(removeButtons()[0]) // Idris's, now first
   })
 
   it("a cancelled dialog arms nothing: a later departure of that player moves no focus", async () => {
     // Prepare
+    const onKick = vi.fn()
+    const onBan = vi.fn()
     const { rerender } = render(
       <>
-        <PlayerRoster players={table} myId="h" canKick onKick={vi.fn()} />
+        <PlayerRoster players={table} myId="h" canKick onKick={onKick} onBan={onBan} />
         <button type="button">elsewhere</button>
       </>,
     )
-    fireEvent.click(removeButtons()[0])
+    fireEvent.click(banButtons()[0])
     fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Cancel" }))
     await waitFor(() => expect(dialog()).toBeNull())
     ;(document.activeElement as HTMLElement | null)?.blur()
@@ -193,7 +250,7 @@ describe("PlayerRoster", () => {
     // Act: Maryam leaves by herself
     rerender(
       <>
-        <PlayerRoster players={table.filter((p) => p.id !== "a")} myId="h" canKick onKick={vi.fn()} />
+        <PlayerRoster players={table.filter((p) => p.id !== "a")} myId="h" canKick onKick={onKick} onBan={onBan} />
         <button type="button">elsewhere</button>
       </>,
     )

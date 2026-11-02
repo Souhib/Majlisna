@@ -156,7 +156,7 @@ describe("/rooms/join", () => {
   })
 
   it("says a ban in the server's words, with no offer to leave and no second try", async () => {
-    // Owner rule (c): the host removed this player; leaving another room changes nothing
+    // The host banned this player; leaving another room changes nothing
     // Prepare
     answer(JOIN, () => {
       throw httpError(403, { error_key: "errors.api.roomBanned" })
@@ -177,8 +177,8 @@ describe("/rooms/join", () => {
     expect(screen.getByRole("link", { name: "common.goHome" })).toBeInTheDocument()
   })
 
-  it("says the PIN may have changed when the link's PIN is refused (review F1: a kick rotates it)", async () => {
-    // Prepare — an invite sent before the host removed someone carries the old PIN
+  it("says the PIN may have changed when the link's PIN is refused (review F1: a ban rotates it)", async () => {
+    // Prepare — a link made before the host banned someone carries the old PIN
     answer(JOIN, () => {
       throw httpError(403, { error_key: "errors.api.wrongRoomPassword" })
     })

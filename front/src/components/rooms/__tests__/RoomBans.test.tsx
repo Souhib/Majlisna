@@ -9,8 +9,8 @@ import en from "@/i18n/locales/en.json"
 import { RoomBans } from "../RoomBans"
 
 /**
- * The host's list of removed players (owner rule (c)): the real generated hooks over the
- * fake client, and the real English strings.
+ * The host's list of banned players (a ban, not a kick: owner decision, 2 November 2026):
+ * the real generated hooks over the fake client, and the real English strings.
  */
 const toasts = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }))
 vi.mock("@/api/client", async () => (await import("@/components/notebook/__tests__/fake-api")).clientModule)
@@ -41,7 +41,7 @@ function renderBans({ isHost = true } = {}) {
   return { queryClient, ...view }
 }
 
-const heading = () => screen.queryByRole("heading", { name: /Removed players/ })
+const heading = () => screen.queryByRole("heading", { name: /Banned players/ })
 
 beforeEach(() => {
   resetFakeApi()
@@ -53,7 +53,7 @@ afterEach(() => {
 })
 
 describe("RoomBans", () => {
-  it("lists the removed players by name, each with its way back", async () => {
+  it("lists the banned players by name, each with its way back", async () => {
     // Prepare
     answer(BANS, () => [ban("u2", "Maryam"), ban("u3", "Ali")])
 
@@ -61,7 +61,7 @@ describe("RoomBans", () => {
     renderBans()
 
     // Assert
-    await waitFor(() => expect(heading()).toHaveTextContent("Removed players (2)"))
+    await waitFor(() => expect(heading()).toHaveTextContent("Banned players (2)"))
     expect(screen.getByText("Maryam")).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Let Maryam come back" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Let Ali come back" })).toBeInTheDocument()
@@ -82,7 +82,7 @@ describe("RoomBans", () => {
     expect(requestsTo(BANS)).toHaveLength(0)
   })
 
-  it("stays out of the lobby while nobody is removed", async () => {
+  it("stays out of the lobby while nobody is banned", async () => {
     // Prepare
     answer(BANS, () => [])
 
@@ -125,12 +125,12 @@ describe("RoomBans", () => {
     await waitFor(() => expect(screen.queryByText("Maryam")).toBeNull())
     expect(requestsTo(lift("u2"))).toHaveLength(1)
     expect(requestsTo(BANS).length).toBeGreaterThanOrEqual(2)
-    expect(heading()).toHaveTextContent("Removed players (1)")
+    expect(heading()).toHaveTextContent("Banned players (1)")
     expect(screen.getByRole("button", { name: "Let Ali come back" })).toBeInTheDocument()
     expect(toasts.error).not.toHaveBeenCalled()
   })
 
-  it("after the last one is lifted, says nobody is removed and keeps the host's place", async () => {
+  it("after the last one is lifted, says nobody is banned and keeps the host's place", async () => {
     // Prepare
     let bans = [ban("u2", "Maryam")]
     answer(BANS, () => bans)
@@ -146,8 +146,8 @@ describe("RoomBans", () => {
     fireEvent.click(letBack)
 
     // Assert: the panel stays under the host's hand, with the empty line and focus on its title
-    await waitFor(() => expect(screen.getByText("No one has been removed from this room.")).toBeInTheDocument())
-    expect(heading()).toHaveTextContent("Removed players (0)")
+    await waitFor(() => expect(screen.getByText("No one is banned from this room.")).toBeInTheDocument())
+    expect(heading()).toHaveTextContent("Banned players (0)")
     await waitFor(() => expect(document.activeElement).toBe(heading()))
   })
 
@@ -187,7 +187,7 @@ describe("RoomBans", () => {
     expect(toasts.error).not.toHaveBeenCalled()
   })
 
-  it("follows the list when it is invalidated (the host kicked someone)", async () => {
+  it("follows the list when it is invalidated (the host banned someone)", async () => {
     // Prepare
     let bans = [ban("u2", "Maryam")]
     answer(BANS, () => bans)
@@ -202,10 +202,10 @@ describe("RoomBans", () => {
 
     // Assert
     expect(await screen.findByText("Bilal")).toBeInTheDocument()
-    expect(heading()).toHaveTextContent("Removed players (2)")
+    expect(heading()).toHaveTextContent("Banned players (2)")
   })
 
-  it("never says 'no one removed' when the list did not load (FR-7)", async () => {
+  it("never says 'no one banned' when the list did not load (FR-7)", async () => {
     // Prepare
     vi.useFakeTimers()
     answer(BANS, () => {
@@ -223,7 +223,7 @@ describe("RoomBans", () => {
     // Assert
     expect(requestsTo(BANS)).toHaveLength(3)
     expect(screen.getByText("This did not load. Check your connection, then try again.")).toBeInTheDocument()
-    expect(screen.queryByText("No one has been removed from this room.")).toBeNull()
+    expect(screen.queryByText("No one is banned from this room.")).toBeNull()
 
     // ...and Retry asks again
     vi.useRealTimers()

@@ -20,8 +20,25 @@ interface UseSocketOptions {
   gameId?: string | null
   gameType?: "undercover" | "codenames" | "word_quiz" | "mcq_quiz"
   enabled?: boolean
-  onKicked?: (roomId: string) => void
+  /** The host took this player's seat: `banned` false for a kick (Remove), true for a ban. */
+  onKicked?: (roomId: string, banned: boolean) => void
+  /** The host took ANOTHER member's seat (`member_removed_by_host`, before the room state that drops it). */
+  onMemberRemoved?: (userId: string, banned: boolean) => void
   onChatMessage?: (message: ChatMessage) => void
+}
+
+/** `you_were_kicked`: one event for the host's two removals. */
+export interface YouWereKicked {
+  room_id: string
+  /** True for a ban; absent (a server from before the ban had its own action) is a kick. */
+  banned?: boolean
+}
+
+/** `member_removed_by_host`, on the room's channel: which of the host's removals took a seat. */
+export interface MemberRemovedByHost {
+  room_id: string
+  user_id: string
+  banned: boolean
 }
 
 function getGameQueryKeyPrefix(gameType: string, gameId: string) {
@@ -36,13 +53,15 @@ function getGameQueryKeyPrefix(gameType: string, gameId: string) {
  *   (`{ game_id, lang }`): Undercover and Codenames write that push straight into the
  *   cache, so without `lang` an English push overwrote the Arabic meanings
  * - room_state events update ["room", roomId] query cache directly
+ * - member_removed_by_host (before the room_state that drops the seat) says which of the
+ *   host's removals took it, for the lobby's activity line
  * - game_updated events invalidate [gameType, gameId] query, triggering a REST re-fetch
  * - a REconnect (never the first connect) invalidates the room state, the room's chat
  *   history and the game: events sent while the socket was down are not replayed
  *
  * Mutations still go through REST. Socket.IO is notification-only.
  */
-export function useSocket({ roomId, gameId, gameType, enabled = true, onKicked, onChatMessage }: UseSocketOptions): { connected: boolean } {
+export function useSocket({ roomId, gameId, gameType, enabled = true, onKicked, onMemberRemoved, onChatMessage }: UseSocketOptions): { connected: boolean } {
   const queryClient = useQueryClient()
   const { i18n } = useTranslation()
   const socketRef = useRef<Socket | null>(null)
@@ -60,6 +79,9 @@ export function useSocket({ roomId, gameId, gameType, enabled = true, onKicked, 
 
   const onKickedRef = useRef(onKicked)
   onKickedRef.current = onKicked
+
+  const onMemberRemovedRef = useRef(onMemberRemoved)
+  onMemberRemovedRef.current = onMemberRemoved
 
   const onChatMessageRef = useRef(onChatMessage)
   onChatMessageRef.current = onChatMessage
@@ -159,8 +181,12 @@ export function useSocket({ roomId, gameId, gameType, enabled = true, onKicked, 
     socket.on("connect", handleConnect)
     socket.on("disconnect", handleDisconnect)
 
-    socket.on("you_were_kicked", (data: { room_id: string }) => {
-      onKickedRef.current?.(data.room_id)
+    socket.on("you_were_kicked", (data: YouWereKicked) => {
+      onKickedRef.current?.(data.room_id, data.banned === true)
+    })
+
+    socket.on("member_removed_by_host", (data: MemberRemovedByHost) => {
+      onMemberRemovedRef.current?.(data.user_id, data.banned === true)
     })
 
     socket.on("chat_message", (data: ChatMessage) => {

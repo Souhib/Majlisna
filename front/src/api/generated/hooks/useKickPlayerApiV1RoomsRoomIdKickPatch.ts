@@ -29,7 +29,8 @@ export type KickPlayerApiV1RoomsRoomIdKickPatchMutationKey = ReturnType<
 >;
 
 /**
- * @description Kick a player from the room. Host only. Bans them from the room and rotates the PIN.
+ * @description Remove a player who left without quitting. Host only. No ban and no new PIN: they may
+ * come back with the code and PIN, or through an invite (the ban is ``POST /{room_id}/bans``).
  * @summary Kick Player
  * {@link /api/v1/rooms/:room_id/kick}
  */
@@ -90,7 +91,8 @@ export function kickPlayerApiV1RoomsRoomIdKickPatchMutationOptions<
 }
 
 /**
- * @description Kick a player from the room. Host only. Bans them from the room and rotates the PIN.
+ * @description Remove a player who left without quitting. Host only. No ban and no new PIN: they may
+ * come back with the code and PIN, or through an invite (the ban is ``POST /{room_id}/bans``).
  * @summary Kick Player
  * {@link /api/v1/rooms/:room_id/kick}
  */

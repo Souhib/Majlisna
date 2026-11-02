@@ -23,9 +23,9 @@ interface RoomInviteStripProps {
  * holds it back while a game is on screen.
  *
  * Join accepts the invite itself (`POST /rooms/invites/{id}/accept`): it is stored on the
- * server and carries no PIN, so a kick that rotated the PIN after it was sent does not
- * stop it. A refusal that holds (a ban, an expired invite, one no longer valid — its
- * sender kicked, say — a closed room) is said on the strip in the server's words, and then
+ * server and carries no PIN, so a ban that rotated the PIN after it was sent does not
+ * stop it. A refusal that holds (a ban, an expired invite, one no longer valid — deleted
+ * by a ban of its sender, say — a closed room) is said on the strip in the server's words, and then
  * only Close is offered; a seat in another room is offered "Leave {{room}} and join"
  * (`useAcceptInvite`). Any other failure (a 429, a 5xx, no answer at all) is said too but
  * keeps Join, to try again: the invite still stands.

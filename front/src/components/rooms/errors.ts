@@ -4,15 +4,17 @@ import { getApiErrorMessage } from "@/api/client"
 export const ROOM_ERROR_KEYS = {
   /** 409 on join: seated in another room (the one-room rule). */
   alreadyInRoom: "errors.api.userAlreadyInRoom",
-  /** 403 on join: the host removed this player from the room (owner rule (c)). */
+  /** 403 on join, spectate or an invite's accept: the host banned this player (a kick is no ban). */
   banned: "errors.api.roomBanned",
+  /** 403 on an invite: the friend is banned from this room. */
+  inviteeBanned: "errors.api.inviteeBanned",
   /** 404 on the room state: the caller has no seat in that room. */
   notInRoom: "errors.api.userNotInRoom",
-  /** 403 on join: not the room's PIN — which a kick rotates (owner rule (c)). */
+  /** 403 on join: not the room's PIN — which a ban rotates. */
   wrongPin: "errors.api.wrongRoomPassword",
   /** 410 on an invite's accept: past its lifetime. */
   inviteExpired: "errors.api.roomInviteExpired",
-  /** 404 on an invite's accept: spent, revoked by a kick of its sender, or never the caller's. */
+  /** 404 on an invite's accept: spent, deleted by a ban (of its sender or of the caller), or never the caller's. */
   inviteNotFound: "errors.api.roomInviteNotFound",
   /** 404 on a join or an invite's accept: the room closed. */
   roomNotFound: "errors.api.roomNotFound",
@@ -41,7 +43,7 @@ export function isFinalInviteRefusal(errorKey: string | null): boolean {
  * - `none`: a ban (it holds whatever the code and PIN; review F2) and a seat in another
  *   room (its own offer, "Leave {{room}} and join", is the repair);
  * - `pinChanged`: the PIN was refused. A share link keeps the PIN it was made with, and
- *   every kick rotates it (review F1): the repair is a new link or invite (an invite is
+ *   every ban rotates it (review F1): the repair is a new link or invite (an invite is
  *   stored on the server and needs no PIN);
  * - `generic`: anything else (the room closed, a code that names no room).
  */

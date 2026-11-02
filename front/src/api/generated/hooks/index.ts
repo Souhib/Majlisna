@@ -1,6 +1,7 @@
 export type { AcceptFriendRequestApiV1FriendsFriendshipIdAcceptPostMutationKey } from "./useAcceptFriendRequestApiV1FriendsFriendshipIdAcceptPost.ts";
 export type { AcceptRoomInviteApiV1RoomsInvitesInviteIdAcceptPostMutationKey } from "./useAcceptRoomInviteApiV1RoomsInvitesInviteIdAcceptPost.ts";
 export type { AddWordToPackApiV1CodenamesWordPacksPackIdWordsPostMutationKey } from "./useAddWordToPackApiV1CodenamesWordPacksPackIdWordsPost.ts";
+export type { BanPlayerApiV1RoomsRoomIdBansPostMutationKey } from "./useBanPlayerApiV1RoomsRoomIdBansPost.ts";
 export type { CreateRoomApiV1RoomsPostMutationKey } from "./useCreateRoomApiV1RoomsPost.ts";
 export type { CreateTermPairApiV1UndercoverTermpairPostMutationKey } from "./useCreateTermPairApiV1UndercoverTermpairPost.ts";
 export type { CreateWordApiV1UndercoverWordsPostMutationKey } from "./useCreateWordApiV1UndercoverWordsPost.ts";
@@ -165,6 +166,10 @@ export { addWordToPackApiV1CodenamesWordPacksPackIdWordsPostMutationKey } from "
 export { addWordToPackApiV1CodenamesWordPacksPackIdWordsPost } from "./useAddWordToPackApiV1CodenamesWordPacksPackIdWordsPost.ts";
 export { addWordToPackApiV1CodenamesWordPacksPackIdWordsPostMutationOptions } from "./useAddWordToPackApiV1CodenamesWordPacksPackIdWordsPost.ts";
 export { useAddWordToPackApiV1CodenamesWordPacksPackIdWordsPost } from "./useAddWordToPackApiV1CodenamesWordPacksPackIdWordsPost.ts";
+export { banPlayerApiV1RoomsRoomIdBansPostMutationKey } from "./useBanPlayerApiV1RoomsRoomIdBansPost.ts";
+export { banPlayerApiV1RoomsRoomIdBansPost } from "./useBanPlayerApiV1RoomsRoomIdBansPost.ts";
+export { banPlayerApiV1RoomsRoomIdBansPostMutationOptions } from "./useBanPlayerApiV1RoomsRoomIdBansPost.ts";
+export { useBanPlayerApiV1RoomsRoomIdBansPost } from "./useBanPlayerApiV1RoomsRoomIdBansPost.ts";
 export { createRoomApiV1RoomsPostMutationKey } from "./useCreateRoomApiV1RoomsPost.ts";
 export { createRoomApiV1RoomsPost } from "./useCreateRoomApiV1RoomsPost.ts";
 export { createRoomApiV1RoomsPostMutationOptions } from "./useCreateRoomApiV1RoomsPost.ts";

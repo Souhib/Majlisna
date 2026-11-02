@@ -17,7 +17,7 @@ export const queryKeys = {
     state: (roomId: string) => getRoomStateApiV1RoomsRoomIdStateGetQueryKey({ room_id: roomId }),
     // the chat history, every page size: `{}` as the params is a prefix of `{ limit: 50 }`
     messages: (roomId: string) => getMessagesApiV1RoomsRoomIdMessagesGetQueryKey({ room_id: roomId }),
-    // the host's list of removed players, and the share link: both stale after a kick
+    // the host's list of banned players, and the share link: both stale after a ban (a kick changes neither)
     bans: (roomId: string) => listRoomBansApiV1RoomsRoomIdBansGetQueryKey({ room_id: roomId }),
     shareLink: (roomId: string) => getShareLinkApiV1RoomsRoomIdShareLinkGetQueryKey({ room_id: roomId }),
   },
