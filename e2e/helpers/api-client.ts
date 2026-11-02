@@ -268,12 +268,27 @@ export async function apiLeaveRoom(roomId: string, userId: string, token: string
   await patchJSON("/api/v1/rooms/leave", { room_id: roomId }, token);
 }
 
-/** The host kicks a player from the room (and from its game, when one is running). */
+/**
+ * The host kicks a player ("Remove"): out of the room (and of its game, when one is
+ * running), with no ban and the same PIN: they may come back.
+ */
 export async function apiKickPlayer(roomId: string, userId: string, hostToken: string): Promise<void> {
   await patchJSON(`/api/v1/rooms/${roomId}/kick`, { user_id: userId }, hostToken);
 }
 
-/** The players the host removed from the room (host only). */
+/**
+ * The host bans a player: removed like a kick, kept out (join, spectate, invites) until
+ * lifted, their room invites deleted, and a new PIN. Answers the ban (201).
+ */
+export async function apiBanPlayer(
+  roomId: string,
+  userId: string,
+  hostToken: string,
+): Promise<{ user_id: string; username: string; banned_at: string }> {
+  return postJSON(`/api/v1/rooms/${roomId}/bans`, { user_id: userId }, hostToken);
+}
+
+/** The players the host banned from the room (host only; a kick is not listed). */
 export async function apiListBans(
   roomId: string,
   hostToken: string,

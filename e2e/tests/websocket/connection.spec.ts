@@ -90,12 +90,12 @@ test.describe("WebSocket Real-time Updates", () => {
       `div.flex.items-center.justify-between:has(span:text-is("${setup.players[2].login.user.username}"))`,
     );
     await playerRow.waitFor({ state: "visible", timeout: 10_000 });
-    const kickButton = playerRow.locator("button").last();
-    await kickButton.click();
-    // A kick bans the player from the room for its lifetime (owner rule (c)): the host
-    // confirms it in a dialog that says so.
-    const confirmKick = setup.players[0].page.getByRole("alertdialog");
-    await expect(confirmKick).toContainText("cannot come back");
+    const kickedName = setup.players[2].login.user.username;
+    await playerRow.getByRole("button", { name: `Remove ${kickedName} from the room` }).click();
+    // Remove is a kick, not a ban (owner decision, 2 November 2026): the host confirms it
+    // in a dialog that says the player may come back.
+    const confirmKick = setup.players[0].page.getByRole("alertdialog", { name: `Remove ${kickedName}?` });
+    await expect(confirmKick).toContainText("can come back");
     await confirmKick.getByRole("button", { name: "Remove", exact: true }).click();
 
     // Host and player 1 should see "Players (2)" via Socket.IO
