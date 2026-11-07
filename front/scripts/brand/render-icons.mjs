@@ -2,7 +2,7 @@
 // E2E suite already installs (e2e/node_modules/playwright):
 //
 //   public/icons/icon-192.png, icon-512.png       app icon (src/assets/brand/app-icon.svg)
-//   public/icons/icon-maskable-512.png             full bleed, ring inside the 80 % safe zone
+//   public/icons/icon-maskable-512.png             full bleed, the mark inside the 80 % safe zone
 //   public/icons/apple-touch-icon.png (180)        full bleed (iOS rounds the corners)
 //   public/favicon.ico (16, 32, 48)                from public/favicon.svg (needs Pillow)
 //   public/og-image.jpg (1200 × 630)               og-card.html: the night sky + the frozen wordmark
