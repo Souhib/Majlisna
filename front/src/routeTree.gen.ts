@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TodayRouteImport } from './routes/today'
+import { Route as TermsRouteImport } from './routes/terms'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as LeaderboardRouteImport } from './routes/leaderboard'
 import { Route as CreditsRouteImport } from './routes/credits'
@@ -40,6 +41,11 @@ import { Route as AuthGameCodenamesGameIdRouteImport } from './routes/_auth/game
 const TodayRoute = TodayRouteImport.update({
   id: '/today',
   path: '/today',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TermsRoute = TermsRouteImport.update({
+  id: '/terms',
+  path: '/terms',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PrivacyRoute = PrivacyRouteImport.update({
@@ -179,6 +185,7 @@ export interface FileRoutesByFullPath {
   '/credits': typeof CreditsRoute
   '/leaderboard': typeof LeaderboardRoute
   '/privacy': typeof PrivacyRoute
+  '/terms': typeof TermsRoute
   '/today': typeof TodayRoute
   '/achievements': typeof AuthAchievementsRoute
   '/challenges': typeof AuthChallengesRoute
@@ -207,6 +214,7 @@ export interface FileRoutesByTo {
   '/credits': typeof CreditsRoute
   '/leaderboard': typeof LeaderboardRoute
   '/privacy': typeof PrivacyRoute
+  '/terms': typeof TermsRoute
   '/today': typeof TodayRoute
   '/achievements': typeof AuthAchievementsRoute
   '/challenges': typeof AuthChallengesRoute
@@ -237,6 +245,7 @@ export interface FileRoutesById {
   '/credits': typeof CreditsRoute
   '/leaderboard': typeof LeaderboardRoute
   '/privacy': typeof PrivacyRoute
+  '/terms': typeof TermsRoute
   '/today': typeof TodayRoute
   '/_auth/achievements': typeof AuthAchievementsRoute
   '/_auth/challenges': typeof AuthChallengesRoute
@@ -267,6 +276,7 @@ export interface FileRouteTypes {
     | '/credits'
     | '/leaderboard'
     | '/privacy'
+    | '/terms'
     | '/today'
     | '/achievements'
     | '/challenges'
@@ -295,6 +305,7 @@ export interface FileRouteTypes {
     | '/credits'
     | '/leaderboard'
     | '/privacy'
+    | '/terms'
     | '/today'
     | '/achievements'
     | '/challenges'
@@ -324,6 +335,7 @@ export interface FileRouteTypes {
     | '/credits'
     | '/leaderboard'
     | '/privacy'
+    | '/terms'
     | '/today'
     | '/_auth/achievements'
     | '/_auth/challenges'
@@ -354,6 +366,7 @@ export interface RootRouteChildren {
   CreditsRoute: typeof CreditsRoute
   LeaderboardRoute: typeof LeaderboardRoute
   PrivacyRoute: typeof PrivacyRoute
+  TermsRoute: typeof TermsRoute
   TodayRoute: typeof TodayRoute
   AuthForgotPasswordRoute: typeof AuthForgotPasswordRoute
   AuthLoginRoute: typeof AuthLoginRoute
@@ -370,6 +383,13 @@ declare module '@tanstack/react-router' {
       path: '/today'
       fullPath: '/today'
       preLoaderRoute: typeof TodayRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/terms': {
+      id: '/terms'
+      path: '/terms'
+      fullPath: '/terms'
+      preLoaderRoute: typeof TermsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/privacy': {
@@ -600,6 +620,7 @@ const rootRouteChildren: RootRouteChildren = {
   CreditsRoute: CreditsRoute,
   LeaderboardRoute: LeaderboardRoute,
   PrivacyRoute: PrivacyRoute,
+  TermsRoute: TermsRoute,
   TodayRoute: TodayRoute,
   AuthForgotPasswordRoute: AuthForgotPasswordRoute,
   AuthLoginRoute: AuthLoginRoute,

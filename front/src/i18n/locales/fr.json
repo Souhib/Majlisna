@@ -195,6 +195,7 @@
     "registerDescription": "Un seul compte pour tous les jeux : ouvrez des salons, rejoignez vos amis et gardez vos scores.",
     "noAccount": "Pas encore de compte ?",
     "hasAccount": "Déjà un compte ?",
+    "acceptTerms": "En créant un compte, vous acceptez les <terms>conditions d’utilisation</terms> et la <privacy>politique de confidentialité</privacy>.",
     "forgotPassword": "Mot de passe oublié ?",
     "forgotPasswordDescription": "Saisissez l’adresse e-mail de votre compte : nous vous enverrons un lien pour choisir un nouveau mot de passe.",
     "resetEmailSent": "Si un compte existe avec cet e-mail, un lien de réinitialisation est en route. Regardez votre boîte de réception, et vos indésirables si rien n’arrive d’ici quelques minutes.",
@@ -1490,7 +1491,7 @@
   "privacy": {
     "link": "Politique de confidentialité",
     "title": "Politique de confidentialité",
-    "updated": "Dernière mise à jour : 2 novembre 2026",
+    "updated": "Dernière mise à jour : 7 novembre 2026",
     "intro": "Majlisna (majlisna.app) est une plateforme gratuite de jeux de société islamiques en ligne, éditée par Souhib Trabelsi. Cette page explique quelles données nous collectons, pourquoi, et comment vous pouvez les contrôler.",
     "sections": [
       {
@@ -1533,7 +1534,7 @@
       {
         "title": "Ce que voient les autres joueurs",
         "body": [
-          "Votre profil (pseudo, pays, bio et photo de profil) est visible des joueurs connectés. Vos statistiques, vos succès et votre place au classement sont publics.",
+          "Tout le monde, connecté ou non, peut voir votre profil public : votre pseudo, votre bio et le nombre de parties que vous avez jouées. Votre pays et votre photo de profil ne sont montrés qu’aux joueurs connectés. Vos statistiques, vos succès et votre place au classement sont publics.",
           "Les joueurs d’une partie voient votre pseudo et ce que vous y écrivez, puis votre rôle à la fin. Le récapitulatif d’une partie terminée reste accessible à tous ceux qui l’ont jouée.",
           "Votre adresse e-mail n’est jamais montrée aux autres joueurs."
         ]
@@ -1581,6 +1582,83 @@
         "body": ["Cette politique peut évoluer. La date en haut de la page indique la dernière version."]
       }
     ],
-    "contact": "Questions sur vos données :"
+    "contact": "Questions sur vos données :",
+    "seeTerms": "Les règles d’utilisation de Majlisna sont dans les <terms>conditions d’utilisation</terms>."
+  },
+  "terms": {
+    "link": "Conditions d’utilisation",
+    "title": "Conditions d’utilisation",
+    "updated": "Dernière mise à jour : 3 novembre 2026",
+    "intro": "Majlisna (majlisna.app) est une plateforme gratuite de jeux de société islamiques en ligne, éditée par une seule personne, Souhib Trabelsi. Ces conditions sont les règles de son utilisation : ce que vous pouvez attendre de Majlisna, et ce que Majlisna attend de vous.",
+    "sections": [
+      {
+        "title": "Un service gratuit",
+        "body": ["Majlisna est gratuit : il n’y a rien à payer, rien à acheter et aucun abonnement, et il n’y a aucune publicité."]
+      },
+      {
+        "title": "Votre compte",
+        "body": [
+          "<b>Le créer :</b> avec votre adresse e-mail et un mot de passe d’au moins 8 caractères, ou avec votre compte Google. Un compte est nécessaire pour créer ou rejoindre un salon et pour jouer au mot du jour.",
+          "<b>Une personne, un compte :</b> un compte appartient à une seule personne. Ne le partagez pas, et n’en créez pas au nom de quelqu’un d’autre.",
+          "<b>Votre mot de passe :</b> gardez-le pour vous et ne le donnez à personne. Si vous pensez que quelqu’un d’autre le connaît, changez-le dans votre profil : vos autres sessions sont alors déconnectées. Si vous l’oubliez, utilisez « Mot de passe oublié ? » sur la page de connexion.",
+          "<b>Votre pseudo :</b> de 3 à 30 caractères, sans espace ni aucun des caractères @ / \\ < >, et pas déjà pris par un autre joueur. Les autres joueurs le voient, il suit donc les règles ci-dessous. Vous pouvez le changer dans votre profil."
+        ]
+      },
+      {
+        "title": "Jouer loyalement",
+        "body": [
+          "Jouez chaque jeu comme il est fait pour être joué. Ne trichez pas : ne montrez pas votre écran et ne dites pas votre mot secret ou votre rôle aux autres joueurs, et n’utilisez pas plusieurs comptes pour gagner des parties, obtenir des succès ou monter au classement.",
+          "N’essayez pas de contourner les règles que le serveur applique, de voir ce qu’une partie vous cache, ni de ralentir ou de casser Majlisna. Si vous trouvez une faille, signalez-la-nous plutôt que de vous en servir."
+        ]
+      },
+      {
+        "title": "Respect des autres",
+        "body": [
+          "Pas de harcèlement, d’insultes, de menaces ni de haine, et aucun contenu sexuel ou explicite : ni dans le chat, ni dans votre pseudo ou votre bio, ni dans ce que vous tapez pendant une partie.",
+          "Ne vous faites pas passer pour quelqu’un d’autre.",
+          "<b>Dans un salon :</b> l’hôte peut retirer un joueur, qui pourra revenir avec le code et le PIN du salon ou par une invitation, ou le bannir : un joueur banni ne peut plus entrer dans ce salon, pas même par une invitation, tant que l’hôte n’a pas levé le bannissement.",
+          "<b>Au-delà d’un salon :</b> ce sont les seuls outils de modération de Majlisna. Les outils de l’administrateur ne portent que sur le contenu des jeux (mots, paquets de mots et défis) : aucun ne suspend un compte. Si quelqu’un ne respecte pas ces règles, écrivez-nous à l’adresse ci-dessous."
+        ]
+      },
+      {
+        "title": "Le contenu religieux",
+        "body": [
+          "Les mots, indices, explications et questions des jeux sont là pour vous aider à apprendre sur l’islam en jouant.",
+          "Ils ne sont ni une fatwa ni l’avis d’un savant, et ils n’ont pas été relus par des savants. Pour une question sur votre propre pratique, adressez-vous à une personne de science en qui vous avez confiance.",
+          "Si vous trouvez une erreur, écrivez-nous à l’adresse ci-dessous, avec le jeu et le mot ou la question, pour qu’elle soit corrigée."
+        ]
+      },
+      {
+        "title": "Ce que vous écrivez",
+        "body": [
+          "Vous êtes responsable de ce que vous écrivez sur Majlisna : vos messages de chat, votre pseudo, votre bio et ce que vous tapez pendant une partie.",
+          "D’autres le voient : les membres d’un salon lisent son chat, votre pseudo et votre bio sont sur votre profil public, que tout le monde peut voir, et les joueurs d’une partie voient ce que vous y écrivez."
+        ]
+      },
+      {
+        "title": "Supprimer votre compte",
+        "body": [
+          "Vous pouvez supprimer votre compte à tout moment depuis <profile>votre page de profil</profile>, avec votre mot de passe ou, pour un compte qui se connecte avec Google, avec Google. C’est définitif.",
+          "La suppression efface votre compte et ce qui y est lié : statistiques, succès, défis, amis, messages de chat, mots gardés et parties du mot du jour.",
+          "Les parties que vous avez jouées restent dans l’historique des autres joueurs, sans lien avec votre compte, mais le pseudo sous lequel vous avez joué y apparaît encore."
+        ]
+      },
+      {
+        "title": "Disponibilité",
+        "body": [
+          "Majlisna est fourni tel quel. Ses jeux et ses fonctions peuvent changer, et le service peut s’interrompre ou s’arrêter à tout moment.",
+          "Rien ne garantit qu’il soit toujours disponible ou sans erreur, ni que votre historique de parties, vos statistiques, votre carnet ou vos séries soient toujours conservés."
+        ]
+      },
+      {
+        "title": "Vos données",
+        "body": ["Ce que Majlisna collecte, pourquoi, et ce qu’il partage est décrit dans la <privacy>politique de confidentialité</privacy>."]
+      },
+      {
+        "title": "Modification de ces conditions",
+        "body": ["Ces conditions peuvent évoluer. La date en haut de la page indique la dernière version."]
+      }
+    ],
+    "contact": "Une question sur ces conditions, un signalement ou une erreur dans le contenu :"
   }
 }

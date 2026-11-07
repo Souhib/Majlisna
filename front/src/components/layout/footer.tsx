@@ -63,6 +63,9 @@ export function Footer() {
             <li>
               <Link to="/privacy">{t("privacy.link")}</Link>
             </li>
+            <li>
+              <Link to="/terms">{t("terms.link")}</Link>
+            </li>
           </ul>
         </nav>
 

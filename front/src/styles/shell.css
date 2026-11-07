@@ -572,6 +572,10 @@
     .footer-row.footer-pages > li + li::before {
       display: none;
     }
+    /* a long name that wraps (the privacy policy and the terms of use, in French) keeps its column's start edge */
+    .footer-row.footer-pages > li {
+      text-align: start;
+    }
   }
   @media (pointer: coarse) {
     .footer-row a {

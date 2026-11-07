@@ -23,6 +23,7 @@ const TITLE_KEYS: [RegExp, string][] = [
   [/^\/about\/?$/, "nav.about"],
   [/^\/credits\/?$/, "credits.title"],
   [/^\/privacy\/?$/, "privacy.title"],
+  [/^\/terms\/?$/, "terms.title"],
   [/^\/auth\/login\/?$/, "nav.login"],
   [/^\/auth\/register\/?$/, "nav.register"],
   [/^\/auth\/forgot-password\/?$/, "auth.forgotPassword"],

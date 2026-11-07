@@ -94,3 +94,6 @@ export function AuthPage({ title, description, footer, children }: AuthPageProps
 /** The link at the foot of a panel: brass underline, 44 px tall on touch screens. */
 export const authLinkClass =
   "inline-flex items-center font-medium text-foreground underline decoration-line-brass-strong underline-offset-[5px] hover:decoration-brass pointer-coarse:min-h-11"
+
+/** A link inside a sentence of the panel (the sign-up page's terms line): it wraps with the words. */
+export const authInlineLinkClass = "font-medium text-foreground underline decoration-line-brass-strong underline-offset-[4px] hover:decoration-brass"

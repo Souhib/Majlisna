@@ -1,9 +1,9 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { type FormEvent, useState } from "react"
-import { useTranslation } from "react-i18next"
+import { Trans, useTranslation } from "react-i18next"
 import { getApiErrorMessage } from "@/api/client"
 import { useLoginApiV1AuthLoginPost, useRegisterApiV1AuthRegisterPost } from "@/api/generated"
-import { AuthPage, authLinkClass } from "@/components/auth/AuthPage"
+import { AuthPage, authInlineLinkClass, authLinkClass } from "@/components/auth/AuthPage"
 import { GoogleLoginButton } from "@/components/auth/GoogleLoginButton"
 import { PasswordInput } from "@/components/auth/PasswordInput"
 import { useFieldErrors } from "@/components/auth/use-field-errors"
@@ -159,6 +159,17 @@ function RegisterPage() {
       </form>
 
       <GoogleLoginButton redirectTo={redirect} />
+
+      {/* Under both ways to sign up (the form and Google): a plain sentence, no checkbox */}
+      <p className="text-[14px] leading-[1.55] text-pretty text-muted-foreground">
+        <Trans
+          i18nKey="auth.acceptTerms"
+          components={{
+            terms: <Link to="/terms" className={authInlineLinkClass} />,
+            privacy: <Link to="/privacy" className={authInlineLinkClass} />,
+          }}
+        />
+      </p>
     </AuthPage>
   )
 }

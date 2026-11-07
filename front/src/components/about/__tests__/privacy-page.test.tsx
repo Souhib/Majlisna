@@ -74,6 +74,33 @@ describe.each(["en", "fr", "ar"] as Lang[])("the privacy page in %s", (lang) => 
     expect(tab).toMatch({ en: /riddle/, fr: /énigme/, ar: /اللغز/ }[lang])
   })
 
+  it("says who sees the profile as the code shows it: the username and bio to anyone, the country and picture once signed in", () => {
+    // Prepare: GET /profiles/users/{id} asks for no token (username, bio, games played) and
+    // routes/players/$userId.tsx renders it signed out; GET /users/{id} (country, picture) needs one
+    const profile = privacy.sections[4].body[0]
+
+    // Assert
+    expect(profile).toMatch(
+      {
+        en: /^Anyone, signed in or not, can see your public profile: your username, your bio and how many games you have played\./,
+        fr: /^Tout le monde, connecté ou non, peut voir votre profil public : votre pseudo, votre bio et le nombre de parties que vous avez jouées\./,
+        ar: /^يستطيع أي أحد، وإن لم يسجّل الدخول، رؤية ملفك الشخصي العام: اسم المستخدم والنبذة وعدد الألعاب التي لعبتها\./,
+      }[lang],
+    )
+    expect(profile).toMatch(
+      {
+        en: /Your country and your profile picture are shown only to signed-in players\./,
+        fr: /Votre pays et votre photo de profil ne sont montrés qu’aux joueurs connectés\./,
+        ar: /أما بلدك وصورة ملفك فلا يراهما إلا اللاعبون المسجّلون\./,
+      }[lang],
+    )
+  })
+
+  it("is dated 7 November 2026, the day it last changed what it says about your data", () => {
+    // (the profile's visibility, corrected to what the code shows)
+    expect(privacy.updated).toBe({ en: "Last updated: 7 November 2026", fr: "Dernière mise à jour : 7 novembre 2026", ar: "آخر تحديث: 7 نوفمبر 2026" }[lang])
+  })
+
   it("links the profile page and the contact address", async () => {
     // Prepare
     await i18next.changeLanguage(lang)
@@ -85,5 +112,19 @@ describe.each(["en", "fr", "ar"] as Lang[])("the privacy page in %s", (lang) => 
     const rights = screen.getByRole("region", { name: privacy.sections[8].title })
     expect(within(rights).getByRole("link")).toHaveAttribute("href", "/profile")
     expect(screen.getByRole("link", { name: "souhib.t@icloud.com" })).toHaveAttribute("href", "mailto:souhib.t@icloud.com")
+  })
+
+  it("links the terms of use, once, after the contact address", async () => {
+    // Prepare
+    await i18next.changeLanguage(lang)
+
+    // Act
+    render(<PrivacyPage />)
+
+    // Assert
+    const links = screen.getAllByRole("link")
+    const terms = links.filter((a) => a.getAttribute("href") === "/terms")
+    expect(terms).toHaveLength(1)
+    expect(links.indexOf(terms[0])).toBeGreaterThan(links.indexOf(screen.getByRole("link", { name: "souhib.t@icloud.com" })))
   })
 })

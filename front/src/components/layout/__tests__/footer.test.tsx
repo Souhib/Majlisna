@@ -28,6 +28,19 @@ describe("Footer", () => {
     expect(screen.queryByRole("link", { name: /Ummah Charity/ })).toBeNull()
   })
 
+  it("links the terms of use right after the privacy policy", () => {
+    // Prepare
+    location.pathname = "/rooms"
+
+    // Act
+    render(<Footer />)
+
+    // Assert: the two pages sit side by side in the footer's page list
+    const pages = screen.getAllByRole("link").map((a) => a.getAttribute("href"))
+    expect(pages).toContain("/terms")
+    expect(pages.indexOf("/terms")).toBe(pages.indexOf("/privacy") + 1)
+  })
+
   it.each(["/leaderboard", "/credits", "/rooms"])("names the two charities on %s", (pathname) => {
     // Prepare
     location.pathname = pathname

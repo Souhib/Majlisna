@@ -189,6 +189,7 @@
     "registerDescription": "One account for every game: open rooms, join your friends and keep your scores.",
     "noAccount": "Don’t have an account?",
     "hasAccount": "Already have an account?",
+    "acceptTerms": "By creating an account, you accept the <terms>terms of use</terms> and the <privacy>privacy policy</privacy>.",
     "forgotPassword": "Forgot password?",
     "forgotPasswordDescription": "Enter the email address of your account, and we will send you a link to choose a new password.",
     "resetEmailSent": "If an account exists with that email, a reset link is on its way. Check your inbox, and your spam folder if nothing arrives within a few minutes.",
@@ -1469,7 +1470,7 @@
   "privacy": {
     "link": "Privacy policy",
     "title": "Privacy policy",
-    "updated": "Last updated: 2 November 2026",
+    "updated": "Last updated: 7 November 2026",
     "intro": "Majlisna (majlisna.app) is a free online platform for Islamic party games, run by Souhib Trabelsi. This page explains what data we collect, why, and how you can control it.",
     "sections": [
       {
@@ -1512,7 +1513,7 @@
       {
         "title": "What other players see",
         "body": [
-          "Your profile (username, country, bio and profile picture) can be seen by signed-in players. Your statistics, your achievements and your place on the leaderboard are public.",
+          "Anyone, signed in or not, can see your public profile: your username, your bio and how many games you have played. Your country and your profile picture are shown only to signed-in players. Your statistics, your achievements and your place on the leaderboard are public.",
           "The players of a game see your username and what you write in it, then your role when it ends. The summary of a finished game stays available to everyone who played it.",
           "Your email address is never shown to other players."
         ]
@@ -1560,6 +1561,83 @@
         "body": ["We may update this policy. The date at the top of this page shows the latest version."]
       }
     ],
-    "contact": "Questions about your data:"
+    "contact": "Questions about your data:",
+    "seeTerms": "The rules for using Majlisna are in the <terms>terms of use</terms>."
+  },
+  "terms": {
+    "link": "Terms of use",
+    "title": "Terms of use",
+    "updated": "Last updated: 3 November 2026",
+    "intro": "Majlisna (majlisna.app) is a free online platform for Islamic party games, run by one person, Souhib Trabelsi. These terms are the rules for using it: what you can expect from Majlisna, and what it expects from you.",
+    "sections": [
+      {
+        "title": "A free service",
+        "body": ["Majlisna is free: there is nothing to pay, nothing to buy and no subscription, and there is no advertising."]
+      },
+      {
+        "title": "Your account",
+        "body": [
+          "<b>Creating it:</b> with your email address and a password of at least 8 characters, or with your Google account. You need an account to create or join a room and to play the word of the day.",
+          "<b>One person, one account:</b> an account belongs to one person. Do not share it, and do not create one in someone else’s name.",
+          "<b>Your password:</b> keep it safe and never give it to anyone. If you think someone else knows it, change it in your profile: your other sessions are then signed out. If you forget it, use “Forgot password?” on the sign-in page.",
+          "<b>Your username:</b> 3 to 30 characters, with no spaces and none of the characters @ / \\ < >, and not already taken by another player. Other players see it, so it follows the rules below. You can change it in your profile."
+        ]
+      },
+      {
+        "title": "Fair play",
+        "body": [
+          "Play each game as it is meant to be played. Do not cheat: do not show your screen or tell your secret word or your role to other players, and do not use several accounts to win games, earn achievements or climb the leaderboard.",
+          "Do not try to get around the rules the server enforces, to see what a game hides from you, or to slow Majlisna down or break it. If you find a flaw, tell us instead of using it."
+        ]
+      },
+      {
+        "title": "Respect for others",
+        "body": [
+          "No harassment, insults, threats or hate, and no sexual or explicit content: not in the chat, not in your username or your bio, and not in what you type in a game.",
+          "Do not pass yourself off as someone else.",
+          "<b>In a room:</b> the host can remove a player, who can come back with the room’s code and PIN or through an invite, or ban them: a banned player is kept out of that room, invites included, until the host lifts the ban.",
+          "<b>Beyond a room:</b> these are the only moderation tools on Majlisna. The administrator’s tools cover the game content only (words, word packs and challenges): none of them suspends an account. If someone breaks these rules, write to us at the address below."
+        ]
+      },
+      {
+        "title": "The religious content",
+        "body": [
+          "The words, hints, explanations and questions of the games are there to help you learn about Islam while you play.",
+          "They are not a fatwa or a scholar’s ruling, and they have not been reviewed by scholars. For a question about your own practice, ask a person of knowledge you trust.",
+          "If you find a mistake, write to us at the address below, with the game and the word or the question, so that it can be corrected."
+        ]
+      },
+      {
+        "title": "What you write",
+        "body": [
+          "You are responsible for what you write on Majlisna: your chat messages, your username, your bio and what you type in a game.",
+          "Others see it: the members of a room read its chat, your username and your bio are on your public profile, which anyone can see, and the players of a game see what you write in it."
+        ]
+      },
+      {
+        "title": "Deleting your account",
+        "body": [
+          "You can delete your account at any time from <profile>your profile page</profile>, with your password or, for an account that signs in with Google, with Google. It cannot be undone.",
+          "Deletion removes your account and what is linked to it: statistics, achievements, challenges, friends, chat messages, kept words and word-of-the-day plays.",
+          "The games you played stay in the other players’ history, no longer linked to your account, but the name you played under still appears in them."
+        ]
+      },
+      {
+        "title": "Availability",
+        "body": [
+          "Majlisna is provided as it is. Its games and features may change, and the service may pause or stop at any time.",
+          "There is no guarantee that it will always be available or free of errors, nor that your game history, statistics, notebook or streaks will always be kept."
+        ]
+      },
+      {
+        "title": "Your data",
+        "body": ["What Majlisna collects, why, and what it shares is described in the <privacy>privacy policy</privacy>."]
+      },
+      {
+        "title": "Changes to these terms",
+        "body": ["These terms may change. The date at the top of this page shows the latest version."]
+      }
+    ],
+    "contact": "Questions about these terms, a report, or a mistake in the content:"
   }
 }
