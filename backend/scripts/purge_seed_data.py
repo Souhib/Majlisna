@@ -7,7 +7,8 @@ What it removes (and only that):
 - the seeded users, with every row that references them, through
   ``UserController._purge_user_references``: stats, achievements, challenges, chat,
   friendships, notebook, daily-word plays, room and game links, tokens, sessions, the
-  bans OF them (bans BY them stay, ``banned_by`` nulled), and their owned rooms orphaned.
+  bans and the host's removal records OF them (those BY them stay, ``banned_by`` /
+  ``removed_by`` nulled), and their owned rooms orphaned.
   A seeded user is at @test.com / @example.com / @example.org / @example.net, never
   linked to Google (``google_sub`` null), not named by ``--keep``, and either one of
   TEST_USERS (their passwords are public: they go whatever they did) or an account with
@@ -20,7 +21,7 @@ What it removes (and only that):
   to them, and no room pointing at them;
 - the seeded rooms: no settings, no member, no game, no active game, and OWNED by a
   seeded user (a real player's old room may have no settings either); with their bans,
-  their invites and their chat.
+  their removal records, their invites and their chat.
 
 A dry run by default: it lists every account and room it would delete (and the accounts
 at a seed domain it keeps) and changes nothing. ``--apply`` is refused while a seeded
@@ -67,6 +68,7 @@ from majlisna.api.models.relationship import RoomGameLink, RoomUserLink, UserGam
 from majlisna.api.models.room import RoomType
 from majlisna.api.models.room_ban import RoomBan
 from majlisna.api.models.room_invite import RoomInvite
+from majlisna.api.models.room_removal import RoomRemoval
 from majlisna.api.models.table import Game, Room, User
 from majlisna.api.schemas.shared import BaseModel
 from majlisna.database import create_app_engine
@@ -305,7 +307,7 @@ async def purge_seed_data(session: AsyncSession, keep: Collection[str] = ()) -> 
     Order matters for the foreign keys (none declares ON DELETE): every reference to a
     seeded user first (``_purge_user_references``, which also orphans the rooms they own
     and nulls ``Game.user_id`` on the games they made), then the users; then the games,
-    which nothing references any more; then the seeded rooms' bans, invites and chat, then
+    which nothing references any more; then the seeded rooms' bans, removals, invites and chat, then
     the rooms. Any other row still pointing at one of them raises, and the caller's rollback
     undoes every delete before it.
 
@@ -324,6 +326,7 @@ async def purge_seed_data(session: AsyncSession, keep: Collection[str] = ()) -> 
         await session.exec(delete(Game).where(col(Game.id).in_(selection.game_ids)))
     if selection.room_ids:
         await session.exec(delete(RoomBan).where(col(RoomBan.room_id).in_(selection.room_ids)))
+        await session.exec(delete(RoomRemoval).where(col(RoomRemoval.room_id).in_(selection.room_ids)))
         await session.exec(delete(RoomInvite).where(col(RoomInvite.room_id).in_(selection.room_ids)))
         await session.exec(delete(ChatMessage).where(col(ChatMessage.room_id).in_(selection.room_ids)))
         await session.exec(delete(Room).where(col(Room.id).in_(selection.room_ids)))

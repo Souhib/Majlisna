@@ -37,6 +37,7 @@ from majlisna.api.models.relationship import RoomGameLink, RoomUserLink, UserGam
 from majlisna.api.models.room import RoomStatus, RoomType
 from majlisna.api.models.room_ban import RoomBan
 from majlisna.api.models.room_invite import RoomInvite
+from majlisna.api.models.room_removal import RoomRemoval
 from majlisna.api.models.stats import AchievementCategory, AchievementDefinition, UserAchievement, UserStats
 from majlisna.api.models.table import Activity, Game, Room, User
 from scripts import purge_seed_data
@@ -178,6 +179,13 @@ async def _build_world(session: AsyncSession) -> World:
                 invitee_id=world.near_miss_user,
                 expires_at=now - timedelta(minutes=30),
             ),
+            # Removals (the host's Remove): a seed removed from the real room (the account's
+            # purge removes it), the real player removed from the seeded room by a seed (only
+            # the room step can remove that one), and a real player removed from the real
+            # room by a seed who hosted it once (kept, the seed's name nulled)
+            RoomRemoval(room_id=world.real_room, user_id=world.seeded_user, removed_by=world.real_user),
+            RoomRemoval(room_id=world.seeded_room, user_id=world.real_user, removed_by=world.seeded_admin),
+            RoomRemoval(room_id=world.real_room, user_id=world.near_miss_user, removed_by=world.seeded_admin),
         ]
     )
     await session.commit()
@@ -336,6 +344,10 @@ async def test_apply_removes_only_the_seed_rows(
         assert (await reader.exec(select(UserChallenge))).all() == []
         assert (await reader.exec(select(RoomBan))).all() == []
         assert (await reader.exec(select(RoomInvite))).all() == []
+        removals = (await reader.exec(select(RoomRemoval))).all()
+        assert [(r.room_id, r.user_id, r.removed_by) for r in removals] == [
+            (world.real_room, world.near_miss_user, None)
+        ]
 
     # Counted again afterwards: nothing left, and the operator is told to restart
     output = capsys.readouterr().out

@@ -102,13 +102,15 @@ class JoinSpectatorRequest(BaseModel):
 
 
 class KickPlayerRequest(BaseModel):
-    """``PATCH /rooms/{id}/kick``: the player to remove (no ban, they may come back)."""
+    """``PATCH /rooms/{id}/kick``: the player to remove (no ban, they may come back; the host
+    can still ban them afterwards, from ``GET /rooms/{id}/removals``)."""
 
     user_id: UUID
 
 
 class BanPlayerRequest(BaseModel):
-    """``POST /rooms/{id}/bans``: the seated player to remove and keep out until the host lifts it."""
+    """``POST /rooms/{id}/bans``: the player to keep out until the host lifts it — seated (their
+    seat goes), or removed by the host and not seated again (``GET /rooms/{id}/removals``)."""
 
     user_id: UUID
 
@@ -193,3 +195,16 @@ class RoomBanView(BaseModel):
     user_id: UUID
     username: str
     banned_at: datetime
+
+
+class RoomRemovalView(BaseModel):
+    """A player the host removed (a kick) who is neither banned nor seated again: the host may
+    still ban them (ban after removal, owner request, 3 November 2026).
+
+    Served to the host only: ``GET /rooms/{id}/removals``, newest first. ``removed_at`` is the
+    latest removal (the record's ``updated_at``, refreshed by a second kick), UTC.
+    """
+
+    user_id: UUID
+    username: str
+    removed_at: datetime

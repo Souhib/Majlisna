@@ -45,6 +45,7 @@ from majlisna.api.models.relationship import RoomUserLink
 from majlisna.api.models.room import RoomCreate, RoomJoin, RoomStatus, RoomType
 from majlisna.api.models.room_ban import RoomBan
 from majlisna.api.models.room_invite import RoomInvite
+from majlisna.api.models.room_removal import RoomRemoval
 from majlisna.api.models.table import Game, Room, User
 from majlisna.api.schemas.common import StatusResponse
 from majlisna.api.schemas.error import (
@@ -70,6 +71,7 @@ from majlisna.api.schemas.room import (
     RoomInviteResponse,
     RoomInviteView,
     RoomPlayerState,
+    RoomRemovalView,
     RoomSettings,
     RoomState,
     ShareLinkResponse,
@@ -287,10 +289,15 @@ class RoomController:
             links = (await self.session.exec(select(RoomUserLink).where(RoomUserLink.room_id == room_id))).all()
             for link in links:
                 await self.session.delete(link)
-            # Its invites go with it (no foreign key declares ON DELETE).
+            # Its invites and the host's removal records go with it (no foreign key declares ON DELETE).
             await self.session.exec(
                 delete(RoomInvite)
                 .where(col(RoomInvite.room_id) == room_id)
+                .execution_options(synchronize_session=False)
+            )
+            await self.session.exec(
+                delete(RoomRemoval)
+                .where(col(RoomRemoval.room_id) == room_id)
                 .execution_options(synchronize_session=False)
             )
             db_room.type = RoomType.INACTIVE
@@ -373,7 +380,9 @@ class RoomController:
         ban, one room at a time). Re-uses their link when they have one (a reconnection).
 
         A seat taken through either door spends the invites the player holds to that room:
-        the accepted one, or one made moot by a join with the code and PIN.
+        the accepted one, or one made moot by a join with the code and PIN; then the host's
+        removal record, if any (``_end_removal``, which asks for a ban again). In that order,
+        the ban's (``ban_player``): the invites, then the record.
         """
         await self.session.exec(
             delete(RoomInvite)
@@ -381,6 +390,7 @@ class RoomController:
             .where(col(RoomInvite.invitee_id) == user_id)
             .execution_options(synchronize_session=False)
         )
+        await self._end_removal(room_id, user_id)
         # Check for existing connected link
         existing_link = (
             await self.session.exec(
@@ -417,6 +427,30 @@ class RoomController:
             self.session.add(RoomUserLink(room_id=room_id, user_id=user_id, last_seen_at=datetime.now()))
         await self.session.commit()
         return await self._load_room_for_view(room_id)
+
+    async def _end_removal(self, room_id: UUID, user_id: UUID) -> None:
+        """The player takes a seat again: delete the host's removal record, then ask for a ban
+        once more (``RoomBannedError``, 403). Does not commit. Before the seat's link is written.
+
+        The door's ban check ran before the PIN, and a ban of the removed player
+        (``ban_player`` without a seat) may commit after it: the ban deletes this record under
+        its row lock, so the DELETE here waits for that ban, and the read after it (READ
+        COMMITTED, a statement of its own) sees it. When the seat deletes the record first, the
+        ban waits on it instead, finds it gone and bans the seat once this one commits.
+
+        Lock order, the same on both sides: the player's invites to the room, then this
+        record. ``accept_invite`` holds its invite (``FOR UPDATE``) before it gets here, and a
+        join with the code and PIN spends its invites first (``_take_seat``); the ban deletes
+        the invites, then the record. The record first on either side, and a ban and a seat
+        each held what the other waited for: PostgreSQL killed one (a 500).
+        """
+        await self.session.exec(
+            delete(RoomRemoval)
+            .where(col(RoomRemoval.room_id) == room_id)
+            .where(col(RoomRemoval.user_id) == user_id)
+            .execution_options(synchronize_session=False)
+        )
+        await self._ensure_not_banned(room_id, user_id)
 
     async def leave_room(self, room_id: UUID, user_id: UUID) -> Room:
         """Remove a user from a room.
@@ -471,6 +505,8 @@ class RoomController:
         if not _passwords_match(db_room.password, password):
             raise WrongRoomPasswordError(room_id=db_room.id)
         await self._ensure_not_seated_elsewhere(db_user.id, db_room.id)
+        # A spectator's seat is a seat: the removal record goes, and a ban that raced it is seen.
+        await self._end_removal(db_room.id, db_user.id)
 
         # Check for existing link
         existing_link = (
@@ -613,14 +649,7 @@ class RoomController:
 
     async def _seat_to_remove(self, room_id: UUID, target_id: UUID) -> RoomUserLink:
         """The seat a kick or a ban takes; ``UserNotInRoomError`` (404) when the target has none."""
-        link = (
-            await self.session.exec(
-                select(RoomUserLink).where(
-                    RoomUserLink.room_id == room_id,
-                    RoomUserLink.user_id == target_id,
-                )
-            )
-        ).first()
+        link = await self._seat_of(room_id, target_id)
         if not link:
             raise UserNotInRoomError(user_id=target_id, room_id=room_id)
         return link
@@ -645,17 +674,76 @@ class RoomController:
         if target_id == host_id:
             raise CannotKickYourselfError()
         link = await self._seat_to_remove(room_id, target_id)
-        # Commits (the departure).
+        # The record that lets the host ban them later (``ban_player`` without a seat). A
+        # statement before the departure's game lock, like the ban's: it locks no row a move
+        # writes (its foreign keys take KEY SHARE on the room and the users, which an UPDATE
+        # of their other columns does not wait on).
+        await self._record_removal(room_id, target_id, removed_by=host_id)
+        # Commits (the departure, and the record with it).
         await _handle_permanent_disconnect(self.session, link)
-        logger.info("Room kick: user={} room={} by host={} (no ban)", target_id, room_id, host_id)
+        logger.info("Room kick: user={} room={} by host={} (no ban, removal recorded)", target_id, room_id, host_id)
         return KickPlayerResponse(message="Player kicked")
+
+    async def _record_removal(self, room_id: UUID, user_id: UUID, *, removed_by: UUID) -> None:
+        """Upsert the (room, player) removal record: a second kick refreshes it (the latest
+        host, ``updated_at`` = now), never a second row or an IntegrityError. Does not commit."""
+        now = datetime.now(UTC)
+        insert = dialect_insert(self.session, RoomRemoval).values(
+            id=uuid4(),
+            room_id=room_id,
+            user_id=user_id,
+            removed_by=removed_by,
+            created_at=now,
+            updated_at=now,
+        )
+        await self.session.exec(
+            insert.on_conflict_do_update(
+                index_elements=["room_id", "user_id"],
+                set_={"removed_by": insert.excluded.removed_by, "updated_at": insert.excluded.updated_at},
+            )
+        )
+
+    async def list_removals(self, room_id: UUID, user_id: UUID) -> list[RoomRemovalView]:
+        """The players the host removed who are neither banned nor seated again, newest
+        removal first, with their username. Host only.
+
+        Taking a seat and being banned both delete the record; the two filters answer a record
+        a race left behind (a kick and a ban of the same player at once, a kick racing a
+        return), so nobody is listed who is at the table or already banned.
+        """
+        room = await self.get_room_without_relations(room_id)
+        self._require_host(room, user_id, "see who was removed")
+        banned = exists().where(
+            col(RoomBan.room_id) == col(RoomRemoval.room_id),
+            col(RoomBan.user_id) == col(RoomRemoval.user_id),
+        )
+        seated = exists().where(
+            col(RoomUserLink.room_id) == col(RoomRemoval.room_id),
+            col(RoomUserLink.user_id) == col(RoomRemoval.user_id),
+        )
+        rows = (
+            await self.session.exec(
+                select(RoomRemoval, User)
+                .join(User, User.id == RoomRemoval.user_id)  # ty: ignore[invalid-argument-type]
+                .where(RoomRemoval.room_id == room_id)
+                .where(~banned)
+                .where(~seated)
+                .order_by(col(RoomRemoval.updated_at).desc(), col(RoomRemoval.user_id))
+            )
+        ).all()
+        return [
+            RoomRemovalView(user_id=user.id, username=user.username, removed_at=utc_instant(removal.updated_at))
+            for removal, user in rows
+        ]
 
     async def ban_player(self, room_id: UUID, host_id: UUID, target_id: UUID) -> RoomBanView:
         """Ban a player ("Ban"): host only, never yourself; the answer is the ban.
 
-        Everything a kick does, and the door stays shut until the host lifts it (owner
-        decision, 2 November 2026). Together, so that the departure's single commit
-        carries all four:
+        The player is seated, or the host removed them and they have not sat down again (a
+        ``RoomRemoval``: ban after removal, owner request, 3 November 2026); anyone else
+        (never seated, gone by themselves) is ``UserNotInRoomError`` (404). Everything a kick
+        does, and the door stays shut until the host lifts it (owner decision, 2 November
+        2026). Together, so that one commit carries them all:
 
         - a ``RoomBan`` (room, target, banned_by=host) — idempotent on the unique pair. Join,
           spectate and accept then answer ``RoomBannedError`` (403), and no member may invite
@@ -666,31 +754,71 @@ class RoomController:
           the room again;
         - a new PIN, different from the old one: the banned player holds the share link,
           and could come back with it under another account;
-        - ``_handle_permanent_disconnect``, as for a kick: the seat goes, and in a running
-          game the player is a leaver.
+        - the removal record, deleted (the player is banned, no longer merely removed);
+        - for a seated player, ``_handle_permanent_disconnect``, as for a kick: the seat goes,
+          and in a running game the player is a leaver. A removed player has no seat: no
+          departure (they left the game when they were removed), a plain commit, and no game
+          lock taken — so the room's UPDATE cannot wait on a move in a cycle either.
+
+        **The room lock first** (``room:{id}``, before any row and before the departure's game
+        lock), the one a close (``delete_room``), a rematch and a game start take first, and the
+        account deletion for every room it orphans (``UserController._owned_room_locks``). A
+        close mid-game writes the room row (the game cancelled) and then deletes the room's
+        removal records, the account's purge writes the room row (owner NULL) and then nulls
+        ``removed_by``; this holds the record and writes the room row at its commit (the PIN).
+        Without the lock each held what the other waited for, and PostgreSQL killed one (a 500;
+        review of 7 November 2026). The room is read again under it: a close or a deletion of the
+        host's account that committed meanwhile answers 404 (no seat, no record left) or
+        ``NotRoomHostError`` (403, the room ownerless).
+
+        The invites are deleted first, then the removal record is taken (``DELETE …
+        RETURNING``, its row lock), the order a seat takes them in (``_end_removal``, "Lock
+        order"): a return of the player that gets there first makes this wait for that seat,
+        which is then banned like any seat; a return that comes second waits on this, and
+        refuses the seat once the ban is committed.
 
         Once committed, the player's invites to the room are swept once more (an invite that
         raced the ban, ``_take_back_if_banned_meanwhile``).
 
-        The route then tells the player (``you_were_kicked``, ``banned`` true), detaches their
-        socket, tells the other members it was a ban (``member_removed_by_host``), and only
-        then pushes the room state that carries the new PIN.
+        The route then tells the player (``you_were_kicked``, ``banned`` true; for a removed
+        player it is their app shell that hears it, which drops that room's invites), detaches
+        their socket (nothing to detach for a removed player), tells the other members it was
+        a ban (``member_removed_by_host``), and only then pushes the room state that carries
+        the new PIN.
         """
         room = await self.get_room_without_relations(room_id)
         self._require_host(room, host_id, "ban players")
         if target_id == host_id:
             raise CannotBanYourselfError()
-        link = await self._seat_to_remove(room_id, target_id)
-
-        await self._insert_ban(room_id, target_id, banned_by=host_id)
-        # Before the PIN is staged: a statement autoflushes, and the room's UPDATE flushed
-        # before the game lock deadlocks with a move that holds that lock and finishes the
-        # game, which writes the room row (``_handle_permanent_disconnect``, "Lock order").
-        await self._delete_invites_involving(room_id, target_id)
-        room.password = _new_room_pin(room.password)
-        self.session.add(room)
-        # Commits (the ban, the deleted invites and the PIN with the departure).
-        await _handle_permanent_disconnect(self.session, link)
+        # Committed inside, once (both branches below): on PostgreSQL the lock is the transaction's.
+        async with get_game_lock(f"room:{room_id}", self.session):
+            # Re-read under the room lock: a close, or the deletion of the host's account, may
+            # have committed while this waited (the room's record gone, or the room ownerless).
+            await self.session.refresh(room)
+            self._require_host(room, host_id, "ban players")
+            link = await self._seat_of(room_id, target_id)
+            # Every statement before the PIN is staged: a statement autoflushes, and the room's
+            # UPDATE flushed before the game lock deadlocks with a move that holds that lock and
+            # finishes the game, which writes the room row (``_handle_permanent_disconnect``,
+            # "Lock order"). The invites before the removal record, as a seat takes them
+            # (``accept_invite`` locks its invite, then its seat deletes the record): the other
+            # way round, a ban and an accepted invite each held what the other waited for.
+            await self._delete_invites_involving(room_id, target_id)
+            removed = await self._take_removal(room_id, target_id)
+            if link is None and not removed:
+                # Not seated when first read, and no record (any more): a return that deleted the
+                # record committed while this waited on it, so the seat is there now; else 404
+                # (the request's rollback undoes the deletes above).
+                link = await self._seat_to_remove(room_id, target_id)
+            await self._insert_ban(room_id, target_id, banned_by=host_id)
+            room.password = _new_room_pin(room.password)
+            self.session.add(room)
+            if link is not None:
+                # Commits (the ban, the deleted invites and record, and the PIN with the departure).
+                await _handle_permanent_disconnect(self.session, link)
+            else:
+                # A removed player: no seat, no departure.
+                await self.session.commit()
         # Swept again once the ban is committed, in a transaction of its own that holds
         # nothing: an invite whose ban check ran before that commit, and whose row was
         # committed after the purge above (READ COMMITTED), would otherwise outlive the ban
@@ -699,9 +827,36 @@ class RoomController:
         await self._delete_invites_involving(room_id, target_id)
         await self.session.commit()
         logger.info(
-            "Room ban: user={} room={} by host={} (their invites deleted, PIN rotated)", target_id, room_id, host_id
+            "Room ban: user={} room={} by host={} ({}, their invites deleted, PIN rotated)",
+            target_id,
+            room_id,
+            host_id,
+            "seat taken" if link is not None else "removed earlier, no seat",
         )
         return (await self._ban_views(room_id, user_id=target_id))[0]
+
+    async def _seat_of(self, room_id: UUID, user_id: UUID) -> RoomUserLink | None:
+        """The player's link in the room (connected or away), if any."""
+        return (
+            await self.session.exec(
+                select(RoomUserLink).where(RoomUserLink.room_id == room_id, RoomUserLink.user_id == user_id)
+            )
+        ).first()
+
+    async def _take_removal(self, room_id: UUID, user_id: UUID) -> bool:
+        """Delete the player's removal record in this room; whether there was one. Does not commit.
+
+        A ``DELETE … RETURNING``: it locks the row, and waits for a seat that deleted it first
+        (``_end_removal``) to commit, which then returns nothing.
+        """
+        deleted = await self.session.exec(
+            delete(RoomRemoval)
+            .where(col(RoomRemoval.room_id) == room_id)
+            .where(col(RoomRemoval.user_id) == user_id)
+            .returning(col(RoomRemoval.id))
+            .execution_options(synchronize_session=False)
+        )
+        return deleted.first() is not None
 
     async def _delete_invites_involving(self, room_id: UUID, user_id: UUID) -> None:
         """Delete the room's invites ``user_id`` sent or was sent. Does not commit."""

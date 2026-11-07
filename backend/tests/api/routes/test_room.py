@@ -27,7 +27,13 @@ from majlisna.api.schemas.error import (
     UserNotInRoomError,
     WrongRoomPasswordError,
 )
-from majlisna.api.schemas.room import KickPlayerResponse, RoomBanView, RoomInviteResponse, RoomInviteView
+from majlisna.api.schemas.room import (
+    KickPlayerResponse,
+    RoomBanView,
+    RoomInviteResponse,
+    RoomInviteView,
+    RoomRemovalView,
+)
 from majlisna.dependencies import get_current_user, get_room_controller
 
 BASE_URL = "/api/v1/rooms"
@@ -1230,6 +1236,54 @@ def test_a_refused_ban_answers_its_error_and_notifies_nobody(
         told.assert_not_awaited()
         room_told.assert_not_awaited()
         pushed.assert_not_awaited()
+    finally:
+        test_app.dependency_overrides.clear()
+
+
+# ========== GET /rooms/{id}/removals (ban after removal, 3 November 2026) ==========
+
+
+def test_the_host_lists_the_removed_players(test_app: FastAPI, client: TestClient) -> None:
+    """GET /rooms/{id}/removals returns the controller's RoomRemovalView rows, for the caller."""
+    # Prepare
+    room_id, host_id, removed_id = uuid4(), uuid4(), uuid4()
+    removed_at = datetime.now(UTC)
+    controller = Mock(spec=RoomController)
+    controller.list_removals = AsyncMock(
+        return_value=[RoomRemovalView(user_id=removed_id, username="drifter", removed_at=removed_at)]
+    )
+    test_app.dependency_overrides[get_current_user] = lambda: User(id=host_id, username="h", email_address="h@test.com")
+    test_app.dependency_overrides[get_room_controller] = lambda: controller
+
+    try:
+        # Act
+        response = client.get(f"{BASE_URL}/{room_id}/removals")
+
+        # Assert
+        assert response.status_code == 200
+        rows = response.json()
+        assert [(row["user_id"], row["username"]) for row in rows] == [(str(removed_id), "drifter")]
+        assert datetime.fromisoformat(rows[0]["removed_at"]) == removed_at
+        controller.list_removals.assert_awaited_once_with(room_id, host_id)
+    finally:
+        test_app.dependency_overrides.clear()
+
+
+def test_a_member_listing_the_removed_players_answers_403(test_app: FastAPI, client: TestClient) -> None:
+    """Host only, enforced in the controller: NotRoomHostError → 403."""
+    # Prepare
+    controller = Mock(spec=RoomController)
+    controller.list_removals = AsyncMock(side_effect=NotRoomHostError())
+    test_app.dependency_overrides[get_current_user] = lambda: User(id=uuid4(), username="m", email_address="m@test.com")
+    test_app.dependency_overrides[get_room_controller] = lambda: controller
+
+    try:
+        # Act
+        response = client.get(f"{BASE_URL}/{uuid4()}/removals")
+
+        # Assert
+        assert response.status_code == 403
+        assert response.json()["error_key"] == "errors.api.notRoomHost"
     finally:
         test_app.dependency_overrides.clear()
 

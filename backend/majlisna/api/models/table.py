@@ -26,6 +26,7 @@ from majlisna.api.models.relationship import (
 from majlisna.api.models.room import RoomBase, RoomType
 from majlisna.api.models.room_ban import RoomBan  # noqa: F401
 from majlisna.api.models.room_invite import RoomInvite  # noqa: F401
+from majlisna.api.models.room_removal import RoomRemoval  # noqa: F401
 from majlisna.api.models.shared import DBModel
 from majlisna.api.models.stats import AchievementDefinition, UserAchievement, UserStats  # noqa: F401
 from majlisna.api.models.term_script import TermScript  # noqa: F401

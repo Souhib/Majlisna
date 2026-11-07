@@ -600,6 +600,39 @@ async def test_a_database_whose_schema_is_not_the_baselines_is_refused_untouched
     assert SCHEMA_ADOPTION_PROBE_SCHEMA not in await _schema_names(production_engine)
 
 
+# ========== Revisions since the baseline ==========
+
+ROOM_INVITE_REVISION = "0002_room_invite"
+ROOM_REMOVAL_REVISION = "0003_room_removal"
+
+
+async def test_0003_adds_only_the_room_removal_table_and_downgrades_to_0002(fresh_engine: AsyncEngine):
+    """Additive (rule 3): one new table with its keys and indexes, nothing of 0002 touched, and
+    the downgrade gives 0002's schema back line for line."""
+    # Prepare
+    await _alembic(fresh_engine, "upgrade", ROOM_INVITE_REVISION)
+    at_0002 = await _describe(fresh_engine)
+
+    # Act
+    await _alembic(fresh_engine, "upgrade", ROOM_REMOVAL_REVISION)
+    at_0003 = await _describe(fresh_engine)
+    await _alembic(fresh_engine, "downgrade", ROOM_INVITE_REVISION)
+    back = await _describe(fresh_engine)
+
+    # Assert
+    added = sorted(set(at_0003) - set(at_0002))
+    assert set(at_0002) <= set(at_0003)
+    assert all("room_removal" in line for line in added), added
+    assert "table room_removal" in added
+    assert "constraint room_removal uq_room_removal_room_user UNIQUE (room_id, user_id)" in added
+    assert "index CREATE INDEX ix_room_removal_user_id ON room_removal USING btree (user_id)" in added
+    assert "index CREATE INDEX ix_room_removal_removed_by ON room_removal USING btree (removed_by)" in added
+    foreign_keys = [line for line in added if "FOREIGN KEY" in line]
+    assert len(foreign_keys) == 3
+    assert back == at_0002
+    assert await _versions(fresh_engine) == [ROOM_INVITE_REVISION]
+
+
 # ========== --delete, the lock timeout ==========
 
 

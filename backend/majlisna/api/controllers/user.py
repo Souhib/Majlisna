@@ -1,16 +1,17 @@
 import asyncio
 from collections.abc import AsyncGenerator, MutableMapping, Sequence
-from contextlib import asynccontextmanager, nullcontext
+from contextlib import AsyncExitStack, asynccontextmanager, nullcontext
 from uuid import UUID
 from weakref import WeakValueDictionary
 
 from sqlalchemy import func, or_, text
 from sqlalchemy.exc import IntegrityError, NoResultFound
-from sqlmodel import select
+from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from majlisna.api.constants import AUTH_PROVIDER_EMAIL, USERNAME_LOCK_PREFIX
 from majlisna.api.controllers.disconnect import _handle_permanent_disconnect
+from majlisna.api.controllers.game_lock import get_game_lock
 from majlisna.api.controllers.shared import (
     async_get_password_hash,
     async_verify_password,
@@ -26,6 +27,7 @@ from majlisna.api.models.relationship import RoomUserLink, UserGameLink
 from majlisna.api.models.room import RoomType
 from majlisna.api.models.room_ban import RoomBan
 from majlisna.api.models.room_invite import RoomInvite
+from majlisna.api.models.room_removal import RoomRemoval
 from majlisna.api.models.stats import UserAchievement, UserStats
 from majlisna.api.models.table import Activity, Event, Game, Room, User
 from majlisna.api.models.token import EmailVerificationToken, PasswordResetToken
@@ -281,6 +283,8 @@ class UserController:
             select(RoomBan).where(RoomBan.user_id == user_id),
             # The room invites the user sent or received.
             select(RoomInvite).where(or_(RoomInvite.inviter_id == user_id, RoomInvite.invitee_id == user_id)),  # ty: ignore[invalid-argument-type]
+            # The host's removal records OF this user go; those BY them stay (removed_by nulled below).
+            select(RoomRemoval).where(RoomRemoval.user_id == user_id),
         ):
             for row in (await self.session.exec(statement)).all():
                 await self.session.delete(row)
@@ -298,6 +302,9 @@ class UserController:
         for ban in (await self.session.exec(select(RoomBan).where(RoomBan.banned_by == user_id))).all():
             ban.banned_by = None
             self.session.add(ban)
+        for removal in (await self.session.exec(select(RoomRemoval).where(RoomRemoval.removed_by == user_id))).all():
+            removal.removed_by = None
+            self.session.add(removal)
 
     async def delete_user(self, user_id: UUID) -> list[DepartedRoom]:
         """Delete a user by id (internal: no confirmation, no route), leaving every room first.
@@ -379,14 +386,37 @@ class UserController:
         await UserController._confirm_with_google(db_user, google_access_token, social_auth_service)
 
     async def _delete_account(self, db_user: User) -> list[DepartedRoom]:
-        """Leave every room (the departure commits per room), then purge and delete in one commit."""
+        """Leave every room (the departure commits per room), then purge and delete in one commit,
+        under the room lock of every room the account still owns (``_owned_room_locks``)."""
         user_id = db_user.id
         departed = await self._leave_every_room(user_id)
-        await self._purge_user_references(user_id)
-        await self.session.flush()  # apply the cleanup before removing the user row
-        await self.session.delete(db_user)
-        await self.session.commit()
+        async with self._owned_room_locks(user_id):
+            await self._purge_user_references(user_id)
+            await self.session.flush()  # apply the cleanup before removing the user row
+            await self.session.delete(db_user)
+            await self.session.commit()
         return departed
+
+    @asynccontextmanager
+    async def _owned_room_locks(self, user_id: UUID) -> AsyncGenerator[None, None]:
+        """Hold the room lock (``room:{id}``) of every room the user owns, in id order, before
+        any write. The caller commits INSIDE, once: on PostgreSQL the locks are the transaction's.
+
+        The purge orphans these rooms (an UPDATE of each room row), then nulls ``removed_by``
+        on the removal records the user made in them. A ban by the same host
+        (``RoomController.ban_player``) takes the room lock, then that record, then writes the
+        room row (the new PIN): without the lock here, each held what the other waited for and
+        PostgreSQL killed one (a 500; review of 7 November 2026). Now one waits for the other; a
+        ban that waited here finds the room ownerless (``NotRoomHostError``). Nothing else takes
+        two room locks, and none is taken after a game lock, so these form no cycle either.
+        """
+        room_ids = (
+            await self.session.exec(select(Room.id).where(Room.owner_id == user_id).order_by(col(Room.id)))
+        ).all()
+        async with AsyncExitStack() as locks:
+            for room_id in room_ids:
+                await locks.enter_async_context(get_game_lock(f"room:{room_id}", self.session))
+            yield
 
     async def update_user_password(
         self,

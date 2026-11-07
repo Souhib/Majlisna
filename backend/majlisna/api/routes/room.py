@@ -23,6 +23,7 @@ from majlisna.api.schemas.room import (
     RoomInviteRequest,
     RoomInviteResponse,
     RoomInviteView,
+    RoomRemovalView,
     RoomSettings,
     RoomSettingsRequest,
     RoomState,
@@ -203,9 +204,11 @@ async def ban_player(
     current_user: Annotated[User, Depends(get_current_user)],
     room_controller: RoomController = Depends(get_room_controller),
 ) -> RoomBanView:
-    """Ban a seated player. Host only. Removes them like a kick, keeps them out until lifted
-    (join, spectate, invites), deletes the room's invites they sent or were sent, and rotates
-    the PIN."""
+    """Ban a seated player, or one the host removed who has not sat down again
+    (``GET /{room_id}/removals``). Host only. Keeps them out until lifted (join, spectate,
+    invites), deletes the room's invites they sent or were sent, and rotates the PIN; a seated
+    player is removed like a kick. The same pushes either way: for a removed player there is no
+    seat to detach, and the game's push (when one runs) is a refetch of an unchanged game."""
     # read before the ban, which can end the game (see notify_member_removed)
     game_id = await get_active_game_id(str(room_id))
     result = await room_controller.ban_player(room_id, current_user.id, body.user_id)
@@ -228,6 +231,17 @@ async def list_room_bans(
 ) -> list[RoomBanView]:
     """The players the host banned from this room (a kick is not listed). Host only."""
     return await room_controller.list_bans(room_id, current_user.id)
+
+
+@router.get("/{room_id}/removals")
+async def list_room_removals(
+    room_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    room_controller: RoomController = Depends(get_room_controller),
+) -> list[RoomRemovalView]:
+    """The players the host removed (a kick) who are neither banned nor seated again, newest
+    first: the host may still ban them (``POST /{room_id}/bans``). Host only."""
+    return await room_controller.list_removals(room_id, current_user.id)
 
 
 @router.delete("/{room_id}/bans/{user_id}")
