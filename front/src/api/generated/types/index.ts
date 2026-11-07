@@ -626,6 +626,14 @@ export type {
   ListRoomInvitesApiV1RoomsInvitesGetQuery,
 } from "./ListRoomInvitesApiV1RoomsInvitesGet.ts";
 export type {
+  ListRoomRemovalsApiV1RoomsRoomIdRemovalsGetPathParams,
+  ListRoomRemovalsApiV1RoomsRoomIdRemovalsGet200,
+  ListRoomRemovalsApiV1RoomsRoomIdRemovalsGet404,
+  ListRoomRemovalsApiV1RoomsRoomIdRemovalsGet422,
+  ListRoomRemovalsApiV1RoomsRoomIdRemovalsGetQueryResponse,
+  ListRoomRemovalsApiV1RoomsRoomIdRemovalsGetQuery,
+} from "./ListRoomRemovalsApiV1RoomsRoomIdRemovalsGet.ts";
+export type {
   LoginApiV1AuthLoginPost200,
   LoginApiV1AuthLoginPost422,
   LoginApiV1AuthLoginPostMutationRequest,
@@ -849,6 +857,7 @@ export type { RoomInviteView } from "./RoomInviteView.ts";
 export type { RoomJoin } from "./RoomJoin.ts";
 export type { RoomLeave } from "./RoomLeave.ts";
 export type { RoomPlayerState } from "./RoomPlayerState.ts";
+export type { RoomRemovalView } from "./RoomRemovalView.ts";
 export type { RoomRiddle } from "./RoomRiddle.ts";
 export type { RoomRiddleAnswer } from "./RoomRiddleAnswer.ts";
 export type { RoomSettings } from "./RoomSettings.ts";

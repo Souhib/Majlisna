@@ -2,6 +2,7 @@ import {
   getRoomStateApiV1RoomsRoomIdStateGetQueryKey,
   getMessagesApiV1RoomsRoomIdMessagesGetQueryKey,
   listRoomBansApiV1RoomsRoomIdBansGetQueryKey,
+  listRoomRemovalsApiV1RoomsRoomIdRemovalsGetQueryKey,
   getShareLinkApiV1RoomsRoomIdShareLinkGetQueryKey,
   getCodenamesBoardApiV1CodenamesGamesGameIdBoardGetQueryKey,
   getUndercoverStateApiV1UndercoverGamesGameIdStateGetQueryKey,
@@ -19,6 +20,8 @@ export const queryKeys = {
     messages: (roomId: string) => getMessagesApiV1RoomsRoomIdMessagesGetQueryKey({ room_id: roomId }),
     // the host's list of banned players, and the share link: both stale after a ban (a kick changes neither)
     bans: (roomId: string) => listRoomBansApiV1RoomsRoomIdBansGetQueryKey({ room_id: roomId }),
+    // the host's removed players (a kick, not banned, not seated again): stale after a kick, a ban, a return
+    removals: (roomId: string) => listRoomRemovalsApiV1RoomsRoomIdRemovalsGetQueryKey({ room_id: roomId }),
     shareLink: (roomId: string) => getShareLinkApiV1RoomsRoomIdShareLinkGetQueryKey({ room_id: roomId }),
   },
   game: {

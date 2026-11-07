@@ -29,9 +29,11 @@ export type BanPlayerApiV1RoomsRoomIdBansPostMutationKey = ReturnType<
 >;
 
 /**
- * @description Ban a seated player. Host only. Removes them like a kick, keeps them out until lifted
- * (join, spectate, invites), deletes the room's invites they sent or were sent, and rotates
- * the PIN.
+ * @description Ban a seated player, or one the host removed who has not sat down again
+ * (``GET /{room_id}/removals``). Host only. Keeps them out until lifted (join, spectate,
+ * invites), deletes the room's invites they sent or were sent, and rotates the PIN; a seated
+ * player is removed like a kick. The same pushes either way: for a removed player there is no
+ * seat to detach, and the game's push (when one runs) is a refetch of an unchanged game.
  * @summary Ban Player
  * {@link /api/v1/rooms/:room_id/bans}
  */
@@ -92,9 +94,11 @@ export function banPlayerApiV1RoomsRoomIdBansPostMutationOptions<
 }
 
 /**
- * @description Ban a seated player. Host only. Removes them like a kick, keeps them out until lifted
- * (join, spectate, invites), deletes the room's invites they sent or were sent, and rotates
- * the PIN.
+ * @description Ban a seated player, or one the host removed who has not sat down again
+ * (``GET /{room_id}/removals``). Host only. Keeps them out until lifted (join, spectate,
+ * invites), deletes the room's invites they sent or were sent, and rotates the PIN; a seated
+ * player is removed like a kick. The same pushes either way: for a removed player there is no
+ * seat to detach, and the game's push (when one runs) is a refetch of an unchanged game.
  * @summary Ban Player
  * {@link /api/v1/rooms/:room_id/bans}
  */

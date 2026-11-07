@@ -2,7 +2,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { act, renderHook, waitFor } from "@testing-library/react"
 import { createElement, type ReactNode } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { useGetShareLinkApiV1RoomsRoomIdShareLinkGet, useListRoomBansApiV1RoomsRoomIdBansGet } from "@/api/generated"
+import {
+  useGetShareLinkApiV1RoomsRoomIdShareLinkGet,
+  useListRoomBansApiV1RoomsRoomIdBansGet,
+  useListRoomRemovalsApiV1RoomsRoomIdRemovalsGet,
+} from "@/api/generated"
 import { queryKeys } from "@/api/queryKeys"
 import { answer, httpError, requestsTo, resetFakeApi } from "@/components/notebook/__tests__/fake-api"
 import type { LobbyMember } from "@/components/rooms/lobby"
@@ -69,6 +73,7 @@ vi.mock("sonner", () => ({ toast: toasts }))
 
 const STATE = "GET /api/v1/rooms/room-1/state"
 const BANS = "GET /api/v1/rooms/room-1/bans"
+const REMOVALS = "GET /api/v1/rooms/room-1/removals"
 const SHARE = "GET /api/v1/rooms/room-1/share-link"
 const KICK = "PATCH /api/v1/rooms/room-1/kick"
 const BAN = "POST /api/v1/rooms/room-1/bans"
@@ -97,13 +102,16 @@ const RIDDLE = {
 
 const maryam: LobbyMember = { id: "u2", username: "Maryam", isHost: false, isSpectator: false, isAway: false, awaySecondsLeft: null }
 
-/** The lobby, plus the two reads a ban makes stale (the host's bans panel, a share link). */
+/** The lobby, plus the reads a removal makes stale (the host's two lists in RoomBans, a share link). */
 function useLobbyAndItsReads() {
   const lobby = useRoomLobby("room-1")
   const bans = useListRoomBansApiV1RoomsRoomIdBansGet({ room_id: "room-1" })
+  const removals = useListRoomRemovalsApiV1RoomsRoomIdRemovalsGet({ room_id: "room-1" }, { query: { retry: false } })
   const share = useGetShareLinkApiV1RoomsRoomIdShareLinkGet({ room_id: "room-1" })
-  return { lobby, bans, share }
+  return { lobby, bans, removals, share }
 }
+
+const removed = (user_id: string, username: string) => ({ user_id, username, removed_at: "2026-11-03T18:00:00Z" })
 
 function renderLobby() {
   // the hook's own query options (retry, refetchInterval) are under test: no test defaults
@@ -451,6 +459,122 @@ describe("useRoomLobby: the host removes or bans a player", () => {
     await waitFor(() => expect(result.current.lobby.room?.password).toBe("9034"))
     await waitFor(() => expect(requestsTo(BANS)).toHaveLength(before.bans + 1))
     await waitFor(() => expect(requestsTo(SHARE)).toHaveLength(before.share + 1))
+  })
+})
+
+describe("useRoomLobby: the host's removed players (ban after removal, 3 November 2026)", () => {
+  it("a kick that went through re-reads the removed players: the host may ban them from there", async () => {
+    // Prepare
+    answer(STATE, () => roomState())
+    answer(BANS, () => [])
+    answer(REMOVALS, () => [])
+    answer(SHARE, () => ({ public_id: "QX7PA", password: "4821" }))
+    answer(KICK, () => {
+      answer(REMOVALS, () => [removed("u2", "Maryam")])
+      return { message: "Player kicked" }
+    })
+    const { result } = renderLobbyAndReads()
+    await waitFor(() => expect(result.current.removals.data).toEqual([]))
+
+    // Act
+    await act(async () => {
+      await result.current.lobby.kickPlayer(maryam)
+    })
+
+    // Assert
+    await waitFor(() => expect(result.current.removals.data).toEqual([removed("u2", "Maryam")]))
+  })
+
+  it("a ban from the roster re-reads the removed players too", async () => {
+    // Prepare
+    answer(STATE, () => roomState())
+    answer(BANS, () => [])
+    answer(REMOVALS, () => [])
+    answer(SHARE, () => ({ public_id: "QX7PA", password: "4821" }))
+    answer(BAN, () => ({ user_id: "u2", username: "Maryam", banned_at: "2026-11-02T18:00:00Z" }))
+    const { result } = renderLobbyAndReads()
+    await waitFor(() => expect(result.current.removals.data).toBeDefined())
+    const before = requestsTo(REMOVALS).length
+
+    // Act
+    await act(async () => {
+      await result.current.lobby.banPlayer(maryam)
+    })
+
+    // Assert
+    await waitFor(() => expect(requestsTo(REMOVALS).length).toBeGreaterThan(before))
+  })
+
+  it.each([
+    [false, { removals: 1, bans: 0 }],
+    [true, { removals: 1, bans: 1 }],
+  ] as const)("the room's word of a removal (banned: %s) re-reads the host's lists (the host's other device)", async (banned, more) => {
+    // Prepare
+    answer(STATE, () => roomState())
+    answer(BANS, () => [])
+    answer(REMOVALS, () => [])
+    answer(SHARE, () => ({ public_id: "QX7PA", password: "4821" }))
+    const { result } = renderLobbyAndReads()
+    await waitFor(() => expect(result.current.removals.data).toBeDefined())
+    await waitFor(() => expect(result.current.bans.data).toBeDefined())
+    const before = { removals: requestsTo(REMOVALS).length, bans: requestsTo(BANS).length }
+
+    // Act
+    act(() => socket.options.at(-1)?.onMemberRemoved?.("u2", banned))
+
+    // Assert
+    await waitFor(() => expect(requestsTo(REMOVALS)).toHaveLength(before.removals + more.removals))
+    await waitFor(() => expect(requestsTo(BANS)).toHaveLength(before.bans + more.bans))
+  })
+
+  it("a removed player back at the table re-reads the removed players (they leave that list); a departure does not", async () => {
+    // Prepare: Maryam was removed; the table is Yusuf and Ali
+    answer(STATE, () => roomState({ players: [player("u1", "Yusuf"), player("u3", "Ali")] }))
+    answer(BANS, () => [])
+    answer(REMOVALS, () => [removed("u2", "Maryam")])
+    answer(SHARE, () => ({ public_id: "QX7PA", password: "4821" }))
+    const { result, queryClient } = renderLobbyAndReads()
+    await waitFor(() => expect(result.current.removals.data).toHaveLength(1))
+    await waitFor(() => expect(result.current.lobby.members).toHaveLength(2))
+    const before = requestsTo(REMOVALS).length
+
+    // Act: Ali leaves (no newcomer: nothing to re-read)
+    act(() => {
+      queryClient.setQueryData(queryKeys.room.state("room-1"), roomState({ players: [player("u1", "Yusuf")] }))
+    })
+    await waitFor(() => expect(result.current.lobby.members).toHaveLength(1))
+    expect(requestsTo(REMOVALS)).toHaveLength(before)
+
+    // Act: Maryam sits down again with the code and PIN
+    answer(REMOVALS, () => [])
+    act(() => {
+      queryClient.setQueryData(queryKeys.room.state("room-1"), roomState({ players: [player("u1", "Yusuf"), player("u2", "Maryam")] }))
+    })
+
+    // Assert
+    await waitFor(() => expect(result.current.removals.data).toEqual([]))
+    expect(requestsTo(REMOVALS)).toHaveLength(before + 1)
+  })
+
+  it("a new PIN in the room state re-reads the removed players (a ban from the host's other device)", async () => {
+    // Prepare
+    answer(STATE, () => roomState())
+    answer(BANS, () => [])
+    answer(REMOVALS, () => [removed("u4", "Bilal")])
+    answer(SHARE, () => ({ public_id: "QX7PA", password: "4821" }))
+    const { result, queryClient } = renderLobbyAndReads()
+    await waitFor(() => expect(result.current.removals.data).toHaveLength(1))
+    const before = requestsTo(REMOVALS).length
+    answer(REMOVALS, () => [])
+
+    // Act: Bilal banned from the other device: a new PIN, the same table
+    act(() => {
+      queryClient.setQueryData(queryKeys.room.state("room-1"), roomState({ password: "9034" }))
+    })
+
+    // Assert
+    await waitFor(() => expect(result.current.removals.data).toEqual([]))
+    expect(requestsTo(REMOVALS)).toHaveLength(before + 1)
   })
 })
 

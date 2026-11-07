@@ -267,6 +267,21 @@ describe("useSocket", () => {
     ])
   })
 
+  it("you_were_kicked for another room is not this page's: the player stays where they are", () => {
+    // Prepare: seated in room-1. The event reaches every socket of the player (it goes to
+    // their personal channel, which a room socket joins too): a removal from a room they had
+    // left away (Remove), or a ban from one they were removed from earlier
+    const onKicked = vi.fn()
+    renderHook(() => useSocket({ roomId: "room-1", enabled: true, onKicked }))
+
+    // Act
+    handlerFor("you_were_kicked")({ room_id: "room-0", banned: false })
+    handlerFor("you_were_kicked")({ room_id: "room-0", banned: true })
+
+    // Assert
+    expect(onKicked).not.toHaveBeenCalled()
+  })
+
   it("member_removed_by_host tells the page which of the host's removals took a seat", () => {
     const onMemberRemoved = vi.fn()
     renderHook(() => useSocket({ roomId: "room-1", enabled: true, onMemberRemoved }))

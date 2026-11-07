@@ -8,9 +8,10 @@ import { answer, requestsTo, resetFakeApi } from "@/components/notebook/__tests_
 /**
  * The lobby's two removals (owner decision, 2 November 2026; WP-29 before it): the host
  * confirms either. A kick (Remove) only takes the seat: nobody is listed as banned and the
- * PIN stays. A ban lists the player with a way back, and the PIN on screen and in the
- * share link is the new one. The activity line says which. The real page and generated
- * hooks over the fake client, the socket down.
+ * PIN stays, and the host finds the player under "Removed", where they may still be banned
+ * (owner request, 3 November 2026). A ban lists the player with a way back, and the PIN on
+ * screen and in the share link is the new one. The activity line says which. The real page
+ * and generated hooks over the fake client, the socket down.
  */
 const router = vi.hoisted(() => ({ navigate: vi.fn() }))
 const toasts = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }))
@@ -39,6 +40,7 @@ const Page = (Route as unknown as { options: { component: ComponentType } }).opt
 
 const STATE = "GET /api/v1/rooms/room-1/state"
 const BANS = "GET /api/v1/rooms/room-1/bans"
+const REMOVALS = "GET /api/v1/rooms/room-1/removals"
 const KICK = "PATCH /api/v1/rooms/room-1/kick"
 const BAN = "POST /api/v1/rooms/room-1/bans"
 const LIFT = "DELETE /api/v1/rooms/room-1/bans/u2"
@@ -73,6 +75,8 @@ const pinTiles = () => screen.getByRole("group", { name: "room.pinLabel" })
 
 beforeEach(() => {
   resetFakeApi()
+  // nobody removed, unless a test says otherwise
+  answer(REMOVALS, () => [])
   router.navigate.mockReset()
   Object.values(toasts).forEach((fn) => fn.mockReset())
 })
@@ -111,12 +115,13 @@ function maryamRow(): HTMLElement {
 const activityLine = () => screen.getByTestId("lobby-activity")
 
 describe("the host removes or bans a player", () => {
-  it("Remove asks first, kicks once, lists no ban, keeps the PIN, and the line says removed", async () => {
+  it("Remove asks first, kicks once, bans nobody, keeps the PIN, lists the player under Removed, and the line says removed", async () => {
     // Prepare
     answer(STATE, () => roomState())
     answer(BANS, () => [])
     answer(KICK, () => {
       answer(STATE, () => roomState({ players: [player("u1", "Yusuf"), player("u3", "Ali")] }))
+      answer(REMOVALS, () => [{ user_id: "u2", username: "Maryam", removed_at: "2026-11-03T18:00:00Z" }])
       return { message: "Player kicked" }
     })
     await renderPage()
@@ -130,11 +135,15 @@ describe("the host removes or bans a player", () => {
     expect(requestsTo(KICK)).toHaveLength(0)
     fireEvent.click(within(confirm).getByRole("button", { name: "room.lobbyPage.kickConfirmAction" }))
 
-    // Assert: one kick and no ban; nobody listed; the PIN is the same; the line says removed
-    await waitFor(() => expect(screen.queryAllByText("Maryam")).toHaveLength(0))
+    // Assert: one kick and no ban; Maryam leaves the table for the host's Removed list (a
+    // Ban there, nobody banned yet); the PIN is the same; the line says removed
+    const removed = await screen.findByRole("region", { name: /room\.lobbyPage\.bans\.removedTitle/ })
+    expect(within(removed).getByText("Maryam")).toBeInTheDocument()
+    expect(within(removed).getByRole("button", { name: "room.lobbyPage.ban" })).toBeInTheDocument()
+    expect(within(screen.getByRole("region", { name: /room\.players/ })).queryByText("Maryam")).toBeNull()
     expect(requestsTo(KICK).map((r) => r.data)).toEqual([{ user_id: "u2" }])
     expect(requestsTo(BAN)).toHaveLength(0)
-    expect(screen.queryByRole("heading", { name: /room\.lobbyPage\.bans\.title/ })).toBeNull()
+    expect(screen.getByText("room.lobbyPage.bans.empty")).toBeInTheDocument()
     expect(pinTiles()).toHaveTextContent("4 8 2 1")
     expect(activityLine()).toHaveTextContent("room.lobbyPage.activityRemoved")
     expect(toasts.error).not.toHaveBeenCalled()

@@ -20,7 +20,7 @@ interface UseSocketOptions {
   gameId?: string | null
   gameType?: "undercover" | "codenames" | "word_quiz" | "mcq_quiz"
   enabled?: boolean
-  /** The host took this player's seat: `banned` false for a kick (Remove), true for a ban. */
+  /** The host took this player's seat in THIS room: `banned` false for a kick (Remove), true for a ban. */
   onKicked?: (roomId: string, banned: boolean) => void
   /** The host took ANOTHER member's seat (`member_removed_by_host`, before the room state that drops it). */
   onMemberRemoved?: (userId: string, banned: boolean) => void
@@ -181,7 +181,11 @@ export function useSocket({ roomId, gameId, gameType, enabled = true, onKicked, 
     socket.on("connect", handleConnect)
     socket.on("disconnect", handleDisconnect)
 
+    // Sent to the player's personal channel, which this room socket joins too: a removal
+    // from ANOTHER room (one they had left away, or a ban after the host removed them)
+    // reaches this page as well, and is not this room's
     socket.on("you_were_kicked", (data: YouWereKicked) => {
+      if (data.room_id !== roomId) return
       onKickedRef.current?.(data.room_id, data.banned === true)
     })
 

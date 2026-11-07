@@ -108,6 +108,8 @@ export type { ListRoomBansApiV1RoomsRoomIdBansGetQueryKey } from "./hooks/useLis
 export type { ListRoomBansApiV1RoomsRoomIdBansGetSuspenseQueryKey } from "./hooks/useListRoomBansApiV1RoomsRoomIdBansGetSuspense.ts";
 export type { ListRoomInvitesApiV1RoomsInvitesGetQueryKey } from "./hooks/useListRoomInvitesApiV1RoomsInvitesGet.ts";
 export type { ListRoomInvitesApiV1RoomsInvitesGetSuspenseQueryKey } from "./hooks/useListRoomInvitesApiV1RoomsInvitesGetSuspense.ts";
+export type { ListRoomRemovalsApiV1RoomsRoomIdRemovalsGetQueryKey } from "./hooks/useListRoomRemovalsApiV1RoomsRoomIdRemovalsGet.ts";
+export type { ListRoomRemovalsApiV1RoomsRoomIdRemovalsGetSuspenseQueryKey } from "./hooks/useListRoomRemovalsApiV1RoomsRoomIdRemovalsGetSuspense.ts";
 export type { LoginApiV1AuthLoginPostMutationKey } from "./hooks/useLoginApiV1AuthLoginPost.ts";
 export type { LogoutApiV1AuthLogoutPostMutationKey } from "./hooks/useLogoutApiV1AuthLogoutPost.ts";
 export type { MrWhiteGuessApiV1UndercoverGamesGameIdMrWhiteGuessPostMutationKey } from "./hooks/useMrWhiteGuessApiV1UndercoverGamesGameIdMrWhiteGuessPost.ts";
@@ -782,6 +784,14 @@ export type {
   ListRoomInvitesApiV1RoomsInvitesGetQuery,
 } from "./types/ListRoomInvitesApiV1RoomsInvitesGet.ts";
 export type {
+  ListRoomRemovalsApiV1RoomsRoomIdRemovalsGetPathParams,
+  ListRoomRemovalsApiV1RoomsRoomIdRemovalsGet200,
+  ListRoomRemovalsApiV1RoomsRoomIdRemovalsGet404,
+  ListRoomRemovalsApiV1RoomsRoomIdRemovalsGet422,
+  ListRoomRemovalsApiV1RoomsRoomIdRemovalsGetQueryResponse,
+  ListRoomRemovalsApiV1RoomsRoomIdRemovalsGetQuery,
+} from "./types/ListRoomRemovalsApiV1RoomsRoomIdRemovalsGet.ts";
+export type {
   LoginApiV1AuthLoginPost200,
   LoginApiV1AuthLoginPost422,
   LoginApiV1AuthLoginPostMutationRequest,
@@ -1005,6 +1015,7 @@ export type { RoomInviteView } from "./types/RoomInviteView.ts";
 export type { RoomJoin } from "./types/RoomJoin.ts";
 export type { RoomLeave } from "./types/RoomLeave.ts";
 export type { RoomPlayerState } from "./types/RoomPlayerState.ts";
+export type { RoomRemovalView } from "./types/RoomRemovalView.ts";
 export type { RoomRiddle } from "./types/RoomRiddle.ts";
 export type { RoomRiddleAnswer } from "./types/RoomRiddleAnswer.ts";
 export type { RoomSettings } from "./types/RoomSettings.ts";
@@ -1685,6 +1696,14 @@ export { listRoomInvitesApiV1RoomsInvitesGetSuspenseQueryKey } from "./hooks/use
 export { listRoomInvitesApiV1RoomsInvitesGetSuspense } from "./hooks/useListRoomInvitesApiV1RoomsInvitesGetSuspense.ts";
 export { listRoomInvitesApiV1RoomsInvitesGetSuspenseQueryOptions } from "./hooks/useListRoomInvitesApiV1RoomsInvitesGetSuspense.ts";
 export { useListRoomInvitesApiV1RoomsInvitesGetSuspense } from "./hooks/useListRoomInvitesApiV1RoomsInvitesGetSuspense.ts";
+export { listRoomRemovalsApiV1RoomsRoomIdRemovalsGetQueryKey } from "./hooks/useListRoomRemovalsApiV1RoomsRoomIdRemovalsGet.ts";
+export { listRoomRemovalsApiV1RoomsRoomIdRemovalsGet } from "./hooks/useListRoomRemovalsApiV1RoomsRoomIdRemovalsGet.ts";
+export { listRoomRemovalsApiV1RoomsRoomIdRemovalsGetQueryOptions } from "./hooks/useListRoomRemovalsApiV1RoomsRoomIdRemovalsGet.ts";
+export { useListRoomRemovalsApiV1RoomsRoomIdRemovalsGet } from "./hooks/useListRoomRemovalsApiV1RoomsRoomIdRemovalsGet.ts";
+export { listRoomRemovalsApiV1RoomsRoomIdRemovalsGetSuspenseQueryKey } from "./hooks/useListRoomRemovalsApiV1RoomsRoomIdRemovalsGetSuspense.ts";
+export { listRoomRemovalsApiV1RoomsRoomIdRemovalsGetSuspense } from "./hooks/useListRoomRemovalsApiV1RoomsRoomIdRemovalsGetSuspense.ts";
+export { listRoomRemovalsApiV1RoomsRoomIdRemovalsGetSuspenseQueryOptions } from "./hooks/useListRoomRemovalsApiV1RoomsRoomIdRemovalsGetSuspense.ts";
+export { useListRoomRemovalsApiV1RoomsRoomIdRemovalsGetSuspense } from "./hooks/useListRoomRemovalsApiV1RoomsRoomIdRemovalsGetSuspense.ts";
 export { loginApiV1AuthLoginPostMutationKey } from "./hooks/useLoginApiV1AuthLoginPost.ts";
 export { loginApiV1AuthLoginPost } from "./hooks/useLoginApiV1AuthLoginPost.ts";
 export { loginApiV1AuthLoginPostMutationOptions } from "./hooks/useLoginApiV1AuthLoginPost.ts";

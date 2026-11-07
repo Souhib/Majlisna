@@ -7,7 +7,7 @@
 
 /**
  * BanPlayerRequest
- * @description ``POST /rooms/{id}/bans``: the seated player to remove and keep out until the host lifts it.
+ * @description ``POST /rooms/{id}/bans``: the player to keep out until the host lifts it — seated (their\nseat goes), or removed by the host and not seated again (``GET /rooms/{id}/removals``).
  */
 export type BanPlayerRequest = {
   /**

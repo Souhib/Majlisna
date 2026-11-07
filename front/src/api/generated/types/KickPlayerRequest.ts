@@ -7,7 +7,7 @@
 
 /**
  * KickPlayerRequest
- * @description ``PATCH /rooms/{id}/kick``: the player to remove (no ban, they may come back).
+ * @description ``PATCH /rooms/{id}/kick``: the player to remove (no ban, they may come back; the host\ncan still ban them afterwards, from ``GET /rooms/{id}/removals``).
  */
 export type KickPlayerRequest = {
   /**

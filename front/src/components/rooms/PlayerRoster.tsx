@@ -1,23 +1,11 @@
-import { Ban, UserMinus } from "lucide-react"
 import { useEffect, useId, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { formatClock, Lozenge } from "@/components/brand"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog"
-import { Button } from "@/components/ui/button"
 import { Panel } from "@/components/ui/panel"
 import { useSeatErase } from "@/hooks/use-seat-erase"
 import { cn } from "@/lib/utils"
 import type { LobbyMember } from "./lobby"
+import { type Removal, RemovalConfirmButton } from "./RemovalConfirmButton"
 
 interface PlayerRosterProps {
   /** Seated members, host first. */
@@ -36,8 +24,7 @@ interface PlayerRosterProps {
   className?: string
 }
 
-/** The row's two removals, and the data attribute each one's button carries (focus moves by it). */
-type Removal = "kick" | "ban"
+/** The data attribute each of the row's two removal buttons carries (focus moves by it). */
 const REMOVAL_ATTRIBUTE: Record<Removal, string> = { kick: "data-remove", ban: "data-ban" }
 
 /**
@@ -54,10 +41,12 @@ const REMOVAL_ATTRIBUTE: Record<Removal, string> = { kick: "data-remove", ban: "
  * ("Remove {{name}} from the room", "Ban {{name}} from the room"). Keep that shape.
  *
  * Kick and ban are two actions (owner decision, 2 November 2026), each behind its own
- * AlertDialog; nothing is sent until its action. Remove is for someone who left without
- * quitting: the dialog says they may come back with the code and PIN, or an invite. Ban
- * is for someone the table does not want back: the dialog says it holds, invites
- * included, until the host lifts it (RoomBans), and that the PIN will change.
+ * AlertDialog (`RemovalConfirmButton`, which RoomBans reuses for a removed player's Ban);
+ * nothing is sent until its action. Remove is for someone who left without quitting: the
+ * dialog says they may come back with the code and PIN, or an invite (and the host can
+ * still ban them afterwards, from RoomBans' "Removed"). Ban is for someone the table does
+ * not want back: the dialog says it holds, invites included, until the host lifts it
+ * (RoomBans), and that the PIN will change.
  *
  * Removing a player takes their row, and the focused button with it: focus then goes to
  * the same button of the next row (or the previous one, or the heading when none is
@@ -155,10 +144,10 @@ export function PlayerRoster({ players, myId, canKick, removingId, onKick, onBan
                   {canKick && !me ? (
                     <div className="flex shrink-0 items-center gap-0.5">
                       {(["kick", "ban"] as const).map((how) => (
-                        <RemoveSeatButton
+                        <RemovalConfirmButton
                           key={how}
                           how={how}
-                          player={player}
+                          name={player.username}
                           busy={removingId === player.id}
                           disabled={removingId != null && removingId !== player.id}
                           onConfirm={() => {
@@ -177,66 +166,5 @@ export function PlayerRoster({ players, myId, canKick, removingId, onKick, onBan
         </ul>
       )}
     </Panel>
-  )
-}
-
-/** Each removal's words (`room.lobbyPage.*`) and icon. */
-const REMOVAL_COPY = {
-  kick: { label: "kick", title: "kickConfirmTitle", body: "kickConfirmBody", action: "kickConfirmAction", Icon: UserMinus },
-  ban: { label: "ban", title: "banConfirmTitle", body: "banConfirmBody", action: "banConfirmAction", Icon: Ban },
-} as const
-
-/**
- * One of the host's two buttons on a row (Remove, then Ban): an icon button that opens its
- * own confirmation, portalled out of the row (E2E clicks the button by name, then the
- * dialog's "Remove" or "Ban"). On close Radix gives focus back to it, and when the row goes
- * the roster moves focus on (see above). Both buttons of the row are busy while either
- * request runs.
- */
-function RemoveSeatButton({
-  how,
-  player,
-  busy,
-  disabled,
-  onConfirm,
-}: {
-  how: Removal
-  player: LobbyMember
-  busy: boolean
-  disabled: boolean
-  onConfirm: () => void
-}) {
-  const { t } = useTranslation()
-  const name = player.username
-  const copy = REMOVAL_COPY[how]
-  return (
-    <AlertDialog>
-      <AlertDialogTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          loading={busy}
-          disabled={disabled}
-          data-remove={how === "kick" ? "" : undefined}
-          data-ban={how === "ban" ? "" : undefined}
-          aria-label={t(`room.lobbyPage.${copy.label}`, { name })}
-          className="shrink-0 text-muted-foreground hover:bg-[color-mix(in_oklch,var(--ember)_10%,transparent)] hover:text-ember aria-busy:[&>svg]:hidden"
-        >
-          <copy.Icon aria-hidden="true" />
-        </Button>
-      </AlertDialogTrigger>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>{t(`room.lobbyPage.${copy.title}`, { name })}</AlertDialogTitle>
-          <AlertDialogDescription>{t(`room.lobbyPage.${copy.body}`, { name })}</AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-          <AlertDialogAction variant="danger" onClick={onConfirm}>
-            {t(`room.lobbyPage.${copy.action}`)}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
   )
 }

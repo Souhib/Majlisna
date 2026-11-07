@@ -145,10 +145,14 @@ function readRoom(raw: unknown): LobbyRoom | undefined {
  *   promises nothing. Another member removed: `member_removed_by_host` names it for the
  *   activity line.
  * - The host's two removals (owner decision, 2 November 2026). A kick (Remove) only takes
- *   the seat: the room state is read again, and nothing else changed. A ban also keeps the
- *   player out and rotates the PIN: the room state, the bans list (RoomBans) and the share
- *   link are read again; a new PIN in the room state does the same, so a ban from the
- *   host's other device reaches this screen's list too.
+ *   the seat: the room state and the host's removed players (RoomBans, "Removed": the host
+ *   may still ban them, owner request of 3 November 2026) are read again. A ban also keeps
+ *   the player out and rotates the PIN: the room state, both of the host's lists and the
+ *   share link are read again; a new PIN in the room state does the same, so a ban from the
+ *   host's other device reaches this screen's lists too. The room's word of a removal
+ *   (`member_removed_by_host`) re-reads the removed players (and the bans, for a ban), and
+ *   so does a newcomer at the table: a removed player who sat down again leaves that list.
+ *   A guest has no such list on screen: an invalidated query nobody watches is not fetched.
  */
 export function useRoomLobby(roomId: string): RoomLobby {
   const { t } = useTranslation()
@@ -218,9 +222,16 @@ export function useRoomLobby(roomId: string): RoomLobby {
 
   // Another member's seat taken by the host (from any device): the room is told which
   // removal it was before the room state that drops the seat, so this line names it too.
-  const noteRemovalByHost = useCallback((userId: string, banned: boolean) => {
-    removalsRef.current.set(userId, banned ? "banned" : "removed")
-  }, [])
+  // The host's lists (RoomBans) follow it: a kick from the host's other device adds a
+  // removed player, a ban (a seat, or a removed player who had none) moves one.
+  const noteRemovalByHost = useCallback(
+    (userId: string, banned: boolean) => {
+      removalsRef.current.set(userId, banned ? "banned" : "removed")
+      void queryClient.invalidateQueries({ queryKey: queryKeys.room.removals(roomId) }, { cancelRefetch: false })
+      if (banned) void queryClient.invalidateQueries({ queryKey: queryKeys.room.bans(roomId) }, { cancelRefetch: false })
+    },
+    [queryClient, roomId],
+  )
 
   const { connected: socketConnected } = useSocket({
     roomId,
@@ -251,7 +262,7 @@ export function useRoomLobby(roomId: string): RoomLobby {
   const gameType: GameType = (isHost && pendingPick) || roomGameType
 
   // A new PIN means a player was banned (the PIN rotates on every ban, from any of the
-  // host's devices; a kick keeps it): the share link and the bans list on screen are stale.
+  // host's devices; a kick keeps it): the share link and the host's lists are stale.
   const pinRef = useRef<string | null>(null)
   const pin = room?.password || null
   useEffect(() => {
@@ -261,7 +272,20 @@ export function useRoomLobby(roomId: string): RoomLobby {
     // a re-read already on its way (the ban's own, just below) is reused, not restarted
     void queryClient.invalidateQueries({ queryKey: queryKeys.room.shareLink(roomId) }, { cancelRefetch: false })
     void queryClient.invalidateQueries({ queryKey: queryKeys.room.bans(roomId) }, { cancelRefetch: false })
+    void queryClient.invalidateQueries({ queryKey: queryKeys.room.removals(roomId) }, { cancelRefetch: false })
   }, [pin, queryClient, roomId])
+
+  // A newcomer at the table may be a removed player back with the code and PIN (or an
+  // invite): the server deleted their removal record, and the host's "Removed" list is stale.
+  // Not on the first state (nobody arrived), nor on a departure.
+  const seatedIdsRef = useRef<ReadonlySet<string> | null>(null)
+  useEffect(() => {
+    const previous = seatedIdsRef.current
+    const seated = new Set(members.map((m) => m.id))
+    seatedIdsRef.current = seated
+    if (!previous || ![...seated].some((id) => !previous.has(id))) return
+    void queryClient.invalidateQueries({ queryKey: queryKeys.room.removals(roomId) }, { cancelRefetch: false })
+  }, [members, queryClient, roomId])
 
   // Reset navigating ref when game ends (active_game_id disappears)
   useEffect(() => {
@@ -372,14 +396,16 @@ export function useRoomLobby(roomId: string): RoomLobby {
       const vars = { room_id: room.id, data: { user_id: member.id } }
       if (kind === "banned") {
         await banMutation.mutateAsync(vars)
-        // the seat, the new PIN (the share link) and the new ban (the host's list)
+        // the seat, the new PIN (the share link) and the host's two lists
         void queryClient.invalidateQueries({ queryKey: queryKeys.room.state(roomId) })
         void queryClient.invalidateQueries({ queryKey: queryKeys.room.shareLink(roomId) })
         void queryClient.invalidateQueries({ queryKey: queryKeys.room.bans(roomId) })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.room.removals(roomId) })
       } else {
         await kickMutation.mutateAsync(vars)
-        // the seat only: a kick changes neither the PIN nor the bans
+        // the seat, and the host's removed players (a kick changes neither the PIN nor the bans)
         void queryClient.invalidateQueries({ queryKey: queryKeys.room.state(roomId) })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.room.removals(roomId) })
       }
     } catch (err) {
       removalsRef.current.delete(member.id)

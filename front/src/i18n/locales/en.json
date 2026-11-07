@@ -450,12 +450,16 @@
       "kickConfirmAction": "Remove",
       "banConfirmTitle": "Ban {{name}}?",
       "banConfirmBody": "{{name}} leaves the room and cannot come back, not even through an invite, until you lift the ban. The PIN changes too: give the new one to anyone still to come.",
+      "banRemovedConfirmBody": "{{name}} cannot come back, not even through an invite, until you lift the ban. The PIN changes too: give the new one to anyone still to come.",
       "banConfirmAction": "Ban",
       "bans": {
         "title": "Banned players",
         "liftBan": "Let {{name}} come back",
         "empty": "No one is banned from this room.",
-        "liftFailed": "The ban was not lifted. Try again."
+        "liftFailed": "The ban was not lifted. Try again.",
+        "removedTitle": "Removed",
+        "removedHint": "They can come back with the code and PIN, or an invite. Ban anyone you don’t want back.",
+        "removedGone": "{{name}} is no longer among the removed players."
       }
     },
     "indexPage": {

@@ -108,6 +108,8 @@ export type { ListRoomBansApiV1RoomsRoomIdBansGetQueryKey } from "./useListRoomB
 export type { ListRoomBansApiV1RoomsRoomIdBansGetSuspenseQueryKey } from "./useListRoomBansApiV1RoomsRoomIdBansGetSuspense.ts";
 export type { ListRoomInvitesApiV1RoomsInvitesGetQueryKey } from "./useListRoomInvitesApiV1RoomsInvitesGet.ts";
 export type { ListRoomInvitesApiV1RoomsInvitesGetSuspenseQueryKey } from "./useListRoomInvitesApiV1RoomsInvitesGetSuspense.ts";
+export type { ListRoomRemovalsApiV1RoomsRoomIdRemovalsGetQueryKey } from "./useListRoomRemovalsApiV1RoomsRoomIdRemovalsGet.ts";
+export type { ListRoomRemovalsApiV1RoomsRoomIdRemovalsGetSuspenseQueryKey } from "./useListRoomRemovalsApiV1RoomsRoomIdRemovalsGetSuspense.ts";
 export type { LoginApiV1AuthLoginPostMutationKey } from "./useLoginApiV1AuthLoginPost.ts";
 export type { LogoutApiV1AuthLogoutPostMutationKey } from "./useLogoutApiV1AuthLogoutPost.ts";
 export type { MrWhiteGuessApiV1UndercoverGamesGameIdMrWhiteGuessPostMutationKey } from "./useMrWhiteGuessApiV1UndercoverGamesGameIdMrWhiteGuessPost.ts";
@@ -594,6 +596,14 @@ export { listRoomInvitesApiV1RoomsInvitesGetSuspenseQueryKey } from "./useListRo
 export { listRoomInvitesApiV1RoomsInvitesGetSuspense } from "./useListRoomInvitesApiV1RoomsInvitesGetSuspense.ts";
 export { listRoomInvitesApiV1RoomsInvitesGetSuspenseQueryOptions } from "./useListRoomInvitesApiV1RoomsInvitesGetSuspense.ts";
 export { useListRoomInvitesApiV1RoomsInvitesGetSuspense } from "./useListRoomInvitesApiV1RoomsInvitesGetSuspense.ts";
+export { listRoomRemovalsApiV1RoomsRoomIdRemovalsGetQueryKey } from "./useListRoomRemovalsApiV1RoomsRoomIdRemovalsGet.ts";
+export { listRoomRemovalsApiV1RoomsRoomIdRemovalsGet } from "./useListRoomRemovalsApiV1RoomsRoomIdRemovalsGet.ts";
+export { listRoomRemovalsApiV1RoomsRoomIdRemovalsGetQueryOptions } from "./useListRoomRemovalsApiV1RoomsRoomIdRemovalsGet.ts";
+export { useListRoomRemovalsApiV1RoomsRoomIdRemovalsGet } from "./useListRoomRemovalsApiV1RoomsRoomIdRemovalsGet.ts";
+export { listRoomRemovalsApiV1RoomsRoomIdRemovalsGetSuspenseQueryKey } from "./useListRoomRemovalsApiV1RoomsRoomIdRemovalsGetSuspense.ts";
+export { listRoomRemovalsApiV1RoomsRoomIdRemovalsGetSuspense } from "./useListRoomRemovalsApiV1RoomsRoomIdRemovalsGetSuspense.ts";
+export { listRoomRemovalsApiV1RoomsRoomIdRemovalsGetSuspenseQueryOptions } from "./useListRoomRemovalsApiV1RoomsRoomIdRemovalsGetSuspense.ts";
+export { useListRoomRemovalsApiV1RoomsRoomIdRemovalsGetSuspense } from "./useListRoomRemovalsApiV1RoomsRoomIdRemovalsGetSuspense.ts";
 export { loginApiV1AuthLoginPostMutationKey } from "./useLoginApiV1AuthLoginPost.ts";
 export { loginApiV1AuthLoginPost } from "./useLoginApiV1AuthLoginPost.ts";
 export { loginApiV1AuthLoginPostMutationOptions } from "./useLoginApiV1AuthLoginPost.ts";

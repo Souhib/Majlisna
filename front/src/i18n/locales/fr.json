@@ -456,12 +456,16 @@
       "kickConfirmAction": "Retirer",
       "banConfirmTitle": "Bannir {{name}} ?",
       "banConfirmBody": "{{name}} quitte le salon et ne pourra pas y revenir, pas même par une invitation, tant que vous n’aurez pas levé le bannissement. Le PIN change aussi : donnez le nouveau à ceux qui doivent encore arriver.",
+      "banRemovedConfirmBody": "{{name}} ne pourra pas revenir dans le salon, pas même par une invitation, tant que vous n’aurez pas levé le bannissement. Le PIN change aussi : donnez le nouveau à ceux qui doivent encore arriver.",
       "banConfirmAction": "Bannir",
       "bans": {
         "title": "Joueurs bannis",
         "liftBan": "Laisser {{name}} revenir",
         "empty": "Personne n’est banni de ce salon.",
-        "liftFailed": "Le bannissement n’a pas été levé. Réessayez."
+        "liftFailed": "Le bannissement n’a pas été levé. Réessayez.",
+        "removedTitle": "Retirés",
+        "removedHint": "Ils peuvent revenir avec le code et le PIN, ou par une invitation. Bannissez ceux que vous ne voulez pas revoir.",
+        "removedGone": "{{name}} n’est plus parmi les joueurs retirés."
       }
     },
     "indexPage": {
