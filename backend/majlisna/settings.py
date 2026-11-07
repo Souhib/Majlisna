@@ -1,11 +1,14 @@
 import json
 import os
+from functools import cache
 from pathlib import Path
 from typing import Annotated
 
 from dotenv import dotenv_values, load_dotenv
-from pydantic import field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+from majlisna.api.constants import BUILD_COMMIT_FILE, BUILD_COMMIT_PATTERN, UNKNOWN_BUILD_COMMIT
 
 
 def _get_env_file() -> tuple[str, ...]:
@@ -23,6 +26,21 @@ def _get_env_file() -> tuple[str, ...]:
     env_file = f".env.{env}"
     load_dotenv(env_file, override=False)
     return (".env", env_file)
+
+
+def is_build_commit(value: str) -> bool:
+    """Whether ``value`` names a commit: exactly 40 lowercase hex digits."""
+    return BUILD_COMMIT_PATTERN.fullmatch(value) is not None
+
+
+@cache
+def _stamped_commit(stamp: Path) -> str:
+    """The commit the image's last build step wrote to ``stamp``, else ``unknown``. Read once per file."""
+    try:
+        stamped = stamp.read_text(encoding="utf-8").strip()
+    except OSError:
+        return UNKNOWN_BUILD_COMMIT
+    return stamped if is_build_commit(stamped) else UNKNOWN_BUILD_COMMIT
 
 
 class Settings(BaseSettings):
@@ -72,12 +90,15 @@ class Settings(BaseSettings):
     # Server
     port: int = 5111
 
-    # The commit this build was made from: `ARG GIT_SHA` in backend/Dockerfile, which
-    # becomes `ENV GIT_SHA`. /health answers it as `version`, and CI's promote job
-    # polls that until it reads the commit it promoted — a Dokploy build that failed
-    # after promote left production 13.7 h behind with every signal green (INFRA-11).
-    # "unknown" when the image was built without the build arg (dev, an old compose).
-    git_sha: str = "unknown"
+    # The commit this build was made from. /health answers it as `version`, the error
+    # tracker gets it as the release, and CI's promote job polls /health until it reads the
+    # commit it promoted — a Dokploy build that failed after promote left production 13.7 h
+    # behind with every signal green (INFRA-11). Either the GIT_SHA variable (`ARG GIT_SHA`
+    # in backend/Dockerfile, which becomes `ENV GIT_SHA`: CI's build arg), or, when that
+    # names no commit, the file the image's last build step wrote (BUILD_COMMIT_FILE: the
+    # commit of Dokploy's clone, which passes no build arg). "unknown" when neither names
+    # one (dev, the E2E stack). See `_resolve_git_sha`.
+    git_sha: str = Field(default=UNKNOWN_BUILD_COMMIT, validate_default=True)
 
     # Frontend
     frontend_url: str = "http://localhost:3000"
@@ -123,6 +144,14 @@ class Settings(BaseSettings):
     # in. Off by default so enabling it is a deliberate choice (requires working
     # SMTP and a tested verification flow, and would lock out unverified accounts).
     require_email_verification: bool = False
+
+    @field_validator("git_sha", mode="after")
+    @classmethod
+    def _resolve_git_sha(cls, value: str) -> str:
+        """The variable when it names a commit, else the build's stamp, else ``unknown``: never anything else."""
+        if is_build_commit(value):
+            return value
+        return _stamped_commit(BUILD_COMMIT_FILE)
 
     @model_validator(mode="after")
     def validate_production_secrets(self) -> "Settings":

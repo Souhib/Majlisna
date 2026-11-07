@@ -47,6 +47,17 @@ describe("index.html: the Umami bootstrap", () => {
   })
 })
 
+describe("index.html: the release stamp", () => {
+  it("carries the majlisna-release meta the image's last build step stamps with the commit", () => {
+    // Prepare: the step that stamps it (front/Dockerfile) and the error reporter that reads it
+    const dockerfile = readFileSync(resolve(process.cwd(), "Dockerfile"), "utf8")
+
+    // Act / Assert: "unknown" until stamped, so a development build sends no release
+    expect(HTML).toContain('<meta name="majlisna-release" content="unknown" />')
+    expect(dockerfile).toContain('<meta name=\\"majlisna-release\\" content=\\"')
+  })
+})
+
 describe("index.html: link previews", () => {
   it("points og:image and twitter:image at the JPEG card, with its type and size", () => {
     // Prepare

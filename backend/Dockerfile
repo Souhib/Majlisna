@@ -6,6 +6,13 @@
 # the one that shipped (INFRA-17). Dependabot (.github/dependabot.yml, "docker") bumps
 # the tag and the digest together.
 
+# The clone's git metadata, read by the last build step below: EMPTY unless the build names
+# a context `gitmeta`. docker-compose.dokploy.yml hands it the repository root, whose
+# .dockerignore lets only .git/HEAD, .git/refs and .git/packed-refs through, so Dokploy's
+# build (no build arg) stamps the commit of its own clone. CI passes `--build-arg GIT_SHA`
+# instead, and the E2E stack neither.
+FROM scratch AS gitmeta
+
 # Stage 1: Base with Python (what every stage, the shipped one included, starts from)
 FROM python:3.12-slim@sha256:aa943ce411423c7582288f18707ff66eddcbaeb510502d747a72aeb34f30d159 AS base
 
@@ -113,9 +120,20 @@ ENV UVICORN_WORKERS=4 \
     FORWARDED_ALLOW_IPS="127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
 
 # The commit this image was built from, answered by /health as `version` (CI's promote
-# job waits for it after a deploy). Declared last so a new commit invalidates no layer.
+# job waits for it after a deploy) and sent as the error tracker's release. Declared last
+# so a new commit invalidates no layer but this step's few bytes.
+#
+# scripts/build-commit.sh writes the first source that names a commit to /app/GIT_SHA: the
+# GIT_SHA build arg (CI's backend-image job), else the clone's git metadata mounted from
+# `gitmeta` (Dokploy, which passes no build arg), else "unknown". The app reads the file
+# when ENV GIT_SHA names no commit (settings.py). As root: the mount keeps the clone's
+# file modes, whatever umask it was checked out with; the file it writes is 0644.
 ARG GIT_SHA=unknown
 ENV GIT_SHA=${GIT_SHA}
+USER root
+RUN --mount=type=bind,from=gitmeta,target=/run/gitmeta \
+    sh /app/scripts/build-commit.sh /run/gitmeta/.git "${GIT_SHA}" > /app/GIT_SHA
+USER appuser
 
 # `exec` replaces the shell with uvicorn, which becomes PID 1 and receives docker
 # stop's SIGTERM. Without it two shells sat in front (the shell-form CMD wrapped this

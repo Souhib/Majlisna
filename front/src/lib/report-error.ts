@@ -11,6 +11,9 @@
  * Callers: the error boundary, and the query and mutation caches (QueryProvider), which
  * skip a 4xx (`isReportableRequestError`): a refusal is the server's verdict, said on the
  * page, not a fault.
+ *
+ * Every event carries the release, the commit the image was built from (`readRelease`), so
+ * the tracker tells which deploy it came from, as the backend's do (settings.git_sha).
  */
 
 /** What a report carries besides the error: where it was caught, and anything that helps. */
@@ -22,12 +25,14 @@ export interface ReportContext {
 
 /** The part of `@sentry/react` this module uses. */
 export interface ErrorTrackerSdk {
-  init: (options: { dsn: string; tracesSampleRate: number }) => unknown
+  init: (options: { dsn: string; release?: string; tracesSampleRate: number }) => unknown
   captureException: (error: unknown, hint?: { tags?: Record<string, string>; extra?: Record<string, unknown> }) => unknown
 }
 
 export interface StartOptions {
   dsn?: string
+  /** The running commit (`readRelease()`); none in a build that names none. */
+  release?: string
   /** How the SDK is fetched (a test passes a fake). */
   loadSdk?: () => Promise<ErrorTrackerSdk>
   /** When to fetch it (a test runs it by hand). Default: after `load`, when the page is idle. */
@@ -41,6 +46,10 @@ const IDLE_TIMEOUT_MS = 5_000
 /** Without requestIdleCallback (Safari), how long after `load` the SDK is fetched. */
 const IDLE_FALLBACK_DELAY_MS = 1_500
 const TRACES_SAMPLE_RATE = 0.1
+/** index.html's meta that the image's last build step stamps with the commit (front/Dockerfile). */
+const RELEASE_META_SELECTOR = 'meta[name="majlisna-release"]'
+/** A commit: exactly 40 lowercase hex digits ("unknown" until the image stamps one). */
+const COMMIT_PATTERN = /^[0-9a-f]{40}$/
 
 type Pending = { error: unknown; context?: ReportContext }
 type Phase = "waiting" | "loading" | "ready" | "off"
@@ -70,6 +79,16 @@ export function reportError(error: unknown, context?: ReportContext): void {
   else console.error(error)
   if (phase === "ready" && sdk) send(sdk, { error, context })
   else if (phase === "waiting" || phase === "loading") enqueue({ error, context })
+}
+
+/**
+ * The release of this build: the commit index.html's `majlisna-release` meta names, which the
+ * image's last build step stamps (front/Dockerfile: the GIT_SHA build arg, else the clone's
+ * git metadata). Undefined for anything but a commit: a development build says "unknown".
+ */
+export function readRelease(page: Document = document): string | undefined {
+  const content = page.querySelector<HTMLMetaElement>(RELEASE_META_SELECTOR)?.content ?? ""
+  return COMMIT_PATTERN.test(content) ? content : undefined
 }
 
 /** A request error worth reporting: anything but a 4xx answer (the server's verdict). */
@@ -109,7 +128,7 @@ function loadSentry(): Promise<ErrorTrackerSdk> {
  * Start reporting. With a DSN: listen for early uncaught errors, then fetch the SDK when the
  * page is idle, initialise it and send the queue. Without one: drop the queue, stay quiet.
  */
-export function startErrorReporting({ dsn, loadSdk = loadSentry, whenIdle = afterLoadWhenIdle }: StartOptions = {}): void {
+export function startErrorReporting({ dsn, release, loadSdk = loadSentry, whenIdle = afterLoadWhenIdle }: StartOptions = {}): void {
   if (phase !== "waiting") return
   if (!dsn) {
     phase = "off"
@@ -122,7 +141,7 @@ export function startErrorReporting({ dsn, loadSdk = loadSentry, whenIdle = afte
   whenIdle(() => {
     loadSdk()
       .then((loaded) => {
-        loaded.init({ dsn, tracesSampleRate: TRACES_SAMPLE_RATE })
+        loaded.init({ dsn, tracesSampleRate: TRACES_SAMPLE_RATE, ...(release ? { release } : {}) })
         // the SDK's global handlers catch uncaught errors from here on
         stopListening()
         sdk = loaded

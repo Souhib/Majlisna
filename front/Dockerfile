@@ -4,6 +4,11 @@
 # digest is what gets pulled, so CI's gate and Dokploy's build run the same bytes.
 # Bump both together (Dependabot does).
 
+# The clone's git metadata, read by the last build step below: EMPTY unless the build names
+# a context `gitmeta` (docker-compose.dokploy.yml hands it the repository root, reduced by
+# its .dockerignore to .git/HEAD, .git/refs and .git/packed-refs). See backend/Dockerfile.
+FROM scratch AS gitmeta
+
 # Stage 1: Build
 FROM oven/bun:1.4.4-alpine@sha256:4cf82f5686b196504fe119db3fcd9185b191f82ece82c40680e597228ec6070a AS build
 
@@ -122,6 +127,27 @@ RUN set -eu; \
     fi; \
     nginx -t; \
     rm /tmp/csp-inline-script-hashes.txt
+
+# The commit this image was built from, stamped into index.html's `majlisna-release` meta;
+# the error tracker's SDK sends it as the release (src/lib/report-error.ts, readRelease).
+# Last, so a new commit reruns this one step and no cached layer before it: a VITE_
+# variable would rebuild the whole bundle on every commit, backend-only ones included.
+# The backend's sources, in the same order (scripts/build-commit.sh): the GIT_SHA build
+# arg, else the clone's git metadata from `gitmeta` (Dokploy), else "unknown". The gzip
+# twin is written again (gzip_static would serve the old one), and a missing meta fails the
+# build rather than shipping an image that stamps nothing.
+ARG GIT_SHA=unknown
+RUN --mount=type=bind,from=gitmeta,target=/run/gitmeta \
+    --mount=type=bind,from=build,source=/app/scripts/build-commit.sh,target=/run/build-commit.sh \
+    set -eu; \
+    release="$(sh /run/build-commit.sh /run/gitmeta/.git "$GIT_SHA")"; \
+    index=/usr/share/nginx/html/index.html; \
+    sed -i "s#\(<meta name=\"majlisna-release\" content=\"\)[^\"]*\"#\1${release}\"#" "$index"; \
+    if ! grep -qF "<meta name=\"majlisna-release\" content=\"${release}\"" "$index"; then \
+        echo "index.html has no majlisna-release meta to stamp"; \
+        exit 1; \
+    fi; \
+    gzip -9 -c "$index" > "$index.gz"
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \

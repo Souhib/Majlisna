@@ -1,4 +1,6 @@
+import re
 from datetime import date
+from pathlib import Path
 
 # Room constants
 ROOM_PASSWORD_LENGTH = 4
@@ -432,3 +434,12 @@ PRODUCTION_DUMP_MAX_AGE_SECONDS = 3600
 PRODUCTION_REFUSAL_EXIT_CODE = 2
 # The address domains of seeded accounts: TEST_USERS (@test.com) and Faker's safe emails.
 SEED_EMAIL_DOMAINS = ("test.com", "example.com", "example.org", "example.net")
+
+# The commit the image was built from (/health `version`, the error tracker's release).
+# The image's last build step writes it to this file (backend/Dockerfile,
+# scripts/build-commit.sh): from the GIT_SHA build arg (CI), else from the clone's git
+# metadata (Dokploy, which passes no build arg). Settings read it when the GIT_SHA variable
+# names no commit. A commit is exactly 40 lowercase hex digits; anything else is unknown.
+BUILD_COMMIT_FILE = Path("/app/GIT_SHA")
+BUILD_COMMIT_PATTERN = re.compile(r"[0-9a-f]{40}")
+UNKNOWN_BUILD_COMMIT = "unknown"

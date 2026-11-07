@@ -138,6 +138,14 @@ services:
       context: ./backend
       dockerfile: Dockerfile
       target: production
+      # The commit, for /health's `version`: Dokploy passes no build arg, so the image's
+      # last build step reads it from the clone's .git, which this named context brings in
+      # (backend/Dockerfile, `gitmeta`). The repository root, reduced by the root
+      # .dockerignore to .git/HEAD, .git/refs and .git/packed-refs; the root and not ./.git
+      # because a context path that does not exist fails the whole build, where a root
+      # without .git only makes the version "unknown".
+      additional_contexts:
+        gitmeta: .
     # An init process as PID 1 forwards SIGTERM to uvicorn and reaps orphans. With the
     # image's exec'd uvicorn and its 15 s graceful shutdown, a stop drains in-flight
     # requests instead of waiting out Docker's 10 s SIGKILL (INFRA-10); 20 s leaves the
@@ -240,6 +248,10 @@ services:
       context: ./front
       dockerfile: Dockerfile
       target: production
+      # The commit, stamped into index.html as the error tracker's release: see the
+      # backend's build above.
+      additional_contexts:
+        gitmeta: .
       args:
         VITE_API_URL: ${VITE_API_URL:-http://<SERVER_IP>:33648}
         VITE_SENTRY_DSN: ${VITE_SENTRY_DSN:-}

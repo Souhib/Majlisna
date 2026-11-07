@@ -1,0 +1,8 @@
+# The repository root is a build context only as `gitmeta`, the named context
+# docker-compose.dokploy.yml hands both images: their last build step reads the commit from
+# the clone's git metadata (backend/scripts/build-commit.sh). Only that metadata goes
+# through; the rest of the checkout stays out of the build.
+*
+!.git/HEAD
+!.git/refs
+!.git/packed-refs

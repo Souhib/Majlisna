@@ -487,11 +487,14 @@ jobs:
       # So wait until the live backend answers the commit (/health `version`, the
       # image's GIT_SHA) and fail red otherwise.
       #
-      # It needs Dokploy to build the backend with the GIT_SHA build arg; until it
-      # does, /health answers "unknown" and this step would always fail. Enable it
-      # once that is wired: repository variable VERIFY_DEPLOYED_VERSION = true
-      # (Settings -> Secrets and variables -> Actions -> Variables).
-      # DEPLOY_HEALTH_URL overrides the URL polled.
+      # Dokploy passes no build arg, so the image reads the commit from the clone's .git
+      # instead: docker-compose.dokploy.yml hands both builds the repository root as the
+      # named context `gitmeta`, and each Dockerfile's last step stamps the commit
+      # (backend/scripts/build-commit.sh; /health answered "unknown" before, and this step
+      # would always have failed). Once a deploy that carries this is live and
+      # https://majlisna.app/health answers a commit, the owner turns the step on:
+      # repository variable VERIFY_DEPLOYED_VERSION = true (Settings -> Secrets and
+      # variables -> Actions -> Variables). DEPLOY_HEALTH_URL overrides the URL polled.
       - name: Wait for production to run the promoted commit
         if: vars.VERIFY_DEPLOYED_VERSION == 'true'
         env:
@@ -516,4 +519,4 @@ jobs:
 
       - name: Deploy verification is off
         if: vars.VERIFY_DEPLOYED_VERSION != 'true'
-        run: echo "::notice title=Deploy not verified::Set the repository variable VERIFY_DEPLOYED_VERSION=true once Dokploy builds the backend with GIT_SHA, so promote waits for /health to answer the promoted commit."
+        run: echo "::notice title=Deploy not verified::Set the repository variable VERIFY_DEPLOYED_VERSION=true once https://majlisna.app/health answers a commit (the image stamps it from Dokploy's clone), so promote waits for /health to answer the promoted commit."

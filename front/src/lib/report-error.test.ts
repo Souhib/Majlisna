@@ -166,4 +166,48 @@ describe("report-error", () => {
     expect(isReportableRequestError(new TypeError("Failed to fetch"))).toBe(true)
     expect(isReportableRequestError(new Error("Cannot read properties of undefined"))).toBe(true)
   })
+
+  it("names the running commit as the release, and no release in a build that names none", async () => {
+    // Prepare: a production image (index.html stamped) and a development build
+    const stamped = await freshModule()
+    const stampedSdk = fakeSdk()
+    stamped.startErrorReporting({ dsn: "https://key@errors.example/10", release: COMMIT, loadSdk: async () => stampedSdk, whenIdle: (run) => run() })
+    const unstamped = await freshModule()
+    const unstampedSdk = fakeSdk()
+    unstamped.startErrorReporting({ dsn: "https://key@errors.example/10", loadSdk: async () => unstampedSdk, whenIdle: (run) => run() })
+
+    // Act
+    await settle()
+
+    // Assert
+    expect(stampedSdk.init).toHaveBeenCalledWith(expect.objectContaining({ dsn: "https://key@errors.example/10", release: COMMIT }))
+    expect(unstampedSdk.init.mock.calls[0][0]).not.toHaveProperty("release")
+  })
+
+  it("reads the release from the page's majlisna-release meta, and only a commit", async () => {
+    // Prepare
+    const { readRelease } = await freshModule()
+
+    // Act / Assert
+    expect(readRelease(pageStamped(COMMIT))).toBe(COMMIT)
+    expect(readRelease(pageStamped("unknown"))).toBeUndefined()
+    expect(readRelease(pageStamped(COMMIT.toUpperCase()))).toBeUndefined()
+    expect(readRelease(pageStamped(COMMIT.slice(0, 7)))).toBeUndefined()
+    expect(readRelease(pageStamped(` ${COMMIT}`))).toBeUndefined()
+    expect(readRelease(pageStamped(null))).toBeUndefined()
+  })
 })
+
+const COMMIT = "146c7ca180e4c1f2a80bb3771b075eae476ae5b5"
+
+/** A page whose index.html the image stamped with `content` (null: no meta at all). */
+function pageStamped(content: string | null): Document {
+  const page = document.implementation.createHTMLDocument("Majlisna")
+  if (content !== null) {
+    const meta = page.createElement("meta")
+    meta.name = "majlisna-release"
+    meta.content = content
+    page.head.append(meta)
+  }
+  return page
+}

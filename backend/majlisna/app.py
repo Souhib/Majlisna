@@ -36,7 +36,7 @@ from majlisna.api.routes.wordquiz import router as wordquiz_router
 from majlisna.api.schemas.error import BaseError, error_response
 from majlisna.api.ws import socketio_app
 from majlisna.database import get_engine as _get_engine
-from majlisna.settings import Settings
+from majlisna.settings import Settings, is_build_commit
 
 
 def _sentry_sink(message) -> None:
@@ -61,12 +61,18 @@ def _sentry_sink(message) -> None:
 
 
 def _configure_observability(settings: Settings, app: FastAPI) -> None:
-    """Set up Sentry and Logfire if configured."""
+    """Set up Sentry and Logfire if configured.
+
+    The tracker's release is the running commit (settings.git_sha, /health's `version`), so
+    Bugsink can tell which deploy an event came from and when a resolved issue regresses;
+    none rather than "unknown" in a build that names no commit.
+    """
     if settings.sentry_dsn:
         sentry_sdk.init(
             dsn=settings.sentry_dsn,
             traces_sample_rate=0.1,
             environment=settings.environment,
+            release=settings.git_sha if is_build_commit(settings.git_sha) else None,
         )
         logger.add(_sentry_sink, level="WARNING", filter=lambda record: "majlisna" in record["file"].path)
 

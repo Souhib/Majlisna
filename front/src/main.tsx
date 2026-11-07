@@ -5,15 +5,16 @@ import "./fonts"
 import { createRouter, RouterProvider } from "@tanstack/react-router"
 import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
-import { startErrorReporting } from "./lib/report-error"
+import { readRelease, startErrorReporting } from "./lib/report-error"
 import { parseSearch } from "./lib/search-params"
 import { routeTree } from "./routeTree.gen"
 import "./index.css"
 import "./i18n"
 
 // The error tracker's SDK is fetched once the page is idle, and only in a build with a DSN;
-// what fails before that is queued (lib/report-error.ts).
-startErrorReporting({ dsn: import.meta.env.VITE_SENTRY_DSN })
+// what fails before that is queued (lib/report-error.ts). The release is the commit the
+// image stamped into index.html.
+startErrorReporting({ dsn: import.meta.env.VITE_SENTRY_DSN, release: readRelease() })
 
 const router = createRouter({
   routeTree,
