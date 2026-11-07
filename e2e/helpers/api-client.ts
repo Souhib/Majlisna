@@ -270,15 +270,17 @@ export async function apiLeaveRoom(roomId: string, userId: string, token: string
 
 /**
  * The host kicks a player ("Remove"): out of the room (and of its game, when one is
- * running), with no ban and the same PIN: they may come back.
+ * running), with no ban and the same PIN: they may come back. The host can still ban them
+ * afterwards (they are listed by apiListRemovals until they sit down again).
  */
 export async function apiKickPlayer(roomId: string, userId: string, hostToken: string): Promise<void> {
   await patchJSON(`/api/v1/rooms/${roomId}/kick`, { user_id: userId }, hostToken);
 }
 
 /**
- * The host bans a player: removed like a kick, kept out (join, spectate, invites) until
- * lifted, their room invites deleted, and a new PIN. Answers the ban (201).
+ * The host bans a player, seated or removed earlier and not seated again: kept out (join,
+ * spectate, invites) until lifted, their room invites deleted, and a new PIN (a seated
+ * player's seat goes, like a kick). Answers the ban (201).
  */
 export async function apiBanPlayer(
   roomId: string,
@@ -294,6 +296,14 @@ export async function apiListBans(
   hostToken: string,
 ): Promise<{ user_id: string; username: string; banned_at: string }[]> {
   return getJSON(`/api/v1/rooms/${roomId}/bans`, hostToken);
+}
+
+/** The players the host removed (a kick) who are neither banned nor seated again, newest first (host only). */
+export async function apiListRemovals(
+  roomId: string,
+  hostToken: string,
+): Promise<{ user_id: string; username: string; removed_at: string }[]> {
+  return getJSON(`/api/v1/rooms/${roomId}/removals`, hostToken);
 }
 
 /** The host's rematch: back to the lobby, the running game (if any) cancelled. */

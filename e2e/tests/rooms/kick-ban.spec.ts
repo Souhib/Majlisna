@@ -6,9 +6,12 @@ import {
   apiBanPlayer,
   apiGetRoomState,
   apiGetShareLink,
+  apiKickPlayer,
   apiListBans,
+  apiListRemovals,
   apiUpdateRoomSettings,
   expectApiError,
+  rawGet,
   rawJoinRoom,
   rawPatch,
   rawPost,
@@ -20,7 +23,10 @@ import { FRONTEND_URL } from "../../helpers/constants";
  * rule (c), under which every kick banned and rotated the PIN).
  *
  * - Remove (a kick) is for someone who left without quitting: the seat goes, and that is
- *   all. No ban, the same PIN: the player sits down again with the same link.
+ *   all. No ban, the same PIN: the player sits down again with the same link. The host's
+ *   lobby lists them under "Removed" until they do, with a Ban: a host who decides
+ *   afterwards that the table does not want them back can still ban them (owner request,
+ *   3 November 2026).
  * - Ban is for someone the table does not want back: the seat goes, the player cannot come
  *   back (not with the old link, not with the new PIN, not as a spectator), the PIN
  *   changes, and the host's lobby lists them under "Banned players" with a way to let
@@ -39,7 +45,12 @@ async function pinOnScreen(page: Page): Promise<string> {
 
 /** A player's row in the host's roster (the E2E row shape PlayerRoster keeps). */
 function rosterRow(page: Page, username: string) {
-  return page.locator(`div.flex.items-center.justify-between:has(span:text-is("${username}"))`);
+  return page.getByRole("region", { name: /^Players/ }).locator(`div.flex.items-center.justify-between:has(span:text-is("${username}"))`);
+}
+
+/** The host's "Removed" group (RoomBans): the players removed and not seated again, each with a Ban. */
+function removedGroup(page: Page) {
+  return page.getByRole("region", { name: /^Removed/ });
 }
 
 /**
@@ -94,7 +105,13 @@ test.describe("Remove, ban and lift", () => {
     expect((await apiGetShareLink(setup.roomId, host.login.access_token)).password).toBe(pin);
     expect(await pinOnScreen(host.page)).toBe(pin);
     expect(await apiListBans(setup.roomId, host.login.access_token)).toEqual([]);
-    await expect(host.page.getByRole("heading", { name: /^Banned players/ })).toHaveCount(0);
+    await expect(host.page.getByRole("heading", { name: "Banned players (0)" })).toBeVisible({ timeout: 15_000 });
+
+    // ...and the host finds them under "Removed", with a Ban for later (a guest sees no such list)
+    await expect(removedGroup(host.page).getByRole("heading", { name: "Removed (1)" })).toBeVisible({ timeout: 15_000 });
+    await expect(removedGroup(host.page).getByRole("button", { name: `Ban ${kickedName} from the room` })).toBeVisible();
+    expect((await apiListRemovals(setup.roomId, host.login.access_token)).map((r) => r.user_id)).toEqual([kicked.login.user.id]);
+    await expect(removedGroup(other.page)).toHaveCount(0);
 
     // Act — the removed player opens the same share link again
     await kicked.page.goto(`${FRONTEND_URL}/rooms/join?code=${code}&pin=${pin}`);
@@ -107,6 +124,64 @@ test.describe("Remove, ban and lift", () => {
     const state = await apiGetRoomState(setup.roomId, host.login.access_token);
     expect(state.players.map((p) => p.user_id)).toContain(kicked.login.user.id);
     expect(state.password).toBe(pin);
+
+    // ...and they leave the host's Removed list: back at the table, nothing to ban from there
+    await expect(removedGroup(host.page)).toHaveCount(0, { timeout: 15_000 });
+    expect(await apiListRemovals(setup.roomId, host.login.access_token)).toEqual([]);
+
+    await setup.cleanup();
+  });
+
+  test("a removed player can still be banned from the Removed list: listed as banned, kept out, and the PIN changes", async ({ browser }) => {
+    // Prepare — three players; the host removes one, who left without quitting
+    const accounts = await generateTestAccounts(3);
+    const setup = await setupRoomWithPlayers(browser, accounts);
+    const [host, removed, other] = setup.players;
+    const code = setup.roomDetails.public_id;
+    const oldPin = setup.roomDetails.password;
+    const removedName = removed.login.user.username;
+    await apiKickPlayer(setup.roomId, removed.login.user.id, host.login.access_token);
+    await expect(removed.page).toHaveURL(/\/rooms$/, { timeout: 15_000 });
+    for (const player of [host, other]) {
+      await expect(player.page.locator("text=Players (2)")).toBeVisible({ timeout: 15_000 });
+    }
+    await expect(removedGroup(host.page).getByText(removedName, { exact: true })).toBeVisible({ timeout: 15_000 });
+
+    // Act — the host decides the table does not want them back: their Ban, then the dialog's
+    await removedGroup(host.page).getByRole("button", { name: `Ban ${removedName} from the room` }).click();
+    const confirm = host.page.getByRole("alertdialog", { name: `Ban ${removedName}?` });
+    await expect(confirm).toContainText("cannot come back, not even through an invite, until you lift the ban");
+    await expect(confirm).toContainText("The PIN changes too");
+    // they already left: the dialog does not say they leave the room
+    await expect(confirm).not.toContainText("leaves the room");
+    await confirm.getByRole("button", { name: "Ban", exact: true }).click();
+
+    // Assert — listed as banned, with its way back, and no longer under Removed
+    await expect(host.page.getByRole("heading", { name: "Banned players (1)" })).toBeVisible({ timeout: 15_000 });
+    await expect(host.page.getByRole("button", { name: `Let ${removedName} come back` })).toBeVisible();
+    await expect(removedGroup(host.page)).toHaveCount(0);
+    expect((await apiListBans(setup.roomId, host.login.access_token)).map((b) => b.user_id)).toEqual([removed.login.user.id]);
+    expect(await apiListRemovals(setup.roomId, host.login.access_token)).toEqual([]);
+
+    // ...the PIN has changed, on the server and on both screens; the table is still two (no seat was taken)
+    const { password: newPin } = await apiGetShareLink(setup.roomId, host.login.access_token);
+    expect(newPin).not.toBe(oldPin);
+    for (const player of [host, other]) {
+      await expect.poll(() => pinOnScreen(player.page), { timeout: 15_000 }).toBe(newPin);
+      await expect(player.page.locator("text=Players (2)")).toBeVisible();
+    }
+    expect((await apiGetRoomState(setup.roomId, host.login.access_token)).players).toHaveLength(2);
+
+    // ...and they cannot come back: not with the old link, not with the new PIN, not as a spectator
+    await removed.page.goto(`${FRONTEND_URL}/rooms/join?code=${code}&pin=${oldPin}`);
+    await expect(removed.page.getByTestId("join-error")).toHaveText("The host banned you from this room.", { timeout: 15_000 });
+    await expectApiError(await rawJoinRoom(code, oldPin, removed.login.access_token), 403, "errors.api.roomBanned");
+    await expectApiError(await rawJoinRoom(code, newPin, removed.login.access_token), 403, "errors.api.roomBanned");
+    await expectApiError(
+      await rawPatch("/api/v1/rooms/join-spectator", { room_id: setup.roomId, password: newPin }, removed.login.access_token),
+      403,
+      "errors.api.roomBanned",
+    );
 
     await setup.cleanup();
   });
@@ -256,6 +331,7 @@ test.describe("Remove, ban and lift", () => {
       403,
       "errors.api.notRoomHost",
     );
+    await expectApiError(await rawGet(`/api/v1/rooms/${setup.roomId}/removals`, guest.login.access_token), 403, "errors.api.notRoomHost");
     expect((await apiGetRoomState(setup.roomId, guest.login.access_token)).players).toHaveLength(3);
     expect(await apiListBans(setup.roomId, setup.players[0].login.access_token)).toEqual([]);
 
