@@ -668,11 +668,11 @@ async def test_a_live_sessions_access_token_opens_a_socket(
 
     # Act
     await _connect_personal("sid-live", tokens.access_token)
-    member_id = await _authenticate_member("sid-live-room", tokens.access_token, room.id)
+    caller = await _authenticate_member("sid-live-room", tokens.access_token, room.id)
 
     # Assert
     sockets.enter_room.assert_awaited_once_with("sid-live", f"user:{member.id}")
-    assert member_id == str(member.id)
+    assert caller.user.id == member.id
 
 
 async def test_authenticate_refuses_a_revoked_session_with_session_revoked(
@@ -715,8 +715,14 @@ async def test_a_socket_opened_before_its_session_ended_is_cut_by_the_next_tick(
     room: Room = await create_room(owner=member)
     tokens = await auth_controller.login(MEMBER_EMAIL, MEMBER_PASSWORD)
     await _connect_personal("sid-personal", tokens.access_token)
-    await _authenticate_member("sid-room", tokens.access_token, room.id)
-    handlers._user_sids[f"{member.id}:{room.id}"] = "sid-room"
+    # The room socket through the real handshake: it records the socket's session (and its
+    # seat) only once it has checked the socket is still there.
+    with (
+        patch.object(handlers, "fetch_room_state", AsyncMock(return_value={})),
+        patch.object(handlers, "fire_notify_room_changed"),
+    ):
+        assert await handlers.connect("sid-room", {}, {"token": tokens.access_token, "room_id": str(room.id)})
+    assert handlers._user_sids == {f"{member.id}:{room.id}": "sid-room"}
     sockets.rooms = Mock(
         side_effect=lambda sid: [sid, f"user:{member.id}"] + ([f"room:{room.id}"] if sid == "sid-room" else [])
     )

@@ -95,11 +95,11 @@ async def test_the_new_owner_of_the_address_still_connects(
 
     # Act
     await _connect_personal("sid-b", token)
-    member_id = await _authenticate_member("sid-b2", token, b_room.id)
+    member = await _authenticate_member("sid-b2", token, b_room.id)
 
     # Assert
     mock_sio.enter_room.assert_awaited_once_with("sid-b", f"user:{b.id}")
-    assert member_id == str(b.id)
+    assert member.user.id == b.id
 
 
 @pytest_asyncio.fixture(name="seated")
@@ -149,7 +149,7 @@ async def test_member_connect_accepts_the_access_token_of_the_same_member(
     access = auth_controller.create_access_token(str(user.id), user.email_address)
 
     # Act
-    member_id = await _authenticate_member("sid-a", access, room_id)
+    member = await _authenticate_member("sid-a", access, room_id)
 
     # Assert
-    assert member_id == str(user.id)
+    assert member.user.id == user.id

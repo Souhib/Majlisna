@@ -510,6 +510,7 @@ async def mark_user_disconnected(session: AsyncSession, user_id: str, room_id: s
 
     True when it flipped a connected link: only then is there news for the room. An
     already-away link (the sweep marked it, and broadcast it) or a removed seat is not.
+    The seat is read FOR UPDATE, like ``update_heartbeat``'s (see there).
     """
     link = (
         await session.exec(
@@ -517,6 +518,8 @@ async def mark_user_disconnected(session: AsyncSession, user_id: str, room_id: s
             .where(RoomUserLink.room_id == UUID(room_id))
             .where(RoomUserLink.user_id == UUID(user_id))
             .where(RoomUserLink.connected == True)  # noqa: E712
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
     ).first()
     if not link:
@@ -535,12 +538,21 @@ async def update_heartbeat(session: AsyncSession, user_id: str, room_id: str) ->
     ``RESTORED`` is what the handler must announce to the room (BDP-04): the connect
     used to answer the room state to the returning socket alone, and the heartbeat
     answered nothing, so everyone else kept seeing the player away.
+
+    The seat is read FOR UPDATE: a leave, a kick or the sweep deleting it between this
+    read and the write below now waits for this commit (milliseconds; this transaction
+    holds that one row and waits on nothing else). Read plainly, the deletion could commit
+    first, and the flush's UPDATE matched no row: ``StaleDataError``, logged with its
+    traceback at WARNING by the Socket.IO handlers, so sent to the error tracker
+    (``tests/api/controllers/test_presence_writes_postgres.py``).
     """
     link = (
         await session.exec(
             select(RoomUserLink)
             .where(RoomUserLink.room_id == UUID(room_id))
             .where(RoomUserLink.user_id == UUID(user_id))
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
     ).first()
     if not link:
