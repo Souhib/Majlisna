@@ -124,7 +124,8 @@ the word kept in the Kunnash. Signed-out visitors see hint 1; playing needs an a
 
 **Rooms and social:** lobby with roster, settings and chat (newest 50 messages); host kick (Remove:
 the seat goes, the player may come back with the code and PIN or an invite) and ban (kept out
-of that room, invites included, until the host lifts it; the PIN changes at every ban)
+of that room, invites included, until the host lifts it; the PIN changes at every ban; a
+removed player who has not come back can still be banned from the host's list)
 and automatic host transfer (a player is preferred over a spectator); one room at a time; friend requests and in-room
 invites; share links; public player profiles with head-to-head records; a public leaderboard.
 
@@ -210,9 +211,13 @@ Prophet names use Arabic transliteration (Yunus, not Jonah).
 - **Imagery:** no women and no faces as imagery (owner explicit). Landscapes, architecture,
   textiles and hands at most. The one exception is the creator's own portrait on About (owner
   decision, 2026-10-28).
-- **Existing marks:** there is no logo. The favicon and app icon are the 🕌 emoji (on a `#2d6a4f`
-  square for the PWA icon), and the nav and footer mark is a generic open-book icon. Nothing here
-  is a binding asset *(inferred — confirm that nothing must be preserved)*.
+- **Existing marks:** the wordmark مجلسنا (Reem Kufi 700, its lām–sīn kashida stretched into a
+  woven madder band; frozen outlines in `front/src/assets/brand/`) and, since 2026-11-03, the mark:
+  the Mīm (مـ). It is the wordmark's first letter: its loop the halqa, its counter the nuqṭa
+  lozenge, its kashida the band with the madder thread. The owner chose it among three concepts.
+  It is the favicon and the app/PWA icon, replacing the halqa picture (eight lozenge seats on a
+  ring). The nav and footer show the wordmark lockup, not the mark. No trademark search has been
+  made. Masters, lockups and usage guide: `docs/brand/mim/`.
 
 ## Evidence on Hand
 
@@ -244,11 +249,20 @@ Absences that future work must not fill with invented material:
 - No testimonials, player counts, community size, ratings, press or partner logos. Do not invent
   them, and do not present E2E test accounts (`e2e-…` usernames) or seed users as real players.
 - No photographs of real play sessions or real users, apart from the creator's portrait.
-- No terms page. A privacy policy exists (`/privacy`, linked from the footer and from Google's
+- A privacy policy exists (`/privacy`, linked from the footer and from Google's
   consent screen): it names the emails, Google sign-in, Umami and the self-hosted error tracker
   (once one is configured), and the location
   services the browser calls (ipapi.co, Open-Meteo, Nominatim). It states only what the code
   does; it is not a legal review.
+- Terms of use exist since 3 November 2026 (`/terms`, owner request; linked from the footer
+  beside the privacy policy, from the privacy policy, and from the sign-up page's sentence
+  under the form, without a checkbox). They state only what the code and this file hold: a
+  free service run by one person, accounts, fair play and conduct, the host's Remove and Ban
+  as the only moderation tools (the admin access of `ADMIN_EMAILS` covers game content only),
+  religious content that is not a fatwa and has **not** been reviewed by scholars, account
+  deletion, availability "as it is". They are not a legal review: no governing law,
+  jurisdiction, minimum age, company, address, liability cap or arbitration until the owner
+  decides them (a test in `terms-page.test.tsx` holds that line).
 - No new Qur'an verse, hadith or scholarly quotation may be added to the interface without a
   source the owner has checked. Existing religious text must keep its attribution.
 

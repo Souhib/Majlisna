@@ -107,6 +107,7 @@ src/
 │   ├── today.tsx            # The word of the day (public; components/daily)
 │   ├── credits.tsx          # Image, font and icon attribution (CC BY-SA credits live here)
 │   ├── privacy.tsx          # Privacy policy (Read page; text in `privacy.sections`, kept true to the code)
+│   ├── terms.tsx            # Terms of use (the same Read page, components/about/LegalPage; `terms.sections`)
 │   ├── about.tsx            # About + "How the games play" (components/about/GameRules, ids #undercover #codenames #kalimat #quiz)
 │   └── auth/
 │       ├── login.tsx        # Login form
@@ -151,10 +152,16 @@ Phase transitions detected by comparing refs to previous state (`previousPhaseRe
 - Auto-navigate when `active_game_id` appears (stores `roomId` in SessionStorage for game page)
 - Leave room via REST `PATCH /api/v1/rooms/leave`
 - The host's two removals (owner decision, 2 November 2026; `useRoomLobby.kickPlayer` /
-  `banPlayer`). A kick (`PATCH /rooms/{id}/kick`) re-reads the room state only: it changes
-  neither the PIN nor the bans. A ban (`POST /rooms/{id}/bans`) re-reads the room state, the bans
-  list (`queryKeys.room.bans`) and the share link (`queryKeys.room.shareLink`); a new PIN in
-  `room_state` re-reads the last two as well (a ban from the host's other device). `removingId`
+  `banPlayer`). A kick (`PATCH /rooms/{id}/kick`) re-reads the room state and the host's removed
+  players (`queryKeys.room.removals`, `GET /rooms/{id}/removals`: the host may still ban them,
+  owner request of 3 November 2026); it changes neither the PIN nor the bans. A ban
+  (`POST /rooms/{id}/bans`) re-reads the room state, both of the host's lists
+  (`queryKeys.room.bans`, `.removals`) and the share link (`queryKeys.room.shareLink`); a new PIN
+  in `room_state` re-reads the last three as well (a ban from the host's other device). The
+  room's `member_removed_by_host` re-reads the removed players (and the bans, for a ban), and so
+  does a newcomer in `room_state` (a removed player who sat down again leaves that list; the
+  first state and a departure re-read nothing). An invalidated list no one watches (a guest's
+  screen) is not fetched. `removingId`
   is the seat being removed (either kind); `removals` names the seats the host took
   ("removed" / "banned"): from this screen, noted before the request (the route pushes the room
   state before it answers) and dropped when it fails; from the room, `member_removed_by_host`
@@ -732,7 +739,8 @@ removes those two from the production bundle, they still print in dev, and `cons
 
 - **One door**: `reportError(error, { source, extra })` says the error in the console and
   sends it through the Sentry SDK to the self-hosted, Sentry-compatible tracker (Bugsink on
-  the host; production builds have no `VITE_SENTRY_DSN` yet, so today nothing is sent). Callers: `ErrorBoundary`, and
+  the host, project `majlisna-front`; production builds get its DSN as the `VITE_SENTRY_DSN`
+  build arg since 2 November 2026, root CLAUDE.md "Monitoring tools"). Callers: `ErrorBoundary`, and
   `QueryProvider`'s `QueryCache`/`MutationCache` `onError`, which skip a 4xx
   (`isReportableRequestError`: the server's verdict, said on the page). A network failure
   or a 5xx is reported.
@@ -742,6 +750,16 @@ removes those two from the production bundle, they still print in dev, and `cons
   unhandled rejections wait in a queue (`MAX_QUEUED_REPORTS`); then the SDK's own handlers
   take over. Without a DSN nothing is downloaded. Never import `@sentry/react` statically:
   `check:bundle` fails if the SDK lands in the entry.
+- **Every event carries the release, the deployed commit** (3 November 2026):
+  `startErrorReporting({ dsn, release: readRelease() })`. `readRelease` reads index.html's
+  `<meta name="majlisna-release">` and answers only 40 lowercase hex digits (else undefined,
+  and `init` gets no `release`). index.html ships `content="unknown"`; the image's LAST step
+  (`front/Dockerfile`) stamps the commit with `scripts/build-commit.sh` (the `GIT_SHA` build
+  arg, else Dokploy's clone through the `gitmeta` named context, else `unknown`) and rewrites
+  `index.html.gz`. Not a `VITE_*` variable on purpose: that would rebuild the whole bundle on
+  every commit, backend-only ones included; the stamp step reruns alone. Tests:
+  `lib/report-error.test.ts`, `src/__tests__/index-html.test.ts`, and
+  `backend/tests/api/test_build_commit.py` for the script and the Dockerfile step.
 - **`ErrorBoundary` resets when the page changes** (FR-10). The exported component reads the
   router's *resolved* location (`useRouterState`), not `useLocation`: the address changes
   before the new page's matches render, so a reset on it drew the crashed page again and
@@ -957,6 +975,8 @@ body[] }`, the same number of sections and paragraphs in the three locales: the 
 arrays): one paragraph reads as a paragraph, several as a list behind brass lozenges. Strings may
 carry `<b>` (an item's lead term) and `<profile>` (link to /profile). Test:
 `components/about/__tests__/privacy-page.test.tsx` (every section of each locale is rendered).
+The page is `components/about/LegalPage` (`ns="privacy"`), shared with the terms of use; under
+its contact line, `privacy.seeTerms` links /terms.
 
 The policy describes the code as it is (checked 2026-10-28), so **a change to any flow it names
 changes its text**, in the three languages, with a new "updated" date:
@@ -987,9 +1007,37 @@ changes its text**, in the three languages, with a new "updated" date:
   once one is configured (`VITE_SENTRY_DSN`, for the Bugsink on the host; there is no
   GlitchTip, corrected 2026-10-30);
   Resend, Cloudflare, Oracle Cloud;
-- what other players see (public stats, achievements and leaderboard; the profile for signed-in
-  players), the notebook, the word of the day, chat, and what account deletion removes (and that
-  past games keep the name a player played under).
+- what other players see (public stats, achievements and leaderboard; the public profile, i.e.
+  the username, the bio and the games played, for anyone, signed in or not: `GET
+  /profiles/users/{id}` takes no token and `routes/players/$userId.tsx` is outside `_auth`; the
+  country and the picture for signed-in players only, `GET /users/{id}`;
+  `privacy.sections[4].body[0]`, corrected 2026-11-07: it said signed-in players only), the
+  notebook, the word of the day, chat, and what account deletion removes (and that past games
+  keep the name a player played under).
+
+### Terms of use
+
+`routes/terms.tsx` (owner request, 3 November 2026) is the same Read page as the privacy policy:
+`<LegalPage ns="terms" />`, text in `terms.*` (`title`, `updated`, `intro`, `sections`,
+`contact`), marks `<b>`, `<profile>`, `<privacy>`, `<terms>` (`LegalText`, with
+`shouldUnescape`: Trans turns a "<" that opens no known mark into "&lt;", and the username rule
+lists `@ / \ < >`). Linked from the footer (right after the privacy policy), from the privacy
+page, and from the sign-up page: `auth.acceptTerms`, one sentence under the form and the Google
+button ("By creating an account, you accept the terms of use and the privacy policy"), no
+checkbox. The document title is `terms.title` (`lib/route-title`).
+
+The terms state only what the code and PRODUCT.md hold, so **a change to one of these changes
+them**, in the three languages, with a new "updated" date: the password minimum and the
+username rules (`components/auth/validation`; the test reads its constants), the host's Remove
+and Ban (the only moderation tools), what the `ADMIN_EMAILS` access covers (game content:
+words, word packs, challenges; nothing that suspends an account), what account deletion
+removes (the same list as `privacy.sections[8]`), who sees the username and the bio (anyone, as
+in `privacy.sections[4]`: `terms.sections[5]`), and the religious-content line (not a fatwa,
+**not** reviewed by scholars: never claim a review). No governing law, jurisdiction, minimum
+age, company, address, liability cap or arbitration until the owner decides them
+(`terms-page.test.tsx` fails on those words in English). Tests:
+`components/about/__tests__/terms-page.test.tsx`, `routes/auth/-tests/register-terms.test.tsx`,
+the footer and privacy-page tests.
 
 ### `/auth/me` says `email_address`, `UserData` says `email`
 
@@ -1013,7 +1061,11 @@ any reload `user.email` was `undefined` and the profile showed no address. It go
   still seated. The lobby's polling fallback (the seat gone from the state, no event) notes
   "removed" (`room.youWereRemoved`, "the host removed you"): it cannot tell a kick from a ban,
   so it promises nothing ("kicked" says they may join again, false for a ban). A ban then
-  shows on the next join as the server's 403.
+  shows on the next join as the server's 403. **Only for the page's own room**: the event goes to
+  the player's personal channel (`user:{id}`), which every room socket joins too, so `useSocket`
+  drops a `you_were_kicked` whose `room_id` is not its room. Without it, a kick from a room the
+  player had left away (Remove is for exactly that), or the ban of a removed player, sent them
+  out of the room they were in now.
 - **A page driven by `useViewTransitionValue` draws the shown phase from `useHeldForPhase`.** The
   transition value lags the server by one render (the browser snapshots the old phase), and in
   that render the page would otherwise draw the OLD phase with the NEW state: "The answer was"
@@ -1284,13 +1336,27 @@ PNG, from every game's colophon (`ColophonActions`) and the word of the day's re
   invite; Ban's that they cannot, not even through an invite, until the host lifts the ban, and
   that the PIN changes. Nothing is sent before the dialog's "Remove" or "Ban". After either, focus
   goes to the same button of the next row (`data-remove` / `data-ban`). E2E clicks the row's
-  button by its name, then the dialog's action.
+  button by its name, then the dialog's action. The button and its dialog are one component,
+  `RemovalConfirmButton` (`components/rooms/RemovalConfirmButton.tsx`), which RoomBans reuses.
 - **The banned players, for the host only** (`components/rooms/RoomBans.tsx`, under the
-  roster, "Banned players"; a kick is not listed): `GET /rooms/{id}/bans`, each row with "Let
-  {{name}} come back" (`DELETE`, one request per tap, a 404 read as already lifted). No panel
-  while nobody was banned; once shown it stays,
-  so lifting the last ban leaves `room.lobbyPage.bans.empty` with focus on its title. A failed
-  read is `LoadFailed`, never the empty line. A guest renders nothing and asks nothing.
+  roster, "Banned players"; a kick is not listed there): `GET /rooms/{id}/bans`, each row with
+  "Let {{name}} come back" (`DELETE`, one request per tap, a 404 read as already lifted). Under
+  it, the **"Removed" group** (ban after removal, owner request, 3 November 2026; an `h3` in a
+  `section` named by it, "Removed (N)", with a one-line hint): `GET /rooms/{id}/removals`, the
+  players the host removed who are neither banned nor seated again, newest first, each with the
+  roster's own Ban (`RemovalConfirmButton`, its dialog's text `banRemovedConfirmBody`: they
+  already left, so it does not say they leave the room). A ban there moves the row to the banned
+  list at once (the answer is the ban), re-reads both lists, the room state and the share link
+  (the new PIN); a 404 `userNotInRoom` (back at the table, or banned from another device) is
+  `room.lobbyPage.bans.removedGone` in a toast.info, never the server's "You are not in this
+  room.". The group shows only while it lists someone or failed to load (its own `LoadFailed`).
+  No panel while nobody was banned or removed; once shown it stays,
+  so lifting the last ban leaves `room.lobbyPage.bans.empty` with focus on its title. One action
+  at a time across the panel; after one, focus goes to the same button of the next row of that
+  list, else to the panel's title (where a banned removed player went). A failed read is
+  `LoadFailed`, never the empty line. A guest renders nothing and asks nothing. E2E: a Removed
+  row has the roster's row shape, so `kick-ban.spec.ts` scopes the roster's rows to its region
+  ("Players (N)").
 - **The PIN on screen is the room state's.** The code tiles and the Share link read
   `room_state.password`, which a ban rotates: a link copied before a ban no longer works (one
   copied before a kick still does).

@@ -25,7 +25,7 @@ lozenge is the only geometry.
 | View Transitions helper | `front/src/lib/view-transition.ts` |
 | UI primitives | `front/src/components/ui/*` |
 | Brand components | `front/src/components/brand/*` (barrel: `@/components/brand`) |
-| Frozen wordmark, app icon, colophon photo, credits | `front/src/assets/brand/` (`SOURCES.txt`), `front/public/favicon.svg` |
+| Frozen wordmark, the mark (the Mīm: app icon, favicon), colophon photo, credits | `front/src/assets/brand/` (`SOURCES.txt`), `front/public/favicon.svg` |
 | Band SVG files | `front/src/assets/sadu/*.svg` |
 | Shell (nav, menu sheet, footer) and home CSS | `front/src/styles/shell.css`, `front/src/styles/home.css` (imported from `index.css`, `@layer components`) |
 | Nav, footer, language switch, theme toggle | `front/src/components/layout/*` |
@@ -177,7 +177,7 @@ same role (`html[dir=rtl]` scales rem by 110 %).
   (`side="end"`), whose page links add the word of the day (`/today`) after Play. Breakpoint visibility is done with Tailwind classes in the markup, never in
   shell.css (a utility in a later layer would beat it).
 - **Footer** (`layout/footer.tsx`): a quiet colophon (lockup, one line, pages incl. `/today`,
-  `/credits` and `/privacy`,
+  `/credits`, `/privacy` and `/terms`,
   the two charities (not on `/` nor `/about`, whose own sections name them), the maker, small
   print).
   Not rendered on `/game/*`.
@@ -189,7 +189,11 @@ same role (`html[dir=rtl]` scales rem by 110 %).
   brass rule, then one hairline-separated section per `privacy.sections` entry (title on the
   start rail in `type-title` 24 px, text at ≤ 60 ch in `type-body`; several paragraphs read as
   a list behind 6 px brass lozenges set one line high, lead terms in Readex 500), the contact
-  address in brass at the end.
+  address in brass at the end. The **terms of use** (`routes/terms.tsx`, `terms.sections`) are
+  the same page (`components/about/LegalPage`): the policy links them under its contact line,
+  they link the policy from their "Your data" section. The
+  sign-up page names both in one 14 px muted sentence under the Google button, its two links
+  underlined in brass, never a checkbox.
 - **How the games play** (`components/about/GameRules.tsx`, on `/about`): one block per game
   with the ids `undercover`, `codenames`, `kalimat`, `quiz`, the targets of the fihrist's
   "How it plays" links; `scroll-margin` clears the sticky nav.
@@ -218,7 +222,7 @@ same role (`html[dir=rtl]` scales rem by 110 %).
 
 | Component | Where | What it is |
 |---|---|---|
-| `PlayerRoster` | `components/rooms/PlayerRoster.tsx` | The real list behind the halqa (the ring is a picture): "Players (N)", one row per seat with its state lozenge, the full name, the host's Remove and Ban (two icon buttons, `UserMinus` then `Ban`, each behind its own `AlertDialog`, danger action, never a red fill: Remove — a kick — says the player may come back with the code and PIN or an invite; Ban says they cannot, invites included, until the host lifts it, and that the PIN changes). The host's banned players are `RoomBans` under it (no panel while nobody was banned; "Let {{name}} come back" per row). An away seat says how long it is kept ("away · 9:58", on the ring and in the legend too), counted down from the server's `away_seconds_left`, and recedes (ERASE, §7; restored when the player is back). Seats keep first-seen order (`stableOrder`, `rooms/lobby.ts`). Arrivals and departures (and, on every member's screen, whom the host removed or banned) are a status line, never toasts. E2E reads its exact row shape. |
+| `PlayerRoster` | `components/rooms/PlayerRoster.tsx` | The real list behind the halqa (the ring is a picture): "Players (N)", one row per seat with its state lozenge, the full name, the host's Remove and Ban (two icon buttons, `UserMinus` then `Ban`, each behind its own `AlertDialog`, danger action, never a red fill: Remove — a kick — says the player may come back with the code and PIN or an invite; Ban says they cannot, invites included, until the host lifts it, and that the PIN changes). The host's banned players are `RoomBans` under it ("Let {{name}} come back" per row), with a "Removed" group (a `type-label` `h3` and a `type-meta` hint) listing the players the host removed who are neither banned nor seated again, each with the roster's own Ban and dialog (`RemovalConfirmButton`; its text drops "leaves the room": they already left), so a removal can still become a ban (owner request, 3 November 2026); no panel while nobody was banned or removed. An away seat says how long it is kept ("away · 9:58", on the ring and in the legend too), counted down from the server's `away_seconds_left`, and recedes (ERASE, §7; restored when the player is back). Seats keep first-seen order (`stableOrder`, `rooms/lobby.ts`). Arrivals and departures (and, on every member's screen, whom the host removed or banned) are a status line, never toasts. E2E reads its exact row shape. |
 | `Lawh` | `components/games/undercover/Lawh.tsx` | The tablet that carries a word. At rest bare warp + a brass seal, the word NOT in the DOM; press and hold (pointer, Space/Enter) fills the seal's ring (240 ms) and writes the word in its reading direction; letting go fades it (a fade, never a sweep: some words are sacred names). "I can't hold: show until I hide it" pins it open. Same tablet for every role: Civilians and Undercovers are not told their side; Mr. White's says he has no word. Roles show on elimination (`Verdict`: the turned tablet, the role's band at its foot, turned over once when the vote resolves on screen, §7) and at game over. |
 | `ScoreBands` | `components/games/mcqquiz/ScoreBands.tsx` | The Quiz's rule as a picture: +3 first quarter of the clock, +2 middle half, +1 last quarter (`bandFor`, mirrors the server). Before answering, the current band is brass and says "now"; once locked, a thread runs to the moment you answered with a lozenge on it ("locked in at 0:09", the server's `my_answer_time_ms` once revealed). A sentence says the same for screen readers. At the reveal each choice says how many chose it (`choice_tallies`: "1 player", "you and 2 others", "+2 · you"). |
 | `LastRoundCard` | `components/games/wordquiz/LastRoundCard.tsx` | Kalimat, under the answer row: "Last round · Maryam wrote زكريّا · right at hint 5 · +5", from the results phase (`typed_answer`), kept in the tab for a reload. Arabic in Aref Ruqaa. The header names the theme ("Round 3 of 7 · a prophet", `category`). |
@@ -485,6 +489,16 @@ Grammar (from the motion playbook): one place (the circle), three gestures (writ
   CC BY-SA 4.0 credit come with the home work.
 - Game-over: the arch over the Jabreen duotone (CC BY-SA 2.0, credit in `SOURCES.txt`). The word
   of the day's reveal is the same colophon in the same arch.
+- The mark is the Mīm (owner's choice, 2026-11-03): مـ, the wordmark's first letter in its Kufi,
+  joining to the LEFT into the name. Its loop is the halqa's circle, its counter the nuqṭa (a
+  lozenge), its kashida the band with the wordmark's madder thread (`#b0402c`). It is the favicon
+  (the small cut: one colour, no thread, brass `#e3b56b` on the `#1d1613` tile) and the app and
+  PWA icons (brass and thread on the same tile). The nav and footer keep the wordmark `Lockup`:
+  the name already opens with this mīm, and the two side by side would read «م مجلسنا». The lobby
+  keeps the `Halqa` ring, achievements the `Seal`. Never mirror it (it would join to the right),
+  never set it to the left of the Arabic name, keep one nuqṭa of air around it (the counter's
+  diagonal); the thread is madder only, and the small cut has none. Masters, lockups, the usage
+  guide and the generator: `docs/brand/mim/`.
 - NEVER: floating decorative objects (lantern, dallah, stars, ornaments), collage heroes, photos
   in the games list, women or faces (the creator's portrait on About is the one exception, owner
   decision), Qur'anic text or the name of Allah as decoration, crescents,

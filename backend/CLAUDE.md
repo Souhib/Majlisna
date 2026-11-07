@@ -83,6 +83,7 @@ api/
 │   ├── daily_word.py  # DailyWord (one QuizWord per Makkah day) + DailyWordPlay (one per user per day)
 │   ├── room_ban.py    # RoomBan: a BANNED player may not come back to that room until lifted (a kick writes none)
 │   ├── room_invite.py # RoomInvite: a friend's invite, stored, accepted by id without the PIN
+│   ├── room_removal.py # RoomRemoval: the host removed (kicked) a player, who may still be banned without a seat
 │   ├── auth_session.py # AuthSession (the tokens' `sid`) + revoke_user_sessions (SEC F01)
 │   ├── stats.py       # UserStats, AchievementDefinition, UserAchievement
 │   ├── error.py       # Game-specific error classes
@@ -286,12 +287,14 @@ so it had become a ban; the owner wants both).
 - **Kick** ("Remove"): `PATCH /api/v1/rooms/{room_id}/kick` `{user_id}` →
   `KickPlayerResponse`. For someone who left without quitting. `kick_player` checks host only
   (`NotRoomHostError`), never yourself (`CannotKickYourselfError`), a seat
-  (`UserNotInRoomError`), then runs `_handle_permanent_disconnect` — and that is all: no
+  (`UserNotInRoomError`), writes the removal record (`_record_removal`, below), then runs
+  `_handle_permanent_disconnect`, whose commit carries the record — and that is all: no
   `RoomBan`, the PIN unchanged, every invite left as it was (theirs, and those to them). They
   come back with the same code and PIN, or through an invite, and members may invite them.
 - **Ban**: `POST /api/v1/rooms/{room_id}/bans` `{user_id}` (`BanPlayerRequest`) → 201
   `RoomBanView` (a resource of the bans collection, beside its `GET` and the lift's
-  `DELETE /{room_id}/bans/{user_id}`). Same checks (`CannotBanYourselfError`, 400). Everything a
+  `DELETE /{room_id}/bans/{user_id}`). Same checks (`CannotBanYourselfError`, 400), except that
+  the target is seated OR has a removal record (ban after removal, below). Everything a
   kick does, plus, staged before the departure so its single commit carries them: a `RoomBan`
   (`_insert_ban`, `ON CONFLICT DO NOTHING` on the pair, `banned_by` = the host), the room's
   invites the player SENT or was SENT deleted, and a new random PIN that differs from the old
@@ -343,13 +346,81 @@ so it had become a ban; the owner wants both).
 - The removed player's pages (the lobby AND the four game pages) go to /rooms on
   `you_were_kicked` (`useLeaveAfterKick` in the front, which notes "kicked" or "banned" for the
   notice there; "removed", which promises nothing, on the lobby's polling fallback): they are out of the room's socket rooms, so no `game_updated` reaches them any
-  more.
+  more. The event goes to `user:{id}`, which every room socket of the player joins too, so a page
+  acts on it only for its own room (`useSocket`): a kick from a room the player had left away,
+  or the ban of a removed player, reaches the page of the room they are in now.
+- **Ban after removal** (owner request, 3 November 2026). A ban used to need a seat, so a host
+  who pressed Remove and then decided "we don't want them back" could not ban until the player
+  sat down again. Now:
+  - The kick writes a `RoomRemoval` (`models/room_removal.py`, table `room_removal`, migration
+    `0003_room_removal`: `room_id`, `user_id`, `removed_by` (nullable), `created_at` /
+    `updated_at`; unique `uq_room_removal_room_user`, indexed `user_id` and `removed_by`).
+    `_record_removal` is an upsert on the pair, so a second kick refreshes it (the latest host,
+    `updated_at` = the latest removal), never a second row. It is a statement executed before
+    the departure's game lock, like the ban's own: its foreign keys take KEY SHARE on the room
+    and the users, which no move's UPDATE of their other columns waits on.
+  - `GET /rooms/{id}/removals` (`list_removals`, host only, `NotRoomHostError` 403) →
+    `list[RoomRemovalView {user_id, username, removed_at}]`, newest first (`removed_at` is the
+    record's `updated_at`, UTC). It leaves out anyone banned from the room or holding a link in
+    it whatever records remain: taking a seat and a ban both delete the record, the filters
+    answer one a race left behind (a kick and a ban of the same player at once, then a lift).
+  - `ban_player` takes the room lock (`room:{id}`) first and reads the room again under it
+    (host only, again), then reads the seat (`_seat_of`), deletes the invites, then takes the
+    record (`_take_removal`, `DELETE … RETURNING`, its row lock), then inserts the `RoomBan`, all
+    before the PIN is staged. Seated: the ban as above (the record, if a race left one, deleted
+    with it). Not seated but recorded: the same `RoomBan`, invites and new PIN, the record
+    deleted, then a plain commit — no departure (they left the game when they were removed) and
+    no game lock, so no move waits on it in a cycle — and the same sweep after the commit.
+    Neither: if the record vanished while the DELETE waited (a return that deleted it first
+    committed), the seat is read again and banned like any seat; else `UserNotInRoomError`
+    (404), as for anyone never seated or gone by themselves.
+  - **The room lock, because of the host's own other requests.** A close mid-game
+    (`delete_room`: the game cancelled writes the room row, then the room's records are
+    deleted) and the deletion of the host's account (its purge orphans the room, owner NULL, then
+    nulls `removed_by` on the record) each write the room row before the record; the ban holds
+    the record and writes the room row (the PIN) at its commit. Each held what the other waited
+    for, and PostgreSQL killed one (a 500; found in review, 7 November 2026). `delete_room` takes
+    the room lock first (`_room_and_game_locks`), and the account deletion takes the room lock of
+    every room it still owns, in id order, before the purge (`UserController._owned_room_locks`):
+    now one waits for the other. A ban that waited reads the room again: closed, 404 (the record
+    went with the room); ownerless, `NotRoomHostError` (403), never a `RoomBan` naming a deleted
+    account (a foreign-key 500).
+  - Taking a seat deletes the record before it writes the link (`_end_removal`, in `_take_seat`
+    — join and invite — and in the spectator's seat), then asks for a ban again: the door's ban
+    check ran before the PIN, and a ban of the removed player may commit after it. That DELETE
+    waits on the ban's row lock, and the read after it (READ COMMITTED) sees the committed ban:
+    403. **Lock order, the same on both sides: the player's invites to the room, then the
+    record.** `accept_invite` locks its invite (`FOR UPDATE`) before its seat deletes the record,
+    and `_take_seat` spends the invites before `_end_removal`; the ban deletes the invites before
+    `_take_removal`. The first version took the record first in the ban and in `_take_seat`: an
+    accepted invite and the ban of the same removed player each held what the other waited for,
+    and PostgreSQL killed one (`DeadlockDetectedError`, a 500; found in review, 7 November 2026,
+    `test_an_invite_accepted_while_the_host_bans_the_removed_player_bans_the_new_seat` and
+    `test_a_return_with_the_pin_by_a_player_holding_an_invite_and_their_ban_bans_the_new_seat`).
+  - The record also goes with the room (`delete_room`), with the account (`_purge_user_references`
+    deletes the records OF the user and nulls `removed_by` on those BY them, like `banned_by`),
+    and with a seeded room (`scripts/purge_seed_data.py`).
+  - The route is the ban's, unchanged: `you_were_kicked` banned (no room page of theirs takes it;
+    their app shell drops that room's invites, which the ban deleted), the detach (nothing to
+    detach), `member_removed_by_host` banned (the host's other devices re-read their lists), and
+    `notify_member_removed` with the game read first: the room state with the new PIN, and for a
+    running game a `game_updated` the game pages answer with a refetch of an unchanged game (kept
+    rather than a branch in the route).
 - Tests: `tests/api/controllers/test_wp07_room_bans.py` (kick vs ban: the seat, no ban and the
   same PIN for a kick, the ban and the new PIN for a ban, join and spectate, host only and never
-  yourself for both, list and lift, mid-game leavers), `test_room_invites.py` (what each does to
+  yourself for both, list and lift, mid-game leavers), `test_room_removals.py` (ban after
+  removal: the record, its refresh, its list and filters, the seat that ends it by each door,
+  the ban of a removed player with no departure, the purges, and seven races on PostgreSQL: a
+  return waiting behind that ban is refused, a ban waiting behind a return bans the new seat,
+  the lock order against an accepted invite and against a PIN join of a player holding an
+  invite: no deadlock, the new seat banned; the room lock against a close mid-game and against
+  the host's account deletion: neither fails, and a ban that waited behind the deletion is
+  refused),
+  `tests/api/test_migrations.py::test_0003_adds_only_the_room_removal_table_and_downgrades_to_0002`,
+  `test_room_invites.py` (what each does to
   the invites, `InviteeBannedError`, a raced invite answers 403, an invite racing the ban taken
   back or swept, the list's ban filter), `test_host_only_rules.py`,
-  `tests/api/routes/test_room.py` (the ban route's 201, both routes' notify order),
+  `tests/api/routes/test_room.py` (the ban route's 201, both routes' notify order, the removals list),
   `tests/api/ws/test_notify.py` (`member_removed_by_host`), `tests/api/ws/test_wp04_reconnect_and_detach.py` (the removed socket is cut on
   every worker, kick and ban).
 
@@ -499,9 +570,11 @@ Settings use `MAJLISNA_ENV` selector:
 - Scalar UI: `http://localhost:5111/scalar`
 - OpenAPI JSON: `http://localhost:5111/openapi.json`
 - Health check: `http://localhost:5111/health` → `{status, db, timestamp, version}`.
-  `version` is `settings.git_sha` (env `GIT_SHA`, baked by the Dockerfile's `ARG GIT_SHA`;
-  `"unknown"` without it), answered on a 503 too: CI's promote job waits for it to read the
-  promoted commit (`tests/api/test_health.py`).
+  `version` is `settings.git_sha`: env `GIT_SHA` when it names a commit (CI's `--build-arg
+  GIT_SHA`), else `/app/GIT_SHA`, the commit the image's last build step stamped (Dokploy's
+  build, see "The image" below), else `"unknown"`; answered on a 503 too: CI's promote job
+  waits for it to read the promoted commit (`tests/api/test_health.py`). The same value is
+  the Sentry release (`app._configure_observability`; none when unknown).
 
 ### The image (`backend/Dockerfile`)
 
@@ -525,6 +598,18 @@ Settings use `MAJLISNA_ENV` selector:
   worker compiled every dependency from source at each boot (`import main` 1.5-2.5x slower),
   inside each deploy's outage. The builder installs `gcc` + `libc6-dev` only: Debian's
   `python3-dev` is Debian's Python 3.13, never this image's 3.12, which has its own headers.
+- **The image stamps its own commit, in its LAST step** (3 November 2026). Dokploy passes no
+  build arg, so `/health` said `"unknown"`. The first stage is an empty `FROM scratch AS
+  gitmeta`; `docker-compose.dokploy.yml` overrides it with the named context `gitmeta: .`
+  (the repository root of Dokploy's depth-1 clone, reduced by the root `.dockerignore` to
+  `.git/HEAD`, `.git/refs`, `.git/packed-refs`). The last `RUN` bind-mounts it and runs
+  `scripts/build-commit.sh <git dir> "$GIT_SHA"` (POSIX sh, no git) into `/app/GIT_SHA`:
+  the build arg when it is 40 lowercase hex digits, else HEAD's commit (detached, loose ref
+  or `packed-refs`), else `unknown`. `settings._resolve_git_sha` reads the file only when
+  the `GIT_SHA` variable names no commit, and believes nothing but 40 hex digits. A bare
+  `docker build` or the E2E compose (no context) mounts the empty stage: `unknown`, no
+  error. Keep the step last: a new commit then reruns only it. `front/Dockerfile` does the
+  same with its own copy of the script (kept identical by `tests/api/test_build_commit.py`).
 - Coverage: CI runs `pytest --use-postgres --cov=majlisna --cov-branch --cov-fail-under=88`.
   `dependencies.py` (the auth dependencies) is measured; it used to sit in the omit list.
 
@@ -668,7 +753,12 @@ post-write hooks; `migrations/` is in `poe lint` / `format-check` and in CI.
 3. **Additive first, destructive later.** A new column on a table with rows is nullable or
    has a `server_default`. A column the deployed code still reads is dropped one release
    after the last code that reads it (a revert redeploys the old code on the new schema); a
-   rename is add, copy, then drop, across two releases.
+   rename is add, copy, then drop, across two releases. A new table that references `user` or
+   `room` is additive only while it is empty: the old code does not purge it, so once it has
+   rows the old account deletion (and seed purge) fails on its foreign key (no FK declares
+   ON DELETE). A revert past such a release empties it first, or runs its downgrade:
+   `0003_room_removal` (the kick's record) is one, `DELETE FROM room_removal` before redeploying
+   the release before it.
 4. **A migration must run on production's data.** A unique index or a NOT NULL on existing
    rows makes the rows fit first, in the same revision. A migration that fails fails the
    boot: the whole schema step rolls back and the workers exit, so production is down until
@@ -743,7 +833,10 @@ Nothing is run by hand. (Adopted on 2026-11-01 at 23:57 UTC, deploy of 87998e4: 
 **Revisions since the baseline**: `0002_room_invite` (`20261102_0002_room_invite.py`): the
 `room_invite` table ("Room invites: stored, accepted without the PIN"), additive only (a new
 empty table no earlier release reads). Its first production boot runs it: take the
-`pg_dump` first, as for every migration.
+`pg_dump` first, as for every migration. `0003_room_removal` (`20261102_0003_room_removal.py`):
+the `room_removal` table ("Kick and ban", "Ban after removal"), additive only, the same way
+(`test_0003_adds_only_the_room_removal_table_and_downgrades_to_0002`: nothing of 0002 touched,
+and the downgrade gives 0002's schema back).
 
 **What autogenerate compares** (`schema.include_object`, used by `env.py`): everything, but
 the `POSTGRES_ONLY_INDEXES` (no model declares them) and a model's UNIQUE that repeats its
@@ -1871,8 +1964,9 @@ compare through `controllers/auth.utc_instant`).
   (`RoomInviteExpiredError` 410), the room
   ACTIVE (`RoomNotFoundError`), `_ensure_not_banned` (403), `_ensure_not_seated_elsewhere`
   (409, the invite stays so the client can leave and accept again), then `_take_seat` — the
-  same seat code as `join_room` (reconnection included), which deletes the invites the
-  player holds to that room in the seat's commit. A join with the code and PIN spends them
+  same seat code as `join_room` (reconnection included), which deletes the host's removal
+  record of the player first (asking for a ban again: "Ban after removal" above) and the
+  invites the player holds to that room in the seat's commit. A join with the code and PIN spends them
   too. The row lock is what makes two tabs accepting at once seat the player once (the
   second answers 404); without it the second insert of the seat's unique pair was a 500.
   There is no room capacity at join (game starts bound the player count), so none here.
@@ -2653,6 +2747,31 @@ python-socketio clients against the real handlers on uvicorn).
   `on_room_changed`, registered for as long as the loop runs (`presence_listener`); no
   loop (tests, scripts), no announcement. `mark_user_disconnected` returns whether it
   flipped the link, and only a flip is broadcast.
+- **A socket's close has the last word over its own presence writes** (November 2026).
+  python-socketio runs `disconnect` as soon as the transport closes, while that socket's
+  `connect` or `heartbeat` may still be awaiting: `connect` wrote `connected=True` after its
+  awaits, so a tab closed during its handshake (or right after a heartbeat) read "connected"
+  until the 20 s stale sweep. Every presence write of a socket now goes through
+  `ws/handlers._write_presence` (connect, heartbeat, join_game) or `_write_absence`
+  (disconnect), both under the member's per-worker `asyncio.Lock` (`_presence_locks`, key
+  `"{user_id}:{room_id}"`), and `_write_presence` writes only while
+  `sio.manager.is_connected(sid)` (false from `pre_disconnect`, BEFORE the disconnect
+  handler runs): a close that began first leaves the write undone; one that begins during
+  it waits and writes the away mark after. A per-worker lock is enough because a socket's
+  events, its disconnect included, are all served by the worker holding it; across workers
+  (an old tab here, its replacement there) the newer socket's heartbeat restores the seat
+  within one interval, as before. `connect` also stops, refused, when the socket closed
+  during its token check (it used to raise `KeyError` on the gone session). Never write
+  presence for a socket outside these two helpers. Tests: `tests/api/ws/test_presence_race.py`
+  (interleavings forced with pause points, every wait bounded).
+- **Presence writes read the seat `FOR UPDATE`** (`update_heartbeat`,
+  `mark_user_disconnected`, `populate_existing`). Read plainly, a leave, kick or sweep
+  deleting the seat between the read and the write made the flush's UPDATE match no row:
+  `StaleDataError`, logged at WARNING with its traceback (`_welcome_to_game`, the
+  heartbeat) and sent to Bugsink. Now the deletion waits for this commit (one row, nothing
+  else held, no lock-order risk), and a seat deleted first answers `NOT_A_MEMBER`.
+  Tests: `tests/api/controllers/test_presence_writes_postgres.py` (PostgreSQL; SQLite has
+  no row locks).
 - **A removed seat cuts the socket, on every worker** (SEC F04; a kick and a ban alike).
   `remove_user_from_room_socket` leaves `room:{id}` and every `game:*` channel, then
   disconnects the local SID. `_user_sids` is per process, so every worker also runs
