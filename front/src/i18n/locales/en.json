@@ -1470,7 +1470,7 @@
   "privacy": {
     "link": "Privacy policy",
     "title": "Privacy policy",
-    "updated": "Last updated: 7 November 2026",
+    "updated": "Last updated: 8 November 2026",
     "intro": "Majlisna (majlisna.app) is a free online platform for Islamic party games, run by Souhib Trabelsi. This page explains what data we collect, why, and how you can control it.",
     "sections": [
       {
@@ -1513,7 +1513,7 @@
       {
         "title": "What other players see",
         "body": [
-          "Anyone, signed in or not, can see your public profile: your username, your bio and how many games you have played. Your country and your profile picture are shown only to signed-in players. Your statistics, your achievements and your place on the leaderboard are public.",
+          "Your profile (your username, your bio, your country, your profile picture and how many games you have played), your statistics and your achievements are shown only to signed-in players. The leaderboard is public: if you rank in it, anyone can see your username and your figures there (games played and won, win rate, streaks).",
           "The players of a game see your username and what you write in it, then your role when it ends. The summary of a finished game stays available to everyone who played it.",
           "Your email address is never shown to other players."
         ]
@@ -1567,7 +1567,7 @@
   "terms": {
     "link": "Terms of use",
     "title": "Terms of use",
-    "updated": "Last updated: 3 November 2026",
+    "updated": "Last updated: 8 November 2026",
     "intro": "Majlisna (majlisna.app) is a free online platform for Islamic party games, run by one person, Souhib Trabelsi. These terms are the rules for using it: what you can expect from Majlisna, and what it expects from you.",
     "sections": [
       {
@@ -1611,7 +1611,7 @@
         "title": "What you write",
         "body": [
           "You are responsible for what you write on Majlisna: your chat messages, your username, your bio and what you type in a game.",
-          "Others see it: the members of a room read its chat, your username and your bio are on your public profile, which anyone can see, and the players of a game see what you write in it."
+          "Others see it: the members of a room read its chat, signed-in players see your username and your bio on your profile, anyone can see your username on the leaderboard if you rank in it, and the players of a game see what you write in it."
         ]
       },
       {

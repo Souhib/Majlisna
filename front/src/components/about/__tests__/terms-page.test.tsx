@@ -50,7 +50,7 @@ beforeAll(async () => {
 describe.each(["en", "fr", "ar"] as Lang[])("the terms page in %s", (lang) => {
   const terms = termsOf(lang)
 
-  it("renders every section of the locale, each under its own heading, dated 3 November 2026", async () => {
+  it("renders every section of the locale, each under its own heading, dated 8 November 2026", async () => {
     // Prepare
     await i18next.changeLanguage(lang)
 
@@ -58,7 +58,7 @@ describe.each(["en", "fr", "ar"] as Lang[])("the terms page in %s", (lang) => {
     render(<TermsPage />)
 
     // Assert: the title, the date, then one region per section with all its paragraphs
-    expect(terms.updated).toBe({ en: "Last updated: 3 November 2026", fr: "Dernière mise à jour : 3 novembre 2026", ar: "آخر تحديث: 3 نوفمبر 2026" }[lang])
+    expect(terms.updated).toBe({ en: "Last updated: 8 November 2026", fr: "Dernière mise à jour : 8 novembre 2026", ar: "آخر تحديث: 8 نوفمبر 2026" }[lang])
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(terms.title)
     // (the matcher collapses the French no-break spaces, so the expectation is collapsed too)
     expect(screen.getByText(squash(terms.updated))).toBeInTheDocument()
@@ -108,20 +108,20 @@ describe.each(["en", "fr", "ar"] as Lang[])("the terms page in %s", (lang) => {
     for (const forbidden of ["@", "/", "\\"]) expect(account).toContain(forbidden)
   })
 
-  it("says who reads your username and bio as the code shows them: anyone, signed in or not", () => {
-    // Prepare: GET /profiles/users/{id} asks for no token and returns the username and the bio,
-    // which routes/players/$userId.tsx (outside _auth) renders to a signed-out visitor too
+  it("says who reads your username and bio as the code shows them: signed-in players, and anyone on the leaderboard", () => {
+    // Prepare: GET /profiles/users/{id} needs a token and routes/_auth/players/$userId.tsx is
+    // behind sign-in (owner decision, 8 November 2026); the public leaderboard names its players
     const whatYouWrite = terms.sections[5].body.join(" ")
 
     // Assert
     expect(whatYouWrite).toMatch(
       {
-        en: /your username and your bio are on your public profile, which anyone can see/,
-        fr: /votre pseudo et votre bio sont sur votre profil public, que tout le monde peut voir/,
-        ar: /ويظهر اسمك ونبذتك في ملفك الشخصي العام الذي يستطيع أي أحد رؤيته/,
+        en: /signed-in players see your username and your bio on your profile, anyone can see your username on the leaderboard if you rank in it/,
+        fr: /les joueurs connectés voient votre pseudo et votre bio sur votre profil, tout le monde peut voir votre pseudo au classement si vous y figurez/,
+        ar: /ويرى اللاعبون المسجّلون اسمك ونبذتك في ملفك الشخصي، ويستطيع أي أحد رؤية اسمك في لوحة المتصدرين إن ظهرت فيها/,
       }[lang],
     )
-    expect(whatYouWrite).not.toMatch({ en: /signed-in players/, fr: /joueurs connectés/, ar: /المسجّلون/ }[lang])
+    expect(whatYouWrite).not.toMatch({ en: /public profile/, fr: /profil public/, ar: /ملفك الشخصي العام/ }[lang])
   })
 
   it("never claims a scholarly review of the religious content (PRODUCT.md, Evidence on Hand)", () => {

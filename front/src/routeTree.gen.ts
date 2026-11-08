@@ -17,7 +17,6 @@ import { Route as CreditsRouteImport } from './routes/credits'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as AuthRouteImport } from './routes/_auth'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as PlayersUserIdRouteImport } from './routes/players/$userId'
 import { Route as AuthVerifyEmailRouteImport } from './routes/auth/verify-email'
 import { Route as AuthResetPasswordRouteImport } from './routes/auth/reset-password'
 import { Route as AuthRegisterRouteImport } from './routes/auth/register'
@@ -33,6 +32,7 @@ import { Route as AuthRoomsIndexRouteImport } from './routes/_auth/rooms/index'
 import { Route as AuthRoomsJoinRouteImport } from './routes/_auth/rooms/join'
 import { Route as AuthRoomsCreateRouteImport } from './routes/_auth/rooms/create'
 import { Route as AuthRoomsRoomIdRouteImport } from './routes/_auth/rooms/$roomId'
+import { Route as AuthPlayersUserIdRouteImport } from './routes/_auth/players/$userId'
 import { Route as AuthGameWordquizGameIdRouteImport } from './routes/_auth/game/wordquiz.$gameId'
 import { Route as AuthGameUndercoverGameIdRouteImport } from './routes/_auth/game/undercover.$gameId'
 import { Route as AuthGameMcqquizGameIdRouteImport } from './routes/_auth/game/mcqquiz.$gameId'
@@ -75,11 +75,6 @@ const AuthRoute = AuthRouteImport.update({
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const PlayersUserIdRoute = PlayersUserIdRouteImport.update({
-  id: '/players/$userId',
-  path: '/players/$userId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthVerifyEmailRoute = AuthVerifyEmailRouteImport.update({
@@ -157,6 +152,11 @@ const AuthRoomsRoomIdRoute = AuthRoomsRoomIdRouteImport.update({
   path: '/rooms/$roomId',
   getParentRoute: () => AuthRoute,
 } as any)
+const AuthPlayersUserIdRoute = AuthPlayersUserIdRouteImport.update({
+  id: '/players/$userId',
+  path: '/players/$userId',
+  getParentRoute: () => AuthRoute,
+} as any)
 const AuthGameWordquizGameIdRoute = AuthGameWordquizGameIdRouteImport.update({
   id: '/game/wordquiz/$gameId',
   path: '/game/wordquiz/$gameId',
@@ -198,7 +198,7 @@ export interface FileRoutesByFullPath {
   '/auth/register': typeof AuthRegisterRoute
   '/auth/reset-password': typeof AuthResetPasswordRoute
   '/auth/verify-email': typeof AuthVerifyEmailRoute
-  '/players/$userId': typeof PlayersUserIdRoute
+  '/players/$userId': typeof AuthPlayersUserIdRoute
   '/rooms/$roomId': typeof AuthRoomsRoomIdRoute
   '/rooms/create': typeof AuthRoomsCreateRoute
   '/rooms/join': typeof AuthRoomsJoinRoute
@@ -227,7 +227,7 @@ export interface FileRoutesByTo {
   '/auth/register': typeof AuthRegisterRoute
   '/auth/reset-password': typeof AuthResetPasswordRoute
   '/auth/verify-email': typeof AuthVerifyEmailRoute
-  '/players/$userId': typeof PlayersUserIdRoute
+  '/players/$userId': typeof AuthPlayersUserIdRoute
   '/rooms/$roomId': typeof AuthRoomsRoomIdRoute
   '/rooms/create': typeof AuthRoomsCreateRoute
   '/rooms/join': typeof AuthRoomsJoinRoute
@@ -258,7 +258,7 @@ export interface FileRoutesById {
   '/auth/register': typeof AuthRegisterRoute
   '/auth/reset-password': typeof AuthResetPasswordRoute
   '/auth/verify-email': typeof AuthVerifyEmailRoute
-  '/players/$userId': typeof PlayersUserIdRoute
+  '/_auth/players/$userId': typeof AuthPlayersUserIdRoute
   '/_auth/rooms/$roomId': typeof AuthRoomsRoomIdRoute
   '/_auth/rooms/create': typeof AuthRoomsCreateRoute
   '/_auth/rooms/join': typeof AuthRoomsJoinRoute
@@ -348,7 +348,7 @@ export interface FileRouteTypes {
     | '/auth/register'
     | '/auth/reset-password'
     | '/auth/verify-email'
-    | '/players/$userId'
+    | '/_auth/players/$userId'
     | '/_auth/rooms/$roomId'
     | '/_auth/rooms/create'
     | '/_auth/rooms/join'
@@ -373,7 +373,6 @@ export interface RootRouteChildren {
   AuthRegisterRoute: typeof AuthRegisterRoute
   AuthResetPasswordRoute: typeof AuthResetPasswordRoute
   AuthVerifyEmailRoute: typeof AuthVerifyEmailRoute
-  PlayersUserIdRoute: typeof PlayersUserIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -432,13 +431,6 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/players/$userId': {
-      id: '/players/$userId'
-      path: '/players/$userId'
-      fullPath: '/players/$userId'
-      preLoaderRoute: typeof PlayersUserIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/auth/verify-email': {
@@ -546,6 +538,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthRoomsRoomIdRouteImport
       parentRoute: typeof AuthRoute
     }
+    '/_auth/players/$userId': {
+      id: '/_auth/players/$userId'
+      path: '/players/$userId'
+      fullPath: '/players/$userId'
+      preLoaderRoute: typeof AuthPlayersUserIdRouteImport
+      parentRoute: typeof AuthRoute
+    }
     '/_auth/game/wordquiz/$gameId': {
       id: '/_auth/game/wordquiz/$gameId'
       path: '/game/wordquiz/$gameId'
@@ -584,6 +583,7 @@ interface AuthRouteChildren {
   AuthNotebookRoute: typeof AuthNotebookRoute
   AuthProfileRoute: typeof AuthProfileRoute
   AuthStatsRoute: typeof AuthStatsRoute
+  AuthPlayersUserIdRoute: typeof AuthPlayersUserIdRoute
   AuthRoomsRoomIdRoute: typeof AuthRoomsRoomIdRoute
   AuthRoomsCreateRoute: typeof AuthRoomsCreateRoute
   AuthRoomsJoinRoute: typeof AuthRoomsJoinRoute
@@ -601,6 +601,7 @@ const AuthRouteChildren: AuthRouteChildren = {
   AuthNotebookRoute: AuthNotebookRoute,
   AuthProfileRoute: AuthProfileRoute,
   AuthStatsRoute: AuthStatsRoute,
+  AuthPlayersUserIdRoute: AuthPlayersUserIdRoute,
   AuthRoomsRoomIdRoute: AuthRoomsRoomIdRoute,
   AuthRoomsCreateRoute: AuthRoomsCreateRoute,
   AuthRoomsJoinRoute: AuthRoomsJoinRoute,
@@ -627,7 +628,6 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRegisterRoute: AuthRegisterRoute,
   AuthResetPasswordRoute: AuthResetPasswordRoute,
   AuthVerifyEmailRoute: AuthVerifyEmailRoute,
-  PlayersUserIdRoute: PlayersUserIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

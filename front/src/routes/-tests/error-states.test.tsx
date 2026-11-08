@@ -40,7 +40,7 @@ const ChallengesPage = componentOf((await import("@/routes/_auth/challenges")).R
 const FriendsPage = componentOf((await import("@/routes/_auth/friends")).Route)
 const LeaderboardPage = componentOf((await import("@/routes/leaderboard")).Route)
 const ProfilePage = componentOf((await import("@/routes/_auth/profile")).Route)
-const PlayerPage = componentOf((await import("@/routes/players/$userId")).Route)
+const PlayerPage = componentOf((await import("@/routes/_auth/players/$userId")).Route)
 
 const STATS = "GET /api/v1/stats/users/u1/stats"
 const GAMES = "GET /api/v1/games/user/u1"

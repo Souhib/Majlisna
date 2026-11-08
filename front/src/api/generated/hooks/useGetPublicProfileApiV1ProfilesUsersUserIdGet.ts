@@ -35,7 +35,8 @@ export type GetPublicProfileApiV1ProfilesUsersUserIdGetQueryKey = ReturnType<
 >;
 
 /**
- * @description Get a user's public profile.
+ * @description Get a player's profile (username, bio, games played). Signed-in players only (owner
+ * decision, 8 November 2026), like their country and picture (``GET /users/{id}``).
  * @summary Get Public Profile
  * {@link /api/v1/profiles/users/:user_id}
  */
@@ -94,7 +95,8 @@ export function getPublicProfileApiV1ProfilesUsersUserIdGetQueryOptions(
 }
 
 /**
- * @description Get a user's public profile.
+ * @description Get a player's profile (username, bio, games played). Signed-in players only (owner
+ * decision, 8 November 2026), like their country and picture (``GET /users/{id}``).
  * @summary Get Public Profile
  * {@link /api/v1/profiles/users/:user_id}
  */

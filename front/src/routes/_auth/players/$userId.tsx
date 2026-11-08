@@ -33,7 +33,7 @@ import { useDocumentTitle } from "@/hooks/use-document-title"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/providers/AuthProvider"
 
-export const Route = createFileRoute("/players/$userId")({
+export const Route = createFileRoute("/_auth/players/$userId")({
   component: PlayerProfilePage,
 })
 
@@ -47,8 +47,9 @@ function isNoSuchPlayer(error: unknown): boolean {
 }
 
 /**
- * A player's public page: who they are, what they play, and, for a signed-in visitor,
- * the record between the two of you and the friendship action.
+ * A player's page: who they are, what they play, the record between the two of you and the
+ * friendship action. Behind sign-in, like everything it reads (owner decision, 8 November
+ * 2026): a signed-out visitor (a leaderboard row, a shared link) signs in first and comes back.
  */
 function PlayerProfilePage() {
   const { userId } = Route.useParams()
@@ -61,7 +62,7 @@ function PlayerProfilePage() {
 
   const profileQuery = useGetPublicProfileApiV1ProfilesUsersUserIdGet({ user_id: userId })
   const profile: PublicProfile | undefined = profileQuery.data
-  // country and photo live on the user record, which only a signed-in visitor may read
+  // country and photo live on the user record (GET /users/{id})
   const { data: details } = useGetUserByIdApiV1UsersUserIdGet({ user_id: userId }, { query: { enabled: signedIn } })
   const { data: friendshipStatus } = useGetFriendshipStatusApiV1FriendsStatusUserIdGet({ user_id: userId }, { query: { enabled: signedIn && !isOwnProfile } })
   const { data: h2h } = useGetHeadToHeadApiV1StatsUsersUserIdVsOpponentIdGet(

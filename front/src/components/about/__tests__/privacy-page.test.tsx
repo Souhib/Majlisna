@@ -74,31 +74,27 @@ describe.each(["en", "fr", "ar"] as Lang[])("the privacy page in %s", (lang) => 
     expect(tab).toMatch({ en: /riddle/, fr: /énigme/, ar: /اللغز/ }[lang])
   })
 
-  it("says who sees the profile as the code shows it: the username and bio to anyone, the country and picture once signed in", () => {
-    // Prepare: GET /profiles/users/{id} asks for no token (username, bio, games played) and
-    // routes/players/$userId.tsx renders it signed out; GET /users/{id} (country, picture) needs one
+  it("says who sees the profile as the code shows it: signed-in players only, and the leaderboard is public", () => {
+    // Prepare: GET /profiles/users/{id}, GET /users/{id} and the /stats/users/{id}/... reads need a
+    // token, and routes/_auth/players/$userId.tsx is behind sign-in (owner decision, 8 November
+    // 2026); GET /stats/leaderboard needs none (username, games played and won, win rate, streaks)
     const profile = privacy.sections[4].body[0]
 
     // Assert
     expect(profile).toMatch(
       {
-        en: /^Anyone, signed in or not, can see your public profile: your username, your bio and how many games you have played\./,
-        fr: /^Tout le monde, connecté ou non, peut voir votre profil public : votre pseudo, votre bio et le nombre de parties que vous avez jouées\./,
-        ar: /^يستطيع أي أحد، وإن لم يسجّل الدخول، رؤية ملفك الشخصي العام: اسم المستخدم والنبذة وعدد الألعاب التي لعبتها\./,
+        en: /^Your profile \(your username, your bio, your country, your profile picture and how many games you have played\), your statistics and your achievements are shown only to signed-in players\./,
+        fr: /^Votre profil \(votre pseudo, votre bio, votre pays, votre photo de profil et le nombre de parties que vous avez jouées\), vos statistiques et vos succès ne sont montrés qu’aux joueurs connectés\./,
+        ar: /^لا يرى ملفك الشخصي \(اسم المستخدم والنبذة وبلدك وصورة ملفك وعدد الألعاب التي لعبتها\) ولا إحصاءاتك وإنجازاتك إلا اللاعبون المسجّلون\./,
       }[lang],
     )
-    expect(profile).toMatch(
-      {
-        en: /Your country and your profile picture are shown only to signed-in players\./,
-        fr: /Votre pays et votre photo de profil ne sont montrés qu’aux joueurs connectés\./,
-        ar: /أما بلدك وصورة ملفك فلا يراهما إلا اللاعبون المسجّلون\./,
-      }[lang],
-    )
+    expect(profile).toMatch({ en: /The leaderboard is public/, fr: /Le classement est public/, ar: /أما لوحة المتصدرين فمتاحة للجميع/ }[lang])
+    expect(profile).not.toMatch({ en: /signed in or not/, fr: /connecté ou non/, ar: /وإن لم يسجّل الدخول/ }[lang])
   })
 
-  it("is dated 7 November 2026, the day it last changed what it says about your data", () => {
-    // (the profile's visibility, corrected to what the code shows)
-    expect(privacy.updated).toBe({ en: "Last updated: 7 November 2026", fr: "Dernière mise à jour : 7 novembre 2026", ar: "آخر تحديث: 7 نوفمبر 2026" }[lang])
+  it("is dated 8 November 2026, the day it last changed what it says about your data", () => {
+    // (the profile behind sign-in, owner decision)
+    expect(privacy.updated).toBe({ en: "Last updated: 8 November 2026", fr: "Dernière mise à jour : 8 novembre 2026", ar: "آخر تحديث: 8 نوفمبر 2026" }[lang])
   })
 
   it("links the profile page and the contact address", async () => {

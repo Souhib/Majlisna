@@ -1491,7 +1491,7 @@
   "privacy": {
     "link": "Politique de confidentialité",
     "title": "Politique de confidentialité",
-    "updated": "Dernière mise à jour : 7 novembre 2026",
+    "updated": "Dernière mise à jour : 8 novembre 2026",
     "intro": "Majlisna (majlisna.app) est une plateforme gratuite de jeux de société islamiques en ligne, éditée par Souhib Trabelsi. Cette page explique quelles données nous collectons, pourquoi, et comment vous pouvez les contrôler.",
     "sections": [
       {
@@ -1534,7 +1534,7 @@
       {
         "title": "Ce que voient les autres joueurs",
         "body": [
-          "Tout le monde, connecté ou non, peut voir votre profil public : votre pseudo, votre bio et le nombre de parties que vous avez jouées. Votre pays et votre photo de profil ne sont montrés qu’aux joueurs connectés. Vos statistiques, vos succès et votre place au classement sont publics.",
+          "Votre profil (votre pseudo, votre bio, votre pays, votre photo de profil et le nombre de parties que vous avez jouées), vos statistiques et vos succès ne sont montrés qu’aux joueurs connectés. Le classement est public : si vous y figurez, tout le monde peut y voir votre pseudo et vos chiffres (parties jouées et gagnées, taux de victoire, séries).",
           "Les joueurs d’une partie voient votre pseudo et ce que vous y écrivez, puis votre rôle à la fin. Le récapitulatif d’une partie terminée reste accessible à tous ceux qui l’ont jouée.",
           "Votre adresse e-mail n’est jamais montrée aux autres joueurs."
         ]
@@ -1588,7 +1588,7 @@
   "terms": {
     "link": "Conditions d’utilisation",
     "title": "Conditions d’utilisation",
-    "updated": "Dernière mise à jour : 3 novembre 2026",
+    "updated": "Dernière mise à jour : 8 novembre 2026",
     "intro": "Majlisna (majlisna.app) est une plateforme gratuite de jeux de société islamiques en ligne, éditée par une seule personne, Souhib Trabelsi. Ces conditions sont les règles de son utilisation : ce que vous pouvez attendre de Majlisna, et ce que Majlisna attend de vous.",
     "sections": [
       {
@@ -1632,7 +1632,7 @@
         "title": "Ce que vous écrivez",
         "body": [
           "Vous êtes responsable de ce que vous écrivez sur Majlisna : vos messages de chat, votre pseudo, votre bio et ce que vous tapez pendant une partie.",
-          "D’autres le voient : les membres d’un salon lisent son chat, votre pseudo et votre bio sont sur votre profil public, que tout le monde peut voir, et les joueurs d’une partie voient ce que vous y écrivez."
+          "D’autres le voient : les membres d’un salon lisent son chat, les joueurs connectés voient votre pseudo et votre bio sur votre profil, tout le monde peut voir votre pseudo au classement si vous y figurez, et les joueurs d’une partie voient ce que vous y écrivez."
         ]
       },
       {
