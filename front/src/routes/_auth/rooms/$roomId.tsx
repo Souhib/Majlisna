@@ -129,6 +129,11 @@ function RoomLobbyPage() {
     previousMembersRef.current = members
   }, [room, members, user?.id, lobby.removals])
 
+  // A ban of a player with no seat (the host had removed them): no roster change says it
+  useEffect(() => {
+    if (lobby.offTableEvent) setActivity(lobby.offTableEvent)
+  }, [lobby.offTableEvent])
+
   const handleStartGame = () => {
     if (table.kind !== "ready") return
     lobby.startGame(players.length)

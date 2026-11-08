@@ -22,8 +22,12 @@ interface UseSocketOptions {
   enabled?: boolean
   /** The host took this player's seat in THIS room: `banned` false for a kick (Remove), true for a ban. */
   onKicked?: (roomId: string, banned: boolean) => void
-  /** The host took ANOTHER member's seat (`member_removed_by_host`, before the room state that drops it). */
-  onMemberRemoved?: (userId: string, banned: boolean) => void
+  /**
+   * The host took ANOTHER member's seat (`member_removed_by_host`, before the room state that
+   * drops it), or banned a player they had removed earlier, who had no seat: `username` names
+   * a ban's player (null for a kick, or a server from before it was sent).
+   */
+  onMemberRemoved?: (userId: string, banned: boolean, username: string | null) => void
   onChatMessage?: (message: ChatMessage) => void
 }
 
@@ -39,6 +43,8 @@ export interface MemberRemovedByHost {
   room_id: string
   user_id: string
   banned: boolean
+  /** A ban's player (owner decision, 8 November 2026): a removed player has no seat for a roster to name. */
+  username?: string | null
 }
 
 function getGameQueryKeyPrefix(gameType: string, gameId: string) {
@@ -190,7 +196,7 @@ export function useSocket({ roomId, gameId, gameType, enabled = true, onKicked, 
     })
 
     socket.on("member_removed_by_host", (data: MemberRemovedByHost) => {
-      onMemberRemovedRef.current?.(data.user_id, data.banned === true)
+      onMemberRemovedRef.current?.(data.user_id, data.banned === true, data.username ?? null)
     })
 
     socket.on("chat_message", (data: ChatMessage) => {

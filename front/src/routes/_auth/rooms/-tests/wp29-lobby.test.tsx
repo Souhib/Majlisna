@@ -31,7 +31,14 @@ vi.mock("@tanstack/react-router", () => ({
 }))
 vi.mock("@/api/client", async () => (await import("@/components/notebook/__tests__/fake-api")).clientModule)
 vi.mock("@/providers/AuthProvider", () => ({ useAuth: () => ({ user: { id: "u1" } }) }))
-vi.mock("@/hooks/use-socket", () => ({ useSocket: () => ({ connected: false }) }))
+// the socket stays down; a test may still hand the page the room's word of a removal
+const socket = vi.hoisted(() => ({ onMemberRemoved: undefined as ((userId: string, banned: boolean, username: string | null) => void) | undefined }))
+vi.mock("@/hooks/use-socket", () => ({
+  useSocket: (options: { onMemberRemoved?: (userId: string, banned: boolean, username: string | null) => void }) => {
+    socket.onMemberRemoved = options.onMemberRemoved
+    return { connected: false }
+  },
+}))
 vi.mock("@/lib/analytics", () => ({ trackEvent: vi.fn() }))
 vi.mock("sonner", () => ({ toast: toasts }))
 
@@ -206,5 +213,19 @@ describe("the host removes or bans a player", () => {
     expect(screen.queryByText("Bilal")).toBeNull()
     expect(screen.queryAllByRole("button", { name: "room.lobbyPage.kick" })).toHaveLength(0)
     expect(screen.queryAllByRole("button", { name: "room.lobbyPage.ban" })).toHaveLength(0)
+  })
+
+  it("says a removed player was banned on a member's screen, though no seat changed (owner, 8 November 2026)", async () => {
+    // Prepare: u1 is a guest; Ali hosts; Omar was removed earlier, so he has no seat
+    answer(STATE, () => roomState({ owner_id: "u3" }))
+    await renderPage()
+    await screen.findByRole("heading", { level: 1 })
+    expect(activityLine()).not.toHaveTextContent("room.lobbyPage.activityBanned")
+
+    // Act: the room's word that the host banned him (the room state that follows is unchanged)
+    act(() => socket.onMemberRemoved?.("u9", true, "Omar"))
+
+    // Assert
+    await waitFor(() => expect(activityLine()).toHaveTextContent("room.lobbyPage.activityBanned"))
   })
 })

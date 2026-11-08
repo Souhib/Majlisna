@@ -20,7 +20,7 @@ import { useRoomLobby } from "./use-room-lobby"
 interface SocketOptions {
   enabled?: boolean
   onKicked?: (roomId: string, banned: boolean) => void
-  onMemberRemoved?: (userId: string, banned: boolean) => void
+  onMemberRemoved?: (userId: string, banned: boolean, username: string | null) => void
 }
 
 const router = vi.hoisted(() => ({ navigate: vi.fn() }))
@@ -424,7 +424,7 @@ describe("useRoomLobby: the host removes or bans a player", () => {
     expect(result.current.isHost).toBe(false)
 
     // Act: the room is told, then its state no longer seats Maryam
-    act(() => socket.options.at(-1)?.onMemberRemoved?.("u2", banned))
+    act(() => socket.options.at(-1)?.onMemberRemoved?.("u2", banned, null))
     act(() => {
       queryClient.setQueryData(queryKeys.room.state("room-1"), roomState({ owner_id: "u3", players: [player("u1", "Yusuf"), player("u3", "Ali")] }))
     })
@@ -432,6 +432,30 @@ describe("useRoomLobby: the host removes or bans a player", () => {
     // Assert
     await waitFor(() => expect(result.current.members).toHaveLength(2))
     expect(result.current.removals.get("u2")).toBe(kind)
+  })
+
+  it("names a ban of a player the host had already removed (no seat, so no roster says it); a seated ban is the roster's", async () => {
+    // Owner decision, 8 November 2026: the members' activity line says "<name> was banned" for
+    // a removed player too. The room's word carries the name; the room state does not change.
+    // Prepare: u1 is a guest here; Ali hosts; Omar (u9) was removed earlier
+    answer(STATE, () => roomState({ owner_id: "u3" }))
+    const { result } = renderLobby()
+    await waitFor(() => expect(result.current.room).toBeDefined())
+    expect(result.current.offTableEvent).toBeNull()
+
+    // Act: the host bans Omar from the Removed list
+    act(() => socket.options.at(-1)?.onMemberRemoved?.("u9", true, "Omar"))
+
+    // Assert
+    expect(result.current.offTableEvent).toEqual({ kind: "banned", name: "Omar" })
+    const omar = result.current.offTableEvent
+
+    // Act: a ban of Maryam, who is seated (her departure is the roster's to say), and a word with no name
+    act(() => socket.options.at(-1)?.onMemberRemoved?.("u2", true, "Maryam"))
+    act(() => socket.options.at(-1)?.onMemberRemoved?.("u8", true, null))
+
+    // Assert: still Omar's
+    expect(result.current.offTableEvent).toBe(omar)
   })
 
   it("a new PIN in the room state re-reads the share link and the bans list (a ban from the host's other device)", async () => {
@@ -520,7 +544,7 @@ describe("useRoomLobby: the host's removed players (ban after removal, 3 Novembe
     const before = { removals: requestsTo(REMOVALS).length, bans: requestsTo(BANS).length }
 
     // Act
-    act(() => socket.options.at(-1)?.onMemberRemoved?.("u2", banned))
+    act(() => socket.options.at(-1)?.onMemberRemoved?.("u2", banned, null))
 
     // Assert
     await waitFor(() => expect(requestsTo(REMOVALS)).toHaveLength(before.removals + more.removals))

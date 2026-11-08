@@ -282,16 +282,19 @@ describe("useSocket", () => {
     expect(onKicked).not.toHaveBeenCalled()
   })
 
-  it("member_removed_by_host tells the page which of the host's removals took a seat", () => {
+  it("member_removed_by_host tells the page which of the host's removals took a seat, and a ban's name", () => {
     const onMemberRemoved = vi.fn()
     renderHook(() => useSocket({ roomId: "room-1", enabled: true, onMemberRemoved }))
 
-    handlerFor("member_removed_by_host")({ room_id: "room-1", user_id: "u2", banned: false })
-    handlerFor("member_removed_by_host")({ room_id: "room-1", user_id: "u3", banned: true })
+    handlerFor("member_removed_by_host")({ room_id: "room-1", user_id: "u2", banned: false, username: null })
+    handlerFor("member_removed_by_host")({ room_id: "room-1", user_id: "u3", banned: true, username: "Omar" })
+    // a server from before the name was sent
+    handlerFor("member_removed_by_host")({ room_id: "room-1", user_id: "u4", banned: true })
 
     expect(onMemberRemoved.mock.calls).toEqual([
-      ["u2", false],
-      ["u3", true],
+      ["u2", false, null],
+      ["u3", true, "Omar"],
+      ["u4", true, null],
     ])
   })
 

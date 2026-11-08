@@ -17,7 +17,7 @@ import {
 import { queryKeys } from "@/api/queryKeys"
 import type { ChatMessage } from "@/components/rooms/ChatPanel"
 import { ROOM_ERROR_KEYS, retryUnlessRefused, roomErrorKey, roomErrorMessage } from "@/components/rooms/errors"
-import { type GameType, isGameType, type LobbyMember, type RemovalKind, toMembers } from "@/components/rooms/lobby"
+import { type GameType, isGameType, type LobbyEvent, type LobbyMember, type RemovalKind, toMembers } from "@/components/rooms/lobby"
 import { answerRoomRiddle } from "@/components/rooms/samar-riddle"
 import { useLeaveAfterKick } from "@/hooks/use-leave-after-kick"
 import { useSocket } from "@/hooks/use-socket"
@@ -86,6 +86,12 @@ export interface RoomLobby {
   removingId: string | null
   /** The host's removals, by seat (from this screen, or told by the room): the activity line says "removed" or "banned". */
   removals: ReadonlyMap<string, RemovalKind>
+  /**
+   * The latest ban of a player with no seat (removed earlier, banned from the host's "Removed"
+   * list): no roster change says it, so the room's word does, for the activity line (owner
+   * decision, 8 November 2026). A new object for each ban; null until one.
+   */
+  offTableEvent: LobbyEvent | null
   leaveRoom: () => Promise<void>
   isLeaving: boolean
   /** Copy the share link, built from the PIN the room state carries now. */
@@ -169,6 +175,9 @@ export function useRoomLobby(roomId: string): RoomLobby {
   // once the player is back.
   const removalsRef = useRef(new Map<string, RemovalKind>())
   const removingRef = useRef<string | null>(null)
+  const [offTableEvent, setOffTableEvent] = useState<LobbyEvent | null>(null)
+  // The roster on screen, for the room's word of a ban: seated, the roster's change says it.
+  const membersRef = useRef<LobbyMember[]>([])
   const [shareCopied, setShareCopied] = useState(false)
   const [lastChatMessage, setLastChatMessage] = useState<ChatMessage | null>(null)
   const navigatingToGameRef = useRef(false)
@@ -225,8 +234,10 @@ export function useRoomLobby(roomId: string): RoomLobby {
   // The host's lists (RoomBans) follow it: a kick from the host's other device adds a
   // removed player, a ban (a seat, or a removed player who had none) moves one.
   const noteRemovalByHost = useCallback(
-    (userId: string, banned: boolean) => {
+    (userId: string, banned: boolean, username: string | null) => {
       removalsRef.current.set(userId, banned ? "banned" : "removed")
+      // A player the host had removed earlier has no seat: no roster change will say the ban
+      if (banned && username && !membersRef.current.some((m) => m.id === userId)) setOffTableEvent({ kind: "banned", name: username })
       void queryClient.invalidateQueries({ queryKey: queryKeys.room.removals(roomId) }, { cancelRefetch: false })
       if (banned) void queryClient.invalidateQueries({ queryKey: queryKeys.room.bans(roomId) }, { cancelRefetch: false })
     },
@@ -251,6 +262,7 @@ export function useRoomLobby(roomId: string): RoomLobby {
   )
 
   const members = useMemo(() => room?.members ?? [], [room])
+  membersRef.current = members
   const isHost = !!room && room.ownerId === user?.id
   const isSpectator = !!members.find((m) => m.id === user?.id)?.isSpectator
   const hostName = members.find((m) => m.isHost)?.username
@@ -466,6 +478,7 @@ export function useRoomLobby(roomId: string): RoomLobby {
     banPlayer,
     removingId,
     removals: removalsRef.current,
+    offTableEvent,
     leaveRoom,
     isLeaving: leaveMutation.isPending,
     shareRoom,
