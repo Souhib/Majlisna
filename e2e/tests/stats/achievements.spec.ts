@@ -99,11 +99,11 @@ test.describe("Special achievements", () => {
     expect(final.winner).toBe("undercovers");
 
     // ...the server unlocked both for the undercover, and neither for a civilian
-    expect(await apiUnlockedAchievements(undercover.login.user.id)).toEqual(
+    expect(await apiUnlockedAchievements(undercover.login.user.id, undercover.login.access_token)).toEqual(
       expect.arrayContaining(["perfect_undercover", "last_survivor"]),
     );
     for (const civilian of [named, other]) {
-      const unlocked = await apiUnlockedAchievements(civilian.login.user.id);
+      const unlocked = await apiUnlockedAchievements(civilian.login.user.id, civilian.login.access_token);
       expect(unlocked).not.toContain("perfect_undercover");
       expect(unlocked).not.toContain("last_survivor");
     }
@@ -119,9 +119,9 @@ test.describe("Special achievements", () => {
     // The host's stats count the game they hosted and the room they opened; a guest's do not.
     // games_hosted had no writer at all (PD-05), rooms_created none either (WP-07).
     const guest = players.find((p) => p !== host)!;
-    expect((await apiGetUserStats(host.login.user.id)).games_hosted).toBe(1);
-    expect((await apiGetUserStats(host.login.user.id)).rooms_created).toBe(1);
-    expect((await apiGetUserStats(guest.login.user.id)).games_hosted).toBe(0);
+    expect((await apiGetUserStats(host.login.user.id, host.login.access_token)).games_hosted).toBe(1);
+    expect((await apiGetUserStats(host.login.user.id, host.login.access_token)).rooms_created).toBe(1);
+    expect((await apiGetUserStats(guest.login.user.id, guest.login.access_token)).games_hosted).toBe(0);
     await host.page.goto("/stats");
     await expect(statRow(host.page, "Games hosted")).toHaveText("1", { timeout: 15_000 });
     await expect(statRow(host.page, "Rooms created")).toHaveText("1");
@@ -168,10 +168,10 @@ test.describe("Special achievements", () => {
     const final = await apiGetCodenamesBoard(gameId, operative.login.access_token);
     expect(final.winner).toBe(team);
     for (const player of [spymaster, operative]) {
-      expect(await apiUnlockedAchievements(player.login.user.id)).toEqual(expect.arrayContaining(["sweep_victory", "perfect_round_1"]));
+      expect(await apiUnlockedAchievements(player.login.user.id, player.login.access_token)).toEqual(expect.arrayContaining(["sweep_victory", "perfect_round_1"]));
     }
     for (const player of [otherSpymaster, otherOperative]) {
-      const unlocked = await apiUnlockedAchievements(player.login.user.id);
+      const unlocked = await apiUnlockedAchievements(player.login.user.id, player.login.access_token);
       expect(unlocked).not.toContain("sweep_victory");
       expect(unlocked).not.toContain("perfect_round_1");
     }

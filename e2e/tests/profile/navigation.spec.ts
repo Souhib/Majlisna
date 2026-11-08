@@ -1,6 +1,8 @@
 import { test as baseTest, expect as baseExpect } from "@playwright/test";
 import { test, expect } from "../../fixtures/auth.fixture";
+import { rawGet } from "../../helpers/api-client";
 import { ROUTES } from "../../helpers/constants";
+import { generateTestAccounts } from "../../helpers/test-setup";
 
 test.describe("Profile — Authenticated Navigation", () => {
   test("profile page shows user info", async ({ authenticatedPage }) => {
@@ -176,6 +178,32 @@ baseTest.describe("Navigation — Unauthenticated Redirects", () => {
 
       // Leaderboard is a public page — should NOT redirect to login
       await baseExpect(page).toHaveURL(/\/leaderboard/);
+    },
+  );
+
+  baseTest(
+    "a player's page asks a signed-out visitor to sign in, then opens (owner decision, 8 November 2026)",
+    async ({ page }) => {
+      // Prepare — a ranked player, from the public leaderboard, and an account to sign in with
+      const ranked = await rawGet("/api/v1/stats/leaderboard?limit=1");
+      baseExpect(ranked.status).toBe(200);
+      const [player] = (await ranked.json()) as { user_id: string; username: string }[];
+      const [account] = await generateTestAccounts(1);
+
+      // Act — open the player's page signed out
+      await page.goto(`/players/${player.user_id}`);
+
+      // Assert — the login page, which brings the visitor back; the reads behind it refuse a visitor
+      await baseExpect(page).toHaveURL(new RegExp(`/auth/login\\?redirect=%2Fplayers%2F${player.user_id}$`), { timeout: 15_000 });
+      baseExpect((await rawGet(`/api/v1/profiles/users/${player.user_id}`)).status).toBe(401);
+      baseExpect((await rawGet(`/api/v1/stats/users/${player.user_id}/stats`)).status).toBe(401);
+
+      // ...and once signed in, it is the player's page
+      await page.locator('input[id="email"]').fill(account.email);
+      await page.locator('input[id="password"]').fill(account.password);
+      await page.locator('button[type="submit"]').click();
+      await baseExpect(page).toHaveURL(new RegExp(`/players/${player.user_id}$`), { timeout: 15_000 });
+      await baseExpect(page.getByRole("heading", { level: 1, name: player.username })).toBeVisible({ timeout: 15_000 });
     },
   );
 });

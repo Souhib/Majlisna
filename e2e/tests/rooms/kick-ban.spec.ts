@@ -132,7 +132,7 @@ test.describe("Remove, ban and lift", () => {
     await setup.cleanup();
   });
 
-  test("a removed player can still be banned from the Removed list: listed as banned, kept out, and the PIN changes", async ({ browser }) => {
+  test("a removed player can still be banned from the Removed list: listed as banned, kept out, the PIN changes, and the lines say so", async ({ browser }) => {
     // Prepare — three players; the host removes one, who left without quitting
     const accounts = await generateTestAccounts(3);
     const setup = await setupRoomWithPlayers(browser, accounts);
@@ -163,12 +163,14 @@ test.describe("Remove, ban and lift", () => {
     expect((await apiListBans(setup.roomId, host.login.access_token)).map((b) => b.user_id)).toEqual([removed.login.user.id]);
     expect(await apiListRemovals(setup.roomId, host.login.access_token)).toEqual([]);
 
-    // ...the PIN has changed, on the server and on both screens; the table is still two (no seat was taken)
+    // ...the PIN has changed, on the server and on both screens; the table is still two (no seat was taken),
+    // and both lines say who was banned though no seat changed (owner decision, 8 November 2026)
     const { password: newPin } = await apiGetShareLink(setup.roomId, host.login.access_token);
     expect(newPin).not.toBe(oldPin);
     for (const player of [host, other]) {
       await expect.poll(() => pinOnScreen(player.page), { timeout: 15_000 }).toBe(newPin);
       await expect(player.page.locator("text=Players (2)")).toBeVisible();
+      await expect(player.page.getByTestId("lobby-activity")).toContainText(`${removedName} was banned from the majlis`, { timeout: 10_000 });
     }
     expect((await apiGetRoomState(setup.roomId, host.login.access_token)).players).toHaveLength(2);
 

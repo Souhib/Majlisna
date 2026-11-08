@@ -71,7 +71,7 @@ test.describe("Stats — a player who leaves before the end", () => {
     const leaverEntry = leaverHistory.find((g) => g.id === gameId);
     expect(leaverEntry?.game_status).toBe("finished");
     expect(leaverEntry?.user_won).toBeNull();
-    expect(await apiGetUserStats(leaver.login.user.id)).toMatchObject({
+    expect(await apiGetUserStats(leaver.login.user.id, leaver.login.access_token)).toMatchObject({
       total_games_played: 0,
       total_games_won: 0,
       total_games_lost: 0,
@@ -83,10 +83,10 @@ test.describe("Stats — a player who leaves before the end", () => {
     // ...the civilians who stayed won; the undercover lost
     for (const civilian of civiliansWhoStayed) {
       expect((await apiGetGameHistory(civilian.login.user.id, civilian.login.access_token)).find((g) => g.id === gameId)?.user_won).toBe(true);
-      expect(await apiGetUserStats(civilian.login.user.id)).toMatchObject({ total_games_played: 1, total_games_won: 1 });
+      expect(await apiGetUserStats(civilian.login.user.id, civilian.login.access_token)).toMatchObject({ total_games_played: 1, total_games_won: 1 });
     }
     expect((await apiGetGameHistory(undercover.login.user.id, undercover.login.access_token)).find((g) => g.id === gameId)?.user_won).toBe(false);
-    expect(await apiGetUserStats(undercover.login.user.id)).toMatchObject({ total_games_played: 1, total_games_lost: 1 });
+    expect(await apiGetUserStats(undercover.login.user.id, undercover.login.access_token)).toMatchObject({ total_games_played: 1, total_games_lost: 1 });
     await expect((await recentGame(civiliansWhoStayed[0].page)).getByText("Won", { exact: true })).toBeVisible();
     await expect((await recentGame(undercover.page)).getByText("Lost", { exact: true })).toBeVisible();
 
@@ -115,14 +115,14 @@ test.describe("Stats — a player who leaves before the end", () => {
     const state = await apiGetMCQQuizState(gameId, stayer.login.access_token);
     expect(state.winner).toBeNull();
     expect(state.winner_ids ?? []).toEqual([]);
-    expect(await apiGetUserStats(stayer.login.user.id)).toMatchObject({ total_games_played: 1, total_games_won: 0, total_games_lost: 0 });
+    expect(await apiGetUserStats(stayer.login.user.id, stayer.login.access_token)).toMatchObject({ total_games_played: 1, total_games_won: 0, total_games_lost: 0 });
     expect((await apiGetGameHistory(stayer.login.user.id, stayer.login.access_token)).find((g) => g.id === gameId)?.user_won).toBeNull();
     const stayerRow = await recentGame(stayer.page);
     await expect(stayerRow).toContainText("The Quiz");
     await expect(stayerRow.getByText(/^(Won|Lost)$/)).toHaveCount(0);
 
     // ...and the leaver gets nothing at all (owner rule (b))
-    expect(await apiGetUserStats(leaver.login.user.id)).toMatchObject({ total_games_played: 0, total_games_won: 0, total_games_lost: 0 });
+    expect(await apiGetUserStats(leaver.login.user.id, leaver.login.access_token)).toMatchObject({ total_games_played: 0, total_games_won: 0, total_games_lost: 0 });
 
     await setup.cleanup();
   });

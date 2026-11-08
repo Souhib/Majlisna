@@ -64,8 +64,8 @@ test.describe("Stats — quiz results in the history", () => {
     // History and stats agree
     expect((await apiGetGameHistory(winner.login.user.id, winner.login.access_token)).find((g) => g.id === gameId)?.user_won).toBe(true);
     expect((await apiGetGameHistory(loser.login.user.id, loser.login.access_token)).find((g) => g.id === gameId)?.user_won).toBe(false);
-    expect(await apiGetUserStats(winner.login.user.id)).toMatchObject({ total_games_played: 1, total_games_won: 1 });
-    expect(await apiGetUserStats(loser.login.user.id)).toMatchObject({ total_games_played: 1, total_games_lost: 1 });
+    expect(await apiGetUserStats(winner.login.user.id, winner.login.access_token)).toMatchObject({ total_games_played: 1, total_games_won: 1 });
+    expect(await apiGetUserStats(loser.login.user.id, loser.login.access_token)).toMatchObject({ total_games_played: 1, total_games_lost: 1 });
 
     const winnerPage = await resultChipOf(winner);
     await expect(winnerPage.locator('[aria-labelledby="recent-title"] li').getByText("Won", { exact: true })).toBeVisible();
@@ -97,7 +97,7 @@ test.describe("Stats — quiz results in the history", () => {
 
     for (const player of setup.players) {
       expect((await apiGetGameHistory(player.login.user.id, player.login.access_token)).find((g) => g.id === gameId)?.user_won).toBe(true);
-      expect(await apiGetUserStats(player.login.user.id)).toMatchObject({ total_games_played: 1, total_games_won: 1, total_games_lost: 0 });
+      expect(await apiGetUserStats(player.login.user.id, player.login.access_token)).toMatchObject({ total_games_played: 1, total_games_won: 1, total_games_lost: 0 });
       const page = await resultChipOf(player);
       await expect(page.locator('[aria-labelledby="recent-title"] li').getByText("Won", { exact: true })).toBeVisible();
       await expect(chartBars(page, "won")).toHaveCount(1, { timeout: 15_000 });
@@ -122,7 +122,7 @@ test.describe("Stats — quiz results in the history", () => {
     // ...and nobody's history or stats count a win
     for (const player of setup.players) {
       expect((await apiGetGameHistory(player.login.user.id, player.login.access_token)).find((g) => g.id === gameId)?.user_won).not.toBe(true);
-      expect(await apiGetUserStats(player.login.user.id)).toMatchObject({ total_games_played: 1, total_games_won: 0 });
+      expect(await apiGetUserStats(player.login.user.id, player.login.access_token)).toMatchObject({ total_games_played: 1, total_games_won: 0 });
       const page = await resultChipOf(player);
       await expect(page.locator('[aria-labelledby="recent-title"] li').getByText("Won", { exact: true })).toHaveCount(0);
       await expect(chartBars(page, "won")).toHaveCount(0);

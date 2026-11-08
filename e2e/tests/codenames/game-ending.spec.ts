@@ -83,9 +83,9 @@ test.describe("Codenames — the end of the game", () => {
 
     // The operative who turned the assassin is sealed Assassin Finder, though their team
     // lost (owner rule (f): the badge had no logic and never unlocked); nobody else is
-    expect(await apiUnlockedAchievements(operative.login.user.id)).toContain("assassin_finder");
+    expect(await apiUnlockedAchievements(operative.login.user.id, operative.login.access_token)).toContain("assassin_finder");
     for (const player of setup.players.filter((p) => p !== operative)) {
-      expect(await apiUnlockedAchievements(player.login.user.id)).not.toContain("assassin_finder");
+      expect(await apiUnlockedAchievements(player.login.user.id, player.login.access_token)).not.toContain("assassin_finder");
     }
     const sealOn = (page: Page) => page.locator('[data-slot="colophon"]').getByText("Assassin Finder");
     await expect(sealOn(operative.page)).toContainText("you");

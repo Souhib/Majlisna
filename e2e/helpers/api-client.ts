@@ -160,11 +160,12 @@ export interface UserStatsRow {
   rooms_created: number;
 }
 
-export async function apiGetUserStats(userId: string): Promise<UserStatsRow> {
-  return getJSON<UserStatsRow>(`/api/v1/stats/users/${userId}/stats`);
+/** A player's stats, read by a signed-in player (owner decision, 8 November 2026): any token will do. */
+export async function apiGetUserStats(userId: string, token: string): Promise<UserStatsRow> {
+  return getJSON<UserStatsRow>(`/api/v1/stats/users/${userId}/stats`, token);
 }
 
-/** One achievement as a player's achievements page reads it (public, like the stats). */
+/** One achievement as a player's achievements page reads it (signed in, like the stats). */
 export interface AchievementRow {
   code: string;
   name: string;
@@ -174,13 +175,13 @@ export interface AchievementRow {
 }
 
 /** Every achievement with this player's progress and whether it is unlocked. */
-export async function apiGetUserAchievements(userId: string): Promise<AchievementRow[]> {
-  return getJSON<AchievementRow[]>(`/api/v1/stats/users/${userId}/achievements`);
+export async function apiGetUserAchievements(userId: string, token: string): Promise<AchievementRow[]> {
+  return getJSON<AchievementRow[]>(`/api/v1/stats/users/${userId}/achievements`, token);
 }
 
 /** The codes this player has unlocked. */
-export async function apiUnlockedAchievements(userId: string): Promise<string[]> {
-  return (await apiGetUserAchievements(userId)).filter((a) => a.unlocked).map((a) => a.code);
+export async function apiUnlockedAchievements(userId: string, token: string): Promise<string[]> {
+  return (await apiGetUserAchievements(userId, token)).filter((a) => a.unlocked).map((a) => a.code);
 }
 
 export interface GameHistoryEntry {
