@@ -329,7 +329,7 @@ class WordDrawProbe:
         self.hydrated_ids: list[UUID] = []
         self.statements: list[str] = []
 
-    def __enter__(self) -> "WordDrawProbe":
+    def __enter__(self) -> WordDrawProbe:
         event.listen(CodenamesWord, "load", self._on_load)
         event.listen(self._engine, "before_cursor_execute", self._on_execute)
         return self

@@ -53,13 +53,13 @@ class Room(RoomBase, table=True):
         default=None,
         sa_column=Column(ForeignKey("game.id", use_alter=True, name="fk_room_active_game_id"), nullable=True),
     )
-    users: list["User"] = Relationship(
+    users: list[User] = Relationship(
         back_populates="rooms",
         link_model=RoomUserLink,
         sa_relationship_kwargs={"secondary": "roomuserlink"},
     )
-    games: list["Game"] = Relationship(back_populates="room", link_model=RoomGameLink)
-    activities: list["Activity"] = Relationship(back_populates="room", link_model=RoomActivityLink)
+    games: list[Game] = Relationship(back_populates="room", link_model=RoomGameLink)
+    activities: list[Activity] = Relationship(back_populates="room", link_model=RoomActivityLink)
 
 
 class Game(GameBase, table=True):
@@ -67,8 +67,8 @@ class Game(GameBase, table=True):
     room_id: UUID | None = Field(foreign_key="room.id", index=True)
     user_id: UUID | None = Field(foreign_key="user.id", index=True)
     room: Room = Relationship(back_populates="games", link_model=RoomGameLink)
-    users: list["User"] = Relationship(back_populates="games", link_model=UserGameLink)
-    turns: list["Turn"] = Relationship(back_populates="game", link_model=GameTurnLink)
+    users: list[User] = Relationship(back_populates="games", link_model=UserGameLink)
+    turns: list[Turn] = Relationship(back_populates="game", link_model=GameTurnLink)
 
 
 class User(UserBase, table=True):
@@ -88,7 +88,7 @@ class Event(DBModel, table=True):
         default_factory=lambda: datetime.now(UTC),
         sa_type=TIMESTAMP(timezone=True),  # ty: ignore[invalid-argument-type]
     )
-    turn: "Turn" = Relationship(back_populates="events", link_model=TurnEventLink)
+    turn: Turn = Relationship(back_populates="events", link_model=TurnEventLink)
 
 
 class Activity(DBModel, table=True):
@@ -101,7 +101,7 @@ class Activity(DBModel, table=True):
         default_factory=lambda: datetime.now(UTC),
         sa_type=TIMESTAMP(timezone=True),  # ty: ignore[invalid-argument-type]
     )
-    room: "Room" = Relationship(back_populates="activities", link_model=RoomActivityLink)
+    room: Room = Relationship(back_populates="activities", link_model=RoomActivityLink)
 
 
 class Turn(TurnBase, table=True):

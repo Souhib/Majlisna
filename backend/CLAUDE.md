@@ -592,12 +592,12 @@ Settings use `MAJLISNA_ENV` selector:
   (review INT-01). Compose passes `${FORWARDED_ALLOW_IPS:-}`.
 - `appuser` exists before the copies (`COPY --chown`, no `chown -R` layer); uv is only in
   the `dependencies` stage (`UV_PYTHON_DOWNLOADS=never`, so the venv uses the image's
-  Python); `python:3.12-slim` and the uv image are pinned by digest.
+  Python); `python:3.14-slim` and the uv image are pinned by digest.
 - The image ships bytecode: `UV_COMPILE_BYTECODE=1` for the venv, `compileall` for the app.
   `PYTHONDONTWRITEBYTECODE=1` stops the container from caching `.pyc`, so without them every
   worker compiled every dependency from source at each boot (`import main` 1.5-2.5x slower),
   inside each deploy's outage. The builder installs `gcc` + `libc6-dev` only: Debian's
-  `python3-dev` is Debian's Python 3.13, never this image's 3.12, which has its own headers.
+  `python3-dev` is Debian's Python 3.13, never this image's 3.14, which has its own headers.
 - **The image stamps its own commit, in its LAST step** (3 November 2026). Dokploy passes no
   build arg, so `/health` said `"unknown"`. The first stage is an empty `FROM scratch AS
   gitmeta`; `docker-compose.dokploy.yml` overrides it with the named context `gitmeta: .`
@@ -1472,7 +1472,7 @@ A rule that finds a production bug does not get to be advisory.
 diagnostics change between releases: a range would let a fresh CI checkout resolve a
 version reporting errors the developer's lockfile never showed. Upgrading is a
 deliberate act — bump the pin, run `uv run poe typecheck`, adjust suppressions.
-`[tool.ty.environment] python-version = "3.12"` pins the *analysed* version to what CI
+`[tool.ty.environment] python-version = "3.14"` pins the *analysed* version to what CI
 and the production image run, so a developer on 3.13 cannot get a clean run for code CI
 rejects. (The mypy config this replaced pinned `python_version` for the same reason.)
 
@@ -2215,7 +2215,7 @@ everyone, found from its six-rung ladder and typed in any language or script.
   `next_day_starts_at(day)` (UTC), `ladder_length(hints)` (consecutive rungs "1".."n",
   capped at `DEFAULT_WORD_QUIZ_MAX_HINTS`, at least 1), `solved_score` (Kalimat's
   `max_hints - hints_revealed + 1`) and `compute_streaks`. The production image has the
-  zone database (`python:3.12-slim` installs `tzdata`; checked in `e2e-backend`).
+  zone database (`python:3.14-slim` installs `tzdata`; checked in `e2e-backend`).
 - **Tables** (in the baseline migration; registered in `models/table.py`):
   `daily_word` (`day` DATE PK → `quiz_word_id`, `created_at`) and `daily_word_play`
   (`UniqueConstraint(user_id, day)`; `hints_revealed` from 1, `attempts`, `last_guess`,

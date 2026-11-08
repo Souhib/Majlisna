@@ -11,7 +11,7 @@ def _get_redis_url() -> str:
     """Get Redis URL from settings, falling back to default for test environments."""
     try:
         return Settings().redis_url
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return "redis://localhost:6379/0"
 
 
@@ -50,7 +50,7 @@ def _configured_allowed_origins() -> list[str]:
     (a test environment without a .env, like ``_get_redis_url``) — never allow-all."""
     try:
         settings = Settings()
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return [_as_origin(Settings.model_fields["frontend_url"].default)]
     return socket_allowed_origins(settings)
 

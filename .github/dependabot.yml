@@ -80,7 +80,7 @@ updates:
       default-days: 7
     ignore:
       # The interpreter line is a decision (ty's python-version, requires-python, the
-      # lockfile), not a weekly bump: only new digests of python:3.12-slim.
+      # lockfile), not a weekly bump: only new digests of python:3.14-slim.
       - dependency-name: python
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
 

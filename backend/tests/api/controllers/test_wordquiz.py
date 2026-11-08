@@ -26,7 +26,7 @@ class DrawProbe:
         self.hydrated_ids: list[UUID] = []
         self.statements: list[str] = []
 
-    def __enter__(self) -> "DrawProbe":
+    def __enter__(self) -> DrawProbe:
         event.listen(QuizWord, "load", self._on_load)
         event.listen(self._engine, "before_cursor_execute", self._on_execute)
         return self

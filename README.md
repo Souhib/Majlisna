@@ -27,7 +27,7 @@ Majlisna brings together classic social deduction, word games, and quizzes, reim
 
 | Component | Technology |
 |-----------|------------|
-| **Backend** | Python 3.12, FastAPI, SQLModel, SQLAlchemy (async) |
+| **Backend** | Python 3.14, FastAPI, SQLModel, SQLAlchemy (async) |
 | **Database** | PostgreSQL 16 (prod), SQLite (dev) |
 | **Connection Pooling** | PgBouncer (transaction mode) |
 | **Auth** | JWT (python-jose, bcrypt) |
@@ -157,7 +157,7 @@ Test your Islamic knowledge with multiple choice questions. Configurable timer a
 
 ### Prerequisites
 
-- Python 3.12+ with [uv](https://docs.astral.sh/uv/)
+- Python 3.14+ with [uv](https://docs.astral.sh/uv/)
 - [Bun](https://bun.sh/) runtime
 - PostgreSQL (or SQLite for local development)
 

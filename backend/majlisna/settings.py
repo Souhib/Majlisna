@@ -154,7 +154,7 @@ class Settings(BaseSettings):
         return _stamped_commit(BUILD_COMMIT_FILE)
 
     @model_validator(mode="after")
-    def validate_production_secrets(self) -> "Settings":
+    def validate_production_secrets(self) -> Settings:
         """Reject the default dev JWT secret in production.
 
         Must be a model-level (mode="after") validator: a field_validator on

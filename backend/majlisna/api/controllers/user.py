@@ -47,7 +47,7 @@ _fallback_username_locks: MutableMapping[str, asyncio.Lock] = WeakValueDictionar
 
 
 @asynccontextmanager
-async def username_claim_lock(session: AsyncSession, username: str) -> AsyncGenerator[None, None]:
+async def username_claim_lock(session: AsyncSession, username: str) -> AsyncGenerator[None]:
     """Serialise every claim of one username, in any case, until the claimer commits.
 
     ``username_is_taken`` is a check-then-insert with no constraint behind it, so two
@@ -398,7 +398,7 @@ class UserController:
         return departed
 
     @asynccontextmanager
-    async def _owned_room_locks(self, user_id: UUID) -> AsyncGenerator[None, None]:
+    async def _owned_room_locks(self, user_id: UUID) -> AsyncGenerator[None]:
         """Hold the room lock (``room:{id}``) of every room the user owns, in id order, before
         any write. The caller commits INSIDE, once: on PostgreSQL the locks are the transaction's.
 

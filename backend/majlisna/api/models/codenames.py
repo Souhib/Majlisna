@@ -16,7 +16,7 @@ class CodenamesWordPack(BaseTable, table=True):
     name: str = Field(unique=True, index=True)
     description: str | None = None
     is_active: bool = Field(default=True)
-    words: list["CodenamesWord"] = Relationship(back_populates="word_pack")
+    words: list[CodenamesWord] = Relationship(back_populates="word_pack")
 
 
 class CodenamesWord(BaseTable, table=True):

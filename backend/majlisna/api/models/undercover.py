@@ -33,7 +33,7 @@ class TermPairBase(DBModel):
     word2_id: UUID
 
     @model_validator(mode="after")
-    def check_words_are_different(self) -> "TermPairBase":
+    def check_words_are_different(self) -> TermPairBase:
         if self.word1_id and self.word2_id and self.word1_id == self.word2_id:
             raise ValueError("Words have to be different")
         return self

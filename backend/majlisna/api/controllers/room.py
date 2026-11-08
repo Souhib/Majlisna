@@ -307,7 +307,7 @@ class RoomController:
         logger.info("Room deleted (deactivated): room={} by user={}", room_id, user_id)
 
     @asynccontextmanager
-    async def _room_and_game_locks(self, room: Room) -> AsyncGenerator[None, None]:
+    async def _room_and_game_locks(self, room: Room) -> AsyncGenerator[None]:
         """Hold the room lock, then the lock of the room's active game, if any.
 
         The room lock (``room:{id}``) is the one a game start holds while it deals, so no

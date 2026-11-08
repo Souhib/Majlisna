@@ -26,7 +26,7 @@ class SocialLoginResponse(BaseModel):
     token_type: str = Field(default="bearer", description="Token type")
     expires_in: int = Field(..., description="Access token expiry in seconds")
     is_new_user: bool = Field(..., description="Whether a new account was created")
-    user: "SocialLoginUserData" = Field(..., description="User data")
+    user: SocialLoginUserData = Field(..., description="User data")
 
 
 class SocialLoginResult(SocialLoginResponse):

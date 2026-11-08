@@ -1,7 +1,7 @@
 # Multi-stage build for the Majlisna backend
 
 # Base images are pinned by digest, not by a floating tag: CI's E2E gate and Dokploy
-# build their own images about 30 min apart, and `python:3.12-slim` / `uv:latest`
+# build their own images about 30 min apart, and `python:3.14-slim` / `uv:latest`
 # could resolve to different bytes in between, so the image the gate tested was not
 # the one that shipped (INFRA-17). Dependabot (.github/dependabot.yml, "docker") bumps
 # the tag and the digest together.
@@ -14,7 +14,7 @@
 FROM scratch AS gitmeta
 
 # Stage 1: Base with Python (what every stage, the shipped one included, starts from)
-FROM python:3.12-slim@sha256:aa943ce411423c7582288f18707ff66eddcbaeb510502d747a72aeb34f30d159 AS base
+FROM python:3.14-slim@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f AS base
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -50,7 +50,7 @@ ENV UV_PYTHON_DOWNLOADS=never \
 
 # A compiler, for a dependency that would ever ship no wheel. Not Debian's python3-dev:
 # that is Debian's own Python (3.13 on trixie) and its headers, never used to build for
-# this image's /usr/local Python 3.12, which carries its own headers.
+# this image's /usr/local Python 3.14, which carries its own headers.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libc6-dev \

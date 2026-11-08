@@ -2,7 +2,7 @@
 name = "majlisna"
 version = "0.1.0"
 description = "Islamic Party Game - Real-time multiplayer platform for Islamicized party games"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn>=0.30.0",
@@ -74,7 +74,7 @@ packages = ["majlisna"]
 
 [tool.ruff]
 line-length = 120
-target-version = "py312"
+target-version = "py314"
 
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "UP", "B", "SIM", "C90", "N", "PL", "ARG"]
@@ -147,11 +147,11 @@ dev = [
 ]
 
 [tool.ty.environment]
-# Pinned to the version CI and the production image run (Dockerfile: python:3.12-slim).
+# Pinned to the version CI and the production image run (Dockerfile: python:3.14-slim).
 # Without this, ty analyses against whatever interpreter the local .venv holds — and a
 # developer on 3.13 can get a clean run for code CI rejects. This is the same reason
 # the mypy config it replaces pinned `python_version`.
-python-version = "3.12"
+python-version = "3.14"
 
 [tool.ty.src]
 # Scope matches the poe task, the pre-commit hook and the CI step: the shipped

@@ -353,7 +353,7 @@ class TermPairDrawProbe:
         self.hydrated: list[tuple[UUID, UUID]] = []
         self.statements: list[str] = []
 
-    def __enter__(self) -> "TermPairDrawProbe":
+    def __enter__(self) -> TermPairDrawProbe:
         event.listen(TermPair, "load", self._on_load)
         event.listen(self._engine, "before_cursor_execute", self._on_execute)
         return self

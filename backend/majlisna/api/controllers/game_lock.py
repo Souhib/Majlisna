@@ -73,7 +73,7 @@ async def _acquire_advisory_xact_lock(session: AsyncSession, game_id: str) -> No
 
 
 @asynccontextmanager
-async def get_game_lock(game_id: str, session: AsyncSession | None = None) -> AsyncGenerator[None, None]:
+async def get_game_lock(game_id: str, session: AsyncSession | None = None) -> AsyncGenerator[None]:
     """Acquire a lock for a specific game_id to serialize mutations.
 
     Uses PostgreSQL advisory locks when a session is provided (production): a blocking,

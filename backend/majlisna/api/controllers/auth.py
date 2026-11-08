@@ -148,7 +148,7 @@ def refresh_token_subject(token: str | None, settings: Settings) -> str | None:
         return None
     try:
         return decode_jwt(token, settings, expected_type=TOKEN_TYPE_REFRESH).sub
-    except (InvalidTokenError, TokenExpiredError):
+    except InvalidTokenError, TokenExpiredError:
         return None
 
 
@@ -505,7 +505,7 @@ class AuthController:
             if payload.sid is None:
                 return None
             return _session_id_of(payload), UUID(payload.sub)
-        except (InvalidTokenError, TokenExpiredError, ValueError):
+        except InvalidTokenError, TokenExpiredError, ValueError:
             return None
 
     async def logout(self, *, access_token: str | None, refresh_token: str | None) -> None:
