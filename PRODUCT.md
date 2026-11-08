@@ -127,7 +127,8 @@ the seat goes, the player may come back with the code and PIN or an invite) and 
 of that room, invites included, until the host lifts it; the PIN changes at every ban; a
 removed player who has not come back can still be banned from the host's list)
 and automatic host transfer (a player is preferred over a spectator); one room at a time; friend requests and in-room
-invites; share links; public player profiles with head-to-head records; a public leaderboard.
+invites; share links; player profiles with head-to-head records, for signed-in players only
+(owner decision, 8 November 2026); a public leaderboard.
 
 **Progression:** stats (games, wins, win rate, streaks, role distribution, durations, per-game
 history with vote and clue history); 45 achievements across six tiers (Bronze, Silver, Gold,

@@ -165,9 +165,12 @@ Phase transitions detected by comparing refs to previous state (`previousPhaseRe
   is the seat being removed (either kind); `removals` names the seats the host took
   ("removed" / "banned"): from this screen, noted before the request (the route pushes the room
   state before it answers) and dropped when it fails; from the room, `member_removed_by_host`
-  `{room_id, user_id, banned}` (`useSocket`'s `onMemberRemoved`, sent before the room state that
-  drops the seat), so every member's screen and the host's other devices know too. Dropped once
-  the player is back. The activity line says "{{name}} was removed / banned" instead of "left".
+  `{room_id, user_id, banned, username}` (`useSocket`'s `onMemberRemoved`, sent before the room
+  state that drops the seat), so every member's screen and the host's other devices know too.
+  Dropped once the player is back. The activity line says "{{name}} was removed / banned" instead
+  of "left". A ban of a player with no seat (removed earlier, banned from "Removed") changes no
+  roster, so the event's `username` makes it `offTableEvent` (`{kind: "banned", name}`), which the
+  page puts on the line (owner decision, 8 November 2026).
 
 ### File-Based Routing
 - `__root.tsx` - Root layout (double underscore)
@@ -1007,11 +1010,12 @@ changes its text**, in the three languages, with a new "updated" date:
   once one is configured (`VITE_SENTRY_DSN`, for the Bugsink on the host; there is no
   GlitchTip, corrected 2026-10-30);
   Resend, Cloudflare, Oracle Cloud;
-- what other players see (public stats, achievements and leaderboard; the public profile, i.e.
-  the username, the bio and the games played, for anyone, signed in or not: `GET
-  /profiles/users/{id}` takes no token and `routes/players/$userId.tsx` is outside `_auth`; the
-  country and the picture for signed-in players only, `GET /users/{id}`;
-  `privacy.sections[4].body[0]`, corrected 2026-11-07: it said signed-in players only), the
+- what other players see (the profile, i.e. the username, the bio, the country, the picture and
+  the games played, the stats and the achievements, for signed-in players only: `GET
+  /profiles/users/{id}`, `GET /users/{id}` and the `/stats/users/{id}/...` reads need a token and
+  `routes/_auth/players/$userId.tsx` is behind sign-in, owner decision of 2026-11-08; the
+  leaderboard is public, `GET /stats/leaderboard`, with each ranked player's username and
+  figures; `privacy.sections[4].body[0]`, and the terms' `sections[5].body[1]`), the
   notebook, the word of the day, chat, and what account deletion removes (and that past games
   keep the name a player played under).
 
