@@ -57,7 +57,7 @@ dev = [
     # releases: a range would let a fresh CI checkout resolve a version that
     # reports errors the developer's lockfile never showed. Upgrading is a
     # deliberate act — bump this, run `uv run poe typecheck`, adjust suppressions.
-    "ty==0.0.63",
+    "ty==0.0.95",
     # Stub packages. ty consumes the same `.pyi` distributions mypy did, so these
     # are not mypy leftovers: they are what gives the auth path (passlib, jose)
     # real types instead of Unknown.
