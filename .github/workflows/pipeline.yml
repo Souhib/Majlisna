@@ -57,7 +57,7 @@ jobs:
       e2e: ${{ steps.filter.outputs.e2e }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # dorny/paths-filter compares against the PR base (for pull_request) or,
       # for a push, against `production`: everything that is not live yet. It
@@ -70,7 +70,7 @@ jobs:
       # ignored for pull_request events.
       - name: Detect changes
         id: filter
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@v4
         with:
           base: production
           filters: |
@@ -102,7 +102,7 @@ jobs:
     if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true' || needs.changes.outputs.e2e == 'true' || github.event_name == 'workflow_dispatch'
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Trivy, filesystem (HIGH and CRITICAL, report only)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
@@ -138,7 +138,7 @@ jobs:
     if: needs.changes.outputs.backend == 'true' || github.event_name == 'workflow_dispatch'
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Build the backend image
         run: docker build --target production --build-arg GIT_SHA="${GITHUB_SHA}" -t "majlisna-backend:${GITHUB_SHA}" backend
@@ -210,15 +210,15 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.14"
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@v7
 
       - name: Install dependencies
         run: uv sync --frozen --all-extras
@@ -277,7 +277,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
@@ -337,7 +337,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # After the checkout: `e2e/` (the job's working directory) does not exist before it
       # on a fresh runner, and every run step failed there (the home runner's first job,
@@ -376,7 +376,7 @@ jobs:
           E2E_WORKERS: ${{ runner.arch == 'X64' && vars.E2E_WORKERS || 2 }}
 
       - name: Upload Playwright report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: playwright-report
@@ -440,7 +440,7 @@ jobs:
       # semantics, needs no API key or webhook secret, and is reverted by setting
       # the branch back to `main`.
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
