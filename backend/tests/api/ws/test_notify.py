@@ -173,7 +173,21 @@ async def test_the_room_is_told_which_of_the_hosts_removals_took_a_seat(mock_sio
     await notify_member_removed_by_host("room-1", "user-42", banned=banned)
 
     mock_sio.emit.assert_called_once_with(
-        "member_removed_by_host", {"room_id": "room-1", "user_id": "user-42", "banned": banned}, to="room:room-1"
+        "member_removed_by_host",
+        {"room_id": "room-1", "user_id": "user-42", "banned": banned, "username": None},
+        to="room:room-1",
+    )
+
+
+async def test_the_room_is_told_the_name_of_a_banned_player_who_had_no_seat(mock_sio):
+    """A ban of a removed player takes no seat, so no roster names them: the event carries
+    the username, for the members' "<name> was banned from the majlis" (owner, 8 November 2026)."""
+    await notify_member_removed_by_host("room-1", "user-42", banned=True, username="troll")
+
+    mock_sio.emit.assert_called_once_with(
+        "member_removed_by_host",
+        {"room_id": "room-1", "user_id": "user-42", "banned": True, "username": "troll"},
+        to="room:room-1",
     )
 
 

@@ -1196,7 +1196,7 @@ def test_a_ban_answers_201_with_the_ban_and_detaches_before_the_new_pin_is_pushe
         assert order == ["lookup", "ban", "told", "detached", "room_told", "room_state"]
         controller.ban_player.assert_awaited_once_with(room_id, host_id, target_id)
         told.assert_awaited_once_with(str(target_id), str(room_id), banned=True)
-        room_told.assert_awaited_once_with(str(room_id), str(target_id), banned=True)
+        room_told.assert_awaited_once_with(str(room_id), str(target_id), banned=True, username="troll")
         pushed.assert_awaited_once_with(str(room_id), "game-1")
     finally:
         test_app.dependency_overrides.clear()

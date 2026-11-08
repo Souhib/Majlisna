@@ -328,9 +328,11 @@ so it had become a ban; the owner wants both).
 - **The routes**: both tell the player (`notify_user_kicked(user_id, room_id, banned=...)`, the
   `you_were_kicked` event `{room_id, banned}` on `user:{id}`), detach the socket
   (`remove_user_from_room_socket`), tell the room which removal it was
-  (`notify_member_removed_by_host(room_id, user_id, banned=...)`, the `member_removed_by_host`
-  event `{room_id, user_id, banned}` on `room:{id}`, no PIN: every member's activity line says
-  "removed" or "banned", not "left"), and only THEN push the room state
+  (`notify_member_removed_by_host(room_id, user_id, banned=..., username=...)`, the
+  `member_removed_by_host` event `{room_id, user_id, banned, username}` on `room:{id}`, no PIN:
+  every member's activity line says "removed" or "banned", not "left"; the ban sends the
+  player's username, null for a kick, so a ban of a player with no seat, whom no roster names,
+  is said too, owner decision of 8 November 2026), and only THEN push the room state
   (`notify_member_removed`) — for a ban, the push carrying the new PIN; the lift route pushes
   `notify_room_changed`. That push is addressed to the members still listed
   (`notify.member_channel`), so a removed socket held by another worker never hears the new PIN

@@ -84,13 +84,18 @@ async def notify_user_kicked(user_id: str, room_id: str, *, banned: bool = False
         logger.opt(exception=True).error("Failed to notify kicked user={} room={}", user_id, room_id)
 
 
-async def notify_member_removed_by_host(room_id: str, user_id: str, *, banned: bool) -> None:
+async def notify_member_removed_by_host(
+    room_id: str, user_id: str, *, banned: bool, username: str | None = None
+) -> None:
     """Tell the room WHICH of the host's removals took a seat: ``member_removed_by_host``
-    ``{room_id, user_id, banned}`` on ``room:{room_id}``.
+    ``{room_id, user_id, banned, username}`` on ``room:{room_id}``.
 
     The room state that follows only shows the seat gone, so every lobby but the acting
     host's read it as a leave. With this, each member's activity line says "removed" (a
-    kick) or "banned" (owner decision, 2 November 2026). Emitted by the kick and ban routes
+    kick) or "banned" (owner decision, 2 November 2026). ``username`` is the ban's (None for
+    a kick, whose seat the roster names): a ban of a player the host had already removed
+    takes no seat, so no roster names them, and the lobbies say "<name> was banned" from it
+    (owner decision, 8 November 2026). Emitted by the kick and ban routes
     after the player's socket is detached and BEFORE ``notify_member_removed``: one emitter,
     so each lobby has it when that room state lands. It carries no PIN, so the room's
     channel is enough; a removed socket another worker still holds there learns only what
@@ -99,7 +104,7 @@ async def notify_member_removed_by_host(room_id: str, user_id: str, *, banned: b
     try:
         await sio.emit(
             "member_removed_by_host",
-            {"room_id": room_id, "user_id": user_id, "banned": banned},
+            {"room_id": room_id, "user_id": user_id, "banned": banned, "username": username},
             to=f"room:{room_id}",
         )
     except Exception:

@@ -216,7 +216,7 @@ async def ban_player(
     # Detached BEFORE the push below: that room_state carries the new PIN.
     await remove_user_from_room_socket(str(body.user_id), str(room_id))
     # before the room state: the members' activity line says "banned", not "left"
-    await notify_member_removed_by_host(str(room_id), str(body.user_id), banned=True)
+    await notify_member_removed_by_host(str(room_id), str(body.user_id), banned=True, username=result.username)
     # the room (the new PIN at once in the host's lobby), and its game: a banned
     # player is eliminated from it
     await notify_member_removed(str(room_id), game_id)
