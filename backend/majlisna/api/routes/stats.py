@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Query
 from majlisna.api.controllers.achievement import AchievementController
 from majlisna.api.controllers.stats import StatsController
 from majlisna.api.models.stats import UserStats
+from majlisna.api.models.table import User
 from majlisna.api.schemas.stats import (
     AchievementWithProgress,
     DailyGameRecord,
@@ -14,8 +15,10 @@ from majlisna.api.schemas.stats import (
     HeadToHeadStats,
     LeaderboardEntry,
 )
-from majlisna.dependencies import get_achievement_controller, get_stats_controller
+from majlisna.dependencies import get_achievement_controller, get_current_user, get_stats_controller
 
+# A player's own figures (the /users/{user_id}/... reads) are for signed-in players only, like
+# the profile they fill (owner decision, 8 November 2026). The leaderboard stays public.
 router = APIRouter(
     prefix="/stats",
     tags=["stats"],
@@ -27,6 +30,7 @@ router = APIRouter(
 async def get_user_stats(
     *,
     user_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],  # noqa: ARG001
     stats_controller: Annotated[StatsController, Depends(get_stats_controller)],
 ) -> UserStats:
     """Get aggregated statistics for a user (read-only: zeros for a user with no games yet).
@@ -41,6 +45,7 @@ async def get_user_stats(
 async def get_user_achievements(
     *,
     user_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],  # noqa: ARG001
     achievement_controller: Annotated[AchievementController, Depends(get_achievement_controller)],
 ) -> Sequence[AchievementWithProgress]:
     """Get all achievements with definitions and user progress."""
@@ -51,6 +56,7 @@ async def get_user_achievements(
 async def get_game_history(
     *,
     user_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],  # noqa: ARG001
     stats_controller: Annotated[StatsController, Depends(get_stats_controller)],
     days: int = Query(default=30, ge=1, le=365, description="Number of days to look back"),
 ) -> list[DailyGameRecord]:
@@ -62,6 +68,7 @@ async def get_game_history(
 async def get_duration_stats(
     *,
     user_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],  # noqa: ARG001
     stats_controller: Annotated[StatsController, Depends(get_stats_controller)],
 ) -> GameDurationStats:
     """Get game duration analytics for a user."""
@@ -73,6 +80,7 @@ async def get_head_to_head(
     *,
     user_id: UUID,
     opponent_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],  # noqa: ARG001
     stats_controller: Annotated[StatsController, Depends(get_stats_controller)],
 ) -> HeadToHeadStats:
     """Get head-to-head stats between two players."""

@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, Mock
 from uuid import UUID
 
 import httpx
+import pytest
 import pytest_asyncio
 from fastapi import FastAPI
 from sqlalchemy import func
@@ -19,9 +20,40 @@ from majlisna.api.controllers.achievement import AchievementController
 from majlisna.api.controllers.mcqquiz_game import McqQuizGameController
 from majlisna.api.controllers.stats import StatsController
 from majlisna.api.models.stats import UserStats
-from majlisna.api.models.table import Game, Room
+from majlisna.api.models.table import Game, Room, User
 from majlisna.api.schemas.stats import AchievementWithProgress, LeaderboardEntry
 from majlisna.dependencies import get_achievement_controller, get_current_user, get_session, get_stats_controller
+
+
+def _signed_in() -> User:
+    """The caller: a player's own figures are read by signed-in players only (owner, 8 November 2026)."""
+    return User(id=uuid.uuid4(), username="reader", email_address="reader@test.com")
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["stats", "achievements", "history", "duration", f"vs/{uuid.uuid4()}"],
+)
+def test_a_players_figures_require_sign_in(test_app: FastAPI, client: TestClient, path: str):
+    """Like the profile they fill (owner decision, 8 November 2026): without a token, 401 and
+    nothing read. The leaderboard stays public (its tests below call it signed out)."""
+    # Arrange
+    stats = Mock(spec=StatsController)
+    achievements = Mock(spec=AchievementController)
+    test_app.dependency_overrides[get_stats_controller] = lambda: stats
+    test_app.dependency_overrides[get_achievement_controller] = lambda: achievements
+
+    try:
+        # Act
+        response = client.get(f"/api/v1/stats/users/{uuid.uuid4()}/{path}")
+
+        # Assert
+        assert response.status_code == 401
+        assert stats.mock_calls == []
+        assert achievements.mock_calls == []
+    finally:
+        test_app.dependency_overrides.clear()
+
 
 # ──────────────────────────────────────────────────────────────
 # User Stats (GET /api/v1/stats/users/{user_id}/stats)
@@ -75,6 +107,7 @@ def test_stats_get_user_stats_success(test_app: FastAPI, client: TestClient):
         )
     )
     test_app.dependency_overrides[get_stats_controller] = lambda: mock_controller
+    test_app.dependency_overrides[get_current_user] = _signed_in
 
     # Act
     response = client.get(f"/api/v1/stats/users/{user_id}/stats")
@@ -160,6 +193,7 @@ def test_achievements_get_user_achievements_success(test_app: FastAPI, client: T
         ]
     )
     test_app.dependency_overrides[get_achievement_controller] = lambda: mock_controller
+    test_app.dependency_overrides[get_current_user] = _signed_in
 
     # Act
     response = client.get(f"/api/v1/stats/users/{user_id}/achievements")
@@ -190,6 +224,7 @@ def test_achievements_get_user_achievements_empty(test_app: FastAPI, client: Tes
     mock_controller = Mock(spec=AchievementController)
     mock_controller.get_user_achievements = AsyncMock(return_value=[])
     test_app.dependency_overrides[get_achievement_controller] = lambda: mock_controller
+    test_app.dependency_overrides[get_current_user] = _signed_in
 
     # Act
     response = client.get(f"/api/v1/stats/users/{user_id}/achievements")
@@ -320,9 +355,14 @@ async def _stats_rows(session: AsyncSession) -> int:
     return (await session.exec(select(func.count()).select_from(UserStats))).one()
 
 
-async def test_anonymous_stats_read_for_an_unknown_user_is_a_404(api: httpx.AsyncClient, session: AsyncSession):
+async def test_a_stats_read_for_an_unknown_user_is_a_404(
+    test_app: FastAPI, api: httpx.AsyncClient, session: AsyncSession
+):
     """PD-11 / SEC F11: it answered 500 (an INSERT failing its foreign key, logged at
     ERROR) for any random id, on PostgreSQL and SQLite alike."""
+    # Prepare
+    test_app.dependency_overrides[get_current_user] = _signed_in
+
     # Act
     responses = [await api.get(f"/api/v1/stats/users/{uuid.uuid4()}/stats") for _ in range(3)]
 
@@ -332,10 +372,13 @@ async def test_anonymous_stats_read_for_an_unknown_user_is_a_404(api: httpx.Asyn
     assert await _stats_rows(session) == 0
 
 
-async def test_anonymous_stats_read_writes_nothing(api: httpx.AsyncClient, session: AsyncSession, create_user):
+async def test_a_stats_read_writes_nothing(
+    test_app: FastAPI, api: httpx.AsyncClient, session: AsyncSession, create_user
+):
     """A user who has not played yet: zeros, and no row inserted by a GET."""
     # Prepare
     user = await create_user(username="neverplayed", email="neverplayed@test.com")
+    test_app.dependency_overrides[get_current_user] = _signed_in
 
     # Act
     response = await api.get(f"/api/v1/stats/users/{user.id}/stats")

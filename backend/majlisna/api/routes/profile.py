@@ -19,9 +19,11 @@ router = APIRouter(
 async def get_public_profile(
     *,
     user_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],  # noqa: ARG001
     profile_controller: Annotated[ProfileController, Depends(get_profile_controller)],
 ) -> PublicProfile:
-    """Get a user's public profile."""
+    """Get a player's profile (username, bio, games played). Signed-in players only (owner
+    decision, 8 November 2026), like their country and picture (``GET /users/{id}``)."""
     return await profile_controller.get_public_profile(user_id)
 
 

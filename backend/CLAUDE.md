@@ -1215,6 +1215,13 @@ only (a leaver gets nothing at all, owner rule (b)):
 to call `get_or_create_user_stats`, so an anonymous GET inserted rows and an unknown id was
 a foreign-key 500, on SQLite too. `POST /challenges/seed` takes `get_current_admin_user`.
 
+**A player's figures and profile are for signed-in players only** (owner decision, 8 November
+2026): `GET /profiles/users/{id}` and the five `GET /stats/users/{id}/...` reads (stats,
+achievements, history, duration, vs) take `get_current_user`, like `GET /users/{id}`; any
+signed-in player may read any player's. `GET /stats/leaderboard` stays public. The front's
+`/players/$userId` is under `_auth`, and the privacy policy and the terms say the same
+(`test_a_players_figures_require_sign_in`, `test_get_public_profile_requires_sign_in`).
+
 ### Game draws come from `api/utils/rng.py`, never `random.*`
 
 `rng = random.SystemRandom()`. The default Mersenne Twister is reproducible — its

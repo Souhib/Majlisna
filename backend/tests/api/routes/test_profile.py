@@ -41,12 +41,13 @@ def _mock_profile(user_id: str, username: str = "testplayer") -> PublicProfile:
 
 
 def test_get_public_profile_success(test_app: FastAPI, client: TestClient) -> None:
-    """GET /profiles/users/{user_id} returns 200 with PublicProfile."""
+    """GET /profiles/users/{user_id} returns 200 with PublicProfile, to a signed-in caller."""
     # Arrange
     user_id = uuid4()
     mock_controller = Mock(spec=ProfileController)
     mock_controller.get_public_profile = AsyncMock(return_value=_mock_profile(str(user_id)))
     test_app.dependency_overrides[get_profile_controller] = lambda: mock_controller
+    test_app.dependency_overrides[get_current_user] = _mock_user
 
     try:
         # Act
@@ -70,6 +71,7 @@ def test_get_public_profile_invalid_uuid(test_app: FastAPI, client: TestClient) 
     # Arrange
     mock_controller = Mock(spec=ProfileController)
     test_app.dependency_overrides[get_profile_controller] = lambda: mock_controller
+    test_app.dependency_overrides[get_current_user] = _mock_user
 
     try:
         # Act
@@ -77,6 +79,25 @@ def test_get_public_profile_invalid_uuid(test_app: FastAPI, client: TestClient) 
 
         # Assert
         assert response.status_code == 422
+    finally:
+        test_app.dependency_overrides.clear()
+
+
+def test_get_public_profile_requires_sign_in(test_app: FastAPI, client: TestClient) -> None:
+    """A player's profile (username, bio, games played) is read by signed-in players only
+    (owner decision, 8 November 2026): without a token, 401 and nothing read."""
+    # Arrange
+    mock_controller = Mock(spec=ProfileController)
+    mock_controller.get_public_profile = AsyncMock(return_value=_mock_profile(str(uuid4())))
+    test_app.dependency_overrides[get_profile_controller] = lambda: mock_controller
+
+    try:
+        # Act
+        response = client.get(f"{BASE_URL}/users/{uuid4()}")
+
+        # Assert
+        assert response.status_code == 401
+        mock_controller.get_public_profile.assert_not_awaited()
     finally:
         test_app.dependency_overrides.clear()
 
