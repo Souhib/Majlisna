@@ -61,7 +61,7 @@ RUN set -eu; \
     chmod -R a+rX dist
 
 # Stage 2: Production with Nginx
-FROM nginx:1.31.8-alpine@sha256:785835ea65db4bba6f021acc0f3be91b0fef76a53fe41f8588c6698d2aed0606 AS production
+FROM nginx:1.31.8-alpine@sha256:fed7e14be83cbd2661a75cdc5b872d936cf155d46c327084d30b8df19ae88d72 AS production
 
 # Re-declared: build args do not cross stage boundaries. These are the same values
 # the bundle above was built with, which is the point — the CSP allowlist and the
