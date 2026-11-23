@@ -25,7 +25,7 @@
     "@axe-core/playwright": "^4.11.1",
     "@playwright/test": "^1.50.0",
     "@types/node": "^22.0.0",
-    "dotenv": "^16.4.0",
+    "dotenv": "^18.0.9",
     "typescript": "^5.9.3"
   }
 }
