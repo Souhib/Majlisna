@@ -103,7 +103,7 @@ services:
   redis:
     container_name: majlisna-redis
     # 7.4.11-alpine
-    image: redis:7-alpine@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf
+    image: redis:8-alpine@sha256:7958cfbb9d152f87dadfbc89f1b0b15938f0b81ff8982feb327476f4911935c3
     # Nothing in Redis has to outlive a restart (pub/sub, and rate-limit windows that
     # expire anyway), so it keeps nothing on disk: no RDB snapshots, no AOF, and /data
     # is a tmpfs. A corrupt dump.rdb used to crash-loop it (INFRA-20). volatile-lru
