@@ -73,7 +73,7 @@ services:
 
   redis:
     # 7.4.11-alpine, as in production
-    image: redis:7-alpine@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf
+    image: redis:8-alpine@sha256:7958cfbb9d152f87dadfbc89f1b0b15938f0b81ff8982feb327476f4911935c3
     container_name: majlisna-e2e-redis
     # No persistence, as in production: pub/sub and rate-limit windows only.
     command:
